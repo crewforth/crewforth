@@ -140,6 +140,18 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A quoted argument is no longer read as a command.** `git commit -m "drop the rm -rf /tmp/build step"` deletes
+  nothing and `claude -p "… git push --force origin main"` pushes nothing, yet the §4.5 rules read the command as
+  text and refused both (measured: 14 of 20 such commands). The gate now takes the quoted argument out before those
+  rules read, for a short list of commands that do not run their argument: `git commit` / `git tag -m`, `gh pr|issue|release
+  --title` / `--body`, `claude -p`, the grep family, and `echo` / `printf` when the call has no pipe and no
+  redirection. A `claude -p` prompt is taken out only when nothing in the call changes the directory (`cd`, `pushd`,
+  `popd`, `git -C`) and its other options are `--output-format`, `--model` or `--max-turns`: the session it starts is
+  judged by the gates of where it starts and with the settings it is given. The
+  word must be wholly quoted, and a double-quoted one must hold no `$(` and no backtick. Everything else is as
+  before: the same words outside the quotes, after the argument, printed into a shell or a file, handed to `bash
+  -c`, `eval`, `ssh` or `xargs`, stored with `printf -v`, or anywhere in a call that changes what a command word
+  means (`alias`, `hash`, a function, `PATH=`) are refused. Bash tool only.
 - **Trusting or declining a component is confirmed.** `skill-trust.sh --trust-one` and `--decline-one` printed nothing
   on success, and in the field a session that had just declined a skill said it had not checked the record. Each
   prints one line now (the component, the file, the first characters of the digest it holds), and only after the

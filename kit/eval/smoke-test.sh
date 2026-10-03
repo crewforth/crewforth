@@ -7483,7 +7483,7 @@ sec "== 12g) a git commit is read the way the shell and git read it: the forms t
 # skipped by design, so only the §4.5 rows are refused there. `\x27` is a single quote, `\n` JSON's newline, @O@
 # another repository, @W@ this one.
 if [ "$UNITS" != 1 ]; then
-  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 27
+  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 29
 else
 _CF="$(mktemp -d)"; _CF="$(cd -P "$_CF" && pwd)"; _cfw="$_CF/w"; _cfo="$_CF/o"; _cfq="'"; _cf_badjson=""
 _cf_new(){ rm -rf "$_CF/w" "$_CF/o"
@@ -7684,7 +7684,7 @@ CPT='0/ask 0/allow @@ git commit -m x
 0 0 @@ GIT_DIR=.git git log --oneline | grep commit
 0 0 @@ git log --oneline | grep commit
 0 0 @@ bash -c \x27git log --grep=commit\x27
-0/ask 0/allow @@ grep -rn \"git commit -n\" docs/
+0 0 @@ grep -rn \"git commit -n\" docs/
 0/ask 0/allow @@ bash build.sh && git commit -m x
 0/ask 0/allow @@ cat > notes.md <<\x27EOF\x27\nrun: bash -c \x27git commit -am x\x27 and it\x27s gone\nEOF\ngit commit -m x'
 _cf_table "$CPT"
@@ -8091,6 +8091,155 @@ else
   else skip tool "the payload limit counted in bytes and not in characters (no UTF-8 locale this bash honours)"; fi
   [ -z "$_cfbad" ] && pass "a Bash or PowerShell call above $_cfpm bytes is refused before it is parsed, by each of the three hooks that read one (guard-bash.sh, guard-commit-scan.sh, guard-powershell.sh): exactly the limit is read, one byte more is refused with the size and the way forward and logged, counted in bytes; a Write of the same size is not limited" \
                    || fail "the size limit on a Bash or PowerShell call:$_cfbad"
+fi
+
+# ---- the quoted argument of a command that does not run it -------------------------------------------------------
+# `git commit -m "drop the rm -rf /tmp/build step"` deletes nothing and `claude -p "… git push --force origin main"`
+# pushes nothing, yet each was refused: the §4.5 rules read the command as text (measured: 14 of 20 such commands).
+# The gate now takes the quoted argument out before those rules read, for a NARROW LIST of commands that do not run
+# their argument: git commit / git tag -m, gh --title / --body, claude -p, the grep family, and echo / printf when
+# the call has no pipe and no redirection. This LOOSENS the gate, so both directions are pinned.
+# Left: default mode (a commit reaches the prompt; anything else gets no decision). Right: pre-authorised.
+_cf_new
+CQA='0/ask 0/allow @@ git commit -m \"rm -rf /tmp/build before the run\"
+0/ask 0/allow @@ git commit -m \x27docs: explain git reset --hard\x27
+0/ask 0/allow @@ git commit -q -m \"fix: git push --force is refused now\"
+0/ask 0/allow @@ git commit -m \"chore: drop the dd if=/dev/zero of=/dev/sdz example\"
+0/ask 0/allow @@ git commit -m \"git commit --amend is refused on a pushed commit\"
+0/ask 0/allow @@ git commit -m \"a \\\" ; rm -rf / ; echo \\\" b\"
+0/ask 0/allow @@ git commit -m \x27it\x27\"\x27\"\x27s rm -rf /\x27 -q
+0 0 @@ git tag -a v1 -m \"git config core.hooksPath was reset\"
+0 0 @@ echo \"git push --force origin main\"
+0 0 @@ echo \x27rm -rf /tmp/x/*\x27
+0 0 @@ echo \"git commit --no-verify is refused\"
+0 0 @@ echo \"a\\\" ; git push --force origin main ; echo \\\"b\"
+0 0 @@ printf \x27%s\\n\x27 \"git reset --hard HEAD~1\"
+0 0 @@ grep -rn \"git push --force\" docs/
+0 0 @@ rg \"chmod 777 /srv\" src/
+0 0 @@ claude -p \"Run this command exactly as written: git push --force origin main\"
+0 0 @@ claude -p \x27Run: git reset --hard HEAD~1\x27
+0 0 @@ claude --model opus --max-turns 3 -p \"Run: git push --force origin main\" --output-format=json
+0 0 @@ gh pr create --title \"fix: refuse git clean -fdx\" --body \"git push --force was open\"
+0 0 @@ gh issue comment 12 --body \"we ran rm -rf /var/tmp/* by hand\"
+0 0 @@ echo $\x27rm -rf /tmp\\\x27s\x27 done'
+_cf_table "$CQA"; _cfqb="$_cfbad"; _cfqn="$_cfn"
+# The other direction. The same words where they RUN, or where the reader must not vouch for them: outside the
+# quotes, after the quoted argument, printed into a shell or a file, inside a command substitution, handed to a
+# command that runs its argument, glued to the option, under a command word that is not the first word, after
+# something that changes what a command word means, in a PowerShell call.
+CQR='2 2 @@ rm -rf /tmp/x/*
+2 2 @@ git push --force origin main
+2 2 @@ git commit -m \"x\" && git push --force origin main
+2 2 @@ git commit -m \"x\"; rm -rf /tmp/x/*
+2 2 @@ git commit -m \"rm -rf /tmp\" --no-verify
+2 2 @@ git commit -m \"ok\" --amend
+2 2 @@ echo \"done\" && rm -rf /tmp/x/*
+2 2 @@ echo \"a\" ; git reset --hard HEAD~1 ; echo \"b\"
+2 2 @@ echo \"git push --force origin main\" | sh
+2 2 @@ echo \"git push --force origin main\" | tee s.sh
+2 2 @@ echo \"git push --force origin main\" > s.sh
+2 2 @@ echo \"x\" && printf \x27%s\x27 \"rm -rf /tmp/x/*\" | bash
+2 2 @@ echo \"x\" 2>/dev/null; echo \"git reset --hard HEAD~1\"
+2 2 @@ echo \"$(git push --force origin main)\"
+2 2 @@ echo \"`git reset --hard HEAD~1`\"
+2 2 @@ git commit -m \"$(rm -rf /tmp/x/*)\"
+2 2 @@ git commit -m x \"rm -rf /tmp/x/*\"
+2 2 @@ git commit -m\"rm -rf /tmp/x/*\"
+2 2 @@ git status -m \"rm -rf /tmp/x/*\"
+2 2 @@ git -c alias.x=\x27!rm -rf /tmp/x/*\x27 commit -m \"ok\"
+2 2 @@ bash -c \"git push --force origin main\"
+2 2 @@ sh -c \x27rm -rf /tmp/x/*\x27
+2 2 @@ eval \"git reset --hard HEAD~1\"
+2 2 @@ ssh host \"git push --force origin main\"
+2 2 @@ sudo echo \"rm -rf /tmp/x/*\"
+2 2 @@ FOO=1 echo \"rm -rf /tmp/x/*\"
+2 2 @@ (echo \"rm -rf /tmp/x/*\")
+2 2 @@ echo \"unterminated; git push --force origin main
+2 2 @@ rg --pre \"rm -rf /tmp/x/*\" x .
+2 2 @@ cd /tmp && claude -p \"git -C ~/p push --force origin main\"
+2 2 @@ cd /tmp && claude -p \"git -C ~/p push --force origin main\" --setting-sources user
+2 2 @@ claude --setting-sources user -p \"git push --force origin main\"
+2 2 @@ claude --dangerously-skip-permissions -p \"git push --force origin main\"
+2 2 @@ claude --settings x.json -p \"git push --force origin main\"
+2 2 @@ claude -p \"git push --force origin main\" --permission-mode bypassPermissions
+2 2 @@ claude --add-dir /srv -p \"git reset --hard HEAD~1\"
+2 2 @@ claude --mcp-config m.json -p \"git reset --hard HEAD~1\"
+2 2 @@ claude --allowedTools Bash -p \"git reset --hard HEAD~1\"
+2 2 @@ claude --verbose -p \"git reset --hard HEAD~1\"
+2 2 @@ claude -p \"git push --force origin main\" \"--dangerously-skip-permissions\"
+2 2 @@ claude --model --settings -p \"git push --force origin main\"
+2 2 @@ pushd /tmp; claude -p \"git reset --hard HEAD~1\"
+2 2 @@ popd; claude -p \"git reset --hard HEAD~1\"
+2 2 @@ git -C /tmp status; claude -p \"git push --force origin main\"
+2 2 @@ \\cd /tmp && claude -p \"git push --force origin main\"
+2 2 @@ gh myext --title \"rm -rf ~\"
+2 2 @@ gh api repos/o/r/issues -f body=x --title \"git push --force origin main\"
+2 2 @@ printf -v c \"%s\" \"git push --force origin main\"; $c
+2 2 @@ printf -vc \"git reset --hard HEAD~1\"; $c
+2 2 @@ hash -p /bin/sh echo; echo -c \"rm -rf /tmp/x/*\"
+2 2 @@ alias echo=eval\necho \"rm -rf /tmp/x/*\"
+2 2 @@ function echo { \"$@\"; }; echo \"rm -rf /tmp/x/*\"
+2 2 @@ PATH=/tmp/evil:$PATH; echo \"rm -rf /tmp/x/*\"
+2 2 @@ export X=1; echo \"git push --force origin main\"
+2 2 @@ cat <<EOF | sh\ngit push --force origin main\nEOF'
+_cf_table "$CQR"; _cfrb="$_cfbad"; _cfrn="$_cfn"
+# PowerShell quotes by other rules: nothing is taken out of a PowerShell call.
+_cf_table '2 2 @@ echo \"git push --force origin main\"
+2 2 @@ Write-Output \x27rm -rf /tmp/x/*\x27' PowerShell
+_cfpw="$_cfbad"
+# Above the size the reader takes on, nothing is taken out: the same echo, with a comment that makes it 4200 bytes.
+_cfa="$(printf '%*s' 4200 '' | tr ' ' a)"; _cfbad=""
+_cf_run default 'echo \"git push --force origin main\" # '"$_cfa" 0; [ "$_cfr" = 2 ] || _cfbad="$_cfbad [the echo in a 4200-byte call: rc=$_cfr, want 2]"
+_cf_run default 'echo \"git push --force origin main\" # '"${_cfa:0:200}" 0; { [ "$_cfr" = 0 ] && [ -z "$_cfd" ]; } || _cfbad="$_cfbad [the same echo in a 250-byte call: rc=$_cfr decision=$_cfd, want 0 and none]"
+_cfbad="$_cfpw$_cfbad"
+if [ "$_cfqn $_cfrn $_cfn" != "21 55 2" ]; then fail "FIXTURE: the quoted-argument tables have $_cfqn, $_cfrn and $_cfn rows, not 21, 55 and 2"
+elif [ -z "$_cfqb$_cfrb$_cfbad" ]; then pass "a quoted argument of a command that does not run it is not read as a command: 21 calls (git commit and git tag -m, echo, printf, grep, rg, claude -p, gh pr|issue --title/--body) pass or reach the commit prompt, with rm -rf, push --force, reset --hard, dd, --no-verify, --amend or core.hooksPath in the argument; 55 calls where the same words run, or the reader cannot vouch for them (claude -p after a cd or with an option outside --output-format, --model, --max-turns; a gh extension), are refused, and so are 2 PowerShell calls and a call larger than the reader takes on (78 rows and the size pair)"
+else fail "the quoted argument of a command that does not run it:$_cfqb$_cfrb$_cfbad"; fi
+# THE SHELL ITSELF IS THE ORACLE for what was taken out. Each exempt call is run by this bash with git, gh, claude,
+# grep, rg, echo and printf replaced by a function that prints its arguments and nothing else on PATH: first as
+# written, then as the gate reads it (_IX). The two must have the same number of arguments, every argument the same
+# or blanked, and each blanked one must be ONE argument of the real call. A reader that split a quoted word where
+# bash does not, or joined two, shows here as a different count.
+_cfia="$_CF/inert.sh"; LC_ALL=C awk '/^_INERT_MAX=/{on=1} on{print} on && /^}/{exit}' "$HOOKS/guard-bash.sh" > "$_cfia"
+_cf_argv(){  # $1 = command text -> its consumer calls' arguments, one per line, as this bash passes them
+  ( PATH=/nonexistent-crew-oracle; _p(){ local a; builtin printf 'CALL %s\n' "$#"; for a in "$@"; do builtin printf 'ARG<%s>\n' "$a"; done; }
+    git(){ _p "$@"; }; gh(){ _p "$@"; }; claude(){ _p "$@"; }; grep(){ _p "$@"; }; rg(){ _p "$@"; }; echo(){ _p "$@"; }; printf(){ _p "$@"; }
+    eval "$1" ) 2>/dev/null; }
+_cfbad=""; _cfn=0
+if ! grep -q '^_inert_args(){' "$_cfia"; then fail "FIXTURE: _inert_args could not be taken out of guard-bash.sh — the oracle rows would prove nothing"
+else
+  while IFS= read -r _c; do [ -n "$_c" ] || continue
+    _cfn=$((_cfn+1))
+    _x="$( . "$_cfia"; if _inert_args "$_c"; then builtin printf '%s' "$_IX"; fi )"
+    [ -n "$_x" ] || { _cfbad="$_cfbad [nothing taken out of: $_c]"; continue; }
+    _oa="$(_cf_argv "$_c")"; _xa="$(_cf_argv "$_x")"
+    [ "$(printf '%s\n' "$_oa" | grep -c .)" = "$(printf '%s\n' "$_xa" | grep -c .)" ] || { _cfbad="$_cfbad [another argument count as the gate reads it: $_c]"; continue; }
+    _bl=0
+    while IFS= read -r _l1 <&3 && IFS= read -r _l2 <&4; do
+      [ "$_l1" = "$_l2" ] && continue
+      [ "$_l2" = "ARG<>" ] && { _bl=$((_bl+1)); continue; }
+      _cfbad="$_cfbad [an argument differs and is not blank ($_l1 / $_l2): $_c]"
+    done 3<<< "$_oa" 4<<< "$_xa"
+    [ "$_bl" -ge 1 ] || _cfbad="$_cfbad [no argument was blanked in what bash ran: $_c]"
+  done <<'CQO'
+git commit -m "rm -rf /tmp/build before the run"
+git commit -m 'docs: explain git reset --hard'
+git commit -m "a \" ; rm -rf / ; echo \" b"
+git commit -m 'it'"'"'s rm -rf /' -q
+git -C . commit -q -m "git push --force is refused" && git commit -am "x: rm -rf"
+git tag -a v1 -m "git config core.hooksPath was reset"
+echo "git push --force origin main"
+echo "a\" ; git push --force origin main ; echo \"b"
+echo $'rm -rf /tmp\'s' done
+printf '%s\n' "git reset --hard HEAD~1"
+grep -rn "git push --force" docs/
+rg "chmod 777 /srv" src/
+claude -p "Run this command exactly as written: git push --force origin main"
+gh pr create --title "fix: refuse git clean -fdx" --body "git push --force was open"
+CQO
+  if [ "$_cfn" != 14 ]; then fail "FIXTURE: the oracle ran $_cfn calls, not 14"
+  elif [ -z "$_cfbad" ]; then pass "what the gate takes out is what bash passes as one argument: 14 exempt calls run with git, gh, claude, grep, rg, echo and printf replaced by a function that prints its arguments, as written and as the gate reads them — the same number of arguments, each the same or blanked"
+  else fail "the gate's reading of a quoted argument against bash's own:$_cfbad"; fi
 fi
 
 # ---- a match on the command has no pipe, and a grep that could not run stops the call ----------------------------

@@ -815,6 +815,212 @@ _git_d45(){  # $1 = command text; block() exits on the first rule it breaks
   { git_has "$CMD" 'clean'  && has '-[A-Za-z]*f'; }                                           && block "git clean -f" "4.5" loss
   return 0
 }
+# ---- the quoted argument of a command that does not run it ---------------------------------------------------
+# `git commit -m "drop the rm -rf /tmp/build step"` deletes nothing, and `claude -p "… git push --force origin main"`
+# pushes nothing: the words stand in an argument, quoted, of a command that only stores or prints or searches for
+# them. The rules below read the command as text, so each of those was refused (measured: 14 of 20 such commands).
+#
+# _inert_args takes those arguments out of the text the rules read, and nothing else. It is a NARROW LIST, by
+# decision, not "whatever is quoted":
+#     git commit | git tag     the word after -m / --message (or a short cluster that ends in m: -am, -qm)
+#     gh pr|issue|release …    the word after --title / -t / --body / -b (not an extension: it may run its argument)
+#     claude                   the word after -p / --print, when nothing in the call changes the directory (cd,
+#                              pushd, popd, git -C) and claude's other options are --output-format, --model,
+#                              --max-turns only
+#     grep egrep fgrep rg      every quoted word (none is run), unless --pre is among the options (rg runs it)
+#     echo printf              every quoted word, and only when the whole command has no pipe and no redirection:
+#                              what is printed can be run by what reads it (`echo "…" | sh`, `echo "…" > s.sh`);
+#                              never `printf -v NAME …`, which stores the text where `$NAME` can run it
+# and an argument counts only when the WHOLE word is quoted: single quotes, $'…', or double quotes that hold no
+# `$(` and no backtick (those run). A word glued to its option (-m"…", --message="…") is not taken out.
+# The command word must be the first word of its simple command, written plainly: `FOO=1 git …`, `sudo echo …`,
+# `bash -c "…"`, `eval "…"`, `ssh host "…"`, `xargs …` are not on the list and nothing of theirs is taken out.
+# Anything this reader does not read with certainty leaves the command AS IT IS (the rules then judge all of it):
+# an unfinished quote, a command substitution or a backtick outside single quotes, a here-document, a parenthesis
+# (a subshell, a function definition), process substitution, more than _INERT_MAX bytes — and a call that changes
+# what a command word means (alias, hash, function, eval, source, exec, set, export, … or an assignment to PATH,
+# ENV, BASH_ENV, IFS). Bash tool only: PowerShell quotes by other rules.
+_INERT_MAX=4096
+_inert_args(){  # $1 = command -> 0 and _IX = the command with those arguments replaced by '' · 1 = nothing taken out
+  local s="$1" c d r seg body pos=0 n=0 i j k
+  local wopen=0 ws=0 wplain=1 winert=1 wtxt="" act
+  local pipe=0 redir=0
+  local -a T S E I P        # per word: text when plain ("" otherwise) · start · end · inert (1/0; 2 = a separator) · plain (1/0)
+  _IX=""
+  [ "${#s}" -le "$_INERT_MAX" ] || return 1
+  case "$s" in *[\'\"]*) ;; *) return 1 ;; esac
+  case "$s" in *PATH=*|*ENV=*|*IFS=*) return 1 ;; esac      # the same, by an assignment (PATH, BASH_ENV, ENV, IFS)
+  # end the word that is open, if one is
+  _iw_end(){ [ "$wopen" = 1 ] || return 0
+    T[n]="$wtxt"; [ "$wplain" = 1 ] || T[n]=""; S[n]=$ws; E[n]=$pos; I[n]=$winert; P[n]=$wplain; n=$((n+1))
+    wopen=0; wplain=1; winert=1; wtxt=""; }
+  _iw_sep(){ _iw_end; T[n]=""; S[n]=$pos; E[n]=$pos; I[n]=2; P[n]=0; n=$((n+1)); }   # I = 2: a separator, not a word
+  _iw_open(){ [ "$wopen" = 1 ] || { wopen=1; ws=$pos; }; }
+  while [ -n "$s" ]; do
+    c="${s:0:1}"
+    case "$c" in
+      ' '|$'\t') _iw_end; s="${s:1}"; pos=$((pos+1)) ;;
+      $'\n') _iw_sep; s="${s:1}"; pos=$((pos+1)) ;;
+      \') r="${s:1}"
+          case "$r" in *\'*) ;; *) return 1 ;; esac
+          body="${r%%\'*}"; _iw_open; wplain=0
+          k=$(( ${#body} + 2 )); s="${s:k}"; pos=$((pos+k)) ;;
+      \") r="${s:1}"; k=1; act=0
+          while :; do
+            seg="${r%%[\"\\\$\`]*}"; k=$(( k + ${#seg} )); r="${r:${#seg}}"
+            [ -n "$r" ] || return 1                       # the quote is not finished
+            d="${r:0:1}"
+            case "$d" in
+              \") k=$((k+1)); break ;;
+              \\) [ "${#r}" -ge 2 ] || return 1; r="${r:2}"; k=$((k+2)) ;;
+              \$) case "${r:1:1}" in '(') act=1 ;; esac; r="${r:1}"; k=$((k+1)) ;;
+              \`) act=1; r="${r:1}"; k=$((k+1)) ;;
+            esac
+          done
+          _iw_open; wplain=0; [ "$act" = 1 ] && winert=0
+          s="${s:k}"; pos=$((pos+k)) ;;
+      \\) [ "${#s}" -ge 2 ] || return 1
+          if [ "${s:1:1}" = $'\n' ]; then s="${s:2}"; pos=$((pos+2))        # a backslash-newline joins the lines
+          else _iw_open; winert=0; wplain=0; s="${s:2}"; pos=$((pos+2)); fi ;;
+      \$) case "${s:1:1}" in
+            '(') return 1 ;;                               # a command substitution: not read
+            \') r="${s:2}"; k=2                            # $'…': a quoted word, \' does not end it
+                while :; do
+                  seg="${r%%[\'\\]*}"; k=$(( k + ${#seg} )); r="${r:${#seg}}"
+                  [ -n "$r" ] || return 1
+                  if [ "${r:0:1}" = \' ]; then k=$((k+1)); break; fi
+                  [ "${#r}" -ge 2 ] || return 1; r="${r:2}"; k=$((k+2))
+                done
+                _iw_open; wplain=0; s="${s:k}"; pos=$((pos+k)) ;;
+            *)  _iw_open; winert=0; wplain=0; s="${s:1}"; pos=$((pos+1)) ;;   # $var, ${…}, $" : part of the word, not a quoted one
+          esac ;;
+      \`) return 1 ;;
+      '('|')') return 1 ;;
+      '#') if [ "$wopen" = 1 ]; then wtxt="$wtxt#"; winert=0; s="${s:1}"; pos=$((pos+1))
+           else seg="${s%%$'\n'*}"; s="${s:${#seg}}"; pos=$(( pos + ${#seg} )); fi ;;   # a comment, to the end of the line
+      ';') _iw_sep; s="${s:1}"; pos=$((pos+1)) ;;
+      '&') case "${s:1:1}" in
+             '&') _iw_sep; s="${s:2}"; pos=$((pos+2)) ;;
+             '>') _iw_end; redir=1; s="${s:2}"; pos=$((pos+2)) ;;
+             *)   _iw_sep; s="${s:1}"; pos=$((pos+1)) ;;
+           esac ;;
+      '|') case "${s:1:1}" in
+             '|') _iw_sep; s="${s:2}"; pos=$((pos+2)) ;;
+             *)   pipe=1; _iw_sep; s="${s:1}"; pos=$((pos+1)) ;;
+           esac ;;
+      '<'|'>') case "${s:0:2}" in '<<'|'<('|'>(') return 1 ;; esac     # a here-document, process substitution: not read
+               _iw_end; redir=1; s="${s:1}"; pos=$((pos+1)) ;;
+      *) seg="${s%%[ $'\t\n'\'\"\\\$\`\#\;\&\|\(\)\<\>]*}"
+         _iw_open; winert=0; wtxt="$wtxt$seg"; s="${s:${#seg}}"; pos=$(( pos + ${#seg} )) ;;
+    esac
+  done
+  _iw_end
+  # Each simple command: who is its first word, and which of its words are that command's inert arguments.
+  local -a B; local first cmdw sub nb=0 pre="" grep_pre chdir=0
+  # Does anything in the call change the directory? (cd, pushd, popd as a command word; a git that carries -C)
+  i=0; k=1
+  while [ "$i" -lt "$n" ]; do
+    if [ "${I[i]}" = 2 ]; then k=1
+    elif [ "$k" = 1 ]; then k=0; cmdw="${T[i]}"
+      case "$cmdw" in cd|pushd|popd|'') chdir=1 ;; esac      # '': a command word that is not written plainly may be one
+    elif [ "$cmdw" = git ]; then case "${T[i]}" in -C*) chdir=1 ;; esac
+    fi
+    i=$((i+1))
+  done
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    [ "${I[i]}" = 2 ] && { i=$((i+1)); continue; }
+    first=$i; j=$i
+    while [ "$j" -lt "$n" ] && [ "${I[j]}" != 2 ]; do j=$((j+1)); done
+    cmdw="${T[first]}"; [ "${P[first]}" = 1 ] || cmdw=""
+    case "$cmdw" in
+      # A command that changes what a later command word MEANS: after `hash -p /bin/sh echo`, `echo -c "…"` runs the
+      # text (measured with a harmless pair); an alias, a function or another PATH does the same. With any of them
+      # in the call nothing is taken out, wherever it stands.
+      alias|unalias|function|hash|enable|builtin|shopt|set|setopt|unsetopt|source|.|eval|exec|trap|export|declare|typeset|readonly|autoload|zmodload|emulate|command|env)
+        _IX=""; return 1 ;;
+      git)
+        k=$((first+1)); sub=""
+        while [ "$k" -lt "$j" ]; do                                  # git's own options, then the subcommand
+          [ "${P[k]}" = 1 ] || break
+          case "${T[k]}" in
+            -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env) k=$((k+2)) ;;
+            --no-pager|--paginate|-p|-P|--bare|--no-replace-objects|--git-dir=*|--work-tree=*|--namespace=*) k=$((k+1)) ;;
+            -*) break ;;
+            *) sub="${T[k]}"; k=$((k+1)); break ;;
+          esac
+        done
+        case "$sub" in commit|tag)
+          while [ "$k" -lt "$j" ]; do
+            if [ "${P[k]}" = 1 ]; then case "${T[k]}" in
+              --) break ;;
+              -m|--message|-[A-Za-z]m|-[A-Za-z][A-Za-z]m|-[A-Za-z][A-Za-z][A-Za-z]m)
+                [ $((k+1)) -lt "$j" ] && [ "${I[k+1]}" = 1 ] && { B[nb]=$((k+1)); nb=$((nb+1)); }; k=$((k+1)) ;;
+            esac; fi
+            k=$((k+1))
+          done ;;
+        esac ;;
+      gh)
+        # Only gh's own pr / issue / release: an extension (`gh myext …`) is a program of its own and may run its argument.
+        k=$((first+1)); sub=""; [ "$k" -lt "$j" ] && [ "${P[k]}" = 1 ] && sub="${T[k]}"
+        case "$sub" in pr|issue|release) ;; *) k=$j ;; esac
+        while [ "$k" -lt "$j" ]; do
+          if [ "${P[k]}" = 1 ]; then case "${T[k]}" in
+            --title|-t|--body|-b) [ $((k+1)) -lt "$j" ] && [ "${I[k+1]}" = 1 ] && { B[nb]=$((k+1)); nb=$((nb+1)); }; k=$((k+1)) ;;
+          esac; fi
+          k=$((k+1))
+        done ;;
+      claude)
+        # The session `claude -p` starts is judged by the gates of the directory it starts in, with the settings it
+        # is given. So the prompt is taken out only when (a) nothing in the call changes the directory, and (b) every
+        # other word of this claude is an option from a short harmless list, or its value. --settings,
+        # --setting-sources, --dangerously-skip-permissions, --permission-mode, --add-dir, --mcp-config,
+        # --allowedTools, any option not listed, and any other quoted word leave the prompt where it is.
+        k=$((first+1)); sub=ok; pre=-1
+        [ "$chdir" = 0 ] || sub=""
+        while [ "$k" -lt "$j" ] && [ -n "$sub" ]; do
+          if [ "${P[k]}" = 1 ]; then case "${T[k]}" in
+            -p|--print)
+              if [ "$pre" = -1 ] && [ $((k+1)) -lt "$j" ] && [ "${I[k+1]}" = 1 ]; then pre=$((k+1)); k=$((k+1)); else sub=""; fi ;;
+            --output-format|--model|--max-turns)
+              if [ $((k+1)) -lt "$j" ] && [ "${P[k+1]}" = 1 ]; then case "${T[k+1]}" in -*) sub="" ;; *) k=$((k+1)) ;; esac; else sub=""; fi ;;
+            --output-format=*|--model=*|--max-turns=*) ;;
+            *) sub="" ;;                                   # another option, or a word that is not one
+          esac; else sub=""; fi
+          k=$((k+1))
+        done
+        [ -n "$sub" ] && [ "$pre" != -1 ] && { B[nb]=$pre; nb=$((nb+1)); } ;;
+      grep|egrep|fgrep|rg)
+        grep_pre=0; k=$((first+1))
+        while [ "$k" -lt "$j" ]; do case "${T[k]}" in --pre|--pre=*) grep_pre=1 ;; esac; k=$((k+1)); done
+        if [ "$grep_pre" = 0 ]; then k=$((first+1))
+          while [ "$k" -lt "$j" ]; do [ "${I[k]}" = 1 ] && { B[nb]=$k; nb=$((nb+1)); }; k=$((k+1)); done
+        fi ;;
+      echo|printf)
+        # printf -v NAME writes the text into a variable, and `$NAME` after it runs it (measured with a harmless
+        # pair): that printf prints nothing, so it is not on the list.
+        grep_pre=0; k=$((first+1))
+        while [ "$k" -lt "$j" ]; do case "${T[k]}" in -v*) [ "$cmdw" = printf ] && grep_pre=1 ;; esac; k=$((k+1)); done
+        if [ "$pipe" = 0 ] && [ "$redir" = 0 ] && [ "$grep_pre" = 0 ]; then k=$((first+1))
+          while [ "$k" -lt "$j" ]; do [ "${I[k]}" = 1 ] && { B[nb]=$k; nb=$((nb+1)); }; k=$((k+1)); done
+        fi ;;
+    esac
+    i=$j
+  done
+  [ "$nb" -gt 0 ] || return 1
+  s="$1"; pos=0; i=0
+  while [ "$i" -lt "$nb" ]; do
+    k="${B[i]}"; _IX="$_IX${s:pos:$(( S[k] - pos ))}''"; pos="${E[k]}"; i=$((i+1))
+  done
+  _IX="$_IX${s:pos}"
+  return 0
+}
+# From here to the §4.4 gate the rules read the command WITHOUT those arguments; CMD_REAL keeps it whole, and the
+# commit and push gates below read that. A PowerShell call is never changed.
+CMD_REAL="$CMD"; CMD_UQ_REAL="$CMD_UQ"; _INERT=0
+case "$INPUT" in *'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*) ;; *)
+  if _inert_args "$CMD"; then _INERT=1; CMD="$_IX"; _unquoted "$CMD"; CMD_UQ="$_GS"; fi ;;
+esac
 _git_d45 "$CMD"
 # `no-veri`, not `no-verify`: git takes any unambiguous abbreviation, and `git push --no-verif` / `git merge --no-veri`
 # passed the rule that looked for the whole word (3.1.0 review; `--no-ver` and shorter are ambiguous to git itself).
@@ -1494,6 +1700,12 @@ fi
     && block "git update-index --add (bypasses .gitignore, same as git add -f)" "4.5" bypass
 case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE '(rm|git[[:space:]]+rm)\b[^|]*(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|npm-shrinkwrap\.json|Gemfile\.lock|poetry\.lock|Pipfile\.lock|Cargo\.lock|composer\.lock|go\.sum|packages\.lock\.json)' && block "lockfile deletion" "4.5" loss
 
+# The rules that read the command as text end here: what follows judges a commit or a push, and reads all of it.
+# WHETHER there is a commit or a push in the call is still asked of the text without those arguments (CMD_SEEN):
+# `echo "git push origin main"` pushes nothing, and asking the user to approve an echo is the same mistake as
+# refusing it. What a commit carries (its options, its message, the approval it needs) is read from the whole call.
+CMD_SEEN="$CMD"; CMD="$CMD_REAL"; CMD_UQ="$CMD_UQ_REAL"
+
 # --- §4.4 commit/push approval gate ---
 # Escape a shell string into a JSON string body. A raw control character inside a JSON string is a parse
 # error, and the reason text is attacker-adjacent (it is the model's own command line), so:
@@ -1684,7 +1896,7 @@ _p44_scan(){  # $1 = the collapsed `git push …` -> 0 when it is `git push [-u]
 _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise _APW says why not, for the message.
   local k v op="" tr="" h="" b="" r="" u="" sid="" ts="" now age dir="${_CWD:-.}" hc=1 hp=1 cur tool
   _APW="no approval from the user is on record"
-  git_has "$CMD" 'commit' && hc=0; git_has "$CMD" 'push' && hp=0
+  git_has "$CMD_SEEN" 'commit' && hc=0; git_has "$CMD_SEEN" 'push' && hp=0
   if [ "$hc" = 0 ] && [ "$hp" = 0 ]; then
     _APW="this call holds a commit and a push; each is checked against the approval on its own, so run them as two calls"; return 1
   fi
@@ -2141,10 +2353,10 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
 _C47_N=0; _C47_WT=""; _C47_CD=0; _C47_SUB=""; _c47_seen=0
 _C47_MAX=32768
 _cmd_bytes(){ local LC_ALL=C; _CB=${#1}; }   # $1 = text -> _CB: its length in bytes, whatever the session's locale
-if git_has "$CMD" 'commit'; then _c47_seen=1; fi
+if git_has "$CMD_SEEN" 'commit'; then _c47_seen=1; fi
 _c47_try=0
-case "$CMD" in *[Mm][Ii][Tt]*)   # with quotes, backslashes and joined lines taken out: `g\it`, `com\<newline>mit`
-  _gsub "$CMD" '\\'$'\n' '' bs; _unquoted "$_GS"; _t="$_GS"
+case "$CMD_SEEN" in *[Mm][Ii][Tt]*)   # with quotes, backslashes and joined lines taken out: `g\it`, `com\<newline>mit`
+  _gsub "$CMD_SEEN" '\\'$'\n' '' bs; _unquoted "$_GS"; _t="$_GS"
   # Both words, in either order: `$a = @('commit','-n'); git @a` names commit first.
   case "$_t" in *[Gg][Ii][Tt]*) case "$_t" in *[Cc][Oo][Mm][Mm][Ii][Tt]*) _c47_try=1 ;; esac ;; esac ;;
 esac
@@ -2289,7 +2501,7 @@ if [ "$_c47_seen" = 1 ] || [ "$_c47_try" = 1 ] || [ "$_c47_sub" = 1 ] || [ "$_c4
     "Run 'git commit' directly."
   fi
 fi
-if git_has "$CMD" 'add|commit|push|checkout|switch'; then
+if git_has "$CMD_SEEN" 'add|commit|push|checkout|switch'; then
   # The key is granted by the user's environment, never by the command line the model composes.
   if _grep "$CMD" -q 'CLAUDE_GIT_OK'; then
     gatelog BLOCK 4.4 "approval key set inside the command"
@@ -2301,7 +2513,7 @@ if git_has "$CMD" 'add|commit|push|checkout|switch'; then
     1|yes|true|on|YES|TRUE|ON) allow_preauthorised ;;   # pre-authorised session (headless/CI)
   esac
 fi
-if git_has "$CMD" 'commit|push'; then
+if git_has "$CMD_SEEN" 'commit|push'; then
   # §4.6 — A COMMIT NEEDS A CLEAN REVIEW OF THIS DIFF.
   # crew-review-agent records what it cleared in .claude/review-pass.json; this reads it back and compares two
   # EXACT facts: the sha256 of the staged diff, and the HEAD it was reviewed against. There is deliberately NO
@@ -2312,7 +2524,7 @@ if git_has "$CMD" 'commit|push'; then
   # Nested inside the commit|push block on purpose: the matcher below costs a process, and on Git Bash a fork
   # is 20-50 ms on a hook that runs before EVERY Bash call. Here it runs only when a commit or push is already
   # on the table. Scope is `commit` alone — a push stages nothing, so it has no diff of its own to review.
-  if git_has "$CMD" 'commit'; then
+  if git_has "$CMD_SEEN" 'commit'; then
     # Two questions have to be answered before the record means anything, and BOTH are about the command's own
     # shape: is git pointed at another worktree, and does this commit take its content from the WORKING TREE
     # instead of the index? The second one is not a nicety. MEASURED here (macOS, git 2.54.0), with a reviewed
