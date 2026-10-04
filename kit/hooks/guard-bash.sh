@@ -719,6 +719,7 @@ _unquoted "$CMD"; CMD_UQ="$_GS"      # read by the name rules below (hooksPath s
 block(){
   gatelog BLOCK "$2" "$1"
   echo "GUARD (§$2): '$1' stopped AT THE TOOL LEVEL." >&2
+  [ -z "${_BLOCK_NOTE:-}" ] || echo "$_BLOCK_NOTE" >&2
   case "${3:-}" in
     loss)     echo "Nothing here is undone by retrying — but the refusal is not the end of the task. Do the same job the reversible way: name the paths instead of sweeping, and look first (git clean -n, ls) so you act on what you can see. Only if the broad form is genuinely required does the user run it in their own terminal." >&2 ;;
     history)  echo "This rewrites or discards work that is already committed. Ask the person who shares the branch; a new commit usually reaches the same end without rewriting." >&2 ;;
@@ -1443,11 +1444,346 @@ fi
 # to route around. A verb in one command and a path in another was never evidence of anything: the two forms
 # that matter — `rm .claude/hooks/x` and `x > .claude/hooks/y` — both put them in the SAME segment, and both
 # are still blocked (asserted in smoke-test, in both directions).
+# ---- the reader of a call (the commit gate further down describes what it is for) ----
+_c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span and every escaped character as one marker
+              # (\001 n \001, its text in _C47_Q[n]); redirections set apart from the words they touch; heredoc bodies gone
+  local s="$1" out="" pre c w hd="" c2 nl=$'\n' n=0 body t bt=0
+  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""
+  _gsub "$s" $'\r' ''; _gsub "$_GS" "$_C47_M" ''; s="$_GS"
+  while :; do
+    pre="${s%%[\"\'\\\;\&\|\<\>\#\(\)\`\$$nl]*}"; out="$out$pre"
+    [ "$pre" = "$s" ] && break
+    c="${s:${#pre}:1}"; s="${s:${#pre}+1}"
+    case "$c" in
+      \\) case "$s" in
+            "$nl"*) s="${s:1}" ;;                                  # a backslash-newline joins: both characters go
+            '') ;;
+            *) _C47_Q[n]="${s:0:1}"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)); s="${s:1}" ;;   # an escaped character is itself, quoted
+          esac ;;
+      \') case "$s" in *\'*) body="${s%%\'*}"; s="${s:${#body}+1}" ;; *) body="$s"; s="" ;; esac
+          _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
+      \") body=""
+          case "$s" in
+            '$(cat <<'*)   # a message read from a here-document: its body is skipped as a whole, quotes and all
+              w="${s:8}"; w="${w#-}"; w="${w#[\'\"]}"; w="${w%%[!A-Za-z0-9_]*}"
+              case "$s" in *"$nl$w$nl"*) [ -n "$w" ] && { pre="${s%%"$nl$w$nl"*}"; s="${s:${#pre}+${#w}+2}"; body='(a here-document)'; } ;; esac ;;
+          esac
+          while :; do                                              # to the closing quote that is not escaped
+            pre="${s%%[\"\\]*}"
+            [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
+            c2="${s:${#pre}:1}"; body="$body$pre"; s="${s:${#pre}+1}"
+            [ "$c2" = '"' ] && break
+            body="$body${s:0:1}"; s="${s:1}"
+          done
+          # "$@" and "${A[@]}" stay quoted and still become SEVERAL words: `set -- -n; git commit -m x "$@"`.
+          case "$body" in *'$@'*|*'[@]'*) _C47_QX="$_C47_QX $n " ;; esac
+          _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
+      \$) case "$s" in
+            \'*) # $'…' : a quoted text in which a backslash escapes, so a quote after one does not close it
+                 s="${s:1}"; body=""
+                 while :; do
+                   pre="${s%%[\'\\]*}"
+                   [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
+                   c2="${s:${#pre}:1}"; body="$body$pre"; s="${s:${#pre}+1}"
+                   [ "$c2" = "'" ] && break
+                   body="$body\\${s:0:1}"; s="${s:1}"
+                 done
+                 _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
+            '(('*) case "$s" in *'))'*) pre="${s%%'))'*}"; s="${s:${#pre}+2}" ;; *) s="" ;; esac; out="$out\$" ;;   # $(( … )): arithmetic, `<<` in it is a shift
+            '{'*)  case "$s" in *'}'*) pre="${s%%'}'*}"; s="${s:${#pre}+1}" ;; *) s="" ;; esac; out="$out\$" ;;     # ${ … }: one expansion, `#` in it is no comment
+            *) out="$out\$" ;;
+          esac ;;
+      "$nl") if [ -n "$hd" ]; then                                 # the lines up to the delimiter are the here-document
+               case "$s" in
+                 "$hd")            s="" ;;
+                 "$hd$nl"*)        s="${s:${#hd}+1}" ;;
+                 *"$nl$hd$nl"*)    pre="${s%%"$nl$hd$nl"*}"; s="${s:${#pre}+${#hd}+2}" ;;
+                 *"$nl$hd")        s="" ;;
+               esac                                                # no such line: it was no here-document, read on
+               hd=""
+             fi
+             out="$out ; " ;;
+      \|) case "$out" in *\>) out="$out|" ;; *) out="$out ; " ;; esac ;;       # >| is a redirection, not a pipe
+      \;|\(|\)) out="$out ; " ;;
+      # A backtick opens a command substitution as `$(` does, so the word it starts reads as an expansion too:
+      # `git \`printf commit\` -m x` is a git call whose subcommand the shell fills in. The closing one only separates.
+      \`) if [ "$bt" = 0 ]; then bt=1; out="$out\$ ; "; else bt=0; out="$out ; "; fi ;;
+      \&) case "$out" in
+            *[\<\>]) out="$out&" ;;                                 # 2>&1, >&, and the input forms 0<&-, <&2
+            *) case "$s" in
+                 \>*) out="$out &>"; s="${s:1}" ;;                  # &>
+                 *) out="$out ; " ;;
+               esac ;;
+          esac ;;
+      \<|\>)
+          if [ "$c" = '<' ]; then
+            case "$s" in
+              \<\<*) out="$out <<< "; s="${s:2}"; continue ;;       # a here-string: one word follows, on this line
+              \<*) s="${s:1}"; s="${s#-}"
+                   while :; do case "$s" in [$' \t']*) s="${s:1}" ;; *) break ;; esac; done
+                   t="${s%%[$' \t'\;\&\|\<\>\(\)$nl]*}"; s="${s:${#t}}"   # the delimiter word, then without its quoting
+                   hd="${t//\"/}"; hd="${hd//\'/}"; hd="${hd//\\/}"
+                   out="$out <<H "; continue ;;
+            esac
+          fi
+          # A redirection is its own word: `-a>/dev/null` is `-a` and `>/dev/null`. Only a number directly in front
+          # of it belongs to it (2>…), and a `>` or `&` already there (>>, &>, >&).
+          case "$out" in
+            *[\<\>\&]) ;;
+            *[0-9]) t="${out##*[!0-9]}"; pre="${out%"$t"}"; case "$pre" in ''|*[$' \t']) ;; *) out="$out " ;; esac ;;
+            *) out="$out " ;;
+          esac
+          out="$out$c" ;;
+      \#) case "$out" in
+            ''|*[$' \t']) case "$s" in *"$nl"*) pre="${s%%"$nl"*}"; s="${s:${#pre}}" ;; *) s="" ;; esac ;;   # a comment, to the end of its line
+            *) out="$out#" ;;
+          esac ;;
+    esac
+  done
+  _C47_T="$out"
+}
+_c47_w(){  # $1 = one token of _C47_T -> _W: the word as the command receives it (expansions left as written);
+           # _WQ = 1 when part of it was quoted; _WX = 1 when an UNQUOTED part holds $ * ? [ or {, i.e. the shell
+           # will make something else of it — possibly more than one word
+  local t="$1" m="$_C47_M" pre i
+  _W=""; _WQ=0; _WX=0; _WAT=0
+  while :; do
+    case "$t" in *"$m"*) ;; *) break ;; esac
+    pre="${t%%"$m"*}"; t="${t#*"$m"}"; i="${t%%"$m"*}"; t="${t#*"$m"}"
+    case "$pre" in *[\$\*\?\[\{]*) _WX=1 ;; esac
+    case "$i" in ''|*[!0-9]*) ;; *) _W="$_W$pre${_C47_Q[i]:-}"; _WQ=1; case "$_C47_QX" in *" $i "*) _WX=1; _WAT=1 ;; esac; continue ;; esac
+    _W="$_W$pre"
+  done
+  case "$t" in *[\$\*\?\[\{]*) _WX=1 ;; esac
+  _W="$_W$t"
+}
 # The four rules below cost a grep each, so they run only for a command that could name a gate file at all. Builtin.
 _gate_named(){ case "$CMD" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|*[Gg][Ii][Tt][/\\]*[Cc][Oo][Nn][Ff][Ii][Gg]*|*[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]*|*.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]*) return 0 ;; esac; return 1; }
 # CREW-NOT-A-RUNG: same — `perl`, `python3`, `ruby`, `node` here are names the gate REFUSES when they are
 # pointed at a gate file, not readers this hook uses.
-_gate_named && _grep "$CMD" -qiE "(^|[^A-Za-z0-9_-])(rm|mv|cp|rsync|sponge|truncate|tee|install|ln|perl|python[0-9.]*|ruby|node|ex|ed|set-content|add-content|clear-content|out-file|new-item|rename-item|copy-item|move-item|remove-item)\b[^;&|]*$GATE" && block "write/tamper of a gate file (hook/settings/.git-hooks)" "4.5" tamper
+# A COMMAND THAT NAMES A GATE FILE IS ON A SHORT LIST, OR IT IS REFUSED. This rule used to look for a write VERB
+# (`rm|mv|cp|tee|…`) before the gate path, and a list of verbs is never complete: of 39 ways to write or delete a
+# gate file, 32 passed (measured on 3.0.3: `curl -o`, `wget -O`, `sort -o`, `git log --output=`, `openssl -out`,
+# `tar -C`, `unzip -d`, `unlink`, `shred`, `rmdir`, `touch`, `patch`, `vim -c wq`, `find … -delete`,
+# `git checkout <rev> -- <gate file>`, `git restore -s`). It also refused readers whose arguments held such a word
+# (`grep -n rm <gate file>`, `cat /Users/ed/p/.claude/hooks/x`). So the question is turned round: a simple command
+# that names a gate path passes only when its command word is
+#   * a READER: grep egrep fgrep rg (no --pre) cat head tail wc ls less (no log file) diff cmp stat sha256sum shasum
+#     md5 md5sum du basename dirname realpath readlink jq echo printf test [ [[ mkdir pwd, sed without -i, sort
+#     without -o, find without -delete / -exec / -fprint;
+#   * a RUNNER of a hook script: `bash|sh <a .sh file, pre-commit or commit-msg under .claude/hooks>`, or that file
+#     itself — never `bash -c`, never a script that is not one; and `chmod +x` / `755` on one;
+#   * git status | log | diff | show | add | ls-files | blame | check-ignore | rev-parse | cat-file | ls-tree |
+#     commit, and a `git config` that reads, with nothing before the subcommand but --no-pager / -P, and without
+#     --output / --ext-diff.
+# Everything else that names one is refused, a program nobody listed included. What a reader does with a
+# redirection is the redirect rule's, below.
+# A PATH THAT IS HIDDEN is followed where the text allows it: quotes and backslashes are taken out first
+# (`.clau\de/hooks`), `.claude` itself counts (`mv .claude x`), a glob with a dot component is expanded in the
+# call's directory (`.claude/hoo*/guard*`), and a call that BINDS a gate path — `D=.claude/hooks`, `for f in
+# .claude/hooks/*`, `cd .claude/hooks`, or a call that already stands in such a directory — must have every one of
+# its commands on the list, since any of them may reach the file by the short name.
+# The call is read by _c47_read, the reader the commit gate uses: quotes paired, a here-document's body set
+# apart, every separator the same. A gate path named only in a here-document makes every command of the call
+# answer to the list: the body is text for `cat` and a program for `python3 -`.
+# Bash tool only. A PowerShell call keeps the verb rule.
+_GANC='(^|[[:space:]=:/\\])\.claude[/\\.]*([[:space:];&|)]|$)'
+_gt_named(){  # $1 = text -> 0 = it names a gate path, or the directory that holds them
+  local r=1; shopt -s nocasematch
+  if [[ "$1" =~ $GATE ]] || [[ "$1" =~ $_GANC ]]; then r=0; fi
+  shopt -u nocasematch; return "$r"
+}
+_gt_script(){  # $1 = a word -> 0 = a file under a hooks directory of the gate (a hook script to run)
+  local r=1; shopt -s nocasematch
+  if [[ "$1" =~ \.claude[/\\]+hooks[/\\]+([^/\\[:space:]]+\.sh|pre-commit|commit-msg)$ ]] || [[ "$1" =~ \.claude[/\\]+git-shim[/\\]+git$ ]] || { [ -n "${_PGATE:-}" ] && [[ "$1" =~ $_PGATE ]]; }; then r=0; fi
+  shopt -u nocasematch; return "$r"
+}
+_gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate path -> 0 = on the list · 1 = not (_GTW says why)
+  local seg="${1//[$'\t\n']/ }" taint="${2:-0}" k=0 a w base sub scr
+  local -a W=()
+  read -r -a W <<< "$seg"
+  _GTW=""
+  a=0                                            # a = 1: an assignment stands in front of the command word
+  while [ "$k" -lt "${#W[@]}" ]; do
+    case "${W[k]}" in
+      then|do|else|elif|if|while|until|'!'|'{'|time) k=$((k+1)) ;;
+      [A-Za-z_]*=*) case "${W[k]%%=*}" in *[!A-Za-z0-9_]*) break ;; *) a=1; k=$((k+1)) ;; esac ;;
+      *) break ;;
+    esac
+  done
+  [ "$k" -lt "${#W[@]}" ] || return 0
+  w="${W[k]}"
+  case "$w" in for|case|select|fi|done|esac|'}'|in) return 0 ;; esac
+  # `PATH=/x cat <gate file>` runs another cat, `PAGER=… git log` another pager: an assignment in front changes
+  # what the word runs, so the word is not vouched for.
+  [ "$a" = 0 ] || { _GTW="an assignment stands in front of '$w', and it can change what that word runs"; return 1; }
+  base="$w"
+  case "$w" in */*|*\\*)
+    case "${w%/*}" in
+      /bin|/usr/bin|/usr/local/bin|/opt/homebrew/bin) base="${w##*/}" ;;
+      *) _gt_script "$w" && return 0
+         _GTW="'$w' is a program given by its path, not a command on the list"; return 1 ;;
+    esac ;;
+  esac
+  case "$base" in
+    bash|sh|zsh|dash|ksh)
+      a=$((k+1)); scr=""
+      while [ "$a" -lt "${#W[@]}" ]; do
+        case "${W[a]}" in
+          -o|+o|-O|+O) a=$((a+1)) ;;
+          --*) ;;
+          -*[cis]*) _GTW="'$base ${W[a]}' takes its commands from an argument or from its input"; return 1 ;;
+          -*|+*) ;;
+          *) scr="${W[a]}"; break ;;
+        esac
+        a=$((a+1))
+      done
+      [ -n "$scr" ] || { _GTW="'$base' with no script takes its commands from its input"; return 1; }
+      _gt_script "$scr" && return 0
+      case "$taint" in
+        1) case "$scr" in *'$'*) return 0 ;; esac ;;
+        2) case "$scr" in */*|*\\*) ;; *) return 0 ;; esac ;;       # in a gate directory, a script named without a path is one of its files
+      esac
+      _GTW="'$base $scr' runs a script that is not a hook script"; return 1 ;;
+    git)
+      a=$((k+1))
+      while [ "$a" -lt "${#W[@]}" ]; do case "${W[a]}" in --no-pager|-P) a=$((a+1)) ;; *) break ;; esac; done
+      sub="${W[a]:-}"
+      case "$sub" in
+        status|log|diff|show|add|ls-files|blame|check-ignore|rev-parse|cat-file|ls-tree|commit) ;;
+        config)                       # a READ of the configuration: --get / --list, or a name and no value
+          scr=0; a=$((a+1))
+          while [ "$a" -lt "${#W[@]}" ]; do
+            case "${W[a]}" in
+              --get|--get-all|--get-regexp|--get-urlmatch|--list|-l) return 0 ;;
+              -f|--file|--blob|--type|--default) a=$((a+1)) ;;
+              -*) ;;
+              *) scr=$((scr+1)) ;;
+            esac
+            a=$((a+1))
+          done
+          [ "$scr" = 1 ] && return 0
+          _GTW="'git config' with a value writes the configuration"; return 1 ;;
+        *) _GTW="'git ${sub:-…}' is not one of the git commands that only read or stage"; return 1 ;;
+      esac
+      for w in ${W[@]+"${W[@]:a}"}; do case "$w" in --ou*|--ext*) _GTW="'git $sub $w' writes a file or runs a program"; return 1 ;; esac; done
+      return 0 ;;
+    rg)   for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --pr*) _GTW="'rg $w' runs a program on every file"; return 1 ;; esac; done; return 0 ;;
+    sed)  for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --i*|-[!-]*[iI]*|-[iI]*) _GTW="'sed $w' edits the file in place"; return 1 ;; esac; done; return 0 ;;
+    sort) for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --o*|-[!-]*o*|-o*) _GTW="'sort $w' writes a file"; return 1 ;; esac; done; return 0 ;;
+    less) for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --log*|--LOG*|-[!-]*[oO]*|-[oO]*) _GTW="'less $w' writes a log file"; return 1 ;; esac; done; return 0 ;;
+    chmod)                            # making a hook runnable again is how the doctor's advice is followed; any other mode is not
+      case "${W[k+1]:-}" in [ugoa]+x|[ugoa][ugoa]+x|+x|+rx|755|0755) return 0 ;; esac
+      _GTW="'chmod ${W[k+1]:-}' is not the mode that makes a hook runnable (+x, 755)"; return 1 ;;
+    find) for w in ${W[@]+"${W[@]:k}"}; do case "$w" in -delete|-exec|-execdir|-ok|-okdir|-fprint*|-fls) _GTW="'find $w' deletes, runs or writes"; return 1 ;; esac; done; return 0 ;;
+    grep|egrep|fgrep|cat|head|tail|wc|ls|diff|cmp|stat|sha256sum|shasum|md5|md5sum|du|basename|dirname|realpath|readlink|echo|printf|test|'['|'[['|true|:|mkdir|pwd|cd|pushd|popd|read|mapfile|readarray) return 0 ;;
+    jq)   for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --ou*) _GTW="'jq $w' names an output"; return 1 ;; esac; done; return 0 ;;
+  esac
+  _GTW="'$base' is not on the list of commands that read a gate file or run a hook script"; return 1
+}
+_GT_CWD1='/\.claude(/+(hooks|git-shim)(/.*)?)?/*$'
+_GT_CWD2='/\.git(/+hooks(/.*)?)?/*$'
+_GT_GLOB1='(^|[[:space:]/=])\.[^/[:space:]]*[*?[{]'
+_GT_GLOB2='\.(claude|git)[/\\][^[:space:]]*[*?[{]'
+_GT_GLOB3='(^|[[:space:]/=])\{[^}[:space:]]*\.'
+_GT_DOTGIT='(^|[[:space:];&|(])(cd|pushd)[[:space:]]+[^[:space:];&|]*\.git[/\\]*([[:space:];&|)]|$)'
+# _GT_MEAN: a word that changes what a later command word runs. _GT_BIND: one that hands names on to a command.
+_GT_MEAN='(^|[;&|[:space:](])(alias|function|hash|enable|builtin|source|eval|exec|trap|export|declare|typeset|readonly)([[:space:]]|$)|(PATH|ENV|IFS)=|\(\)'
+_GT_BIND='(^|[;&|[:space:](])(xargs|parallel|read|mapfile|readarray)([[:space:]]|$)'
+# A shell with no script reads its commands from the pipe in front of it: `… | sh`.
+_GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
+_gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is refused; 0 otherwise
+  local cwd="" taint=0 named=0 globby=0 any=0 here=0 seg w x t i sp=$'\002'
+  local -a SEG=() W=()     # set, not only declared: bash 4.4 and later call a declared, empty array unbound under `set -u`
+  _GTW=""
+  if _gate_named && _gt_named "$CMD_UQ"; then named=1; fi
+  case "$CMD_UQ" in *.git*) [[ "$CMD_UQ" =~ $_GT_DOTGIT ]] && named=1 ;; esac
+  case "$INPUT" in *.claude*|*.git*)
+    _json_slice "$INPUT" cwd >/dev/null; cwd="${_JS//\\\\//}"
+    shopt -s nocasematch
+    if [[ "$cwd" =~ $_GT_CWD1 ]] || [[ "$cwd" =~ $_GT_CWD2 ]]; then taint=2; fi
+    shopt -u nocasematch ;;
+  esac
+  case "$CMD_UQ" in *[*?[{]*)
+    if [[ "$CMD_UQ" =~ $_GT_GLOB1 ]] || [[ "$CMD_UQ" =~ $_GT_GLOB2 ]] || [[ "$CMD_UQ" =~ $_GT_GLOB3 ]]; then globby=1; fi ;;
+  esac
+  [ "$named$taint$globby" != 000 ] || return 0
+  # The simple commands of the call, as _c47_read reads it (quotes paired, a here-document's body gone, every
+  # separator the same), each word without its quoting.
+  _c47_read "$CMD"; _gsub "$_C47_T" ' ; ' $'\n'
+  while IFS= read -r seg; do
+    case "$seg" in *[![:space:]]*) ;; *) continue ;; esac
+    read -r -a W <<< "$seg"; t=""
+    for w in ${W[@]+"${W[@]}"}; do _c47_w "$w"; t="$t ${_W//[$' \t\n']/$sp}"; done
+    SEG[${#SEG[@]}]="${t# }"
+    { _gt_named "$t" || [[ "$t" =~ $_GT_DOTGIT ]]; } && any=1
+    case " $t " in *' <<H '*) here=1 ;; esac
+  done <<< "$_GS"
+  [ "${#SEG[@]}" -gt 0 ] || return 0
+  if [ "$taint" = 0 ] && [ "$named" = 1 ]; then
+    if [ "$any" = 0 ]; then
+      # Named, but by none of the commands: in a comment, or in the body of a here-document. A comment runs
+      # nothing. A here-document is text for `cat` or `git commit -F -`, and a program for an interpreter or a
+      # shell — and it can be printed into one — so with one in the call every command must be on the list.
+      [ "$here" = 1 ] || return 0
+      taint=2
+    else
+      # does the call BIND a gate path (an assignment, a for list, a cd), hand names on (a substitution, xargs),
+      # or change what a command word runs?
+      # A call that changes what a command word RUNS vouches for none of its words: `PATH=/x; cat <gate file>`.
+      if [[ "$CMD_UQ" =~ $_GT_MEAN ]]; then _GTW="the call holds '${BASH_REMATCH[0]# }', which can change what a command word runs"; return 1; fi
+      if [[ "$CMD_UQ" =~ $_GT_PIPESH ]]; then _GTW="the call pipes text into a shell, which runs it"; return 1; fi
+      [[ "$CMD_UQ" =~ $_GT_BIND ]] && taint=1
+      case "$CMD" in *'$('*|*'`'*) taint=1 ;; esac
+      for seg in "${SEG[@]}"; do
+        read -r -a W <<< "$seg"; i=0
+        while [ "$i" -lt "${#W[@]}" ]; do
+          case "${W[i]}" in
+            then|do|else|elif|if|while|until|'!'|'{'|time) ;;
+            [A-Za-z_]*=*) [ "$taint" != 0 ] || { _gt_named "${W[i]#*=}" && taint=1; } ;;
+            for) _gt_named "$seg" && [ "$taint" = 0 ] && taint=1; break ;;
+            cd|pushd) { _gt_named "$seg" || [[ "$seg" =~ $_GT_DOTGIT ]]; } && taint=2; break ;;
+            *) break ;;
+          esac
+          i=$((i+1))
+        done
+      done
+    fi
+  fi
+  for seg in "${SEG[@]}"; do
+    x=0
+    if [ "$taint" = 1 ]; then          # by a name: only a command that expands something, or holds a binding word, can reach it
+      case "$seg" in *'$'*) x=1 ;; *) [[ "$seg" =~ $_GT_BIND ]] && x=1 ;; esac
+    fi
+    if [ "$taint" = 2 ] || [ "$x" = 1 ]; then
+      _gt_ok "$seg" "$taint" || { _GTW="$_GTW, in a call that can reach a gate file by another name (a variable, a loop, a cd, a substitution, a here-document, xargs, or a word that changes what a command runs)"; return 1; }
+      continue
+    fi
+    _gt_named "$seg" && x=1
+    if [ "$x" = 0 ] && [ "$globby" = 1 ]; then
+      read -r -a W <<< "$seg"
+      for w in ${W[@]+"${W[@]}"}; do
+        case "$w" in
+          *'{'*.*|*.*'{'*) case "$w" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|*.[Gg][Ii][Tt]*) x=1 ;; esac ;;
+          *.*[*?[]*) t="$( cd "${cwd:-.}" 2>/dev/null && compgen -G "$w" )"; _gt_named "$t" && x=1 ;;
+        esac
+      done
+    fi
+    [ "$x" = 1 ] || continue
+    _gt_ok "$seg" 0 || return 1
+  done
+  return 0
+}
+_gate_verb_ps(){ _grep "$CMD" -qiE "(^|[^A-Za-z0-9_-])(rm|mv|cp|rsync|sponge|truncate|tee|install|ln|perl|python[0-9.]*|ruby|node|ex|ed|set-content|add-content|clear-content|out-file|new-item|rename-item|copy-item|move-item|remove-item)([^A-Za-z0-9_/\\\\;&|]|\\\\[^A-Za-z0-9;&|])[^;&|]*$GATE"; }
+case "$INPUT" in
+  *'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*)
+    _gate_named && _gate_verb_ps && block "write/tamper of a gate file (hook/settings/.git-hooks)" "4.5" tamper ;;
+  *)
+    if ! _gt_judge; then
+      _BLOCK_NOTE="A command that names a gate file passes only when it reads the file or runs a hook script: $_GTW."
+      block "write/tamper of a gate file (hook/settings/.git-hooks)" "4.5" tamper
+    fi ;;
+esac
 _gate_named && _grep "$CMD" -qiE "(sed|perl|awk|ruby)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-i[^;&|]*$GATE"          && block "in-place edit of a gate file" "4.5" tamper
 # /CREW-NOT-A-RUNG
 # The redirect TARGET must be the gate path, not merely something later on the line: a target is one token, so
@@ -2078,118 +2414,7 @@ allow_preauthorised(){
 # THIS ONLY EVER ADDS A REFUSAL. The older rules and `_c46_scan` still run and still decide; nothing they refuse is
 # let through here. An option this table does not know is refused, with the reason: an abbreviation is how the nine
 # lines above got in, and guessing which option it stands for is the same mistake again.
-_c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span and every escaped character as one marker
-              # (\001 n \001, its text in _C47_Q[n]); redirections set apart from the words they touch; heredoc bodies gone
-  local s="$1" out="" pre c w hd="" c2 nl=$'\n' n=0 body t bt=0
-  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""
-  _gsub "$s" $'\r' ''; _gsub "$_GS" "$_C47_M" ''; s="$_GS"
-  while :; do
-    pre="${s%%[\"\'\\\;\&\|\<\>\#\(\)\`\$$nl]*}"; out="$out$pre"
-    [ "$pre" = "$s" ] && break
-    c="${s:${#pre}:1}"; s="${s:${#pre}+1}"
-    case "$c" in
-      \\) case "$s" in
-            "$nl"*) s="${s:1}" ;;                                  # a backslash-newline joins: both characters go
-            '') ;;
-            *) _C47_Q[n]="${s:0:1}"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)); s="${s:1}" ;;   # an escaped character is itself, quoted
-          esac ;;
-      \') case "$s" in *\'*) body="${s%%\'*}"; s="${s:${#body}+1}" ;; *) body="$s"; s="" ;; esac
-          _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
-      \") body=""
-          case "$s" in
-            '$(cat <<'*)   # a message read from a here-document: its body is skipped as a whole, quotes and all
-              w="${s:8}"; w="${w#-}"; w="${w#[\'\"]}"; w="${w%%[!A-Za-z0-9_]*}"
-              case "$s" in *"$nl$w$nl"*) [ -n "$w" ] && { pre="${s%%"$nl$w$nl"*}"; s="${s:${#pre}+${#w}+2}"; body='(a here-document)'; } ;; esac ;;
-          esac
-          while :; do                                              # to the closing quote that is not escaped
-            pre="${s%%[\"\\]*}"
-            [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
-            c2="${s:${#pre}:1}"; body="$body$pre"; s="${s:${#pre}+1}"
-            [ "$c2" = '"' ] && break
-            body="$body${s:0:1}"; s="${s:1}"
-          done
-          # "$@" and "${A[@]}" stay quoted and still become SEVERAL words: `set -- -n; git commit -m x "$@"`.
-          case "$body" in *'$@'*|*'[@]'*) _C47_QX="$_C47_QX $n " ;; esac
-          _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
-      \$) case "$s" in
-            \'*) # $'…' : a quoted text in which a backslash escapes, so a quote after one does not close it
-                 s="${s:1}"; body=""
-                 while :; do
-                   pre="${s%%[\'\\]*}"
-                   [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
-                   c2="${s:${#pre}:1}"; body="$body$pre"; s="${s:${#pre}+1}"
-                   [ "$c2" = "'" ] && break
-                   body="$body\\${s:0:1}"; s="${s:1}"
-                 done
-                 _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
-            '(('*) case "$s" in *'))'*) pre="${s%%'))'*}"; s="${s:${#pre}+2}" ;; *) s="" ;; esac; out="$out\$" ;;   # $(( … )): arithmetic, `<<` in it is a shift
-            '{'*)  case "$s" in *'}'*) pre="${s%%'}'*}"; s="${s:${#pre}+1}" ;; *) s="" ;; esac; out="$out\$" ;;     # ${ … }: one expansion, `#` in it is no comment
-            *) out="$out\$" ;;
-          esac ;;
-      "$nl") if [ -n "$hd" ]; then                                 # the lines up to the delimiter are the here-document
-               case "$s" in
-                 "$hd")            s="" ;;
-                 "$hd$nl"*)        s="${s:${#hd}+1}" ;;
-                 *"$nl$hd$nl"*)    pre="${s%%"$nl$hd$nl"*}"; s="${s:${#pre}+${#hd}+2}" ;;
-                 *"$nl$hd")        s="" ;;
-               esac                                                # no such line: it was no here-document, read on
-               hd=""
-             fi
-             out="$out ; " ;;
-      \|) case "$out" in *\>) out="$out|" ;; *) out="$out ; " ;; esac ;;       # >| is a redirection, not a pipe
-      \;|\(|\)) out="$out ; " ;;
-      # A backtick opens a command substitution as `$(` does, so the word it starts reads as an expansion too:
-      # `git \`printf commit\` -m x` is a git call whose subcommand the shell fills in. The closing one only separates.
-      \`) if [ "$bt" = 0 ]; then bt=1; out="$out\$ ; "; else bt=0; out="$out ; "; fi ;;
-      \&) case "$out" in
-            *[\<\>]) out="$out&" ;;                                 # 2>&1, >&, and the input forms 0<&-, <&2
-            *) case "$s" in
-                 \>*) out="$out &>"; s="${s:1}" ;;                  # &>
-                 *) out="$out ; " ;;
-               esac ;;
-          esac ;;
-      \<|\>)
-          if [ "$c" = '<' ]; then
-            case "$s" in
-              \<\<*) out="$out <<< "; s="${s:2}"; continue ;;       # a here-string: one word follows, on this line
-              \<*) s="${s:1}"; s="${s#-}"
-                   while :; do case "$s" in [$' \t']*) s="${s:1}" ;; *) break ;; esac; done
-                   t="${s%%[$' \t'\;\&\|\<\>\(\)$nl]*}"; s="${s:${#t}}"   # the delimiter word, then without its quoting
-                   hd="${t//\"/}"; hd="${hd//\'/}"; hd="${hd//\\/}"
-                   out="$out <<H "; continue ;;
-            esac
-          fi
-          # A redirection is its own word: `-a>/dev/null` is `-a` and `>/dev/null`. Only a number directly in front
-          # of it belongs to it (2>…), and a `>` or `&` already there (>>, &>, >&).
-          case "$out" in
-            *[\<\>\&]) ;;
-            *[0-9]) t="${out##*[!0-9]}"; pre="${out%"$t"}"; case "$pre" in ''|*[$' \t']) ;; *) out="$out " ;; esac ;;
-            *) out="$out " ;;
-          esac
-          out="$out$c" ;;
-      \#) case "$out" in
-            ''|*[$' \t']) case "$s" in *"$nl"*) pre="${s%%"$nl"*}"; s="${s:${#pre}}" ;; *) s="" ;; esac ;;   # a comment, to the end of its line
-            *) out="$out#" ;;
-          esac ;;
-    esac
-  done
-  _C47_T="$out"
-}
-_c47_w(){  # $1 = one token of _C47_T -> _W: the word as the command receives it (expansions left as written);
-           # _WQ = 1 when part of it was quoted; _WX = 1 when an UNQUOTED part holds $ * ? [ or {, i.e. the shell
-           # will make something else of it — possibly more than one word
-  local t="$1" m="$_C47_M" pre i
-  _W=""; _WQ=0; _WX=0; _WAT=0
-  while :; do
-    case "$t" in *"$m"*) ;; *) break ;; esac
-    pre="${t%%"$m"*}"; t="${t#*"$m"}"; i="${t%%"$m"*}"; t="${t#*"$m"}"
-    case "$pre" in *[\$\*\?\[\{]*) _WX=1 ;; esac
-    case "$i" in ''|*[!0-9]*) ;; *) _W="$_W$pre${_C47_Q[i]:-}"; _WQ=1; case "$_C47_QX" in *" $i "*) _WX=1; _WAT=1 ;; esac; continue ;; esac
-    _W="$_W$pre"
-  done
-  case "$t" in *[\$\*\?\[\{]*) _WX=1 ;; esac
-  _W="$_W$t"
-}
+# _c47_read and _c47_w, which read it, stand above the gate-file rule: that rule reads a call with them too.
 _c47_exp(){  # $1 = a raw token of a commit, $2 = the word it reads as -> sets _C47_EXP when the shell would change it
   # What the shell will make of an argument has to be readable. An unquoted `$NAME` is, when NAME was given one
   # literal word earlier in the call; a glob, a brace list, or any other expansion is not: measured,
