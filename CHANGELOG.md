@@ -140,6 +140,21 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A command that names a gate file must be one that reads it.** The rule that guards the hooks, `settings.json`,
+  the rulebook and the git hooks looked for a write verb (`rm`, `mv`, `cp`, `tee`, …) in front of the path, and a
+  list of verbs is never complete: of 39 ways to write or delete a gate file, 32 passed (in 3.0.3 as well: `curl -o`,
+  `wget -O`, `sort -o`, `git log --output=`, `tar -C`, `unzip -d`, `unlink`, `shred`, `touch`, `patch`, an editor,
+  `find … -delete`, `git checkout <rev> -- <file>`). The question is turned round. A command that names a gate path
+  passes when it is a reader (`grep`, `cat`, `head`, `tail`, `wc`, `ls`, `less`, `diff`, `jq`, `sed` without `-i`,
+  `find` without `-delete` or `-exec`, …), a runner of a hook script (`bash .claude/hooks/<x>.sh`), `chmod +x` on
+  one, or a git command that only reads or stages (`status`, `log`, `diff`, `show`, `add`, `commit`, a `git config`
+  that reads); anything else is refused, with the reason. A path that is hidden is followed where the text allows
+  it: quoting inside the name, the `.claude` folder itself, a glob, a variable or a loop that holds the path, a `cd`
+  into the folder, a command substitution, `xargs`. `bash -c`, `eval`, `source`, a changed `PATH`, an alias or a
+  function in such a call, and an interpreter fed a here-document that names a gate file are refused.
+  **Reading is freer than before:** `grep -n rm .claude/hooks/guard-bash.sh` and `cat /Users/ed/p/.claude/hooks/x`
+  were refused for the word `rm` and the folder `ed`, and pass now. Bash tool; a PowerShell call keeps the verb
+  rule, without counting a verb that is a name in a path.
 - **A command continued on the next line is read as one command.** A backslash at the end of a line continues it, and
   the gates read each line on its own: `rm -f \` + newline + `.claude/hooks/guard-bash.sh` deleted a gate file, `rm \`
   + newline + `-rf …`, `git push \` + newline + `--force` and `curl … \` + newline + `| bash` were not refused, and
