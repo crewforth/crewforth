@@ -8371,10 +8371,25 @@ for _h in guard-bash.sh guard-commit-scan.sh guard-write.sh guard-powershell.sh;
     else [ ! -s "$_CF/err" ] || _cfbad="$_cfbad [$_h, $_name: wrote to stderr — $(sed -n 1p "$_CF/err" | cut -c1-90)]"; fi
   done
 done
-if [ "$_cfn" != 20 ]; then fail "FIXTURE: the broken-gate probe ran $_cfn cells, not 20:$_cfbad"
+# EVERY script the settings wire to PreToolUse carries the block, opens its body as _gate_main and refuses after it.
+# The comparison of the block across the hooks (_blk_gate) only compares the files that HAVE it: a gate that lost
+# the block, or a new gate that never got it, is not in that comparison at all. The list is read from the settings.
+_cfpre=""; _cfpn=0
+for _gf in "$ROOT/settings.json" "$ROOT/hooks/hooks.json"; do
+  [ -f "$_gf" ] || continue
+  _cfpre="$_cfpre $(json_hooks "$_gf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse"' | grep -oE 'hooks/[A-Za-z0-9_-]+\.sh' | sort -u | tr '\n' ' ')"
+done
+for _h in $_cfpre; do _h="${_h#hooks/}"; _cfpn=$((_cfpn+1))
+  [ -f "$HOOKS/$_h" ] || { _cfbad="$_cfbad [$_h is wired to PreToolUse and is not among the hooks]"; continue; }
+  grep -q '^# ---- CREW-FAILCLOSED' "$HOOKS/$_h" && grep -q '^# ---- /CREW-FAILCLOSED$' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h is wired to PreToolUse and does not carry the CREW-FAILCLOSED block]"
+  grep -q '^_gate_main(){$' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h: its body is not _gate_main]"
+  [ "$(tail -n 2 "$HOOKS/$_h" | tr '\n' '|')" = '_gate_main "$@"|_crew_stop "a command of the gate was abandoned"|' ] || _cfbad="$_cfbad [$_h does not end by calling _gate_main and refusing after it]"
+done
+if [ "$_cfpn" -lt 4 ]; then fail "FIXTURE: only $_cfpn scripts read as wired to PreToolUse (want at least the 4 gates) — the list broke, not the hooks:$_cfbad"
+elif [ "$_cfn" != 20 ]; then fail "FIXTURE: the broken-gate probe ran $_cfn cells, not 20:$_cfbad"
 elif [ -z "$_cfbad" ]; then
-  if [ "$_cfarr" = 2 ]; then pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset array, an unset variable, a division by zero or a bad substitution (16 cells), and 0 with nothing on stderr when nothing breaks (4 cells)"
-  else pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset variable, a division by zero or a bad substitution (12 cells), and 0 with nothing on stderr when nothing breaks; bash ${BASH_VERSION%%(*} does not break on a declared, empty array, so those 4 cells answer 0 here"; fi
+  if [ "$_cfarr" = 2 ]; then pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset array, an unset variable, a division by zero or a bad substitution (16 cells), and 0 with nothing on stderr when nothing breaks (4 cells); every script the settings wire to PreToolUse ($_cfpn) carries the block, runs its body as _gate_main and refuses after it"
+  else pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset variable, a division by zero or a bad substitution (12 cells), and 0 with nothing on stderr when nothing breaks; bash ${BASH_VERSION%%(*} does not break on a declared, empty array, so those 4 cells answer 0 here; every script the settings wire to PreToolUse ($_cfpn) carries the block, runs its body as _gate_main and refuses after it"; fi
 else fail "a gate that stops on an error of its own:$_cfbad"; fi
 
 # ---- a match on the command has no pipe, and a grep that could not run stops the call ----------------------------
