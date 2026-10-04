@@ -1358,6 +1358,7 @@ _blk_gate CREW-LOCALE         "the locale block every gate matches under"
 _blk_gate CREW-SCAN           "the scan that tells 'could not look' from 'nothing there'"
 _blk_gate CREW-MATCH          "the match on the command that reads grep's status"
 _blk_gate CREW-JOIN           "the joining of continued lines before a command is read"
+_blk_gate CREW-FAILCLOSED     "the refusal when a gate stops on an error of its own"
 # End to end: called by hand from this repo, the hook must produce a reading rather than "transcript not found".
 cu_hand="$(cd "$ROOT/.." && bash "$HOOKS/context-usage.sh" 2>&1)"
 # The three arms used to be pass / note / note, and `note` touches no counter — so on any machine without a
@@ -7484,7 +7485,7 @@ sec "== 12g) a git commit is read the way the shell and git read it: the forms t
 # skipped by design, so only the §4.5 rows are refused there. `\x27` is a single quote, `\n` JSON's newline, @O@
 # another repository, @W@ this one.
 if [ "$UNITS" != 1 ]; then
-  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 31
+  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 32
 else
 _CF="$(mktemp -d)"; _CF="$(cd -P "$_CF" && pwd)"; _cfw="$_CF/w"; _cfo="$_CF/o"; _cfq="'"; _cf_badjson=""
 _cf_new(){ rm -rf "$_CF/w" "$_CF/o"
@@ -8635,6 +8636,50 @@ _cf_table '2 2 @@ Remove-Item .claude/hooks/guard-bash.sh
 if [ "$_cfgrn $_cfgpn $_cfn" != "160 86 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 160, 86 and 8"
 elif [ -z "$_cfgb$_cfbad" ]; then pass "a command that names a gate file is a reader, a runner of a hook script or a reading git command, or it is refused: 160 calls refused (a write by option or by a program the old verb list did not know: curl -o, wget -O, sort -o, git --output, tar -C, unzip -d, unlink, shred, touch, patch, an editor, find -delete, git checkout / restore of the file; the path hidden behind a glob, a variable, a loop, a cd, the parent directory, quoting, a substitution, xargs; bash -c, eval, source; a changed PATH, an alias, a function; an interpreter fed a here-document), 86 pass or reach the commit prompt (grep -n rm, cat, head, less, diff, git log / diff / show / add, bash <hook script>, a commit message or a note that names one, a folder called ed or node), 8 calls from inside .claude, .claude/hooks, .git and .git/hooks answer to the list as a whole and from any other folder do not, 8 PowerShell calls keep the verb rule (254 rows)"
 else fail "the gate-file list:$_cfgb$_cfbad"; fi
+# ---- a gate that stops on an error of its own refuses the call ---------------------------------------------------
+# Claude Code blocks a tool call on exit 2 only. A hook that died with 1, or ran on past the rule that broke and
+# left with 0, had allowed the call: measured with a local array that was declared and not set (bash 4.4 and later
+# call it unbound), `rm .claude/hooks/pre-commit` passed. Each PreToolUse gate now refuses when it leaves with a
+# status that is neither 0 nor 2, and when its body returns instead of exiting (the CREW-FAILCLOSED block).
+# The probe stands where the incident stood: a function that breaks, called as `if ! f; then …; fi` at the top of
+# the gate's body, in a COPY of the gate. The unbroken copy must still answer 0 for `ls -la`.
+_cfbad=""; _cfn=0; _cfarr=2
+# bash before 4.4 does not call a declared, empty array unbound: there that probe breaks nothing, and 0 is right.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then _cfarr=0; fi
+_cfpl='{"session_id":"s","cwd":"/tmp","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"ls -la","file_path":"/tmp/x.txt","content":"x"}}'
+mkdir -p "$_CF/fc"; cp "$HOOKS"/*.txt "$_CF/fc/" 2>/dev/null
+for _h in guard-bash.sh guard-commit-scan.sh guard-write.sh guard-powershell.sh; do
+  for _k in 'none|:|0' 'array|local -a _Z; _Z[${#_Z[@]}]=x|'"$_cfarr" 'scalar|: "${_CREW_NO_SUCH_VAR}"|2' 'divide|: $(( 1 / 0 ))|2' 'subst|: "${_Z[}"|2'; do
+    _name="${_k%%|*}"; _body="${_k#*|}"; _want="${_body##*|}"; _body="${_body%|*}"
+    LC_ALL=C awk -v b="$_body" '{print} /^_gate_main\(\)\{$/{print "_crew_probe(){ " b "; return 1; }"; print "if ! _crew_probe; then :; fi"}' "$HOOKS/$_h" > "$_CF/fc/$_h"
+    grep -q '^_crew_probe' "$_CF/fc/$_h" || { _cfbad="$_cfbad FIXTURE:$_h-has-no-_gate_main-to-put-the-probe-in"; continue; }
+    printf '%s' "$_cfpl" | CREW_GATE_LOG=/dev/null bash "$_CF/fc/$_h" >/dev/null 2>"$_CF/err"; _cfr=$?
+    _cfn=$((_cfn+1))
+    [ "$_cfr" = "$_want" ] || _cfbad="$_cfbad [$_h, $_name: rc=$_cfr, want $_want — $(sed -n 1p "$_CF/err" | cut -c1-90)]"
+    if [ "$_want" = 2 ]; then grep -q 'stopped on an error of its own' "$_CF/err" || _cfbad="$_cfbad [$_h, $_name: refused without saying it was the gate's own error]"
+    else [ ! -s "$_CF/err" ] || _cfbad="$_cfbad [$_h, $_name: wrote to stderr — $(sed -n 1p "$_CF/err" | cut -c1-90)]"; fi
+  done
+done
+# EVERY script the settings wire to PreToolUse carries the block, opens its body as _gate_main and refuses after it.
+# The comparison of the block across the hooks (_blk_gate) only compares the files that HAVE it: a gate that lost
+# the block, or a new gate that never got it, is not in that comparison at all. The list is read from the settings.
+_cfpre=""; _cfpn=0
+for _gf in "$ROOT/settings.json" "$ROOT/hooks/hooks.json"; do
+  [ -f "$_gf" ] || continue
+  _cfpre="$_cfpre $(json_hooks "$_gf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse"' | grep -oE 'hooks/[A-Za-z0-9_-]+\.sh' | sort -u | tr '\n' ' ')"
+done
+for _h in $_cfpre; do _h="${_h#hooks/}"; _cfpn=$((_cfpn+1))
+  [ -f "$HOOKS/$_h" ] || { _cfbad="$_cfbad [$_h is wired to PreToolUse and is not among the hooks]"; continue; }
+  grep -q '^# ---- CREW-FAILCLOSED' "$HOOKS/$_h" && grep -q '^# ---- /CREW-FAILCLOSED$' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h is wired to PreToolUse and does not carry the CREW-FAILCLOSED block]"
+  grep -q '^_gate_main(){$' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h: its body is not _gate_main]"
+  [ "$(tail -n 2 "$HOOKS/$_h" | tr '\n' '|')" = '_gate_main "$@"|_crew_stop "a command of the gate was abandoned"|' ] || _cfbad="$_cfbad [$_h does not end by calling _gate_main and refusing after it]"
+done
+if [ "$_cfpn" -lt 4 ]; then fail "FIXTURE: only $_cfpn scripts read as wired to PreToolUse (want at least the 4 gates) — the list broke, not the hooks:$_cfbad"
+elif [ "$_cfn" != 20 ]; then fail "FIXTURE: the broken-gate probe ran $_cfn cells, not 20:$_cfbad"
+elif [ -z "$_cfbad" ]; then
+  if [ "$_cfarr" = 2 ]; then pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset array, an unset variable, a division by zero or a bad substitution (16 cells), and 0 with nothing on stderr when nothing breaks (4 cells); every script the settings wire to PreToolUse ($_cfpn) carries the block, runs its body as _gate_main and refuses after it"
+  else pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset variable, a division by zero or a bad substitution (12 cells), and 0 with nothing on stderr when nothing breaks; bash ${BASH_VERSION%%(*} does not break on a declared, empty array, so those 4 cells answer 0 here; every script the settings wire to PreToolUse ($_cfpn) carries the block, runs its body as _gate_main and refuses after it"; fi
+else fail "a gate that stops on an error of its own:$_cfbad"; fi
 
 # ---- a match on the command has no pipe, and a grep that could not run stops the call ----------------------------
 # The rules that grep the command fed it through a pipe, under pipefail. `grep -q` leaves at its first match, so with
@@ -9037,6 +9082,22 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ -z "$UNRUN" ] && pass "every gate verify.sh defines is wired into ci.yml" \
                       || fail "verify.sh defines gates ci.yml never runs: $UNRUN — they hold only when run by hand"
     fi
+
+    # EVERY JOB OF EVERY WORKFLOW HAS A TIME LIMIT. A job without one runs for GitHub's default of 360 minutes: a
+    # Windows e2e that hung sat for three hours and nothing said so. A job that runs on a runner (`runs-on:`) must
+    # carry `timeout-minutes:`; a job that only calls another workflow cannot carry one, and the workflow it calls
+    # is in this same count. Counted per file, at the indentation of a job's own keys.
+    _wfbad=""; _wfn=0; _wfj=0
+    for _wf in "$SGR"/.github/workflows/*.yml; do
+      [ -f "$_wf" ] || continue
+      _wfn=$((_wfn+1))
+      _wfr="$(grep -cE '^    runs-on:' "$_wf")"; _wft="$(grep -cE '^    timeout-minutes:[[:space:]]*[^[:space:]]' "$_wf")"
+      _wfj=$((_wfj+_wfr))
+      [ "$_wfr" = "$_wft" ] || _wfbad="$_wfbad ${_wf##*/}($_wfr jobs on a runner, $_wft limits)"
+    done
+    if [ "$_wfn" -lt 2 ] || [ "$_wfj" -lt 5 ]; then fail "FIXTURE: $_wfn workflow files and $_wfj jobs on a runner were read — the count broke, not the workflows"
+    elif [ -z "$_wfbad" ]; then pass "every job of every workflow has a time limit ($_wfj jobs on a runner in $_wfn workflow files, each with timeout-minutes)"
+    else fail "a workflow job has no time limit (it would run for the default 360 minutes):$_wfbad"; fi
 
     # A skipped step must never be counted as a pass, and under CREW_VERIFY_STRICT it must FAIL instead — on a
     # runner a missing tool is a broken runner. Measured in three states rather than asserted once, because a
