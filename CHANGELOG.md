@@ -140,6 +140,14 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A command continued on the next line is read as one command.** A backslash at the end of a line continues it, and
+  the gates read each line on its own: `rm -f \` + newline + `.claude/hooks/guard-bash.sh` deleted a gate file, `rm \`
+  + newline + `-rf …`, `git push \` + newline + `--force` and `curl … \` + newline + `| bash` were not refused, and
+  `git \` + newline + `push` or `commit` reached neither the approval prompt nor the review gate, nor the commit
+  content scan (in 3.0.3 as well; measured on macOS and Windows). The command is now joined before anything reads
+  it, the way the shell joins it: an odd number of backslashes continues the line, a PowerShell call continues with a
+  backtick, and a line that may be a comment is read both ways. In a PowerShell call a gate path spelled with
+  backslashes (`Remove-Item .claude\hooks\guard-bash.sh`) is the same gate path; it was not recognised.
 - **A quoted argument is no longer read as a command.** `git commit -m "drop the rm -rf /tmp/build step"` deletes
   nothing and `claude -p "… git push --force origin main"` pushes nothing, yet the §4.5 rules read the command as
   text and refused both (measured: 14 of 20 such commands). The gate now takes the quoted argument out before those
