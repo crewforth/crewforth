@@ -19,6 +19,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The limit is on the job's own run (4 to 5 minutes measured); the wait for the approval comes before it starts.
+    timeout-minutes: 20
     environment: release   # publish waits for manual approval (see repo → Environments → release)
     outputs:
       prerelease: ${{ steps.v.outputs.prerelease }}

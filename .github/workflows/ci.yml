@@ -29,8 +29,13 @@ jobs:
   # behave on another OS; a README or a site page cannot change that, so they are skipped when nothing else
   # changed. The list lives in packaging/ci-docs-only.sh and is pinned by smoke (no script, no hook, nothing
   # under kit/). A push to main or next always runs everything, and so does anything the diff cannot be read for.
+  # EVERY JOB HAS A TIME LIMIT. Without one a job runs for GitHub's default of 360 minutes: a Windows e2e that hung
+  # in its rehearsal step sat there for three hours (its usual run is about 40 minutes), and nothing said so. The
+  # limits are about twice the longest green run measured over the last eight (verify 9 min, macOS smoke 7, macOS
+  # e2e 12, Windows smoke 30, Windows e2e 43), so a slow runner still finishes and a hung one is cut off.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
       site: ${{ steps.scope.outputs.site }}
@@ -67,6 +72,7 @@ jobs:
 
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
@@ -120,6 +126,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.site == 'yes'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -149,6 +156,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
     defaults:
       run:
         shell: bash
@@ -216,6 +224,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     defaults:
       run:
         shell: bash

@@ -3,6 +3,11 @@
 # so a release can never ship while the e2e is red — the gap that once let a green release sit on top of a red CI.
 # Run from anywhere; it resolves the repo root itself. Uses $RUNNER_TEMP in CI, a mktemp dir locally.
 set -euo pipefail
+# NOTHING HERE READS THE CALLER'S STDIN. Every case hands its own input to what it runs (a pipe, a here-string, a
+# pty of its own). A call that inherits this script's stdin and waits on it would sit until the job's time limit:
+# a Windows e2e hung for three hours in this script and the log of a hung job cannot be read. No such call was
+# found; this closes the class instead of the one case: whatever inherits stdin from here on reads end-of-file.
+exec </dev/null
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 WORK="${RUNNER_TEMP:-$(mktemp -d)}"
 # Several assertions grep the installers' English output. A Turkish locale (or an exported CREW_LANG=tr) turns
