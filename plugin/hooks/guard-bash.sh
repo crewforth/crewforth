@@ -1579,7 +1579,7 @@ _gt_script(){  # $1 = a word -> 0 = a file under a hooks directory of the gate (
 }
 _gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate path -> 0 = on the list · 1 = not (_GTW says why)
   local seg="${1//[$'\t\n']/ }" taint="${2:-0}" k=0 a w base sub scr
-  local -a W
+  local -a W=()
   read -r -a W <<< "$seg"
   _GTW=""
   a=0                                            # a = 1: an assignment stands in front of the command word
@@ -1673,7 +1673,7 @@ _GT_BIND='(^|[;&|[:space:](])(xargs|parallel|read|mapfile|readarray)([[:space:]]
 _GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
 _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is refused; 0 otherwise
   local cwd="" taint=0 named=0 globby=0 any=0 here=0 seg w x t i sp=$'\002'
-  local -a SEG W
+  local -a SEG=() W=()     # set, not only declared: bash 4.4 and later call a declared, empty array unbound under `set -u`
   _GTW=""
   if _gate_named && _gt_named "$CMD_UQ"; then named=1; fi
   case "$CMD_UQ" in *.git*) [[ "$CMD_UQ" =~ $_GT_DOTGIT ]] && named=1 ;; esac
