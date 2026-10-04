@@ -140,6 +140,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A gate that stops on an error of its own refuses the call.** Claude Code blocks a tool call on exit 2 only, so a
+  hook that died with status 1, or went on past the rule that broke and left with 0, had allowed the call. Each
+  PreToolUse gate (`guard-bash.sh`, `guard-commit-scan.sh`, `guard-write.sh`, `guard-powershell.sh`) now answers 2,
+  and says the error was its own, when it leaves with a status that is neither 0 nor 2 and when a command of it is
+  abandoned in the middle. Not covered: an error inside a command substitution, and a command that is not found.
 - **A command continued on the next line is read as one command.** A backslash at the end of a line continues it, and
   the gates read each line on its own: `rm -f \` + newline + `.claude/hooks/guard-bash.sh` deleted a gate file, `rm \`
   + newline + `-rf …`, `git push \` + newline + `--force` and `curl … \` + newline + `| bash` were not refused, and

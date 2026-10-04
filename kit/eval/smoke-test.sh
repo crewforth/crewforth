@@ -1358,6 +1358,7 @@ _blk_gate CREW-LOCALE         "the locale block every gate matches under"
 _blk_gate CREW-SCAN           "the scan that tells 'could not look' from 'nothing there'"
 _blk_gate CREW-MATCH          "the match on the command that reads grep's status"
 _blk_gate CREW-JOIN           "the joining of continued lines before a command is read"
+_blk_gate CREW-FAILCLOSED     "the refusal when a gate stops on an error of its own"
 # End to end: called by hand from this repo, the hook must produce a reading rather than "transcript not found".
 cu_hand="$(cd "$ROOT/.." && bash "$HOOKS/context-usage.sh" 2>&1)"
 # The three arms used to be pass / note / note, and `note` touches no counter — so on any machine without a
@@ -7484,7 +7485,7 @@ sec "== 12g) a git commit is read the way the shell and git read it: the forms t
 # skipped by design, so only the §4.5 rows are refused there. `\x27` is a single quote, `\n` JSON's newline, @O@
 # another repository, @W@ this one.
 if [ "$UNITS" != 1 ]; then
-  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 30
+  skip scope "commit forms: the unit cases run in the source checkout (scope=install)" 31
 else
 _CF="$(mktemp -d)"; _CF="$(cd -P "$_CF" && pwd)"; _cfw="$_CF/w"; _cfo="$_CF/o"; _cfq="'"; _cf_badjson=""
 _cf_new(){ rm -rf "$_CF/w" "$_CF/o"
@@ -8345,6 +8346,51 @@ done
 if [ "$_cfrn $_cfqn $_cfpn" != "34 15 13" ]; then fail "FIXTURE: the continued-line tables have $_cfrn, $_cfqn and $_cfpn rows, not 34, 15 and 13"
 elif [ -z "$_cfrb$_cfqb$_cfpb$_cfbad" ]; then pass "a command continued on the next line is read joined, as the shell runs it: 34 Bash calls split by a backslash and a newline are refused like their one-line form (a gate file deleted, copied over, moved, edited, redirected over, the path itself split; rm -rf, push --force, reset --hard, add -f, checkout -- ., branch -D, chmod 777, curl | bash, a .env read, core.hooksPath, a line after a possible comment); 15 harmless or approvable ones pass or reach the same prompt; 13 PowerShell calls (a backtick continuation, a gate path spelled with backslashes) get the verdict of their plain form; _join_lines on bytes (10 cases); guard-commit-scan.sh scans a continued commit"
 else fail "a command continued on the next line:$_cfrb$_cfqb$_cfpb$_cfbad"; fi
+
+# ---- a gate that stops on an error of its own refuses the call ---------------------------------------------------
+# Claude Code blocks a tool call on exit 2 only. A hook that died with 1, or ran on past the rule that broke and
+# left with 0, had allowed the call: measured with a local array that was declared and not set (bash 4.4 and later
+# call it unbound), `rm .claude/hooks/pre-commit` passed. Each PreToolUse gate now refuses when it leaves with a
+# status that is neither 0 nor 2, and when its body returns instead of exiting (the CREW-FAILCLOSED block).
+# The probe stands where the incident stood: a function that breaks, called as `if ! f; then …; fi` at the top of
+# the gate's body, in a COPY of the gate. The unbroken copy must still answer 0 for `ls -la`.
+_cfbad=""; _cfn=0; _cfarr=2
+# bash before 4.4 does not call a declared, empty array unbound: there that probe breaks nothing, and 0 is right.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then _cfarr=0; fi
+_cfpl='{"session_id":"s","cwd":"/tmp","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"ls -la","file_path":"/tmp/x.txt","content":"x"}}'
+mkdir -p "$_CF/fc"; cp "$HOOKS"/*.txt "$_CF/fc/" 2>/dev/null
+for _h in guard-bash.sh guard-commit-scan.sh guard-write.sh guard-powershell.sh; do
+  for _k in 'none|:|0' 'array|local -a _Z; _Z[${#_Z[@]}]=x|'"$_cfarr" 'scalar|: "${_CREW_NO_SUCH_VAR}"|2' 'divide|: $(( 1 / 0 ))|2' 'subst|: "${_Z[}"|2'; do
+    _name="${_k%%|*}"; _body="${_k#*|}"; _want="${_body##*|}"; _body="${_body%|*}"
+    LC_ALL=C awk -v b="$_body" '{print} /^_gate_main\(\)\{$/{print "_crew_probe(){ " b "; return 1; }"; print "if ! _crew_probe; then :; fi"}' "$HOOKS/$_h" > "$_CF/fc/$_h"
+    grep -q '^_crew_probe' "$_CF/fc/$_h" || { _cfbad="$_cfbad FIXTURE:$_h-has-no-_gate_main-to-put-the-probe-in"; continue; }
+    printf '%s' "$_cfpl" | CREW_GATE_LOG=/dev/null bash "$_CF/fc/$_h" >/dev/null 2>"$_CF/err"; _cfr=$?
+    _cfn=$((_cfn+1))
+    [ "$_cfr" = "$_want" ] || _cfbad="$_cfbad [$_h, $_name: rc=$_cfr, want $_want — $(sed -n 1p "$_CF/err" | cut -c1-90)]"
+    if [ "$_want" = 2 ]; then grep -q 'stopped on an error of its own' "$_CF/err" || _cfbad="$_cfbad [$_h, $_name: refused without saying it was the gate's own error]"
+    else [ ! -s "$_CF/err" ] || _cfbad="$_cfbad [$_h, $_name: wrote to stderr — $(sed -n 1p "$_CF/err" | cut -c1-90)]"; fi
+  done
+done
+# EVERY script the settings wire to PreToolUse carries the block, opens its body as _gate_main and refuses after it.
+# The comparison of the block across the hooks (_blk_gate) only compares the files that HAVE it: a gate that lost
+# the block, or a new gate that never got it, is not in that comparison at all. The list is read from the settings.
+_cfpre=""; _cfpn=0
+for _gf in "$ROOT/settings.json" "$ROOT/hooks/hooks.json"; do
+  [ -f "$_gf" ] || continue
+  _cfpre="$_cfpre $(json_hooks "$_gf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse"' | grep -oE 'hooks/[A-Za-z0-9_-]+\.sh' | sort -u | tr '\n' ' ')"
+done
+for _h in $_cfpre; do _h="${_h#hooks/}"; _cfpn=$((_cfpn+1))
+  [ -f "$HOOKS/$_h" ] || { _cfbad="$_cfbad [$_h is wired to PreToolUse and is not among the hooks]"; continue; }
+  grep -q '^# ---- CREW-FAILCLOSED' "$HOOKS/$_h" && grep -q '^# ---- /CREW-FAILCLOSED$' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h is wired to PreToolUse and does not carry the CREW-FAILCLOSED block]"
+  grep -q '^_gate_main(){$' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h: its body is not _gate_main]"
+  [ "$(tail -n 2 "$HOOKS/$_h" | tr '\n' '|')" = '_gate_main "$@"|_crew_stop "a command of the gate was abandoned"|' ] || _cfbad="$_cfbad [$_h does not end by calling _gate_main and refusing after it]"
+done
+if [ "$_cfpn" -lt 4 ]; then fail "FIXTURE: only $_cfpn scripts read as wired to PreToolUse (want at least the 4 gates) — the list broke, not the hooks:$_cfbad"
+elif [ "$_cfn" != 20 ]; then fail "FIXTURE: the broken-gate probe ran $_cfn cells, not 20:$_cfbad"
+elif [ -z "$_cfbad" ]; then
+  if [ "$_cfarr" = 2 ]; then pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset array, an unset variable, a division by zero or a bad substitution (16 cells), and 0 with nothing on stderr when nothing breaks (4 cells); every script the settings wire to PreToolUse ($_cfpn) carries the block, runs its body as _gate_main and refuses after it"
+  else pass "a gate that stops on an error of its own refuses the call: guard-bash.sh, guard-commit-scan.sh, guard-write.sh and guard-powershell.sh each answer 2 and say so with a function that breaks on an unset variable, a division by zero or a bad substitution (12 cells), and 0 with nothing on stderr when nothing breaks; bash ${BASH_VERSION%%(*} does not break on a declared, empty array, so those 4 cells answer 0 here; every script the settings wire to PreToolUse ($_cfpn) carries the block, runs its body as _gate_main and refuses after it"; fi
+else fail "a gate that stops on an error of its own:$_cfbad"; fi
 
 # ---- a match on the command has no pipe, and a grep that could not run stops the call ----------------------------
 # The rules that grep the command fed it through a pipe, under pipefail. `grep -q` leaves at its first match, so with
