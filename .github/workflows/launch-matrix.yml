@@ -23,6 +23,7 @@ jobs:
   cell:
     name: ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +56,7 @@ jobs:
     name: forwarder · windows-latest · node 22
     if: inputs.spec != ''
     runs-on: windows-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -80,6 +82,7 @@ jobs:
   old-git:
     name: ubuntu:22.04 container · distro git 2.34 · node 22
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     container: ubuntu:22.04
     defaults:
       run:

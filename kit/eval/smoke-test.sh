@@ -8748,6 +8748,22 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
                       || fail "verify.sh defines gates ci.yml never runs: $UNRUN — they hold only when run by hand"
     fi
 
+    # EVERY JOB OF EVERY WORKFLOW HAS A TIME LIMIT. A job without one runs for GitHub's default of 360 minutes: a
+    # Windows e2e that hung sat for three hours and nothing said so. A job that runs on a runner (`runs-on:`) must
+    # carry `timeout-minutes:`; a job that only calls another workflow cannot carry one, and the workflow it calls
+    # is in this same count. Counted per file, at the indentation of a job's own keys.
+    _wfbad=""; _wfn=0; _wfj=0
+    for _wf in "$SGR"/.github/workflows/*.yml; do
+      [ -f "$_wf" ] || continue
+      _wfn=$((_wfn+1))
+      _wfr="$(grep -cE '^    runs-on:' "$_wf")"; _wft="$(grep -cE '^    timeout-minutes:[[:space:]]*[^[:space:]]' "$_wf")"
+      _wfj=$((_wfj+_wfr))
+      [ "$_wfr" = "$_wft" ] || _wfbad="$_wfbad ${_wf##*/}($_wfr jobs on a runner, $_wft limits)"
+    done
+    if [ "$_wfn" -lt 2 ] || [ "$_wfj" -lt 5 ]; then fail "FIXTURE: $_wfn workflow files and $_wfj jobs on a runner were read — the count broke, not the workflows"
+    elif [ -z "$_wfbad" ]; then pass "every job of every workflow has a time limit ($_wfj jobs on a runner in $_wfn workflow files, each with timeout-minutes)"
+    else fail "a workflow job has no time limit (it would run for the default 360 minutes):$_wfbad"; fi
+
     # A skipped step must never be counted as a pass, and under CREW_VERIFY_STRICT it must FAIL instead — on a
     # runner a missing tool is a broken runner. Measured in three states rather than asserted once, because a
     # skip that quietly reads as success is exactly the failure this suite was rebuilt to stop reporting.
