@@ -1279,7 +1279,15 @@ _bounded(){                     # $1 = seconds, rest = command; prints BLOCKED o
     kill -0 "$p" 2>/dev/null || { wait "$p"; echo "rc=$?"; return 0; }
     sleep 1; i=$((i+1))
   done
-  kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null; echo BLOCKED
+  # THE REAPING IS BOUNDED TOO. This line used to be `kill -9 "$p"; wait "$p"`, and `wait` has no limit of its own:
+  # a Windows e2e stopped printing right after the case before this helper's next use and sat for 2 h 40 min until
+  # the job was cancelled (c16469f; the last line was "[wizard] --yes returns on open-but-empty stdin"). The loop
+  # above cannot run past its seconds, so the wait for a process that did not die of the signal is what is left.
+  # A process still there after 10 more seconds is left to the runner's own cleanup, and the case reports BLOCKED.
+  kill -9 "$p" 2>/dev/null
+  i=0; while kill -0 "$p" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 1; i=$((i+1)); done
+  kill -0 "$p" 2>/dev/null || wait "$p" 2>/dev/null
+  echo BLOCKED
 }
 _FC="$WORK/fifo-cal"; rm -rf "$_FC"; mkdir -p "$_FC"
 ( cd "$_FC" && mkfifo f && exec 3<>f && _bounded 5 bash -c 'read -r x' <&3 > rc_open; exec 3>&- ) || true
