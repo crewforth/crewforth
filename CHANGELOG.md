@@ -5,6 +5,25 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- **A command continued on the next line is read as one command.** A backslash at the end of a line continues it, and
+  the gates read each line on its own: `rm -f \` + newline + `.claude/hooks/guard-bash.sh` deleted a gate file, `rm \`
+  + newline + `-rf …`, `git push \` + newline + `--force` and `curl … \` + newline + `| bash` were not refused, and
+  `git \` + newline + `push` or `commit` reached neither the approval prompt nor the review gate, nor the commit
+  content scan (measured on 3.0.3, macOS and Windows). The command is now joined before anything reads it, the way
+  the shell joins it: an odd number of backslashes continues the line, a PowerShell call continues with a backtick,
+  and a line that may be a comment is read both ways.
+- **A gate path spelled with backslashes is the gate path.** In a PowerShell call `Remove-Item
+  .claude\hooks\guard-bash.sh` and `Set-Content .claude\settings.json …` were not recognised and passed.
+- **A gate that stops on an error of its own refuses the call.** Claude Code blocks a tool call on exit 2 only, so a
+  hook that died with status 1, or went on past the rule that broke and left with 0, had allowed the call. Each
+  PreToolUse gate (`guard-bash.sh`, `guard-commit-scan.sh`, `guard-write.sh`, `guard-powershell.sh`) now answers 2,
+  and says the error was its own, when it leaves with a status that is neither 0 nor 2 and when a command of it is
+  abandoned in the middle. Not covered: an error inside a command substitution, and a command that is not found.
+
 ## [3.0.3] — 2026-10-03
 
 ### Security

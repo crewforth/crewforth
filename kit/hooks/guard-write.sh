@@ -49,6 +49,27 @@ _CREW_LOCALE="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
 case "$_CREW_LOCALE" in C|POSIX) _CREW_LOCALE="" ;; esac
 export LC_ALL=C
 # ---- /CREW-LOCALE
+# ---- CREW-FAILCLOSED ---------------------------------------------------------------------------------------
+# A gate that stops on an error of its own must refuse the call, not let it through. Claude Code blocks a tool call
+# on exit 2 only; a hook that dies with 1, or runs on past the rule that broke, has allowed it. Both happened in
+# one defect (measured, bash 5): a local array declared and not set is "unbound" under `set -u`, the rule that read
+# it was abandoned in the middle, the script went on with the NEXT top-level command and left with 0, and
+# `rm .claude/hooks/pre-commit` passed. bash does one of two things with such an error, by the kind of error:
+#   * it leaves the shell with a status that is neither 0 nor 2  -> the EXIT trap below turns that into a refusal;
+#   * it abandons the top-level command it was in and continues -> the whole gate IS one top-level command,
+#     _gate_main, which only ever ends by `exit`. If it RETURNS, it was abandoned, and the line after it refuses.
+# Not covered, and said so: an error inside a command substitution (only that subshell ends), and a command
+# that is not found (status 127, the script continues inside the same command).
+# Byte-identical in every PreToolUse gate; the suite pins it. No process is started.
+_crew_stop(){  # $1 = what happened
+  declare -F gatelog >/dev/null 2>&1 && gatelog BLOCK 4.5 "the gate stopped on an error of its own"
+  echo "GUARD (§4.5): this gate stopped on an error of its own ($1) before it finished judging the call, so the call is refused." >&2
+  echo "Nothing about the call itself was found. The error is the line above these two; it is a defect in Crewforth, not in what you ran. Run the doctor (bash .claude/eval/doctor.sh, Bash tool, not PowerShell) and report it." >&2
+  exit 2
+}
+trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
+# ---- /CREW-FAILCLOSED
+_gate_main(){
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
@@ -555,3 +576,6 @@ if [ -n "$GD" ] && [ -f "$GD/crew-board-guard" ]; then
   esac
 fi
 exit 0
+}
+_gate_main "$@"
+_crew_stop "a command of the gate was abandoned"

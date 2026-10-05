@@ -58,6 +58,27 @@ _CREW_LOCALE="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
 case "$_CREW_LOCALE" in C|POSIX) _CREW_LOCALE="" ;; esac
 export LC_ALL=C
 # ---- /CREW-LOCALE
+# ---- CREW-FAILCLOSED ---------------------------------------------------------------------------------------
+# A gate that stops on an error of its own must refuse the call, not let it through. Claude Code blocks a tool call
+# on exit 2 only; a hook that dies with 1, or runs on past the rule that broke, has allowed it. Both happened in
+# one defect (measured, bash 5): a local array declared and not set is "unbound" under `set -u`, the rule that read
+# it was abandoned in the middle, the script went on with the NEXT top-level command and left with 0, and
+# `rm .claude/hooks/pre-commit` passed. bash does one of two things with such an error, by the kind of error:
+#   * it leaves the shell with a status that is neither 0 nor 2  -> the EXIT trap below turns that into a refusal;
+#   * it abandons the top-level command it was in and continues -> the whole gate IS one top-level command,
+#     _gate_main, which only ever ends by `exit`. If it RETURNS, it was abandoned, and the line after it refuses.
+# Not covered, and said so: an error inside a command substitution (only that subshell ends), and a command
+# that is not found (status 127, the script continues inside the same command).
+# Byte-identical in every PreToolUse gate; the suite pins it. No process is started.
+_crew_stop(){  # $1 = what happened
+  declare -F gatelog >/dev/null 2>&1 && gatelog BLOCK 4.5 "the gate stopped on an error of its own"
+  echo "GUARD (§4.5): this gate stopped on an error of its own ($1) before it finished judging the call, so the call is refused." >&2
+  echo "Nothing about the call itself was found. The error is the line above these two; it is a defect in Crewforth, not in what you ran. Run the doctor (bash .claude/eval/doctor.sh, Bash tool, not PowerShell) and report it." >&2
+  exit 2
+}
+trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
+# ---- /CREW-FAILCLOSED
+_gate_main(){
 # ---- CREW-MATCH -------------------------------------------------------------------------------------------
 # grep on the command, without a pipe and with its status read. Both halves were measured failing open:
 #   * `echo "$CMD" | grep -q …` under pipefail. grep -q leaves at its first match; when the command is larger than
@@ -87,6 +108,44 @@ _grep_out(){  # the same for a caller that wants what grep printed -> _GO (empty
   _grep_stop "$rc"
 }
 # ---- /CREW-MATCH
+# ---- CREW-JOIN --------------------------------------------------------------------------------------------
+# A line that ends in a backslash continues on the next one: the shell takes `rm -f \<newline>.claude/hooks/x` as
+# ONE command. The rules read the command line by line and word by word, so each half looked harmless (measured,
+# rc 0: a gate file deleted, copied over, moved, edited in place, redirected over; `rm \<newline>-rf`;
+# `git push \<newline>--force`; and `git \<newline>push`, `git \<newline>commit`, which reached neither the approval
+# prompt nor the review gate). _join_cmd joins such lines in CMD before anything reads it, the way the shell does:
+#   * an ODD number of backslashes before the newline continues the line; an even number is backslashes, and the
+#     newline still ends the command.
+#   * PowerShell continues a line with a backtick, so a PowerShell call is joined on that.
+#   * a `#` at the start of a word MAY open a comment, and in a comment the backslash continues nothing: the next
+#     line is a command of its own. Telling a comment from a quoted `#` needs the whole quoting, so that line is
+#     read BOTH ways: joined, and the lines it would have swallowed once more as a command after it.
+# Inside single quotes and in a quoted here-document the shell keeps the pair; joining it there changes only data.
+# Byte-identical in every gate that reads a command; the suite pins it.
+_join_lines(){  # $1 = command, $2 = the character that continues a line -> _JL
+  local s="$1" e="$2" nl=$'\n' line t body c out="" cur="" extra="" amb=0
+  _JL="$s"
+  case "$s" in *"$e$nl"*) ;; *) return 0 ;; esac
+  while IFS= read -r line || [ -n "$line" ]; do
+    t="${line##*[!"$e"]}"; body="$line"; c=0
+    if [ $(( ${#t} % 2 )) = 1 ]; then body="${line%"$e"}"; c=1; fi
+    [ "$amb" = 1 ] && extra="$extra$body"
+    cur="$cur$body"
+    if [ "$c" = 1 ]; then
+      [ "$amb" = 1 ] || case "$cur" in '#'*|*[[:space:]\;\&\|\(]'#'*) amb=1 ;; esac
+      continue
+    fi
+    out="$out$cur$nl"; [ "$amb" = 1 ] && out="$out$extra$nl"
+    cur=""; extra=""; amb=0
+  done <<< "$s"
+  [ -n "$cur" ] && { out="$out$cur$e$nl"; [ "$amb" = 1 ] && out="$out$extra$nl"; }   # the last line ended in one: nothing follows it
+  _JL="${out%"$nl"}"
+}
+_join_cmd(){  # CMD -> CMD with its continued lines joined
+  case "$INPUT" in *'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*) _join_lines "$CMD" '`' ;; *) _join_lines "$CMD" '\' ;; esac
+  CMD="$_JL"
+}
+# ---- /CREW-JOIN
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
@@ -400,6 +459,7 @@ _json_keycount(){  # $1 = payload, $2 = key -> sets _KC to how many times it occ
 # 376 ms -> 169 ms with no overlap between the two columns, because the Store stub was being spawned and
 # failing on every call.
 CMD="$(_json_unescape "$(_json_slice "$INPUT" command)")"
+_join_cmd                                # continued lines joined, as the shell runs them (CREW-JOIN)
 PERM_MODE="$(_json_slice "$INPUT" permission_mode)"
 
 # AN UNREADABLE PAYLOAD IS REFUSED, NOT WAVED THROUGH. Both shapes below were found by the parser-conformance
@@ -934,7 +994,8 @@ _hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core
 # blocked so doctor's re-arm fix still works (a chmod -x disable is caught by doctor, not here). Honest scope:
 # the shell is Turing-complete, so this is defence-in-depth — guard-write.sh covers the Write/Edit tools (the
 # model's natural path to a file), and install-time read-only hook files would be the airtight layer.
-GATE='\.(claude/(hooks|settings\.json|DISCIPLINE\.md|eval/lib/crew-env\.sh)|git/hooks)'
+# Either separator: a PowerShell call spells these `.claude\hooks\…`, and it was not recognised (measured, rc 0).
+GATE='\.(claude[/\\]+(hooks|settings\.json|DISCIPLINE\.md|eval[/\\]+lib[/\\]+crew-env\.sh)|git[/\\]+hooks)'
 # eval/lib/crew-env.sh is on the list because the gates SOURCE it on every call (guard-bash, guard-write, the board
 # hooks): a file a gate executes is part of the gate. Measured before it was added: overwrite it with `exit 0` and
 # `rm -rf /` passed guard-bash with rc 0, in both editions (3.0.1 review).
@@ -1677,3 +1738,6 @@ fi
 # -c/-C/--create/--force-create/--orphan, with global options in front) so that default mode could ask. That
 # matcher is gone with the question; smoke §4e now pins the opposite — every spelling runs without a prompt.
 exit 0
+}
+_gate_main "$@"
+_crew_stop "a command of the gate was abandoned"
