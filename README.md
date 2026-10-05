@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Version](https://img.shields.io/badge/version-3.0.3-6D28D9?style=flat-square)
+![Version](https://img.shields.io/badge/version-3.0.4-6D28D9?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 
 🇬🇧 English · [🇹🇷 Türkçe](README.tr.md)
