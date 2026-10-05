@@ -147,7 +147,7 @@ if [ -f "$RH" ]; then
           elif [ -n "$got" ] && [ -f "$AGENTS/$got.md" ] && [ -f "$SKILLS/$expected/SKILL.md" ] \
                && grep -qE "\`$expected\`|\*\*$expected\*\*" "$AGENTS/$got.md"; then ok=1
           fi
-          known=0; printf '%s\n' "$KNOWN_MISSES" | grep -qxF -- "$prompt" && known=1
+          known=0; grep -qxF -- "$prompt" <<< "$KNOWN_MISSES" && known=1
           if [ "$ok" = 1 ]; then
             WIN_HIT=$((WIN_HIT+1))
             [ "$known" = 1 ] && FIXED_MISS="$FIXED_MISS
@@ -166,10 +166,14 @@ EOF_GOLD
     # A known miss that is not a golden prompt is never evaluated, so it would sit on the list forever and inflate
     # the count shown above. Measured: a stray line reported "known misses: 3" in a green run. A ratchet entry
     # nothing checks is the same defect as a blocklist pattern nothing matches.
-    STALE=""
+    # NO PIPE INTO `grep -q`. Under pipefail, grep -q leaves at its first match and the writer in front of it dies
+    # of SIGPIPE, so the pipeline answers 141 and a line that IS a golden prompt was reported as not being one.
+    # It depends on timing: the same commit passed on one runner and failed on the next, and in a Linux container
+    # it failed every time. The prompts are read once into a variable and matched from a here-string.
+    STALE=""; _goldp="$(cat $GOLD_SETS | cut -d'|' -f1)"
     while IFS= read -r km; do
       [ -n "$km" ] || continue
-      cat $GOLD_SETS | cut -d'|' -f1 | grep -qxF -- "$km" || STALE="$STALE
+      grep -qxF -- "$km" <<< "$_goldp" || STALE="$STALE
      ↳ not a golden prompt: $km"
     done <<EOF_KM
 $KNOWN_MISSES
