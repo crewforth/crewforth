@@ -80,8 +80,16 @@ versioning follows [SemVer](https://semver.org/).
   rules of its architecture guide, the rebuild cost model, layout by window size and never by device type, isolates,
   platform channels, generated localisations, the mix of unit, widget, integration and golden tests, measuring in
   profile mode on a real device, and a release without a secret in it. Its done-definition is `dart format
-  --set-exit-if-changed .`, `flutter analyze`, `flutter test` and the accessibility guideline test. Every rule was
-  checked against Flutter's and Dart's own documentation; the sources are in the skill's `references/`. 40 skills now.
+  --set-exit-if-changed .`, `flutter analyze`, `flutter test` and the accessibility guideline test. It also holds
+  what a real app taught it: panes that split at a foldable's hinge, a list and a detail whose selection and typed
+  input survive a change of window class, a widget test at one width of each window class, figures of one width for
+  amounts, case changed by the language's rules, no inline text (one central file is enough for one language), a
+  domain layer with no `package:flutter` import, goldens made in one pinned container, and a store build that
+  refuses the flag of a closed feature. For an app that holds sensitive data: an encrypted database, its key in the
+  platform's secure store, both kept out of backup and device transfer, one HTTP client with a list of allowed hosts,
+  and no ad in a window that shows a sensitive screen. The rules were checked against Flutter's, Dart's and the
+  named packages' and platforms' own pages; the sources, and what was not checked, are in the skill's `references/`.
+  40 skills now.
 - **In `auto` and `dontAsk`, your own message approves a commit or a push.** Those modes answer a permission prompt
   with software, so the commit gate fails closed there and the only way through was to switch mode for every commit.
   Now a message that is nothing but `approve: commit`, `approve: push` or `approve: commit+push` (`onay:` works too)

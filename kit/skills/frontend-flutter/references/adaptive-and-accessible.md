@@ -4,7 +4,8 @@ Checked against https://docs.flutter.dev/ui/adaptive-responsive/general,
 https://docs.flutter.dev/ui/adaptive-responsive/best-practices,
 https://docs.flutter.dev/ui/accessibility-and-internationalization/accessibility,
 https://docs.flutter.dev/ui/accessibility/accessibility-testing and the Material window size classes as Android's
-documentation states them (2026-10-02).
+documentation states them (2026-10-02); the foldable part against
+https://api.flutter.dev/flutter/widgets/MediaQueryData/displayFeatures.html (2026-10-07).
 
 ## The three steps
 1. **Abstract** the widgets that change with the space, and the data they share.
@@ -32,6 +33,23 @@ documentation states them (2026-10-02).
 - A list that keeps its layout across a rotation keeps its scroll position: `PageStorageKey`.
 - Mouse, trackpad and keyboard shortcuts work where the app runs on desktop or a large screen.
 
+## List and detail
+- Expanded and wider: the list and the detail are two panes of one screen. Compact: the list is the screen and the
+  detail is pushed over it. Medium is the design system's call.
+- **The selection and any typed input are kept across a change of window class.** Hold them above the two layouts
+  (the view model, or state owned by the widget that chooses the layout), so that going from two panes to one shows
+  the detail that was selected, with the form as it was, and going back does not clear it. A `GlobalKey` or a
+  `PageStorageKey` keeps a subtree's state only while its place in the tree allows it; state that must survive is
+  not left to that.
+
+## A foldable
+- `MediaQuery.displayFeatures` (and `MediaQueryData.displayFeatures`) lists the areas of the display that hardware
+  obstructs. The documentation says it is populated on Android only. A **hinge** and a **cutout** obstruct the
+  display; a **fold** is a crease and does not. A hinge and a fold carry a state that tells the device's posture.
+- When a hinge separates the window into two areas, **the panes split at the hinge**: one pane on each side, and
+  nothing — no text, no control, no divider the user must touch — laid out on the hinge's bounds.
+- A window with no such feature, or with a fold that obstructs nothing, is laid out by its width alone.
+
 ## Accessibility, tested
 Rules (the `a11y` skill holds them for every stack): tap targets at least 48×48 on Android and 44×44 on iOS; a
 label on every tappable; text contrast at least 4.5:1 (3:1 for large text, 18 pt and above); the UI legible and
@@ -51,5 +69,13 @@ testWidgets('meets the accessibility guidelines', (tester) async {
 });
 ```
 
-Run it for every new screen, and run the screen's widget test at the narrowest and widest window the app supports
-(`tester.view.physicalSize` and `devicePixelRatio`, reset afterwards).
+Run it for every new screen.
+
+## Widths, tested
+- Every new screen reached from the app's navigation has a widget test at **one width of each window class the app
+  supports**, for example 320 and 360 dp (compact, a small and a common phone), 700 dp (medium) and 1280 dp (large).
+  Set the size with `tester.view.physicalSize` and `devicePixelRatio`, and reset both afterwards.
+- One test **crosses a class boundary**: select an item and type into a form at one width, change the width to
+  another class, and expect the same selection and the same input.
+- The narrowest and the widest window alone are not enough: a layout can be right at both ends and wrong in a class
+  between them.

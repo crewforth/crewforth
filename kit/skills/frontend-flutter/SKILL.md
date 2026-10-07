@@ -13,8 +13,8 @@ Otherwise do not use this skill: `frontend` and the project's own stack apply (s
 Trigger phrases: "riverpod", "go_router", "pubspec", "widget test", "analysis_options", "flutter_test", "golden test", "platform channel", "dart isolate", "gen-l10n"
 
 For generic frontend discipline, applies the `frontend` skill; this file only covers what Flutter adds. Every rule
-below was checked against Flutter's own documentation (docs.flutter.dev, dart.dev); the depth and the sources are in
-`references/`. Not used in a project on another stack (delete it if needed).
+below was checked against Flutter's own documentation (docs.flutter.dev, dart.dev) or the page of the package or
+platform it names; the depth and the sources are in `references/`, which also say what was not checked. Not used in a project on another stack (delete it if needed).
 
 ## The project decides, not this file
 - **Read before you write:** `pubspec.yaml` (the packages already chosen), `analysis_options.yaml` (the lint set and
@@ -31,7 +31,8 @@ below was checked against Flutter's own documentation (docs.flutter.dev, dart.de
   an abstract class, so tests can use a fake. **No logic in widgets** — a widget renders state and forwards events.
 - **Unidirectional data flow** and **immutable models**; a model that crosses a layer is not mutated in place.
 - **Dependencies are injected** into view models and repositories, not looked up from inside them. A domain layer
-  only when the logic needs one (the guide marks it conditional).
+  only when the logic needs one (the guide marks it conditional). **Where there is one it is plain Dart: no file in
+  it imports `package:flutter`**, and an architecture test reads its files and fails on such an import.
 - Feature folders (`features/<name>/`) with view, view model and tests together, as `frontend` says.
 
 ## Widgets and rebuilds — the cost model
@@ -48,6 +49,11 @@ below was checked against Flutter's own documentation (docs.flutter.dev, dart.de
   and desktop). Measure with **`MediaQuery.sizeOf`** (the whole window; cheaper than `MediaQuery.of`) or
   **`LayoutBuilder`** (the space this widget is given). Breakpoints come from the project's design system; the
   Material window classes are compact < 600 · medium 600–839 · expanded 840–1199 · large 1200–1599 · ≥ 1600 dp.
+- **List and detail:** two panes side by side in an expanded window, a push to the detail in a compact one. **What
+  the user selected and what they typed survive a change of window class** (a fold, a rotation, a resized window):
+  that state lives above the two layouts, not inside either.
+- **A foldable:** when `MediaQuery.displayFeatures` holds a hinge that separates the window, the panes split at the
+  hinge and no content is laid out on it.
 - **Do not lock orientation** — it is an accessibility problem. Keep scroll position across a layout change
   (`PageStorageKey`), and support mouse, trackpad and keyboard where the app runs on desktop or a large screen.
 - Accessibility: tap targets 48×48 (Android) / 44×44 (iOS), every tappable labelled, text contrast checked, the UI
@@ -66,23 +72,44 @@ below was checked against Flutter's own documentation (docs.flutter.dev, dart.de
 ## Navigation, text, data
 - Navigation: the project's router. Named routes are not recommended by Flutter (no custom deep-link handling, no
   browser forward button); a page-backed route is deep-linkable, a pageless one is not.
-- User-facing text goes through `gen-l10n` (ARB files, `AppLocalizations.of(context)`), plurals and placeholders in
-  ICU form — never concatenated. The `i18n-integrity` skill checks the files.
+- **No user-facing text is written inline in a widget, in any app.** An app in more than one language uses
+  `gen-l10n` (ARB files, `AppLocalizations.of(context)`), plurals and placeholders in ICU form — never concatenated;
+  the `i18n-integrity` skill checks the files. An app in one language may keep every text in one central file instead.
+- **Changing case follows the language.** Dart's `toUpperCase()` / `toLowerCase()` use the language-independent
+  mapping (Turkish `i` becomes `I`, not `İ`), so text is cased through one helper that takes the locale.
 - Money is never a `double`; dates carry their time zone or are date-only on purpose (the `frontend` rules apply).
+  **Amounts and other numbers that line up are drawn with `FontFeature.tabularFigures()`**, so digits keep one width.
 
 ## Tests (the `testing` skill owns the strategy)
 - Many **unit** and **widget** tests (`flutter_test`), and enough **integration** tests (`integration_test/`, the
   binding initialised) for the important flows. Tests use fakes of the repositories and services (the guide's
   recommendation), which is why those sit behind abstract classes.
-- **Golden tests** (`matchesGoldenFile`) only where pixels are the contract; generated and compared on the same
-  platform with fonts loaded first (`flutter test --update-goldens` refreshes them).
-- Every new screen gets a widget test at the narrowest and widest window the app supports, and the a11y guideline test.
+- **Golden tests** (`matchesGoldenFile`) only where pixels are the contract, fonts loaded first. **They are generated
+  and compared in one place, a pinned container in CI**; `flutter test --update-goldens` is not run on a developer's
+  machine, whose rendering differs.
+- **Every new screen reached from the app's navigation gets a widget test at one width of each window class** the
+  app supports (for example 320, 360, 700 and 1280 dp), **and a test that crosses a class boundary and finds the
+  selection and the typed input still there.** Plus the a11y guideline test.
+
+## If the app holds sensitive data (apply only then)
+Financial, health or identity data, or anything the user would not want read off a lost phone or a backup:
+- **The local database is encrypted**, and its **key lives in the platform's secure store** (Keychain, Keystore),
+  never in the database's own directory, in preferences or in the code.
+- **The database and the key's files are kept out of the operating system's backup and device transfer**, on both
+  platforms.
+- **All HTTP goes through one client that holds a list of allowed hosts.** A request to any other host throws; a
+  test makes such a request and expects the throw.
+- **In an app that shows ads, no ad is drawn in a window where a sensitive screen is visible** — in a two-pane
+  layout that is the whole window, not the pane.
+How, and what was checked: **`references/sensitive-data.md`**.
 
 ## Performance and release
 - **Measure in profile mode on a real device** (`flutter run --profile`); debug mode is not indicative and profile
   mode does not run on an emulator or simulator. Frame budget: about 16 ms at 60 Hz, 8 ms at 120 Hz.
 - Release: `--obfuscate --split-debug-info=<dir>` where the target supports it, the symbols kept for `flutter
   symbolize`. Obfuscation is not encryption: **no secret ships in the app**. An app commits its `pubspec.lock`.
+- **A feature closed by a build flag stays closed in the store build:** the store build fails when it is handed
+  that flag, on Android and on iOS. Detail: **`references/platform-async-release.md`**.
 - Logging: `debugPrint` prints in release mode too unless it sits behind a debug check or an assert; log through the
   project's logger (the `observability` skill).
 
@@ -90,5 +117,7 @@ below was checked against Flutter's own documentation (docs.flutter.dev, dart.de
 - `dart format --set-exit-if-changed .` exits 0 · `flutter analyze` clean (0 issues, the project's lint set) ·
   `flutter test` green — one run after the last edit, reported with its exit code and counts.
 - No widget holds business logic; no device-type or orientation check decides a layout.
-- The a11y guideline test passes on every new screen; the narrowest and widest window are tested.
+- The a11y guideline test passes on every new screen; each window class the app supports is tested at one width,
+  and state survives a change of class.
+- No user-facing text inline; the domain layer (if any) imports no `package:flutter`.
 - Works across the project's target platform matrix (Android / iOS / web / desktop as declared).
