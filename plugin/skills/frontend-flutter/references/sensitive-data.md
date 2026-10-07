@@ -39,11 +39,14 @@ unreadable at best, and a copy with its key is the data on another device.
   native code or a plugin after the file exists. Set it again when the file is created anew.
 - A test (or a check in CI) reads the manifest and the rules file and fails when either attribute is missing.
 
-## One HTTP client, a list of allowed hosts
-- Every request goes through one client. It holds the hosts the app may talk to and **throws for any other host**,
-  before the request leaves.
-- A test asks it for a host that is not on the list and expects the throw; an architecture test fails on a second
-  client constructed anywhere else. In a debug run the throw is a crash someone sees; it is never swallowed.
+## Every network call through a transport bound to its allowed hosts
+- A transport is the one object a service's requests leave through. Each holds the host or hosts **it** may talk
+  to and **refuses any other**: it throws before the request is sent. An app with one backend has one transport;
+  an app that talks to several services gives each its own, with its own list, so a transport for one service
+  cannot reach another's host.
+- A test asks each transport for a host that is not on its list and expects the throw. An architecture test fails
+  on a network call made outside a transport (a client constructed or a socket opened anywhere else). In a debug
+  run the throw is a crash someone sees; it is never swallowed.
 
 ## Ads
 In an app that shows ads, **no ad is drawn in a window where a sensitive screen is visible.** In a two-pane layout

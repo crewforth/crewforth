@@ -86,7 +86,7 @@ versioning follows [SemVer](https://semver.org/).
   amounts, case changed by the language's rules, no inline text (one central file is enough for one language), a
   domain layer with no `package:flutter` import, goldens made in one pinned container, and a store build that
   refuses the flag of a closed feature. For an app that holds sensitive data: an encrypted database, its key in the
-  platform's secure store, both kept out of backup and device transfer, one HTTP client with a list of allowed hosts,
+  platform's secure store, both kept out of backup and device transfer, every network call through a transport bound to its own allowed hosts,
   and no ad in a window that shows a sensitive screen. The rules were checked against Flutter's, Dart's and the
   named packages' and platforms' own pages; the sources, and what was not checked, are in the skill's `references/`.
   40 skills now.

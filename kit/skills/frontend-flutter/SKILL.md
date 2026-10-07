@@ -97,8 +97,9 @@ Financial, health or identity data, or anything the user would not want read off
   never in the database's own directory, in preferences or in the code.
 - **The database and the key's files are kept out of the operating system's backup and device transfer**, on both
   platforms.
-- **All HTTP goes through one client that holds a list of allowed hosts.** A request to any other host throws; a
-  test makes such a request and expects the throw.
+- **Every network call goes through a transport bound to its own allowed host or hosts.** A call that leaves that
+  list is refused: it throws before anything is sent, and a test makes such a call and expects the throw. One
+  transport for the whole app or one per service are both this rule; a call made outside any transport is not.
 - **In an app that shows ads, no ad is drawn in a window where a sensitive screen is visible** — in a two-pane
   layout that is the whole window, not the pane.
 How, and what was checked: **`references/sensitive-data.md`**.
