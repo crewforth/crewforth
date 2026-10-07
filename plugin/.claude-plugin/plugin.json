@@ -3,7 +3,7 @@
   "name": "crewforth",
   "displayName": "Crewforth",
   "description": "Crewforth — disciplined agents, skills, commands, and tool-level gate hooks (commit/push approval, destructive-op & write guards, context-fill measurement, session rehydration) for Claude Code. The git-commit trace/secret/bloat scan needs the full install (start.sh / adopt.sh).",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "author": { "name": "Barış Yerlikaya" },
   "homepage": "https://github.com/Crewforth/crewforth",
   "repository": "https://github.com/Crewforth/crewforth",

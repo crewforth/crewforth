@@ -5,17 +5,10 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] — 3.1.0
 
 ### Security
 
-- **In a large command, a destructive line near the top was not seen.** The rules that grep the command fed it
-  through a pipe, and `grep -q` leaves at its first match: with a command larger than the pipe holds, the writer was
-  killed by SIGPIPE and the rule read the pipeline's status (141) as "no match". Measured on macOS, in 3.0.2 too: a
-  command of 72 KB or more whose first line was `rm -rf /tmp/x/*` passed, and so did `dd of=`, `curl | sh`, `chmod
-  777`, `mkfs` and a lockfile delete; with that line last each was refused. `guard-bash.sh` and
-  `guard-commit-scan.sh` no longer pipe into grep, and a grep that could not run (any status but found or not found)
-  stops the call and says the command was not judged.
 - **A git subcommand the shell fills in walked past every gate.** Each rule about a git command finds it by its name,
   and with an expansion inside the word the name is not in the text: `git com${z}mit`, `c=commit; git "$c"`, `git
   $(printf com)mit`, a backtick, and the same for `git pu${z}sh --force`, `git re$(:)set --hard`, `git cl${z}ean -fdx`
@@ -29,26 +22,6 @@ versioning follows [SemVer](https://semver.org/).
   `push --force` (`-f`, `+ref`, `--force-with-lease`), `reset --hard`, `clean -f` and `core.hooksPath`, 21 passed. The
   arguments are judged now as the git command they make, by the same rules that judge the plain form, and the refusal
   says what was read.
-- **Under a Turkish system locale the gates missed what they are written to catch.** There `i` and `I` are not each
-  other's other case, and every case-insensitive match in the gates is written in ASCII. Measured under `tr_TR.UTF-8`
-  with GNU grep and bash 5 on Linux: `grep -i` did not find `INIT` with `init`, bash's `nocasematch` did not
-  match `GIT` against `git`, and a range like `[A-Za-z]` did not hold `i` or `I`, so a recursive `Remove-Item`, `git
-  config --remove-section core`, a read of a nested `.env`, a staged key and a vendor name in capitals all passed;
-  Crewforth's own suite, run whole under that locale, went from 4 failures to 30. In Git Bash on Windows `grep -iF`
-  aborted (exit 134) and the pre-commit scan for private strings read that as "no match". macOS folds the two letters
-  the ASCII way and was not affected. Every gate (`pre-commit`, `commit-msg`, `guard-commit-scan.sh`, `guard-bash.sh`,
-  `guard-write.sh`, `guard-powershell.sh`, `prompt-approval.sh`) now sets the C locale before it matches anything. A
-  private string or a pattern that holds a letter outside ASCII is still looked for
-  under the session's own locale as well.
-- **A scan that could not run is no longer a clean scan.** In `pre-commit` and `commit-msg`, grep failing for any
-  reason but a pattern that does not compile stops the commit and says so; the private-string scan used to read every
-  failure as "no match", `commit-msg` read a broken pattern as one too, silently, and a staged diff that could not be
-  collected was scanned as an empty one. A pattern that does not compile
-  still only warns, now in `commit-msg` as well.
-- **The approval prompt could carry invalid UTF-8.** The command it shows is cut to 300 a line with `cut -c`, and GNU
-  cut counts bytes in every locale: a two-byte letter across byte 300 left the prompt's JSON invalid (measured on
-  Linux under `en_US.UTF-8`, and on macOS under the C locale; Git Bash ships GNU cut too, not measured there). The cut
-  steps back over an unfinished letter now.
 - **A `git commit` is read the way the shell and git read it.** The rules for `--no-verify`, `--amend` and a commit
   that takes its content from the working tree looked for those words and walked the command token by token. Each of
   these reached the approval prompt with no rule firing (and with `CLAUDE_GIT_OK` ran with nobody asked), measured by
@@ -140,6 +113,9 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **After a final release, npm's `next` no longer names something older than `latest`.** A final moved `latest`
+  only, so `npx crewforth@next` went on installing the rc before it. The release now moves `next` to the final when
+  what `next` names is older; an rc of a later version stays where it is.
 - **A command that names a gate file must be one that reads it.** The rule that guards the hooks, `settings.json`,
   the rulebook and the git hooks looked for a write verb (`rm`, `mv`, `cp`, `tee`, …) in front of the path, and a
   list of verbs is never complete: of 39 ways to write or delete a gate file, 32 passed (in 3.0.3 as well: `curl -o`,
@@ -155,19 +131,6 @@ versioning follows [SemVer](https://semver.org/).
   **Reading is freer than before:** `grep -n rm .claude/hooks/guard-bash.sh` and `cat /Users/ed/p/.claude/hooks/x`
   were refused for the word `rm` and the folder `ed`, and pass now. Bash tool; a PowerShell call keeps the verb
   rule, without counting a verb that is a name in a path.
-- **A gate that stops on an error of its own refuses the call.** Claude Code blocks a tool call on exit 2 only, so a
-  hook that died with status 1, or went on past the rule that broke and left with 0, had allowed the call. Each
-  PreToolUse gate (`guard-bash.sh`, `guard-commit-scan.sh`, `guard-write.sh`, `guard-powershell.sh`) now answers 2,
-  and says the error was its own, when it leaves with a status that is neither 0 nor 2 and when a command of it is
-  abandoned in the middle. Not covered: an error inside a command substitution, and a command that is not found.
-- **A command continued on the next line is read as one command.** A backslash at the end of a line continues it, and
-  the gates read each line on its own: `rm -f \` + newline + `.claude/hooks/guard-bash.sh` deleted a gate file, `rm \`
-  + newline + `-rf …`, `git push \` + newline + `--force` and `curl … \` + newline + `| bash` were not refused, and
-  `git \` + newline + `push` or `commit` reached neither the approval prompt nor the review gate, nor the commit
-  content scan (in 3.0.3 as well; measured on macOS and Windows). The command is now joined before anything reads
-  it, the way the shell joins it: an odd number of backslashes continues the line, a PowerShell call continues with a
-  backtick, and a line that may be a comment is read both ways. In a PowerShell call a gate path spelled with
-  backslashes (`Remove-Item .claude\hooks\guard-bash.sh`) is the same gate path; it was not recognised.
 - **A quoted argument is no longer read as a command.** `git commit -m "drop the rm -rf /tmp/build step"` deletes
   nothing and `claude -p "… git push --force origin main"` pushes nothing, yet the §4.5 rules read the command as
   text and refused both (measured: 14 of 20 such commands). The gate now takes the quoted argument out before those
