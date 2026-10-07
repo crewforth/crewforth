@@ -5,6 +5,17 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **A commit's command is read by one reader.** `guard-bash.sh` paired quotes in three places: the reader of a call,
+  an older walk that looks for a path or `-a` in a commit, and the check of a call the user's approval covers. The
+  last two now take their text from the first, and keep only their own question. What a call the user approved may
+  hold is unchanged. The older walk read a here-document's body and a comment as arguments of the commit; it no
+  longer does, so a call that only holds the words of a commit inside a here-document body, or `-a` after a `#`,
+  asks as any other commit does instead of being refused.
+
 ## [3.1.1] — 2026-10-12
 
 ### Fixed
