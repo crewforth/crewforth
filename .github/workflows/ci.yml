@@ -70,7 +70,11 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | bash packaging/check-attribution.sh
 
+  # Skipped when the pull request changes nothing but the text of skills, agents or commands (and documentation):
+  # packaging/ci-docs-only.sh answers `text` then. The push to next or main that follows the merge runs it.
   verify:
+    needs: changes
+    if: needs.changes.outputs.scope != 'text'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
