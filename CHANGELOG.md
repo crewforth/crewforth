@@ -140,6 +140,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A commit's command is read by one reader.** `guard-bash.sh` paired quotes in three places: the reader of a call,
+  an older walk that looks for a path or `-a` in a commit, and the check of a call the user's approval covers. The
+  last two now take their text from the first, and keep only their own question. What a call the user approved may
+  hold is unchanged (0 of 13 402 generated commands and 0 of 14 969 real ones answered differently, on bash 3.2 and on bash 5). The older walk
+  read a here-document's body and a comment as arguments of the commit; it no longer does, so a call that only
+  holds the words of a commit inside a here-document body, or `-a` after a `#`, asks as any other commit does
+  instead of being refused (7 of the 14 969 real commands, none of them a commit that runs). Checked against bash
+  itself: of 6586 generated commands the gate does not refuse, none runs a commit that takes the working tree.
+
 - **A command that names a gate file must be one that reads it.** The rule that guards the hooks, `settings.json`,
   the rulebook and the git hooks looked for a write verb (`rm`, `mv`, `cp`, `tee`, …) in front of the path, and a
   list of verbs is never complete: of 39 ways to write or delete a gate file, 32 passed (in 3.0.3 as well: `curl -o`,

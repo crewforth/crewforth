@@ -1447,8 +1447,14 @@ fi
 # ---- the reader of a call (the commit gate further down describes what it is for) ----
 _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span and every escaped character as one marker
               # (\001 n \001, its text in _C47_Q[n]); redirections set apart from the words they touch; heredoc bodies gone
+  [ "${_C47_SRC-$'\002'}" = "$1" ] && return 0       # the same text, already read in this call
   local s="$1" out="" pre c w hd="" c2 nl=$'\n' n=0 body t bt=0
-  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""
+  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""; _C47_SRC="$1"
+  # WHAT THE READER MET, for a caller that accepts only the plainest text (_a44_collapse): b = a backslash that
+  # escapes a character outside quotes · u = a quote that is never closed · x = a double-quoted text holding `$`, a
+  # backtick, a backslash or `!` (other than a message read from a here-document with a quoted delimiter, closed
+  # at once) · a = a $'…' text · c = a comment that was left out. Flags only: what is read does not depend on them.
+  _C47_F=""
   _gsub "$s" $'\r' ''; _gsub "$_GS" "$_C47_M" ''; s="$_GS"
   while :; do
     pre="${s%%[\"\'\\\;\&\|\<\>\#\(\)\`\$$nl]*}"; out="$out$pre"
@@ -1457,22 +1463,45 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
     case "$c" in
       \\) case "$s" in
             "$nl"*) s="${s:1}" ;;                                  # a backslash-newline joins: both characters go
-            '') ;;
-            *) _C47_Q[n]="${s:0:1}"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)); s="${s:1}" ;;   # an escaped character is itself, quoted
+            '') _C47_F="${_C47_F}b" ;;                             # the last character of the call: it escapes nothing, and goes
+            *) _C47_Q[n]="${s:0:1}"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)); s="${s:1}"; _C47_F="${_C47_F}b" ;;   # an escaped character is itself, quoted
           esac ;;
-      \') case "$s" in *\'*) body="${s%%\'*}"; s="${s:${#body}+1}" ;; *) body="$s"; s="" ;; esac
+      \') case "$s" in *\'*) body="${s%%\'*}"; s="${s:${#body}+1}" ;; *) body="$s"; s=""; _C47_F="${_C47_F}u" ;; esac
           _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
       \") body=""
+          t=0                                                      # t = 1: the strict form of that message (below)
           case "$s" in
             '$(cat <<'*)   # a message read from a here-document: its body is skipped as a whole, quotes and all
+              # THE STRICT FORM, the only substitution an approved call may hold: `"$(cat <<'WORD'` + newline, a body
+              # that ends at the first line that is WORD, then `)"` with nothing but blanks before it. Its body is
+              # literal. Anything looser (an unquoted delimiter, text after it, something after the body) is flagged x.
+              case "$s" in '$(cat <<'\'*)
+                c2="${s:9}"; w="${c2%%\'*}"
+                case "$w" in ''|*[!A-Za-z0-9_]*) ;; *)
+                  c2="${c2:${#w}+1}"
+                  case "$c2" in "$nl"*) c2="${c2:1}"
+                    case "$c2" in
+                      "$w$nl"*)      c2="${c2:${#w}+1}"; t=1 ;;
+                      *"$nl$w$nl"*)  pre="${c2%%"$nl$w$nl"*}"; c2="${c2:${#pre}+${#w}+2}"; t=1 ;;
+                    esac
+                    if [ "$t" = 1 ]; then
+                      while :; do case "$c2" in [$' \t']*) c2="${c2:1}" ;; *) break ;; esac; done
+                      case "$c2" in ')"'*) ;; *) t=0 ;; esac
+                    fi ;;
+                  esac ;;
+                esac ;;
+              esac
+              [ "$t" = 1 ] || _C47_F="${_C47_F}x"
               w="${s:8}"; w="${w#-}"; w="${w#[\'\"]}"; w="${w%%[!A-Za-z0-9_]*}"
               case "$s" in *"$nl$w$nl"*) [ -n "$w" ] && { pre="${s%%"$nl$w$nl"*}"; s="${s:${#pre}+${#w}+2}"; body='(a here-document)'; } ;; esac ;;
           esac
           while :; do                                              # to the closing quote that is not escaped
             pre="${s%%[\"\\]*}"
-            [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
+            case "$pre" in *[\$\`\!]*) [ "$t" = 1 ] || _C47_F="${_C47_F}x" ;; esac
+            [ "$pre" = "$s" ] && { body="$body$s"; s=""; _C47_F="${_C47_F}u"; break; }
             c2="${s:${#pre}:1}"; body="$body$pre"; s="${s:${#pre}+1}"
             [ "$c2" = '"' ] && break
+            _C47_F="${_C47_F}x"
             body="$body${s:0:1}"; s="${s:1}"
           done
           # "$@" and "${A[@]}" stay quoted and still become SEVERAL words: `set -- -n; git commit -m x "$@"`.
@@ -1480,7 +1509,7 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
           _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
       \$) case "$s" in
             \'*) # $'…' : a quoted text in which a backslash escapes, so a quote after one does not close it
-                 s="${s:1}"; body=""
+                 s="${s:1}"; body=""; _C47_F="${_C47_F}a"
                  while :; do
                    pre="${s%%[\'\\]*}"
                    [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
@@ -1535,7 +1564,7 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
           esac
           out="$out$c" ;;
       \#) case "$out" in
-            ''|*[$' \t']) case "$s" in *"$nl"*) pre="${s%%"$nl"*}"; s="${s:${#pre}}" ;; *) s="" ;; esac ;;   # a comment, to the end of its line
+            ''|*[$' \t']) case "$s" in *"$nl"*) pre="${s%%"$nl"*}"; s="${s:${#pre}}" ;; *) s="" ;; esac; _C47_F="${_C47_F}c" ;;   # a comment, to the end of its line
             *) out="$out#" ;;
           esac ;;
     esac
@@ -1556,6 +1585,30 @@ _c47_w(){  # $1 = one token of _C47_T -> _W: the word as the command receives it
   done
   case "$t" in *[\$\*\?\[\{]*) _WX=1 ;; esac
   _W="$_W$t"
+}
+_c47_q(){  # _C47_T -> _C47_TQ: the same text with every quoted span and escaped character as the one placeholder Q
+  # Split on the marker once (the fields are text, number, text, number, …) and joined: one pass. A first version
+  # cut the markers off one at a time, and each cut scans the string: 9.6 s for 30 KB of escaped characters.
+  # bash does not split on \001 itself (it is the character bash quotes with, measured: one field), so the marker
+  # is first written as \037. A command that holds a \037 of its own is cut the slow way: its fields would shift.
+  [ "${_C47_TQS-$'\002'}" = "$_C47_T" ] && return 0     # this text, already written so in this call
+  local -a P=(); local f o="" b="" k=0 n=0 u=$'\037' m="$_C47_M" s="$_C47_T"
+  case "$s" in
+    *"$u"*) while :; do
+              case "$s" in *"$m"*"$m"*) ;; *) break ;; esac
+              b="${s%%"$m"*}"; s="${s:${#b}+1}"; s="${s#*"$m"}"; o="$o${b}Q"
+            done
+            o="$o$s" ;;
+    *) # The joined text is gathered 64 fields at a time: appending each field to the whole text copies the whole text.
+       _gsub "$s" "$m" "$u"
+       IFS="$u" read -r -d '' -a P <<< "$_GS" || true
+       for f in ${P[@]+"${P[@]}"}; do
+         if [ "$k" = 0 ]; then b="$b$f"; k=1; else b="${b}Q"; k=0; fi
+         n=$((n+1)); [ "$n" -ge 64 ] && { o="$o$b"; b=""; n=0; }
+       done
+       o="$o$b"; o="${o%$'\n'}" ;;                        # the newline the here-string added
+  esac
+  _C47_TQ="$o"; _C47_TQS="$_C47_T"
 }
 # The four rules below cost a grep each, so they run only for a command that could name a gate file at all. Builtin.
 _gate_named(){ case "$CMD" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|*[Gg][Ii][Tt][/\\]*[Cc][Oo][Nn][Ff][Ii][Gg]*|*[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]*|*.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]*) return 0 ;; esac; return 1; }
@@ -2200,43 +2253,28 @@ _a44_collapse(){  # $1 = command, $2 = commit|push, $3 = tool -> 0 and _A44_S (q
     local LC_ALL=C
     case "$s" in *[!\ -~]*|*\?*) _A44_WHY="outside the Bash tool an approved call is plain ASCII on one line (PowerShell reads typographic quotes as quotes); use the Bash tool for any other message"; return 1 ;; esac
   fi
+  # ONE READER. The pairing of quotes used to be done here a second time; the text is now read by _c47_read, and
+  # this function only says which of the things that reader met an approved call may not hold. Blanks and newlines
+  # around the call are no part of it (a newline INSIDE it is a second line, and is refused below as a separator).
   _gsub "$s" $'\r' ''; s="$_GS"
+  while :; do case "$s" in [$' \t\n']*) s="${s:1}" ;; *) break ;; esac; done
+  # A `2>&1` that ends the call goes with those blanks, on a line of its own too: it redirects nothing but the
+  # call's own output (`git commit -m x` + newline + `2>&1` was accepted before the readers were one, and still is).
   while :; do
-    pre="${s%%[\"\'\\]*}"; out="$out$pre"
-    [ "$pre" = "$s" ] && break
-    c="${s:${#pre}:1}"; s="${s:${#pre}+1}"
-    case "$c" in
-      \\) case "$s" in
-            $'\n'*) out="$out "; s="${s:1}" ;;                       # a backslash-newline joins two lines
-            *) _A44_WHY="a backslash outside quotes"; return 1 ;;
-          esac ;;
-      \') case "$s" in *\'*) ;; *) _A44_WHY="an unpaired quote"; return 1 ;; esac
-          body="${s%%\'*}"; s="${s:${#body}+1}"; out="${out}Q" ;;
-      *)  case "$s" in
-            '$(cat <<'\'*)
-              rest="${s:9}"; w="${rest%%\'*}"
-              case "$w" in ''|*[!A-Za-z0-9_]*) _A44_WHY="a here-document whose delimiter is not a plain quoted word"; return 1 ;; esac
-              rest="${rest:${#w}+1}"
-              case "$rest" in $'\n'*) rest="${rest:1}" ;; *) _A44_WHY="text on the line that opens the here-document"; return 1 ;; esac
-              # The body ends at the FIRST line that is the delimiter, as it does for the shell.
-              case "$rest" in
-                "$w"$'\n'*)       rest="${rest:${#w}+1}" ;;
-                *$'\n'"$w"$'\n'*) body="${rest%%$'\n'"$w"$'\n'*}"; rest="${rest:${#body}+${#w}+2}" ;;
-                *) _A44_WHY="a here-document that is not closed on its own line"; return 1 ;;
-              esac
-              while :; do case "$rest" in [$' \t']*) rest="${rest:1}" ;; *) break ;; esac; done
-              case "$rest" in
-                ')"'*) s="${rest:2}"; out="${out}Q" ;;
-                *) _A44_WHY="something follows the here-document inside the substitution"; return 1 ;;
-              esac ;;
-            *\"*)
-              body="${s%%\"*}"
-              case "$body" in *[\$\`\\\!]*) _A44_WHY="a double-quoted text that holds \$, a backtick, a backslash or ! (single-quote it, or read the message from a here-document with a quoted delimiter)"; return 1 ;; esac
-              s="${s:${#body}+1}"; out="${out}Q" ;;
-            *) _A44_WHY="an unpaired quote"; return 1 ;;
-          esac ;;
+    case "$s" in
+      *[$' \t\n'])        s="${s%?}" ;;
+      *[$' \t\n']'2>&1')  s="${s%'2>&1'}" ;;
+      *) break ;;
     esac
   done
+  _c47_read "$s"
+  case "$_C47_F" in
+    *u*) _A44_WHY="an unpaired quote"; return 1 ;;
+    *b*) _A44_WHY="a backslash outside quotes"; return 1 ;;
+    *x*) _A44_WHY="a double-quoted text that holds \$, a backtick, a backslash or ! (single-quote it, or read the message from a here-document with a quoted delimiter)"; return 1 ;;
+    *[ac]*) _A44_WHY="the call is more than one plain command (a separator, a substitution, a redirection, a comment, a glob or a second line)"; return 1 ;;
+  esac
+  _c47_q; out="$_C47_TQ"                          # a quoted span is one placeholder
   out="${out//$'\t'/ }"; out="${out// 2>&1/ }"
   while :; do case "$out" in [$' \n']*) out="${out:1}" ;; *) break ;; esac; done
   while :; do case "$out" in *[$' \n']) out="${out%?}" ;; *) break ;; esac; done
@@ -2839,84 +2877,16 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     # arguments.
     _c46_scan() {
       _C46_REDIR=0; _C46_WT=""
-      local s="$1" pre rest
-      # An ESCAPED quote is not a delimiter, so it is neutralised before anything tries to pair quotes.
-      # `git commit -m 'don'\''t break this'` is the canonical POSIX way to put an apostrophe in a
-      # single-quoted string, and it was MEASURED refused: the pairing read `'don'` as one span and then lost
-      # the rest, leaving `break` looking like a pathspec. Its argv is identical to the `-m "don't break this"`
-      # spelling, which was already clean — the same one-command-two-spellings trap as the quoted pathspec, in
-      # the over-block direction this time. An apostrophe in a commit message is not an edge case.
-      # NORMALISE TO REAL CHARACTERS FIRST, so every rule below sees one shape. Two spellings of the same command
-      # reach this code and they are not interchangeable: with `jq` the command arrives DECODED and carries real
-      # control characters, and on a stock machine without it the fallback parser leaves JSON's two-character
-      # `\r` and `\n` in place. A stock Windows machine is the second case, so there the fallback IS the product.
-      #
-      # ALL carriage returns go, escaped or real, and THIS is the line that fixes the defect CI caught — stated
-      # plainly because the first explanation written here was wrong. A CI run on `windows-latest` refused
-      # `git commit \` + CRLF + `  -m c` while the same case passed on macOS AND on a real Windows desktop, and
-      # the cause is the TIER: that image has jq, so the command arrives DECODED, while a stock desktop has
-      # neither jq nor python3 and sees JSON's two-character escapes. A Windows-native binary also opens stdout
-      # in TEXT mode, so every LF it writes becomes CRLF — and a command that already held `\r\n` reaches the
-      # hook as `\` + CR + CR + LF. The previous single CRLF fold ate one CR, the continuation rule then looked
-      # for `\` + LF, found the other CR in the way, and the lone backslash was read as a pathspec. Stripping
-      # every CR handles any number of them with no loop. Isolated by measurement: this one line, applied to the
-      # failing version on its own, turns that case green.
-      #
-      # A LONE CR keeps its verdict rather than its bytes: it vanishes into the token before it, so
-      # `git commit -m c<CR>echo done` still leaves `done` a bare token and is still refused — confirmed correct
-      # by a Windows session that checked bash's own argv (CR is not in IFS, so git really is handed `done`).
-      #
-      # The bracket expression `[\\]` is used for every backslash below, and it is NOT what fixed the above. It
-      # replaced escaped patterns on a hypothesis about bash 5 reading them differently, and that hypothesis was
-      # MEASURED FALSE on bash 5.3.15 — both spellings behave alike there. It stays only because a bracket
-      # expression cannot be misread by anyone (calibrated here: `[\\]n` matches a backslash before an `n` and
-      # leaves a bare `n` alone) and because it keeps replacements free of backslashes. No correctness claim.
-      # Through _gsub (see there): the same substitutions, a piece at a time.
-      _gsub "$s" '[\\]r' '' bs; _gsub "$_GS" $'\r' ''; _gsub "$_GS" '[\\]n' $'\n' bs
-      _gsub "$_GS" '[\\]'"\\'" Q bs; _gsub "$_GS" '[\\]\"' Q bs; s="$_GS"
-      # A quoted span collapses to the single placeholder `Q`, and this is the whole design: the CONTENT of a
-      # quote must not be read as an option or a path, but the TOKEN has to survive. The first version DELETED
-      # the span, and that was a measured fail-open on Windows — `git commit -m c "a.txt"` and
-      # `git commit -m c -- "a.txt"` lost the pathspec entirely and were allowed, while their unquoted spellings
-      # were refused, and both commit the same unreviewed line. No trick is needed to get past a gate like that,
-      # only the ordinary habit of quoting a path, which is mandatory once it contains a space. The placeholder
-      # keeps adjacency too, so `-m"msg"` becomes `-mQ` (an attached value, correct) and not `-m Q`.
-      # Double quotes go FIRST: an apostrophe inside a double-quoted message (`-m "don't"`) is ordinary, whereas
-      # a double quote inside a single-quoted one is rare, so this order mangles the rarer shape.
-      # THE WALK IS BY LENGTH, and only over what is left. It used to be `rest="${s#*\"}"` on the whole string, and
-      # that one expansion costs the SQUARE of the distance to the quote in bash (measured, bash 3.2, one call: 13 ms at
-      # 5 KB, 108 ms at 10 KB, 317 ms at 21 KB) — once per pair, on a string whose collapsed front keeps growing. A
-      # quote-dense commit message therefore took 6 s at 10 KB, 14 s at 16 KB and 335 s at 46 KB (macOS; 14.2 s at
-      # 18 KB on Windows), in 3.0.1 too, and a hook that reaches its 600 s timeout does not block. The result is the
-      # same string: the text before a pair holds no quote and neither does the `Q` that replaces it, so the next pair
-      # is the first one in the remainder (pinned in smoke-test against the old loop, on the same inputs).
-      local acc="" p2
-      while :; do
-        case "$s" in *\"*\"*) ;; *) break ;; esac
-        pre="${s%%\"*}"; rest="${s:${#pre}+1}"; p2="${rest%%\"*}"; acc="$acc${pre}Q"; s="${rest:${#p2}+1}"
-      done
-      s="$acc$s"; acc=""
-      while :; do
-        case "$s" in *\'*\'*) ;; *) break ;; esac
-        pre="${s%%\'*}"; rest="${s:${#pre}+1}"; p2="${rest%%\'*}"; acc="$acc${pre}Q"; s="${rest:${#p2}+1}"
-      done
-      s="$acc$s"
-      # A backslash-newline is a LINE CONTINUATION, the opposite of a separator: it JOINS. Measured, before this,
-      # `git commit \` + newline + `  -m c` refused the commit, because the lone `\` became a token and read as a
-      # pathspec. It has to run before the conversion below, or the newline is gone when we look for it.
-      _gsub "$s" '[\\]'$'\n' ' ' bs; s="$_GS"
-      # A NEWLINE IS A COMMAND SEPARATOR and has to become one, or a multi-line Bash call is misread: measured,
-      # `git commit -m c` followed by a line `echo done` refused the commit, because `done` was read as a
-      # pathspec. Splitting alone cannot save it — the default IFS eats newlines, so the boundary is gone by the
-      # time the walk sees tokens.
-      _gsub "$s" $'\n' ';'; s="$_GS"
-      # SEPARATORS BECOME THEIR OWN TOKENS. Without this, `git commit -m c; echo done` refused the commit: the
-      # token was `c;`, `-m` swallowed it whole, the separator inside it was never seen, and `echo` read as a
-      # pathspec. The fail-open twin is worse and was measured too — in
-      # `if true; then git commit -m c -- a.txt; fi` the pathspec token was `a.txt;`, which the `--` lookahead
-      # dismissed as a separator, so the commit was ALLOWED. Padding fixes both at once, and `&&`/`||` simply
-      # become two tokens, which the walk already treats as one boundary.
-      _gsub "$s" ';' ' ; '; _gsub "$_GS" '&' ' & '; _gsub "$_GS" '|' ' | '; s="$_GS"
+      # ONE READER. This scan used to pair the quotes itself (double quotes first, then single, an escaped quote
+      # neutralised by hand, a newline turned into `;`), and so did the approval reader; three readings of the same
+      # text could disagree, and one of them did: `git commit -m 'a"' -a ; echo 'b"'` hid `-a` inside quotes paired
+      # the wrong way. It now walks what _c47_read reads (quotes as the shell pairs them, an escaped character as a
+      # character, a here-document's body gone, every separator as ` ; `, a redirection set apart from its word).
+      # A quoted span or an escaped character becomes the one placeholder `Q`: its CONTENT must not be read as an
+      # option or a path, but the TOKEN has to survive, and it keeps its place (`-m"msg"` is `-mQ`, an attached
+      # value; a quoted pathspec is still a word after `--`).
+      local s
+      _c47_read "$1"; _c47_q; s="$_C47_TQ"
       # Splitting has to happen with globbing OFF, or a pathspec like `*.ts` would expand against the cwd and a
       # commit could be judged on whatever files happen to sit there.
       local unglob=0

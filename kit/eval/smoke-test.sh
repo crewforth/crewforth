@@ -7120,6 +7120,22 @@ PCT='0 @@ git commit -m x
 2 @@ git  commit -m x
 2 @@ git commit -m x;touch
 2 @@ git commit -m #\x27\ntouch ../PWNED\n#\x27
+2 @@ git commit -m x \\
+2 @@ git commit -m a\\ b
+2 @@ git commit -m $\x27a\x27
+2 @@ git commit -m \"a
+2 @@ git commit -m \x27a
+2 @@ git commit -m \"a\\\\b\"
+2 @@ git commit -m \"a!b\"
+0 @@ git commit -q -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27
+0 @@ \n  git commit -m \x27a\x27 \t\n
+0 @@ git commit -m x \\\n
+0 @@ git commit -m x\n 2>&1 
+2 @@ git commit -m x\n2>&1 -a
+2 @@ git commit -m \"$(cat <<\x27E-F\x27\nmsg\nE-F\n)\"
+2 @@ git commit -m \"$(cat <<\x27EOF\x27\nmsg\nEOF\ntouch ../PWNED\nEOF\n)\"
+2 @@ git commit -m a*b
+2 @@ git commit -m x2>&1
 2 @@ git commit -m \\\x27a ; touch ../PWNED ; echo b\\\x27'
 _pa_say auto 'approve: commit' >/dev/null
 _pan=0; _pabad=""
@@ -7127,8 +7143,8 @@ while IFS= read -r _pl; do [ -z "$_pl" ] && continue
   _pw="${_pl%% @@ *}"; _pc="${_pl#* @@ }"; _pc="${_pc//\\x27/$_pq}"; _pan=$((_pan+1))
   _pa_run auto "$_pc"; [ "$_par" = "$_pw" ] || _pabad="$_pabad [$_pc → $_par, want $_pw]"
 done <<< "$PCT"
-if [ "$_pan" != 50 ]; then fail "FIXTURE: the approved-commit table has $_pan rows, not 50"
-elif [ -z "$_pabad" ]; then pass "an approved commit is 'git commit -m …' alone in its call: 7 spellings allowed (any single-quoted message, a here-document with a quoted delimiter), 43 refused — a cd or a variable in front, a second command however it is quoted, a substitution, a redirection, -a or a path past a redirection, -n, an abbreviated --no-verify or --amend, any other option (50 rows)"
+if [ "$_pan" != 66 ]; then fail "FIXTURE: the approved-commit table has $_pan rows, not 66"
+elif [ -z "$_pabad" ]; then pass "an approved commit is 'git commit -m …' alone in its call: 10 spellings allowed (any single-quoted message, a here-document with a quoted delimiter, forty messages in one call, blank lines around the call, a continued line with nothing after it, a 2>&1 on a line of its own), 56 refused — a cd or a variable in front, a second command however it is quoted, a substitution, a redirection, -a or a path past a redirection, -n, an abbreviated --no-verify or --amend, any other option, a backslash outside quotes (the last character of the call too), a quote never closed, a \$'…' text, a here-document whose delimiter is not a plain word or whose body holds the delimiter twice, a glob in the message (66 rows)"
 else fail "approved-commit table:$_pabad"; fi
 
 # What is staged, HEAD, the clock: each one moved on its own, with the others still matching.
@@ -7688,21 +7704,24 @@ CPT='0/ask 0/allow @@ git commit -m x
 0 0 @@ bash -c \x27git log --grep=commit\x27
 0 0 @@ grep -rn \"git commit -n\" docs/
 0/ask 0/allow @@ bash build.sh && git commit -m x
-0/ask 0/allow @@ cat > notes.md <<\x27EOF\x27\nrun: bash -c \x27git commit -am x\x27 and it\x27s gone\nEOF\ngit commit -m x'
+0/ask 0/allow @@ cat > notes.md <<\x27EOF\x27\nrun: bash -c \x27git commit -am x\x27 and it\x27s gone\nEOF\ngit commit -m x
+0/ask 0/allow @@ git commit -m x # trailing words -a'
 _cf_table "$CPT"
-if [ "$_cfn" != 47 ]; then fail "FIXTURE: the everyday-commit table has $_cfn rows, not 47"
-elif [ -z "$_cfbad" ]; then pass "47 everyday calls are judged as before (asked in default, allowed when pre-authorised): chained after git add, a message that holds flags and separators, a here-document message, -F, -S, -uno, redirections, a pipe, a comment, a cd into this same repository, GIT_AUTHOR_*, a script beside the commit"
+if [ "$_cfn" != 48 ]; then fail "FIXTURE: the everyday-commit table has $_cfn rows, not 48"
+elif [ -z "$_cfbad" ]; then pass "48 everyday calls are judged as before (asked in default, allowed when pre-authorised): chained after git add, a message that holds flags and separators, a here-document message, -F, -S, -uno, redirections, a pipe, a comment, a cd into this same repository, GIT_AUTHOR_*, a script beside the commit"
 else fail "everyday commit calls that changed verdict:$_cfbad"; fi
 
-# Three everyday calls the OLDER scan refuses, and still does: it reads any a/o/i/p in a short token as a flag
-# (`-uno`, a key id after -S) and reads past a comment sign. The new reading parses all three correctly; they are
-# kept refused because this change only adds refusals — letting them through is a loosening, to be decided on its own.
+# Two everyday calls the OLDER scan refuses, and still does: it reads any a/o/i/p in a short token as a flag
+# (`-uno`, a key id after -S). The newer scan parses both correctly; they are kept refused because letting them
+# through is a loosening of that scan's option table, to be decided on its own. A third row stood here,
+# `git commit -m x # trailing words -a`: the older scan paired quotes and read on past the comment sign by itself.
+# It walks the one reader's text now, where a comment is left out, so that call is asked about like any commit
+# from the index (the row is in the table above).
 CKT='2 0/allow @@ git commit -Skeyid -qm x
-2 0/allow @@ git commit -uno -m x
-2 0/allow @@ git commit -m x # trailing words -a'
+2 0/allow @@ git commit -uno -m x'
 _cf_table "$CKT"
-if [ "$_cfn" != 3 ]; then fail "FIXTURE: the kept-over-blocks table has $_cfn rows, not 3"
-elif [ -z "$_cfbad" ]; then pass "3 known over-blocks of the older scan are unchanged (-Skeyid, -uno, a flag after a comment sign): nothing was loosened"
+if [ "$_cfn" != 2 ]; then fail "FIXTURE: the kept-over-blocks table has $_cfn rows, not 2"
+elif [ -z "$_cfbad" ]; then pass "2 known over-blocks of the older scan are unchanged (-Skeyid, -uno)"
 else fail "the older scan's verdict changed on:$_cfbad"; fi
 
 # ---- the same commit, written for PowerShell --------------------------------------------------------------------
