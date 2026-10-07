@@ -9172,14 +9172,15 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ -z "$_cv" ] && pass "ci-docs-only.sh: documentation reads docs; a hook, evals/run.sh, kit/README.md, ci.yml or an empty diff reads code" \
                     || fail "ci-docs-only.sh gave the wrong verdict for:$_cv"
       # The third answer, `text`: a pull request that changes only the text of skills, agents or commands skips the
-      # Linux verify job too. That list is pinned the same way, and every pattern must be a .md under one of the
-      # six text directories: `kit/*`, a script or kit/CLAUDE.md in it would let a gate change merge unverified.
+      # macOS and Windows jobs as a documentation one does, and still runs the Linux verify job. That list is pinned
+      # the same way, and every pattern must be a .md under one of the six text directories: `kit/*`, a script or
+      # kit/CLAUDE.md in it would let a gate change skip the platforms where it can break.
       cdo_tpats(){ awk '/# TEXT-PATTERNS-START/{f=1;next} /# TEXT-PATTERNS-END/{f=0} f && /\) *return 0/ {sub(/^[[:space:]]*/,""); sub(/\).*/,""); print}' "$1"; }
       cdo_tunsafe(){ while IFS= read -r _p; do case "$_p" in kit/skills/\*.md|kit/agents/\*.md|kit/commands/\*.md|plugin/skills/\*.md|plugin/agents/\*.md|plugin/commands/\*.md) ;; *) printf '%s\n' "$_p" ;; esac; done; }
       _tp="$(cdo_tpats "$CDO" | tr '\n' ' ' | sed 's/ $//')"
       _twant='kit/skills/*.md kit/agents/*.md kit/commands/*.md plugin/skills/*.md plugin/agents/*.md plugin/commands/*.md'
       _ttu="$(printf '%s\n' 'kit/*' 'kit/hooks/*.md' 'kit/skills/*' 'kit/skills/*.md' | cdo_tunsafe | grep -c .)"
-      if [ "$_tp" != "$_twant" ]; then fail "the text-only list changed — it reads '$_tp', pinned '$_twant'. Widening it lets a change skip every job; update this pin deliberately"
+      if [ "$_tp" != "$_twant" ]; then fail "the text-only list changed — it reads '$_tp', pinned '$_twant'. Widening it lets a change skip macOS and Windows; update this pin deliberately"
       elif [ -n "$(cdo_tpats "$CDO" | cdo_tunsafe)" ]; then fail "a text-only pattern is not a .md under skills, agents or commands: $(cdo_tpats "$CDO" | cdo_tunsafe | tr '\n' ' ')"
       elif [ "$_ttu" != 3 ]; then fail "the text-pattern check caught $_ttu of 3 planted patterns (kit/*, kit/hooks/*.md, kit/skills/*) — it reads nothing"
       else pass "the text-only list is exactly the .md files of skills, agents and commands in kit/ and plugin/; 3 planted wider patterns are caught"; fi
@@ -9193,10 +9194,12 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ "$(cdo README.md)" = docs ]                                            || _cv="$_cv docs-stays-docs"
       [ -z "$_cv" ] && pass "ci-docs-only.sh: skill, agent and command text reads text, with documentation too; with a hook, a skill's script, kit/CLAUDE.md or a blocklist it reads code" \
                     || fail "ci-docs-only.sh gave the wrong text verdict for:$_cv"
-      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -c "if: needs.changes.outputs.scope != 'text'")"
-      [ "$_cyv" = 1 ] && [ "$(grep -c "scope != 'text'" "$SGR/.github/workflows/ci.yml")" = 1 ] \
-        && pass "ci.yml skips the Linux verify job on the answer text, and no other job" \
-        || fail "ci.yml's text-only wiring changed: verify is gated $_cyv time(s) on scope != 'text', and the file holds $(grep -c "scope != 'text'" "$SGR/.github/workflows/ci.yml") such line(s)"
+      # The Linux verify job is gated on nothing: it holds the checks a text change can break.
+      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -cE '^    (if|needs):')"
+      _cyn="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -c 'bash packaging/verify.sh')"
+      [ "$_cyv" = 0 ] && [ "$_cyn" -ge 1 ] \
+        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no if:, no needs:)" \
+        || fail "ci.yml's verify job is conditional ($_cyv if:/needs: line(s)) or was not found ($_cyn verify.sh call(s)): a text-only pull request would skip the budget, pointer, routing and plugin checks"
       # ...and ci.yml really uses it: both cross-platform jobs are gated on its answer, nothing else is.
       _cy="$SGR/.github/workflows/ci.yml"
       _gated="$(grep -c "if: needs.changes.outputs.scope == 'code'" "$_cy")"

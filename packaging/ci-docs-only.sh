@@ -9,11 +9,11 @@
 #
 #
 # A third answer, `text`: every path is documentation or the TEXT of a skill, an agent or a command (a .md under
-# those directories, in kit/ or in its generated plugin/ copy), and at least one is such a text. ci.yml then skips
-# the Linux verify job as well. What that gives up, knowingly: the listing budget, the reference pointers, the
-# routing triggers and the plugin copy are checked by smoke, and for such a pull request they are first checked by
-# the run of the push to next or main, which always runs everything. A hook, a script, a blocklist, kit/CLAUDE.md
-# and anything else under kit/ is still `code`.
+# those directories, in kit/ or in its generated plugin/ copy), and at least one is such a text. ci.yml skips the
+# macOS and Windows jobs on it, as it does on `docs`: a .md cannot change how bash, git or an installer behaves on
+# another OS. The Linux verify job still runs, because the listing budget, the reference pointers, the routing
+# triggers and the plugin copy are checked there and a skill's text is what they read. A hook, a script, a
+# blocklist, kit/CLAUDE.md and anything else under kit/ is still `code`.
 #
 #   git diff --name-only BASE HEAD | bash packaging/ci-docs-only.sh
 set -uo pipefail
