@@ -6,11 +6,13 @@ Re-records the Studio pictures after a change to the panel:
 |:--|:--|:--|
 | `assets/studio-panels.gif` | the Studio page | the panel in use: the graph and an agent's inspector, the Timeline, the List, a request answered in the approval dock, the New session panel |
 | `assets/studio-graph.png` | the Studio page | the Graph view of the finished session |
-| `site/media/crewforth-hero.mp4` | the front page, and the README by its own copy | the Studio scene of the overview video (40.4 s – 47.8 s); every other frame and the sound are left as they were |
+| `site/media/crewforth-hero.mp4` | the front page, and the README by its own copy | two scenes of the overview video: the Studio scene (40.4 s – 47.8 s), and the version and skill count the install scene prints (8.8 s – 12.2 s). Every other frame and the sound are left as they were |
 
 ```bash
 bash packaging/studio-record/record.sh                    # the two pictures, and the take the video uses
 python3 packaging/studio-record/scene.py --video OLD.mp4 --film <take> --out NEW.mp4   # the scene in the video
+node packaging/studio-record/install-render.mjs --out <dir> --was "3.0.0,39" --now "3.1.0,40"
+python3 packaging/studio-record/install_scene.py --video OLD.mp4 --drawn <dir> --out NEW.mp4   # the numbers the install scene prints
 ```
 
 The file names stay the same, so the site picks up a new recording without an edit.
@@ -53,9 +55,22 @@ of the scene and stops if they disagree, which is also how the frame offset of a
 After it, compare the two files where they must not differ. For the 3.1.0 recording, frames outside the scene read
 SSIM 0.9997 against the old file, and the audio stream's bytes are identical.
 
+## What `install_scene.py` does
+
+The install scene prints the version and the number of skills, and both go out of date. The video's source page is
+not in the repository, so the lines are not rendered again: `install-render.mjs` draws the two numbers in the
+repository's JetBrains Mono, laid out as that page lays them out, and says where each character is.
+`install_scene.py` then rewrites only the characters that differ, on the frames the lines are on screen, at the
+weight each line has on each frame, and encodes the picture once with the sound copied. The new text has to be as
+long as the old: a longer number would move what follows it.
+
+Before writing it measures two things on the input and stops if either is off: the moment the first line appears
+against its model of the scene (which is also how a copy's frame offset is found), and how closely its drawing of
+the old numbers matches the video's own.
+
 ## Requirements
 
-macOS, Node 22, ffmpeg and Google Chrome; `scene.py` also needs Python 3 with numpy and Pillow. No model session is
+macOS, Node 22, ffmpeg and Google Chrome; `scene.py` and `install_scene.py` also need Python 3 with numpy and Pillow. No model session is
 started and no tokens are spent. Working files go to `$TMPDIR/crewforth-studio-record` (`CREW_RECORD_TMP` moves
 them). The panel listens on port 7802 (`CREW_RECORD_PORT`).
 
