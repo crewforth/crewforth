@@ -1,6 +1,6 @@
 {
   "name": "crewforth",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Crewforth \u2014 your engineering crew for Claude Code: agents, skills and tool-level gates, in any stack.",
   "bin": {
     "crewforth": "bin/cli.js"

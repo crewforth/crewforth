@@ -142,6 +142,27 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # A final moves `latest` only, so `next` went on naming the rc before it (or an older final): `crewforth@next`
+      # installed something older than `crewforth@latest`. After a final, `next` follows when what it names is older;
+      # an rc of a LATER version stays. The release is published by now, so a failure here warns and does not fail.
+      - name: Move npm's `next` to this final when it names something older
+        if: steps.v.outputs.prerelease != 'true'
+        run: |
+          pkg="$(node -p "require('./package.json').name")"
+          cur="$(npm view "$pkg" dist-tags.next 2>/dev/null || true)"
+          if ! what="$(bash packaging/npm-next-tag.sh "${{ steps.v.outputs.version }}" "$cur")"; then
+            echo "::warning::npm's next is '$cur': not a version this step compares, left as it is"; exit 0
+          fi
+          if [ "$what" = move ]; then
+            npm dist-tag add "$pkg@${{ steps.v.outputs.version }}" next \
+              && echo "next: ${cur:-nothing} -> ${{ steps.v.outputs.version }}" \
+              || echo "::warning::could not move npm's next from '${cur:-nothing}' to ${{ steps.v.outputs.version }}; run: npm dist-tag add $pkg@${{ steps.v.outputs.version }} next"
+          else
+            echo "next stays at $cur (not older than ${{ steps.v.outputs.version }})"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   # crewforth.com, from this tag: .github/workflows/site.yml, which can also be run by hand for a tag whose release ran
   # before Pages was ready. OFF by default: it runs only when the repository variable SITE_DEPLOY is 1, because until
   # the Pages source is set to "GitHub Actions" the deploy would fail, and a release must not stop on a site that is
