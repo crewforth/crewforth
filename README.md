@@ -81,7 +81,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 | Rule | Enforced by |
 |:--|:--|
-| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is your own message, `approve: commit` | `guard-bash.sh` and `prompt-approval.sh` |
+| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is your own message, `approve: commit`. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
 | A commit needs a clean review of that exact diff | `guard-bash.sh` and the record `crew-review-agent` writes |
 | Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused | `guard-bash.sh` |
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |

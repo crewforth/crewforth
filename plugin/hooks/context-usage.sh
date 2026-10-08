@@ -103,7 +103,7 @@ if [ -n "${IN:-}" ] && [ -n "${PSID:-}" ]; then
           # In auto and dontAsk the user's own message is the approval (hooks/prompt-approval.sh); plan and
           # bypassPermissions have no such route.
           case "$PM" in
-            auto|dontAsk) PMHOW="stage the change and show the message, then the user approves by sending a message that is only 'approve: commit' ('approve: push', 'approve: commit+push'; 'onay:' works too). It covers what is staged at that moment, for 30 minutes, until their next message; never write it for them" ;;
+            auto|dontAsk) PMHOW="stage the change, show the message in ONE code block and under it one line in the user's language, 'If you approve, write only this: approve: commit' ('approve: push', 'approve: commit+push'; 'onay:' works too); the user approves by sending that text alone. It covers what is staged at that moment, for 30 minutes, until their next message; never write it for them" ;;
             *)            PMHOW="a real yes still comes first, then the user switches mode (or exports CLAUDE_GIT_OK=1 in headless/CI)" ;;
           esac
           echo "🔒 Permission mode: $PM. git commit/push fail closed in this mode (§4.4). Only when a commit or push comes up: say so before you ask for approval; $PMHOW. Otherwise do not mention it."
