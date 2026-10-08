@@ -419,7 +419,7 @@ el.newSession.addEventListener('click', () => {
 
 /* The toolbar says what the canvas is doing. It is painted from the canvas's own
    state, so a choice restored from storage shows without being re-made. */
-const GROUP_WORD = { run: 'Workflow run', type: 'Agent type', parent: 'Parent', none: 'None' };
+const GROUP_WORD = { run: 'Workflow run', type: 'Agent type', parent: 'Parent', order: 'Order', none: 'None' };
 const DENSITY_WORD = { auto: 'Auto', comfortable: 'Comfortable', compact: 'Compact' };
 const SHOW = {
   all: { word: 'All', statuses: null },

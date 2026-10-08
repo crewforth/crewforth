@@ -22,6 +22,7 @@ import { typeOf, roleName, shownType } from './names.js';
 export const SIZE = {
   padX: 24, padY: 16,          // the canvas's own margin
   colGap: 56,                  // between one depth and the next
+  waveGap: 148,                // between one wave and the next: room for the words on an inferred wire
   rowGap: 12,                  // between siblings
   session: { w: 200, h: 84 },
   card: { w: 248, h: 64 },     // an agent, and a folded group
@@ -48,7 +49,7 @@ export const AUTO = {
   stackAt: 3,
 };
 
-export const GROUPINGS = ['run', 'type', 'parent', 'none'];
+export const GROUPINGS = ['run', 'type', 'parent', 'order', 'none'];
 export const DENSITIES = ['auto', 'comfortable', 'compact'];
 
 // The handful of things a status means to a reader. `killed` and `stopped` come off the transcript verbatim and
@@ -227,6 +228,8 @@ function groupItem(id, type, members, anchor, via, depth, seq, extra) {
     via,
     depth,
     seq: Math.min(...members.map((m) => seq.get(m.id) ?? 0), Infinity),
+    // The group stands where its first member does in the order the session called its agents.
+    first: members.filter((m) => m.order != null).sort((a, b) => a.order - b.order)[0] ?? null,
     ...extra,
   };
 }
@@ -248,6 +251,7 @@ function groupItem(id, type, members, anchor, via, depth, seq, extra) {
 export function plan(nodes, opts = {}) {
   const group = GROUPINGS.includes(opts.group) ? opts.group : 'run';
   const asked = DENSITIES.includes(opts.density) ? opts.density : 'auto';
+  if (group === 'order') return planOrder(nodes, asked, opts);
   const seq = opts.seq ?? sequence(nodes);
   const open = opts.open ?? new Map();
   const pinned = opts.pinned ?? new Map();
@@ -419,6 +423,107 @@ export function plan(nodes, opts = {}) {
   return {
     items: drawnItems, edges, width: Math.max(width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
     drawn, density, group, stacked, aside: Boolean(aside), sessionY: sessionY ?? null,
+  };
+}
+
+/* ---------------------------------------------------------------- order --- */
+
+// What the wire from an agent to a later wave is called, and what it is: a reading of the order of events.
+export const INFERRED_NOTE = 'Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.';
+
+/**
+ * The same agents by when the session called them.
+ *
+ * Every agent is called by the session, so the tree is one level deep and says nothing of sequence. Here a
+ * column is a WAVE: the agents called in one assistant message, which is what "started together" means. Waves
+ * run left to right in the order the messages were written, and a wave's agents stack in the order of the calls.
+ * Agents the session's transcript did not call (a workflow's) have no wave and take a last column of their own.
+ *
+ * Two kinds of wire. The session is wired to the first wave: it called it. A later wave is wired, dotted, from
+ * each agent that reported after the wave before it was called and before this one was — an inference from the
+ * order of events, drawn as one and labelled as one. A wave nothing reported before has no wire.
+ */
+function planOrder(nodes, asked, opts) {
+  const pinned = opts.pinned ?? new Map();
+  const session = nodes.find((n) => n.kind === 'session') ?? null;
+  const agents = nodes.filter((n) => n.kind === 'agent');
+  const called = agents.filter((n) => n.wave != null);
+  const waveIds = [...new Set(called.map((n) => n.wave))].sort((a, b) => a - b);
+  const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.id).localeCompare(String(b.id));
+  const columns = waveIds.map((w) => ({ wave: w, members: called.filter((n) => n.wave === w).sort(byOrder) }));
+  for (const c of columns) c.calledAt = Math.min(...c.members.map((m) => m.calledAt ?? Infinity));
+  const rest = agents.filter((n) => n.wave == null)
+    .sort((a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity) || String(a.id).localeCompare(String(b.id)));
+  if (rest.length) columns.push({ wave: null, members: rest, calledAt: Infinity });
+
+  const lay = (compact) => {
+    const sz = compact ? SIZE.chip : SIZE.card;
+    const items = [];
+    const x0 = SIZE.padX + (session ? SIZE.session.w + SIZE.colGap : 0);
+    let height = 0;
+    columns.forEach((col, i) => {
+      col.members.forEach((n, j) => {
+        items.push({
+          id: n.id, kind: 'agent', node: n, parent: null, via: null, depth: i + 1, seq: n.order ?? j, compact,
+          wave: col.wave, w: sz.w, h: sz.h, x: x0 + i * (sz.w + SIZE.waveGap), y: SIZE.padY + j * (sz.h + SIZE.rowGap),
+        });
+      });
+      height = Math.max(height, SIZE.padY * 2 + col.members.length * (sz.h + SIZE.rowGap) - SIZE.rowGap);
+    });
+    const width = x0 + Math.max(0, columns.length * (sz.w + SIZE.waveGap) - SIZE.waveGap) + SIZE.padX;
+    return { items, width, height };
+  };
+  let compact = asked === 'compact';
+  let box = lay(compact);
+  if (asked === 'auto' && box.height > AUTO.tallest) { compact = true; box = lay(true); }
+  const { items } = box;
+  let { height } = box;
+
+  let sessionY = opts.sessionY ?? null;
+  if (session) {
+    const first = items.filter((it) => it.depth === 1);
+    if (sessionY == null) {
+      const bottom = first.length ? Math.max(...first.map((it) => it.y + it.h)) : SIZE.padY + SIZE.session.h;
+      sessionY = Math.max(SIZE.padY, Math.round((SIZE.padY + bottom) / 2 - SIZE.session.h / 2));
+    }
+    items.unshift({ id: session.id, kind: 'session', node: session, parent: null, depth: 0, w: SIZE.session.w, h: SIZE.session.h, x: SIZE.padX, y: sessionY });
+    height = Math.max(height, sessionY + SIZE.session.h + SIZE.padY);
+  }
+  for (const it of items) {
+    const p = pinned.get(it.id);
+    if (p) { it.x = p.x; it.y = p.y; it.pinned = true; }
+  }
+
+  const at = new Map(items.map((it) => [it.id, it]));
+  const edges = [];
+  const wire = (from, to, extra) => edges.push({
+    key: `${from.id}\u0000${to.id}`, source: from.id, target: to.id,
+    from: { x: from.x + from.w, y: from.y + from.h / 2 }, to: { x: to.x, y: to.y + to.h / 2 },
+    status: to.node.status ?? 'unknown', state: stateOf(to.node.status), ...extra,
+  });
+  const waves = columns.filter((c) => c.wave != null);
+  if (session && waves.length) for (const m of waves[0].members) wire(at.get(session.id), at.get(m.id), {});
+  // An agent's report belongs to the first wave called after it: the one that could have been waiting for it.
+  for (let i = 1; i < waves.length; i += 1) {
+    const since = waves[i - 1].calledAt;
+    const reporters = called.filter((n) => n.reportedAt != null && n.reportedAt > since && n.reportedAt <= waves[i].calledAt
+      && n.wave < waves[i].wave).sort(byOrder);
+    waves[i].after = reporters;
+    for (const r of reporters) {
+      waves[i].members.forEach((m, k) => wire(at.get(r.id), at.get(m.id), {
+        kind: 'inferred', state: 'inferred',
+        // Said once for a reporter, on the wire to the wave's first agent; the others carry it on hover.
+        label: k === 0 ? `after ${shownType(r)} reported` : null,
+        title: `after ${shownType(r)} reported\n${INFERRED_NOTE}`,
+      }));
+    }
+    for (const m of waves[i].members) at.get(m.id).after = reporters.map((r) => shownType(r));
+  }
+
+  return {
+    items, edges, width: Math.max(box.width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
+    drawn: agents.length, density: compact ? 'compact' : 'comfortable', group: 'order', stacked: false, aside: false,
+    waves: waves.length, sessionY,
   };
 }
 

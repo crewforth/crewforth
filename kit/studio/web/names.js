@@ -31,3 +31,14 @@ export const shownType = (n) => roleName(typeOf(n));
 
 /** What hovering an agent says: the type as it is declared, and its task in full, since both are cut on screen. */
 export const hoverOf = (n) => [n?.agentType ?? null, n?.description ?? null].filter(Boolean).join('\n');
+
+/**
+ * Where an agent stands among the ones the session called, as a tag: "#3 · 09:14". The number is the order of
+ * the calls; the time is when the call was made, in the viewer's own zone. An agent the session's transcript did
+ * not call has no place to state, and gets no tag.
+ * @param clock  (ms) => "HH:MM"
+ */
+export function orderTag(n, clock = null) {
+  if (n?.order == null) return '';
+  return `#${n.order}${clock && n.calledAt != null ? ` · ${clock(n.calledAt)}` : ''}`;
+}

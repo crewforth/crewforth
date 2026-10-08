@@ -390,6 +390,120 @@ check('prose without a notice yields nothing', none.size === 0);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/* The order the session called its agents in. Every agent is called by the session, so the tree is one level
+   deep; what it cannot show is which were called together and what had reported before the next were. */
+{
+  const { buildGraph } = await import(`../../kit/studio/server/lib/graph.js?ord=${Date.now()}`);
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?ord=${Date.now()}`);
+  const tpl = await import(`../../kit/studio/web/timeline-plan.js?ord=${Date.now()}`);
+  const nm = await import(`../../kit/studio/web/names.js?ord=${Date.now()}`);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-order-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const T0 = Date.parse('2026-01-01T09:00:00Z');
+  const iso = (min) => new Date(T0 + min * 60_000).toISOString();
+  // One assistant message is several records with one id: the two calls of message M2 are one wave.
+  const call = (mid, toolUseId, type, min, extra = {}) => ({ type: 'assistant', timestamp: iso(min), message: { id: mid, content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: type, description: `task ${toolUseId}`, ...extra } }] } });
+  const answer = (toolUseId, agentId, min, status = 'completed') => ({ type: 'user', timestamp: iso(min), message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'x' }] }, toolUseResult: { agentId, status } });
+  const noticeOf = (agentId, min) => ({ type: 'user', timestamp: iso(min), message: { content: `<task-notification>\n<task-id>${agentId}</task-id>\n<status>completed</status>\n</task-notification>` } });
+  const main = [
+    { type: 'user', timestamp: iso(0), message: { content: 'go' } },
+    call('M1', 'tu-plan', 'crew-planner', 12), answer('tu-plan', 'aplan', 15),
+    call('M2', 'tu-be', 'crew-backend-expert', 16), call('M2', 'tu-db', 'crew-database-expert', 16, { run_in_background: true }),
+    answer('tu-db', 'adb', 16, 'async_launched'), answer('tu-be', 'abe', 20),
+    noticeOf('adb', 22),
+    call('M3', 'tu-test', 'crew-test-expert', 25), answer('tu-test', 'atest', 30),
+    call('M4', 'tu-rev', 'crew-review-agent', 31),
+  ];
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, main.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const agentFile = (id, toolUseId, type, min) => {
+    fs.writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ agentType: type, description: `task ${toolUseId}`, ...(toolUseId ? { toolUseId } : {}) }));
+    fs.writeFileSync(path.join(sub, `agent-${id}.jsonl`), JSON.stringify({ type: 'assistant', timestamp: iso(min), message: { content: [{ type: 'text', text: 'ok' }] } }) + '\n');
+  };
+  agentFile('aplan', 'tu-plan', 'crew-planner', 13);
+  agentFile('abe', 'tu-be', 'crew-backend-expert', 17);
+  agentFile('adb', null, 'crew-database-expert', 17);          // its meta names no call: found from the answer
+  agentFile('atest', 'tu-test', 'crew-test-expert', 26);
+  agentFile('arev', 'tu-rev', 'crew-review-agent', 31);
+  agentFile('astray', null, 'Explore', 5);                     // nothing in the session's transcript called it
+  const g = await buildGraph({ sessionId: 'order-session', file, subagentsDir: sub });
+  const N = (id) => g.nodes.find((n) => n.id === id);
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  check('each agent the session called has its place in the order of the calls, and when it was called',
+    ['aplan', 'abe', 'adb', 'atest', 'arev'].map((id) => N(id).order).join() === '1,2,3,4,5' && N('aplan').calledAt === T0 + 12 * 60_000,
+    ['aplan', 'abe', 'adb', 'atest', 'arev'].map((id) => `${id}#${N(id).order}`).join(' '));
+  check('the calls of one assistant message are one wave, a background call among them',
+    N('aplan').wave === 1 && N('abe').wave === 2 && N('adb').wave === 2 && N('atest').wave === 3 && N('arev').wave === 4
+    && N('adb').background === true);
+  check('an agent whose meta names no call is placed by the answer that named it; one nothing called has no place',
+    N('adb').order === 3 && N('astray').order === null && N('astray').wave === null && N('astray').calledAt === null);
+  check('when an agent reported is the answer to its call, or for a background agent the notice that ended it',
+    N('aplan').reportedAt === T0 + 15 * 60_000 && N('abe').reportedAt === T0 + 20 * 60_000
+    && N('adb').reportedAt === T0 + 22 * 60_000 && N('arev').reportedAt === null);
+
+  const hhmm = (ms) => `t${(ms - T0) / 60_000}`;
+  check('a card says its place and the time: "#1 \u00b7 09:12"; an agent with no place says nothing',
+    nm.orderTag(N('aplan'), hhmm) === '#1 \u00b7 t12' && nm.orderTag(N('abe')) === '#2' && nm.orderTag(N('astray'), hhmm) === ''
+    && nm.orderTag(null) === '' && /^\d\d:\d\d$/.test(tpl.clock(T0)));
+
+  const p = gpl.plan(g.nodes, { group: 'order', density: 'comfortable' });
+  const at = (id) => p.items.find((it) => it.id === id);
+  check('"Order" is a grouping, and under it a column is a wave: left to right in the order called, its agents one under the other',
+    gpl.GROUPINGS.includes('order') && p.group === 'order' && p.waves === 4
+    && at('aplan').x < at('abe').x && at('abe').x === at('adb').x && at('abe').y < at('adb').y
+    && at('abe').x < at('atest').x && at('atest').x < at('arev').x && p.items.every((it) => it.kind !== 'group'),
+    ['aplan', 'abe', 'adb', 'atest', 'arev'].map((id) => `${id}@${at(id).x},${at(id).y}`).join(' '));
+  check('agents the session did not call take a last column of their own',
+    at('astray').x > at('arev').x && at('astray').wave === null);
+  const solid = p.edges.filter((e) => e.kind !== 'inferred');
+  check('the session is wired to the first wave, and to nothing else: it is the only call drawn',
+    solid.length === 1 && solid[0].source === 'session' && solid[0].target === 'aplan');
+  const inferred = p.edges.filter((e) => e.kind === 'inferred').map((e) => `${e.source}>${e.target}`).sort().join(' ');
+  check('an agent that reported is wired, as an inference, to the first wave called after it',
+    inferred === 'abe>atest adb>atest aplan>abe aplan>adb atest>arev', inferred);
+  const words = p.edges.filter((e) => e.kind === 'inferred');
+  check('the inferred wire says "after Planner reported" once, and on hover that it is an inference and not a call',
+    words.filter((e) => e.source === 'aplan').map((e) => e.label).join('|') === 'after Planner reported|'
+    && words.every((e) => /^after .+ reported\n/.test(e.title) && /not a call/.test(e.title) && e.state === 'inferred')
+    && /Inferred/.test(gpl.INFERRED_NOTE) && at('atest').after.join() === 'Backend,Database');
+  const quiet = gpl.plan(g.nodes.map((n) => ({ ...n, reportedAt: null })), { group: 'order', density: 'comfortable' });
+  check('with no report recorded there is no inferred wire: none is made up from the order alone',
+    quiet.edges.length === 1 && quiet.edges[0].source === 'session');
+  const other = gpl.plan(g.nodes, { group: 'type', density: 'comfortable' });
+  check('in the other groupings a group stands where its first member does, and no wire is an inference',
+    other.edges.every((e) => e.kind !== 'inferred')
+    && gpl.plan([...g.nodes, { ...N('abe'), id: 'abe2', order: 9 }], { group: 'type', density: 'comfortable' }).items.find((it) => it.id === 'type:session:crew-backend-expert').first.id === 'abe');
+
+  const rows = tpl.rows(g.nodes, { group: 'order', now: T0 + 40 * 60_000 }).filter((r) => r.kind === 'group').map((r) => r.label).join(' | ');
+  check('the Timeline groups by the same waves, in the order they were called',
+    rows === 'Wave 1 | Wave 2 | Wave 3 | Wave 4 | Not called by the session', rows);
+
+  const dom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?ord=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  c.setSession('order');
+  c.render({ nodes: g.nodes, edges: [] });
+  const card = c.els.get('aplan') ?? null;
+  const inRun = c.els.get('aplan')?.parts.order.textContent;
+  c.setGroup('order');
+  const wires = [...c.edgeEls.values()];
+  check('the canvas draws the tag on a card, and under "Order" the inferred wires as their own kind, with their words',
+    card !== null && /^#1 \u00b7 \d\d:\d\d$/.test(inRun) && c.state().group === 'order'
+    && wires.filter((w) => w.dataset.kind === 'inferred').length === 5 && wires.filter((w) => w.dataset.kind === 'call').length === 1
+    && wires.filter((w) => w.label).length === 4 && /Called after Planner reported/.test(c.els.get('abe').title),
+    `${wires.length} wires; tag "${inRun}"`);
+  dom();
+  const cssSrc = read(path.join(WEB_ROOT, 'style.css')) ?? '';
+  check('the legend names the wire that is not a call, and it is drawn dotted and still',
+    /line\('inferred', 'after it reported \(inferred, not a call\)'\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
+    && /\.cv-edge\[data-kind="inferred"\] \{[^}]*stroke-dasharray: 1\.5 5;/.test(cssSrc)
+    && /\.cv-legend-line\[data-state="inferred"\] \{ border-top: 1\.5px dotted/.test(cssSrc)
+    && /order: 'Order'/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+}
+
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
    hold the arithmetic and the rules, not the prices' truth. */
 {
