@@ -44,7 +44,7 @@ chmod +x "$OUT/studio/ensure-node.sh" "$OUT/studio/server/hooks/"*.sh 2>/dev/nul
 # would carry the board's session-start awareness and none of its claim gate — the exact one-channel-is-weaker
 # asymmetry the git hooks below were added to close.
 for h in guard-bash.sh guard-write.sh context-usage.sh session-guard.sh session-rehydrate.sh session-stats.sh \
-         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh; do
+         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-schedule.sh; do
   cp "$SRC/hooks/$h" "$OUT/hooks/$h"
   chmod +x "$OUT/hooks/$h"
 done
@@ -121,6 +121,12 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-write.sh\"", "timeout": 600 }
+        ]
+      },
+      {
+        "matcher": "CronCreate|ScheduleWakeup|RemoteTrigger|mcp__.*([Tt]rigger|[Ss]chedul|[Cc]ron|[Ll]ater).*",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-schedule.sh\"", "timeout": 600 }
         ]
       }
     ],

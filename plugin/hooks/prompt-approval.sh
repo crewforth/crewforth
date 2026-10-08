@@ -51,8 +51,13 @@ _CREW_LOCALE="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
 case "$_CREW_LOCALE" in C|POSIX) _CREW_LOCALE="" ;; esac
 export LC_ALL=C
 # ---- /CREW-LOCALE
-IFS= read -r -d '' INPUT || true
-case "$INPUT" in *'"hook_event_name"'*UserPromptSubmit*) ;; *) exit 0 ;; esac
+# guard-schedule.sh SOURCES this file for one thing, _crew_appr_op: which text is an approval is decided here and
+# nowhere else. Sourced, the file defines its functions and returns before anything is read or written.
+_PA_LIB=0; [ "${BASH_SOURCE[0]}" != "$0" ] && _PA_LIB=1
+if [ "$_PA_LIB" = 0 ]; then
+  IFS= read -r -d '' INPUT || true
+  case "$INPUT" in *'"hook_event_name"'*UserPromptSubmit*) ;; *) exit 0 ;; esac
+fi
 # ---- CREW-JSON-PARSE ------------------------------------------------------------------------------------
 _json_find(){  # $1 = text, $2 = a literal -> _JF = the offset of its first occurrence, -1 when there is none
   # `${text%%"$literal"*}` gives the same offset and costs the DISTANCE to the occurrence times the length of the
@@ -351,6 +356,38 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 }
 # ---- /CREW-APPROVAL-PATH ---------------------------------------------------------------------------------
 
+# ---- WHICH TEXT IS AN APPROVAL: one function, asked here of the user's prompt and by guard-schedule.sh of a
+# prompt a tool is about to schedule ---------------------------------------------------------------------------
+_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push, or "" when the text is not an approval
+  local P="$1" _k _v LC_ALL=C
+  OP=""
+  P="${P//$'\r'/}"
+  while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
+  while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
+  [ "${#P}" -le 40 ] || return 0
+  case "$P" in
+    *$'\n'*) return 0 ;;
+    # THE COMMAND: `/crew-approve <what>`, or `/<plugin>:crew-approve <what>` as a plugin names its commands. Measured
+    # on Claude Code 2.1.284: a command the user types reaches UserPromptSubmit with `prompt` as typed, and a skill
+    # the model starts with the Skill tool raises PreToolUse and PostToolUse only, never that event.
+    /*) _k="${P%%[$' \t']*}"; [ "$_k" != "$P" ] || return 0
+        _v="${P:${#_k}}"; _k="${_k#/}"; _k="@${_k##*:}" ;;      # `@`: a command, so `crew-approve: commit` as text is not one
+    # The text form of 3.1.0's release candidates, kept: `approve: <what>` and `onay: <what>`.
+    *:*) _k="${P%%:*}"; _v="${P#*:}" ;;
+    *) return 0 ;;
+  esac
+  _k="${_k//[$' \t']/}"; _v="${_v//[$' \t']/}"
+  # In the C locale: under tr_TR an upper-case I does not fold to i, and `ONAY: COMMIT` was not an approval (review).
+  shopt -s nocasematch
+  case "$_k" in
+    @crew-approve|approve|onay)
+      case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; esac ;;
+  esac
+  shopt -u nocasematch
+}
+
+[ "$_PA_LIB" = 1 ] && return 0
+
 # A second "prompt" key cannot come from the text of a prompt (inside a JSON string every quote is escaped), so
 # more than one means the payload is not the shape this hook knows, and nothing is read from it.
 _json_keycount "$INPUT" prompt; _n_prompt=$_KC
@@ -384,32 +421,8 @@ if [ -n "$REC" ] && [ -s "$REC" ]; then : > "$REC" 2>/dev/null || true; fi
 # ---- is this message an approval? ------------------------------------------------------------------------
 [ "$_n_prompt" = 1 ] || exit 0
 [ "${#RAW}" -le 120 ] || exit 0        # an approval is a few words; a pasted page is not decoded to find that out
-_json_unescape "$RAW" >/dev/null; P="$_JU"
-P="${P//$'\r'/}"
-while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
-while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
-[ "${#P}" -le 40 ] || exit 0
-case "$P" in
-  *$'\n'*) exit 0 ;;
-  # THE COMMAND: `/crew-approve <what>`, or `/<plugin>:crew-approve <what>` as a plugin names its commands. Measured
-  # on Claude Code 2.1.284: a command the user types reaches this event with `prompt` as typed, and a skill the
-  # model starts with the Skill tool raises PreToolUse and PostToolUse only, never this event.
-  /*) _k="${P%%[$' \t']*}"; [ "$_k" != "$P" ] || exit 0
-      _v="${P:${#_k}}"; _k="${_k#/}"; _k="@${_k##*:}" ;;      # `@`: a command, so `crew-approve: commit` as text is not one
-  # The text form of 3.1.0's release candidates, kept: `approve: <what>` and `onay: <what>`.
-  *:*) _k="${P%%:*}"; _v="${P#*:}" ;;
-  *) exit 0 ;;
-esac
-_k="${_k//[$' \t']/}"; _v="${_v//[$' \t']/}"
-OP=""
-# In the C locale: under tr_TR an upper-case I does not fold to i, and `ONAY: COMMIT` was not an approval (review).
-_pa_match(){ local LC_ALL=C; shopt -s nocasematch
-  case "$_k" in
-    @crew-approve|approve|onay)
-      case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; esac ;;
-  esac
-  shopt -u nocasematch; }
-_pa_match
+_json_unescape "$RAW" >/dev/null
+_crew_appr_op "$_JU"
 [ -n "$OP" ] || exit 0
 
 # From here on the message IS an approval, so every way of not recording it says why - to the user and to the
