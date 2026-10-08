@@ -2155,7 +2155,7 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 }
 # ---- /CREW-APPROVAL-PATH ---------------------------------------------------------------------------------
 # §4.4 IN `auto` AND `dontAsk`: THE USER'S OWN MESSAGE IS THE APPROVAL. hooks/prompt-approval.sh records it when the
-# whole message is `approve: commit` / `push` / `commit+push` (or `onay: …`), with what git reported at that moment.
+# whole message is `/crew-approve commit` / `push` / `commit+push` (or the older `approve: …`), with what git reported at that moment.
 # This reads the record back and answers one question: does it cover THIS call, and nothing else?
 #   commit       the index writes the recorded tree and HEAD is the recorded one. A commit moves HEAD, so the same
 #                record cannot allow a second one; a commit that FAILED (a hook refused it) moved nothing and may be retried.
@@ -3167,7 +3167,7 @@ ${BRANCH_WARN}Approve only if the commit message above was shown to you and you 
       if ! _appr_wired; then
         # The record is written by one hook. Where it is not wired, a message from the user records nothing, and
         # telling them to type one sends them into a wall (measured in the field: a worktree on an older Crewforth).
-        echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A message 'approve: …' records nothing here." >&2
+        echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A '/crew-approve' message records nothing here." >&2
         echo "Tell the user exactly that, in their language, and give them the two ways that work: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
         echo "Do not create an approval any other way." >&2
         exit 2
@@ -3175,9 +3175,9 @@ ${BRANCH_WARN}Approve only if the commit message above was shown to you and you 
       _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
       echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
       echo "  1. the commit message, whole, in ONE code block;" >&2
-      echo "  2. under it ONE line:  If you approve, write only this: approve: $_aps" >&2
-      echo "     (in Turkish:  Onaylıyorsan yalnız şunu yaz: onay: $_aps). Name the one that fits: commit, push, or commit+push when a push follows the commit." >&2
-      echo "Their reply has to be that text alone: a sentence such as 'go ahead and commit' is not an approval. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
+      echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
+      echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
+      echo "Their message has to be that command alone, typed by them: a sentence such as 'go ahead and commit' is not an approval, and you cannot run the command for them. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
       echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
       echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
       echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2

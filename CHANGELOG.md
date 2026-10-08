@@ -90,10 +90,10 @@ versioning follows [SemVer](https://semver.org/).
   and no ad in a window that shows a sensitive screen. The rules were checked against Flutter's, Dart's and the
   named packages' and platforms' own pages; the sources, and what was not checked, are in the skill's `references/`.
   40 skills now.
-- **In `auto` and `dontAsk`, your own message approves a commit or a push.** Those modes answer a permission prompt
-  with software, so the commit gate fails closed there and the only way through was to switch mode for every commit.
-  Now a message that is nothing but `approve: commit`, `approve: push` or `approve: commit+push` (`onay:` works too)
-  is recorded by a new hook, `prompt-approval.sh`, with what git reports at that moment: the tree of what is staged
+- **In `auto` and `dontAsk`, a command you type approves a commit or a push: `/crew-approve`.** Those modes answer
+  a permission prompt with software, so the commit gate fails closed there and the only way through was to switch
+  mode for every commit. Now a message that is nothing but `/crew-approve commit`, `/crew-approve push` or
+  `/crew-approve commit+push` is recorded by a new hook, `prompt-approval.sh`, with what git reports at that moment: the tree of what is staged
   and `HEAD` for a commit; `HEAD`, the branch, its remote and the address that remote pushes to for a push; and the
   session you wrote in. The confirmation you see names that address. `guard-bash.sh` then allows one call and no other: `git commit -m …` alone (a single-quoted
   message, or one read from a here-document with a quoted delimiter; `-q`, `-s`, `-v`), or
@@ -139,14 +139,19 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio: a group of agents opens beside itself.** Several agents of one type are one card; in a window of 1024 px
   and up, clicking it puts its agents in the next column as ordinary cards, and opening another group folds the
   first. Below that width it opens downward as before.
+- **The approval of 3.1.0's release candidates was a text, `approve: commit` (`onay: commit`); it is the command
+  `/crew-approve commit` now.** The same in every language, and recorded exactly as the text was. Only a command you
+  type counts: measured on Claude Code 2.1.284, a typed command reaches the recording hook as typed, a skill the
+  model starts itself does not reach it at all, and Claude Code refuses to let the model start this one. The text
+  still works; the refusals and the documentation name the command only.
 - **In `auto` and `dontAsk`, a refused commit or push says what to ask and what to send back.** The refusal was a
   paragraph with the approval text somewhere inside it, and the question the model made of it was as long. It now
-  asks for one shape: the commit message in one code block and, under it, one line with the exact text to send,
-  `approve: commit`, `approve: push` or `approve: commit+push` (`onay: …`), named for the call that was refused. A
-  sentence that says yes is still not an approval, and nothing about what an approval covers has changed.
+  asks for one shape: the commit message in one code block and, under it, one line with the command to send, named
+  for the call that was refused. A sentence that says yes is still not an approval, and nothing about what an
+  approval covers has changed.
 - **Where the approval cannot be recorded, the refusal says so.** The record is written by `prompt-approval.sh`. In a
-  session whose settings do not wire it (a worktree that carries an older Crewforth, for one) the message
-  `approve: commit` recorded nothing, and the refusal went on asking for it. The gate now reads the settings it can
+  session whose settings do not wire it (a worktree that carries an older Crewforth, for one) the approval
+  recorded nothing, and the refusal went on asking for it. The gate now reads the settings it can
   see (the plugin's `hooks.json`, the project's `settings.json` and `settings.local.json`, the user's
   `settings.json`) and, when none wires the hook, says the approval path is closed in this session and names the
   two ways that work: Shift+Tab, or your own terminal. The command is refused either way. `doctor.sh` warns about
