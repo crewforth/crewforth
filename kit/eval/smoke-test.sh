@@ -6167,6 +6167,34 @@ GBCP
   ( cd "$DTMP" && env -u CREW_LANG CREW_I18N_MISS="$DTMP/miss2" bash .claude/eval/doctor-twin.sh >/dev/null 2>&1 )
   grep -qx 'planted line with no translation' "$DTMP/miss2" && pass "twin: a planted untranslated line is named by the miss list" \
     || fail "twin: the miss list did not name a planted untranslated line — the empty list above proves nothing"
+  # THE APPROVAL PATH, AS DOCTOR SEES IT. In auto and dontAsk one hook records the user's own message; where it is
+  # not wired, or another worktree carries another Crewforth, the gate stays closed and its advice used to be wrong
+  # (field report, 3.1.0-rc.2). Four states of the wiring and two of the worktree, each read from doctor's own lines.
+  DAP="$(mktemp -d)"; DAP="$(cd -P "$DAP" && pwd)"; mkdir -p "$DAP/p/.claude"
+  for d in eval hooks; do [ -d "$ROOT/$d" ] && cp -R "$ROOT/$d" "$DAP/p/.claude/$d"; done
+  cp "$ROOT/settings.json" "$DAP/p/.claude/settings.json" 2>/dev/null; echo 3.1.0 > "$DAP/p/.claude/VERSION"
+  ( cd "$DAP/p" && git init -q . && git config user.email t@example.com && git config user.name t && git config core.hooksPath /dev/null \
+    && echo x > f && git add f && git commit -qm init && git worktree add -q "$DAP/old" -b old ) >/dev/null 2>&1
+  _dap(){ ( cd "$DAP/p" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null ); }
+  if [ ! -d "$DAP/old" ]; then fail "FIXTURE: the linked worktree for doctor's approval cases was not created"
+  else
+    _d1="$(_dap)"
+    case "$_d1" in *"approval by your own message is wired"*) case "$_d1" in *"worktree $DAP/old carries"*|*"records nothing"*) fail "doctor warned about the approval path on a healthy install with a worktree that carries no Crewforth" ;;
+                     *) pass "doctor: the approval hook is reported wired on a fresh install, with no warning" ;; esac ;;
+                   *) fail "doctor did not report the approval hook as wired on a fresh install" ;; esac
+    mkdir -p "$DAP/old/.claude"; echo 3.1.0 > "$DAP/old/.claude/VERSION"; _d2="$(_dap)"
+    echo 3.0.4 > "$DAP/old/.claude/VERSION"; _d3="$(_dap)"
+    case "$_d2" in *"carries Crewforth"*) fail "doctor warned about a worktree on the SAME Crewforth" ;; *)
+      case "$_d3" in *"worktree $DAP/old carries Crewforth 3.0.4, this one 3.1.0"*) pass "doctor: a worktree on another Crewforth is named with both versions; one on the same version is not" ;;
+                     *) fail "doctor did not name a worktree that carries Crewforth 3.0.4 beside this 3.1.0" ;; esac ;; esac
+    mv "$DAP/p/.claude/hooks/prompt-approval.sh" "$DAP/pa.sh"; _d4="$(_dap)"; mv "$DAP/pa.sh" "$DAP/p/.claude/hooks/prompt-approval.sh"
+    case "$_d4" in *"wires prompt-approval.sh but the script is missing"*) pass "doctor: wired with the script missing is a warning that names the two ways that still work" ;;
+                   *) fail "doctor did not warn when prompt-approval.sh is wired and missing" ;; esac
+    sed 's/prompt-approval\.sh/some-other.sh/' "$DAP/p/.claude/settings.json" > "$DAP/s.tmp" && mv "$DAP/s.tmp" "$DAP/p/.claude/settings.json"; _d5="$(_dap)"
+    case "$_d5" in *"prompt-approval.sh is not wired on UserPromptSubmit"*"Shift+Tab"*) pass "doctor: an install whose settings do not wire the approval hook is warned, with Shift+Tab and the terminal named" ;;
+                   *) fail "doctor did not warn when prompt-approval.sh is not wired on UserPromptSubmit" ;; esac
+  fi
+  rm -rf "$DAP"
   # WHAT git IS POINTED AT. .claude/git-shim is Crewforth's too: the updater points git there when the project has a
   # hook chain of its own, and each shim runs Crewforth's hook and then the project's. Doctor did not know it: on such a
   # project it answered "not Crewforth's hooks" and advised `git config core.hooksPath .claude/hooks`, the command that
@@ -6897,10 +6925,11 @@ _pa_new(){  # a fresh repository on branch feat/x with one remote, a staged chan
     && git config user.name t && git config core.hooksPath /dev/null && git checkout -q -b feat/x && echo one > a.txt && git add a.txt \
     && git commit -qm init && git remote add origin "$_PA/remote.git" && echo two >> a.txt && git add a.txt ) >/dev/null 2>&1
   _pa_review; }
+# The fixture wires the recording hook, as an install does (_pa_review writes the settings file): the refusal reads it.
 # The remote's address AS GIT SPELLS IT. On Git Bash git answers `C:/…` where the shell says `/c/…`, so an address is
 # never compared against a path this script built: it is asked back from git (_pa_url), and "elsewhere" is derived from it.
 _pa_url(){ ( cd "$_paw" && git remote get-url --push "${1:-origin}" 2>/dev/null ); }
-_pa_review(){ ( cd "$_paw" && mkdir -p .claude && printf '{"diff_oid":"%s","head":"%s"}\n' "$(git diff --cached | git hash-object --stdin)" "$(git rev-parse --verify --quiet HEAD)" > .claude/review-pass.json ); }
+_pa_review(){ ( cd "$_paw" && mkdir -p .claude && printf '%s' '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > .claude/settings.json && printf '{"diff_oid":"%s","head":"%s"}\n' "$(git diff --cached | git hash-object --stdin)" "$(git rev-parse --verify --quiet HEAD)" > .claude/review-pass.json ); }
 _pa_rec="$_paw/.git/crewforth-approval"
 # $1 = mode, $2 = the prompt AS JSON TEXT (already escaped), $3 = cwd (default: the repository)
 _pa_say(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","hook_event_name":"UserPromptSubmit","prompt":"%s"}' "${3:-$_paw}" "$1" "$2" \
@@ -6917,7 +6946,7 @@ _pa_op(){ sed -n 's/^op=//p' "$_pa_rec" 2>/dev/null; }
 if [ "$UNITS" != 1 ]; then
   # The cases below feed payloads to the two hooks; like the other gate unit cases they belong to the source run.
   # An installed project keeps the two pins after them: the shared definitions and the wiring.
-  skip scope "approval by the user's own message: the unit cases run in the source checkout (scope=install)" 37
+  skip scope "approval by the user's own message: the unit cases run in the source checkout (scope=install)" 39
 elif [ ! -f "$HOOKS/prompt-approval.sh" ]; then
   fail "hooks/prompt-approval.sh is missing — in auto and dontAsk nothing can turn the user's own yes into an approval"
 else
@@ -7458,6 +7487,43 @@ else
   if [ "$_pc2" -ge 5 ] && [ "$_pc2" -le 12 ]; then pass "an approval costs it a handful of git calls ($_pc2 external commands for commit+push), paid once per approval"
   else fail "the approval hook ran $_pc2 external commands for one commit+push approval — outside 5..12, so either it measured nothing or it grew"; fi
 fi
+# ---- what the refusal tells the model to do (3.1.0, field report) ---------------------------------------------
+# In auto the refusal is the only instruction the model gets, and the user sees what the model makes of it. Two
+# things are pinned: with the recording hook wired it asks for one shape (the message in one block, one line with
+# the exact text to send back, the operation of THIS call); with the hook not wired it says the path is closed and
+# does not tell anyone to type an approval. Verdicts do not move: each case is refused, and a matching record is
+# still allowed whatever the wiring says. The case sets CLAUDE_PROJECT_DIR and HOME itself: both are read.
+_pa_new; mkdir -p "$_PA/home"
+_pa_gate(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_paw" "$1" "$2" > "$_PA/pl.json"
+  ( cd "$_paw" && HOME="$_PA/home" CLAUDE_PROJECT_DIR="$_paw" CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" < "$_PA/pl.json" >"$_PA/out" 2>"$_PA/err" ); _par=$?; _pae="$(cat "$_PA/err")"; }
+_pa_wire(){ printf '%s' "$1" > "$_paw/.claude/settings.json"; }
+_PAW_ON='{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}'
+_parow=""
+_pa_want(){  # $1 = label, $2 = text that must be there, $3 = text that must not
+  case "$_par/$_pae" in 2/*"$2"*) case "$_pae" in *"$3"*) _parow="$_parow [$1: says '$3']" ;; esac ;; *) _parow="$_parow [$1: rc $_par, no '$2']" ;; esac; }
+_pa_wire "$_PAW_ON"
+_pa_gate auto 'git commit -m x';          _pa_want 'wired, commit' 'write only this: approve: commit' 'APPROVAL PATH IS CLOSED'
+                                          _pa_want 'wired, commit, one block' 'in ONE code block' 'approve: push'
+_pa_gate dontAsk 'git push origin feat/x'; _pa_want 'wired, push' 'write only this: approve: push' 'APPROVAL PATH IS CLOSED'
+_pa_gate auto 'git commit -m x';          _pa_want 'wired, Turkish line' 'yalnız şunu yaz: onay: commit' 'APPROVAL PATH IS CLOSED'
+rm -f "$_paw/.claude/settings.json"
+_pa_gate auto 'git commit -m x';          _pa_want 'no settings' 'APPROVAL PATH IS CLOSED' 'write only this'
+                                          _pa_want 'no settings, the ways' 'Shift+Tab' 'ONE code block'
+_pa_wire '{"note":"prompt-approval.sh","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/route-hint.sh"}]}]}}'
+_pa_gate auto 'git push origin feat/x';   _pa_want 'named before the event only' 'APPROVAL PATH IS CLOSED' 'write only this'
+_pa_wire '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"bash .claude/hooks/guard-bash.sh"}]}]}}'
+_pa_gate auto 'git commit -m x';          _pa_want 'other events only' 'APPROVAL PATH IS CLOSED' 'write only this'
+rm -f "$_paw/.claude/settings.json"; _pa_wire "$_PAW_ON"; mv "$_paw/.claude/settings.json" "$_paw/.claude/settings.local.json"
+_pa_gate auto 'git commit -m x';          _pa_want 'wired in settings.local.json' 'write only this: approve: commit' 'APPROVAL PATH IS CLOSED'
+rm -f "$_paw/.claude/settings.local.json"
+if [ -z "$_parow" ]; then pass "the auto-mode refusal asks in one shape when the approval hook is wired, and says the path is closed when it is not (9 readings, each refused)"
+else fail "the auto-mode refusal does not say what it should:$_parow"; fi
+# The wiring changes a sentence, never the verdict: with no settings at all, a record the hook wrote still allows
+# its command, and the same command without the record is refused.
+_pa_say auto 'approve: commit' >/dev/null; _pa_gate auto 'git commit -m x'; _pav1="$_par"
+_pa_new; _pa_gate auto 'git commit -m x'; _pav2="$_par"
+[ "$_pav1/$_pav2" = 0/2 ] && pass "the wiring check moves no verdict: a recorded approval is allowed (rc 0) and its absence refused (rc 2) with no settings file" \
+                          || fail "the wiring check moved a verdict: approved $_pav1 (want 0), unapproved $_pav2 (want 2)"
 fi   # prompt-approval.sh present
 
 # ---- the two definitions that live in two files, and the wiring -----------------------------------------------

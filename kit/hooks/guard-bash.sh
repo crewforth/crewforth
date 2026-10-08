@@ -2355,6 +2355,26 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   [ -n "$tr" ] && [ "$cur" = "$tr" ] || { _APW="the commit on HEAD does not carry what the user approved"; return 1; }
   return 0
 }
+# IS THE RECORDING HOOK WIRED? Asked only when a commit or a push is about to be refused, so that the refusal names
+# a way that exists. It reads the settings this hook can see: the plugin's own hooks.json, the project's
+# settings.json and settings.local.json, the user's settings.json. HONEST SCOPE: the text of each file is searched
+# for the script's name after the event's name; it is not parsed, and managed settings are not read. A wrong answer
+# changes a sentence, never the verdict: the command is refused either way. eval/doctor.sh does the parsed check.
+_appr_wired(){  # 0 = prompt-approval.sh is beside this hook and a settings file wires it; else _APRW names what was read
+  local f t d="${CLAUDE_PROJECT_DIR:-.}" seen="" here="${BASH_SOURCE%/*}"
+  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  d="${d//\\//}"; d="${d%/}"
+  _APRW="no prompt-approval.sh beside this hook"
+  [ -f "$here/prompt-approval.sh" ] || return 1
+  for f in "${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT//\\//}/hooks/hooks.json}" "$d/.claude/settings.json" "$d/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    seen="$seen${seen:+, }$f"
+    t=""; IFS= read -r -d '' t < "$f" || true
+    case "$t" in *'"UserPromptSubmit"'*prompt-approval.sh*) return 0 ;; esac
+  done
+  _APRW="read: ${seen:-no settings file found}"
+  return 1
+}
 allow_approved(){
   gatelog ALLOW 4.4 "the user's own approval message covers this command"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"%s"}}\n' \
@@ -3144,11 +3164,22 @@ ${BRANCH_WARN}Approve only if the commit message above was shown to you and you 
       gatelog BLOCK 4.4 "commit/push with no matching approval from the user"
       echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and in '$PERM_MODE' a permission prompt is answered by software, not by a person." >&2
       echo "Not allowed now: $_APW." >&2
-      echo "Present the commit MESSAGE to the user (stage first: the approval covers what is staged at that moment). Then one of:" >&2
-      echo "  (a) the user sends a message that is ONLY the approval: 'approve: commit', 'approve: push' or 'approve: commit+push' ('onay: …' works too)." >&2
-      echo "      It is tied to the staged diff and HEAD at that moment, lasts 30 minutes and ends at the user's next message. The command then runs ALONE in its call (no cd, no pipe, nothing chained): git commit -m …, or git push <remote> <branch>. OR" >&2
-      echo "  (b) the user presses Shift+Tab to switch to default/acceptEdits — in this session, no restart — and this gate asks them directly, OR" >&2
-      echo "  (c) the user runs the command in their own terminal." >&2
+      if ! _appr_wired; then
+        # The record is written by one hook. Where it is not wired, a message from the user records nothing, and
+        # telling them to type one sends them into a wall (measured in the field: a worktree on an older Crewforth).
+        echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A message 'approve: …' records nothing here." >&2
+        echo "Tell the user exactly that, in their language, and give them the two ways that work: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
+        echo "Do not create an approval any other way." >&2
+        exit 2
+      fi
+      _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
+      echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
+      echo "  1. the commit message, whole, in ONE code block;" >&2
+      echo "  2. under it ONE line:  If you approve, write only this: approve: $_aps" >&2
+      echo "     (in Turkish:  Onaylıyorsan yalnız şunu yaz: onay: $_aps). Name the one that fits: commit, push, or commit+push when a push follows the commit." >&2
+      echo "Their reply has to be that text alone: a sentence such as 'go ahead and commit' is not an approval. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
+      echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
+      echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
       echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2
       exit 2 ;;
     *)

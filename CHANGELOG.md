@@ -121,6 +121,18 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **In `auto` and `dontAsk`, a refused commit or push says what to ask and what to send back.** The refusal was a
+  paragraph with the approval text somewhere inside it, and the question the model made of it was as long. It now
+  asks for one shape: the commit message in one code block and, under it, one line with the exact text to send,
+  `approve: commit`, `approve: push` or `approve: commit+push` (`onay: …`), named for the call that was refused. A
+  sentence that says yes is still not an approval, and nothing about what an approval covers has changed.
+- **Where the approval cannot be recorded, the refusal says so.** The record is written by `prompt-approval.sh`. In a
+  session whose settings do not wire it (a worktree that carries an older Crewforth, for one) the message
+  `approve: commit` recorded nothing, and the refusal went on asking for it. The gate now reads the settings it can
+  see (the plugin's `hooks.json`, the project's `settings.json` and `settings.local.json`, the user's
+  `settings.json`) and, when none wires the hook, says the approval path is closed in this session and names the
+  two ways that work: Shift+Tab, or your own terminal. The command is refused either way. `doctor.sh` warns about
+  the same thing, and about a worktree of the repository that carries another Crewforth version.
 - **After a final release, npm's `next` no longer names something older than `latest`.** A final moved `latest`
   only, so `npx crewforth@next` went on installing the rc before it. The release now moves `next` to the final when
   what `next` names is older; an rc of a later version stays where it is.
