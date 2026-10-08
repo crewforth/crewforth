@@ -3,6 +3,7 @@
 // Functions of the server's data, with no page in them: the four tiles, what the agent is doing right now, which
 // skills it applied, who delegated to it. The rule they share is the panel's own: a value that was not read is
 // written "Not measured", with why — never as 0 and never as an empty list.
+import { roleName } from './names.js';
 
 const NOT_MEASURED = 'Not measured';
 
@@ -93,7 +94,7 @@ export function delegatedBy(n, nodes) {
   if (!p) return null;
   if (p.kind === 'session') return { id: p.id, text: `Session${p.gitBranch ? ` · ${p.gitBranch}` : ''}` };
   if (p.kind === 'workflow') return { id: p.id, text: `Workflow run · ${p.workflowId ?? p.id}` };
-  return { id: p.id, text: p.agentType ?? p.id };
+  return { id: p.id, text: p.agentType ? roleName(p.agentType) : p.id };
 }
 
 /** The report, or the plain statement that there is none yet and why. */

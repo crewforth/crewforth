@@ -15,6 +15,8 @@
 //    view, so zooming cannot move a card.
 // 3. Colour is not decided here at all. A box carries its status; the stylesheet turns status into colour.
 
+import { typeOf, roleName, shownType } from './names.js';
+
 /* ------------------------------------------------------------- measures --- */
 
 export const SIZE = {
@@ -68,7 +70,6 @@ const SESSION = 'session';
 
 /* --------------------------------------------------------------- groups --- */
 
-const typeOf = (n) => n.agentType ?? 'unknown agent';
 const byArrival = (seq) => (a, b) => (seq.get(a.id) ?? 0) - (seq.get(b.id) ?? 0);
 
 /** Counts by status, in the order a bar draws them. */
@@ -132,8 +133,11 @@ export function sequence(nodes, seq = new Map()) {
  *
  * At `auto` density, once the picture is too tall (`stack`), siblings of one type fold into a group from
  * AUTO.stackAt whatever the grouping is, except under `none`, which means none.
+ *
+ * `aside(id)` says a type group is open beside itself: its members are then items of their own, one column to the
+ * right of the group's card, and what they spawned is a column further on.
  */
-function itemsOf(nodes, { group, density, seq, stack }) {
+function itemsOf(nodes, { group, density, seq, stack, aside }) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const kids = new Map();
   for (const n of nodes) {
@@ -158,7 +162,7 @@ function itemsOf(nodes, { group, density, seq, stack }) {
     // An agent's children as one group.
     if (group === 'parent' && list.length >= 2 && byId.get(parentId)?.kind === 'agent') {
       const g = groupItem(`kids:${parentId}`, 'parent', list, anchor, via, depth, seq, {
-        label: `${typeOf(byId.get(parentId))} → ${list.length}`, of: byId.get(parentId),
+        label: `${shownType(byId.get(parentId))} → ${list.length}`, of: byId.get(parentId),
       });
       items.push(g);
       for (const m of list) place(m.id, g, m.id, depth + 1);
@@ -176,10 +180,18 @@ function itemsOf(nodes, { group, density, seq, stack }) {
     for (const [t, members] of types) {
       if (members.length < stackAt) continue;
       const g = groupItem(`type:${parentId}:${t}`, 'type', members, anchor, via, depth, seq, {
-        label: `${t} × ${members.length}`, agentType: members[0].agentType ?? null,
+        // The role is the name and the number is a badge beside it: `count` is drawn apart from `label`.
+        label: roleName(t), count: members.length, real: t, agentType: members[0].agentType ?? null,
       });
       items.push(g);
-      for (const m of members) { stacked.add(m.id); place(m.id, g, m.id, depth + 1); }
+      g.aside = Boolean(aside?.(g.id));
+      for (const m of members) {
+        stacked.add(m.id);
+        if (!g.aside) { place(m.id, g, m.id, depth + 1); continue; }
+        const item = { id: m.id, kind: 'agent', node: m, parent: g, via: null, depth: depth + 1, seq: seq.get(m.id) ?? 0, member: true };
+        items.push(item);
+        place(m.id, item, null, depth + 2);
+      }
     }
 
     for (const n of list) {
@@ -229,6 +241,8 @@ function groupItem(id, type, members, anchor, via, depth, seq, extra) {
  * @param opts.open      Map groupId -> boolean, the viewer's own folds; a group not in it takes its default
  * @param opts.pinned    Map itemId -> {x, y}, positions the viewer set by hand
  * @param opts.sessionY  where the session card was put, to keep it there; omitted on a fresh layout
+ * @param opts.aside     true when an open type group puts its agents in the next column instead of growing
+ *                       downward; a narrow window leaves it off
  * @returns { items, edges, width, height, drawn, density, sessionY }
  */
 export function plan(nodes, opts = {}) {
@@ -240,6 +254,7 @@ export function plan(nodes, opts = {}) {
 
   // A type group starts folded: it is the same thing several times. A run or an agent's children start open.
   const isOpen = (g) => (open.has(g.id) ? open.get(g.id) : g.type !== 'type');
+  const aside = opts.aside ? (id) => open.get(id) === true : null;
 
   // What is drawn, and how many agents of it the viewer reads one by one: a card, a row or a chip each.
   const drawFrom = (items) => {
@@ -254,7 +269,8 @@ export function plan(nodes, opts = {}) {
     let count = 0;
     for (const it of shown) {
       if (it.kind === 'agent' || it.kind === 'run-card') count += 1;
-      else if (it.kind === 'group') count += isOpen(it) ? it.members.length : 1;
+      // A group open beside itself has its agents among the items already.
+      else if (it.kind === 'group' && !it.aside) count += isOpen(it) ? it.members.length : 1;
     }
     return { shown, count };
   };
@@ -271,7 +287,9 @@ export function plan(nodes, opts = {}) {
         continue;
       }
       it.open = isOpen(it);
-      if (!it.open) { it.w = SIZE.card.w; it.h = SIZE.card.h; it.cells = null; continue; }
+      // `boxed` is the group drawn as a container with its members inside. Open beside itself it stays a card.
+      it.boxed = it.open && !it.aside;
+      if (!it.boxed) { it.w = SIZE.card.w; it.h = SIZE.card.h; it.cells = null; continue; }
       const n = it.members.length;
       const grid = compact || n > G.rowsMax;
       const cols = grid ? Math.min(G.colsMax, Math.max(1, Math.ceil(n / G.rowsMax))) : 1;
@@ -349,13 +367,13 @@ export function plan(nodes, opts = {}) {
 
   // Auto, in the order it reaches for things: nothing while the picture is short enough to read; siblings of one
   // type folded together when it is not; chips if it still is not.
-  let pass = drawFrom(itemsOf(nodes, { group, density: asked, seq, stack: false }));
+  let pass = drawFrom(itemsOf(nodes, { group, density: asked, seq, stack: false, aside }));
   let compact = asked === 'compact';
   let stacked = false;
   let box = lay(pass.shown, compact);
   if (asked === 'auto' && box.height > AUTO.tallest) {
     if (group !== 'none' && group !== 'type') {
-      const folded = drawFrom(itemsOf(nodes, { group, density: asked, seq, stack: true }));
+      const folded = drawFrom(itemsOf(nodes, { group, density: asked, seq, stack: true, aside }));
       if (folded.shown.some((it) => it.kind === 'group' && it.type === 'type')) { pass = folded; stacked = true; box = lay(pass.shown, false); }
     }
     if (box.height > AUTO.tallest) { compact = true; box = lay(pass.shown, true); }
@@ -400,7 +418,7 @@ export function plan(nodes, opts = {}) {
 
   return {
     items: drawnItems, edges, width: Math.max(width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
-    drawn, density, group, stacked, sessionY: sessionY ?? null,
+    drawn, density, group, stacked, aside: Boolean(aside), sessionY: sessionY ?? null,
   };
 }
 
@@ -445,11 +463,12 @@ export function attention(nodes, waiting = new Set()) {
   const needs = agents.filter((n) => waiting.has(n.id)).sort((a, b) => when(b) - when(a));
   const failed = agents.filter((n) => !waiting.has(n.id) && stateOf(n.status) === 'failed').sort((a, b) => when(b) - when(a));
   return [
-    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: typeOf(n), says: 'waiting for you' })),
+    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: 'waiting for you' })),
     ...failed.map((n) => ({
       id: n.id,
       tone: 'fail',
-      name: typeOf(n),
+      name: shownType(n),
+      real: typeOf(n),
       says: [n.status, n.errors ? `${n.errors} ${n.errors === 1 ? 'error' : 'errors'}` : null,
         n.workflow ? `in ${n.workflow}` : null].filter(Boolean).join(' · '),
     })),

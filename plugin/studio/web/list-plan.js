@@ -4,8 +4,7 @@
 // needs someone is always at the top. A status this panel has no word for is not put into one of the four: it
 // gets a section of its own, under its own name, after them.
 import { stateOf } from './graph-plan.js';
-
-const typeOf = (n) => n.agentType ?? 'unknown agent';
+import { typeOf, shownType } from './names.js';
 
 /** "8m", "1h 4m", "40s": how long, in as little room as a row has. */
 export function short(ms) {
@@ -28,13 +27,14 @@ function rowOf(n, now) {
     // The count the transcript gave. An agent can fail without a tool error; then there is none to report.
     if (n.errors) bits.push(`${n.errors} ${n.errors === 1 ? 'error' : 'errors'}`);
     if (n.status !== 'failed') bits.push(n.status);
-    return { id: n.id, node: n, type: typeOf(n), line: bits.join(' · ') || (n.description ?? ''), aside: null };
+    return { id: n.id, node: n, type: shownType(n), real: typeOf(n), line: bits.join(' · ') || (n.description ?? ''), aside: null };
   }
   const live = state === 'live' || state === 'waking';
   return {
     id: n.id,
     node: n,
-    type: typeOf(n),
+    type: shownType(n),
+    real: typeOf(n),
     line: n.description ?? '',
     // How long it has been going. With no start recorded there is nothing to count from, and nothing is shown.
     aside: state === 'waking' ? 'starting' : live && n.startedAt != null ? short(now - n.startedAt) : null,

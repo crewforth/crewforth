@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import { readAll, contextFill } from './transcript.js';
 import { agentMetaFiles } from './projects.js';
+import { detailOf } from './permissions.js';
 
 const SESSION_NODE = 'session';
 
@@ -118,6 +119,37 @@ function scanMain(records) {
   return out;
 }
 
+// A call that hands work to an agent is open for as long as that agent runs; it is not a call anyone is asked about.
+const DELEGATES = new Set(['Agent', 'Task']);
+const OPEN_DETAIL_MAX = 2000;
+
+/**
+ * The tool calls a transcript has asked for and has no result for yet, oldest first.
+ *
+ * A call is open while it runs and while it waits for someone to allow it; the transcript does not say which. It
+ * is what a session started in a terminal is asking about when the machine reports it as waiting for its user —
+ * the panel has no hook in such a session, so this is the only place the question can be read from.
+ */
+export function openCalls(records) {
+  const open = new Map();
+  for (const r of records) {
+    const content = r?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const c of content) {
+      if (r.type === 'assistant' && c?.type === 'tool_use' && c.id && !DELEGATES.has(c.name)) {
+        const at = Date.parse(r.timestamp ?? '');
+        const detail = detailOf(c.input);
+        open.set(c.id, {
+          toolUseId: c.id, toolName: c.name ?? 'unknown',
+          detail: detail === null ? null : detail.slice(0, OPEN_DETAIL_MAX),
+          at: Number.isFinite(at) ? at : null,
+        });
+      } else if (r.type === 'user' && c?.type === 'tool_result' && c.tool_use_id) open.delete(c.tool_use_id);
+    }
+  }
+  return [...open.values()];
+}
+
 /** Roll one agent's own transcript into the numbers its node shows. */
 async function scanAgent(file) {
   const { records } = await readAll(file);
@@ -164,6 +196,7 @@ async function scanAgent(file) {
   stats.durationMs = stats.startedAt !== null && stats.endedAt !== null
     ? stats.endedAt - stats.startedAt
     : null;
+  stats.open = openCalls(records);
   return stats;
 }
 
@@ -248,6 +281,11 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
     tokens: contextFill(records),
     startedAt: main.startedAt,
     endedAt: main.updatedAt,
+    // The newest call nothing has answered, the session's own or an agent's. Null when every call has its result.
+    openCall: [
+      ...openCalls(records).map((c) => ({ ...c, agentId: null, agentType: null })),
+      ...agents.flatMap((a) => (a.stats?.open ?? []).map((c) => ({ ...c, agentId: a.agentId, agentType: a.agentType ?? null }))),
+    ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0] ?? null,
   }];
   const edges = [];
 

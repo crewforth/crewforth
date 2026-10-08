@@ -375,6 +375,7 @@ class Pane {
     node.sig = sig;
     const text = el('span', 'deleg-text');
     text.append(el('span', 'deleg-type', card.type), el('span', 'deleg-task', card.task));
+    text.title = [card.real, card.task].filter(Boolean).join('\n');
     const parts = [];
     const tile = card.agentId ? this.hooks.tileOf?.(this.id, card.agentId) : null;
     if (tile) parts.push(tile);

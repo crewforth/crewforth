@@ -6,6 +6,7 @@ import {
   rows, groupsOf, extent, windowOf, place, ticks, clock, stepRange, waitNote, factsOf, xOf, RANGES, DEFAULT_RANGE,
 } from './timeline-plan.js';
 import { Press } from './press.js';
+import { shownType, hoverOf } from './names.js';
 
 
 function mk(tag, cls, text) {
@@ -260,7 +261,7 @@ export class Timeline {
         b.style.left = `${at.left}px`;
         b.style.width = `${at.width}px`;
         const node = this.nodes.find((n) => n.id === seg.id);
-        b.setAttribute('aria-label', `${node?.agentType ?? 'agent'}, ${seg.tone === 'wait' ? 'waiting for you' : (node?.status ?? '')}, ${clock(seg.from)} to ${clock(seg.to)}`);
+        b.setAttribute('aria-label', `${node ? shownType(node) : 'agent'}, ${seg.tone === 'wait' ? 'waiting for you' : (node?.status ?? '')}, ${clock(seg.from)} to ${clock(seg.to)}`);
         if (node && this.dimmed(node)) b.classList.add('dim');
         if (seg.id === this.selected) b.classList.add('on');
         b.addEventListener('click', (e) => { e.stopPropagation(); this.#choose(seg.id); });
@@ -310,6 +311,7 @@ export class Timeline {
       const tile = this.hooks.tileOf?.(r.members[0]);
       if (tile) lab.append(tile);
       lab.append(mk('span', 'tl-name', r.label), mk('span', 'row-fill'), mk('span', 'sub', r.sub));
+      lab.title = r.real ?? '';
       this.#bars(track, r.lanes, win, width);
       if (r.members.every((m) => this.dimmed(m))) row.classList.add('dim');
     } else {
@@ -319,7 +321,7 @@ export class Timeline {
       const sub = mk('span', 'sub', r.sub);
       if (r.tone) sub.dataset.tone = r.tone;
       lab.append(mk('span', 'tl-name', r.label), mk('span', 'row-fill'), sub);
-      lab.title = r.node.description ?? '';
+      lab.title = hoverOf(r.node);
       // One listener, on the row: the label is a button inside it, and its click arrives here too. Two
       // listeners chose the agent and un-chose it in the same click.
       row.addEventListener('click', () => this.#choose(r.id));
@@ -355,8 +357,12 @@ export class Timeline {
     const dot = mk('span', 'dot');
     dot.dataset.tone = st.tone ?? 'none';
     pill.append(dot, mk('span', null, st.word ?? 'State not measured'));
-    head.append(mk('span', 'tl-d-name', n.agentType ?? 'unknown agent'), pill);
-    left.append(head, mk('div', 'tl-d-task', n.description ?? ''), mk('div', 'sub tl-d-facts', factsOf(n, now, this.hooks.fmt)));
+    const dname = mk('span', 'tl-d-name', shownType(n));
+    dname.title = n.agentType ?? '';
+    head.append(dname, pill);
+    const dtask = mk('div', 'tl-d-task', n.description ?? '');
+    dtask.title = n.description ?? '';
+    left.append(head, dtask, mk('div', 'sub tl-d-facts', factsOf(n, now, this.hooks.fmt)));
 
     const mid = mk('div', 'tl-d-error');
     mid.append(mk('div', 'isec-h', 'Last error'));

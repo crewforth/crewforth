@@ -184,6 +184,7 @@ export class Dock {
     p.word.textContent = 'Needs you';
 
     p.who.textContent = asker(item);
+    p.who.title = item.agentType ? `${item.agentType} — show on the canvas` : 'Show on the canvas';
     p.tool.textContent = item.toolName;
     const where = this.where(item);
     p.where.hidden = !where;
