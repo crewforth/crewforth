@@ -450,6 +450,42 @@ export function fitZoom(width, height, paneW, paneH) {
   return Math.min(ZOOM.max, Math.max(ZOOM.min, k));
 }
 
+/* --------------------------------------------------------------- settle --- */
+
+/**
+ * What the transcript cannot say and the live session can.
+ *
+ * An agent started in the background can sit inside one tool call for twenty minutes and write nothing. The
+ * server, reading files, calls that `stale` or `ended`; it cannot tell it from an agent whose session was closed
+ * under it. The machine can: while the session is running, an agent whose transcript stops in the middle of a
+ * turn is working. So is a command sent to the background that no notice has ended.
+ *
+ * @param graph  the server's { nodes, stats }
+ * @param live   true when the machine reports the session as running; anything else changes nothing
+ * @returns the graph to draw: the same object when nothing in it needed saying differently
+ */
+export function settle(graph, live) {
+  const nodes = graph?.nodes ?? [];
+  const quiet = (n) => n.kind === 'agent' && n.background && n.midTurn && (n.status === 'stale' || n.status === 'ended');
+  const session = nodes.find((n) => n.kind === 'session');
+  const commands = live === true ? (session?.backgroundCommands ?? []) : [];
+  if (live !== true || !nodes.some(quiet)) {
+    if (!session || (session.backgroundNow ?? []).length === commands.length) {
+      return session ? { ...graph, nodes: nodes.map((n) => (n === session ? { ...n, backgroundNow: commands } : n)) } : graph;
+    }
+  }
+  const byStatus = { ...(graph.stats?.byStatus ?? {}) };
+  const out = nodes.map((n) => {
+    if (n === session) return { ...n, backgroundNow: commands };
+    if (live !== true || !quiet(n)) return n;
+    byStatus[n.status] -= 1;
+    if (!byStatus[n.status]) delete byStatus[n.status];
+    byStatus.running = (byStatus.running ?? 0) + 1;
+    return { ...n, status: 'running', quiet: true };
+  });
+  return { ...graph, nodes: out, stats: graph.stats ? { ...graph.stats, byStatus } : graph.stats };
+}
+
 /* ------------------------------------------------------------ attention --- */
 
 /**

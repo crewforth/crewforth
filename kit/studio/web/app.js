@@ -15,7 +15,8 @@ import {
   liveSessions, machines, seenAgo, isFirstRun,
 } from './nav.js';
 import { liveness, offlineNote } from './liveness.js';
-import { attention, AUTO } from './graph-plan.js';
+import { attention, settle, AUTO } from './graph-plan.js';
+import { summaryRows, usageLine, costNote } from './usage.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
 import { NewSession } from './newsession.js';
@@ -24,7 +25,7 @@ import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType } from './names.js';
-import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
+import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
 const FLEET_POLL_MS = 2000;
 const SESSION_POLL_MS = 5000;
@@ -549,6 +550,10 @@ el.tbOptions.addEventListener('click', (e) => {
   if (view === 'graph' && st.groups > 0) {
     items.push({ note: 'Groups' }, { label: 'Expand all', run: () => canvas.expandAll() }, { label: 'Fold all', run: () => canvas.foldAll() });
   }
+  if (view === 'graph') {
+    const open = canvas.spendOpen;
+    items.push({ note: 'Session summary' }, { label: open ? 'Hide time, tokens and cost' : 'Show time, tokens and cost', run: () => canvas.showSpend(!open) });
+  }
   openMenu(el.tbOptions, items);
 });
 el.tbExpand.addEventListener('click', () => canvas.expandAll());
@@ -907,6 +912,21 @@ function paintSessionOverview(body, n) {
     body.append(banner);
   }
   body.append(metaRows(n));
+
+  // Commands the session sent to the background and that are still going. They are not agents and have no card.
+  const running = backgroundLines(n, serverNow());
+  if (running.length) {
+    const rows = running.map((c) => {
+      const row = node('div', 'ibg-row');
+      const what = node('code', 'ibg-what', c.what);
+      what.title = c.what;
+      row.append(what);
+      if (c.age) row.append(node('span', 'sub', c.age));
+      return row;
+    });
+    const box = isection('In the background', ...rows);
+    body.append(box);
+  }
 
   const b = kitData?.board;
   let board;
@@ -1478,6 +1498,14 @@ function sessionRow(project, sn) {
 
   const subText = sessionSub(sn, status) + (ownedIds.has(sn.sessionId) ? ' · started here' : '');
   if (subText) row.append(marked(subText, 'sub srow-sub'));
+  // What it spent, once the server has read it: time · tokens · ~cost. Asked for a few rows at a time.
+  const spent = usageFor(sn);
+  const line = usageLine(spent);
+  if (line) {
+    const u = node('span', 'sub srow-usage', line);
+    u.title = costNote(spent);
+    row.append(u);
+  }
 
   row.title = `${sn.sessionId}${sn.title ? `\n${sn.title}` : ''}`;
   const open = () => selectSession(sn.sessionId);
@@ -1487,6 +1515,36 @@ function sessionRow(project, sn) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
   });
   return row;
+}
+
+/* What each session spent, for its row. The server reads a transcript once and keeps the answer until it grows, so
+   this asks only for rows that are on screen and whose transcript has changed since it last asked. */
+const usageRows = new Map();    // sessionId -> { at: modifiedAt it was read for, value }
+const usageWanted = new Set();
+let usageBusy = false;
+function usageFor(sn) {
+  const hit = usageRows.get(sn.sessionId);
+  if (!hit || hit.at !== sn.modifiedAt) { usageWanted.add(sn.sessionId); queueMicrotask(pullUsage); }
+  return hit?.value ?? null;
+}
+async function pullUsage() {
+  if (usageBusy || !usageWanted.size) return;
+  usageBusy = true;
+  const ids = [...usageWanted].slice(0, 12);
+  for (const id of ids) usageWanted.delete(id);
+  try {
+    const got = await getJson(`/api/usage?ids=${ids.map(encodeURIComponent).join(',')}`);
+    for (const id of ids) {
+      const sn = findSessionRow(id)?.session;
+      // A session the server did not answer for (another machine's) is remembered as not read, and not asked again
+      // until its row changes.
+      usageRows.set(id, { at: sn?.modifiedAt ?? null, value: got.usage?.[id] ?? null });
+    }
+    paintProjects();
+  } catch { /* the Live indicator says so; the rows keep what they had */ } finally {
+    usageBusy = false;
+    if (usageWanted.size) queueMicrotask(pullUsage);
+  }
 }
 
 function paintProjects() {
@@ -1923,36 +1981,13 @@ function selectSession(sessionId) {
   detailCache.clear();
 
   if (source) source.close();
+  lastGraph = null;
   source = new EventSource(api(`/api/stream?session=${encodeURIComponent(sessionId)}`));
 
   source.addEventListener('graph', (e) => {
     heardNow();
-    const g = JSON.parse(e.data);
-    canvas.render(g);
-    lastNodes = g.nodes;
-    timeline.setNodes(g.nodes);
-    list.setNodes(g.nodes);
-    paintAttention(g.nodes);
-    // The conversation's delegation cards and its context figure are the graph's.
-    chat.refresh(sessionId, { contextTokens: g.nodes.find((n) => n.kind === 'session')?.tokens ?? null });
-    // The inspector holds a node object from an earlier frame; refresh it so
-    // status, tokens and tool counts keep moving while it is open.
-    if (inspectorNode) {
-      const fresh = g.nodes.find((n) => n.id === inspectorNode.id);
-      if (fresh) {
-        const changed = fresh.status !== inspectorNode.status;
-        inspectorNode = fresh;
-        paintInspector();
-        if (changed && fresh.kind === 'agent') loadDetail(fresh.id, fresh.status);
-      }
-    }
-    // Every status is named, so the chips add up to the total. A summary that
-    // reports "250 agents · 7 done" and stops invites the reader to assume the
-    // other 243 failed. A count of records that could not be read stays beside
-    // them: it is not a status, and it is not nothing.
-    const s = g.stats ?? {};
-    paintSummary(s, s.malformed ? [`${s.malformed} malformed`] : []);
-    el.foot.textContent = '';
+    lastGraph = JSON.parse(e.data);
+    showGraph();
   });
 
   source.addEventListener('idle', heardNow);
@@ -2076,6 +2111,8 @@ const outcomes = new Map();     // sessionId -> what became of its requests, as 
 let waitingNow = [];
 let waitingSig = '';
 let lastNodes = null;
+let lastGraph = null;   // what the stream last sent, before it is settled against the fleet
+let lastLive = null;    // whether the session was live when that was last drawn
 
 function sessionLabel(id) {
   const known = findSessionRow(id);
@@ -2239,7 +2276,45 @@ function paintStageNote() {
   stageNote.retry.textContent = off ? off.retry : '';
   stageNote.retry.hidden = !off;
   stageNote.button.hidden = !off;
+  // The fleet can say a session ended, or came back, with no transcript changing.
+  if (lastGraph && sessionIsLive() !== lastLive) showGraph();
   paintTerminalWait();
+}
+
+/**
+ * Draw the graph the stream last sent. What the server read from files is settled against what the machine says
+ * of the session first, so this is called again when that changes with no file changing.
+ */
+function showGraph() {
+  if (!lastGraph) return;
+  lastLive = sessionIsLive();
+  const g = settle(lastGraph, lastLive);
+  canvas.render(g);
+  canvas.setSpend(summaryRows(g.nodes.find((n) => n.kind === 'session')?.usage ?? null));
+  lastNodes = g.nodes;
+  timeline.setNodes(g.nodes);
+  list.setNodes(g.nodes);
+  paintAttention(g.nodes);
+  // The conversation's delegation cards and its context figure are the graph's.
+  chat.refresh(current, { contextTokens: g.nodes.find((n) => n.kind === 'session')?.tokens ?? null });
+  // The inspector holds a node object from an earlier frame; refresh it so
+  // status, tokens and tool counts keep moving while it is open.
+  if (inspectorNode) {
+    const fresh = g.nodes.find((n) => n.id === inspectorNode.id);
+    if (fresh) {
+      const changed = fresh.status !== inspectorNode.status;
+      inspectorNode = fresh;
+      paintInspector();
+      if (changed && fresh.kind === 'agent') loadDetail(fresh.id, fresh.status);
+    }
+  }
+  // Every status is named, so the chips add up to the total. A summary that
+  // reports "250 agents · 7 done" and stops invites the reader to assume the
+  // other 243 failed. A count of records that could not be read stays beside
+  // them: it is not a status, and it is not nothing.
+  const s = g.stats ?? {};
+  paintSummary(s, s.malformed ? [`${s.malformed} malformed`] : []);
+  el.foot.textContent = '';
 }
 
 /** A session waiting on its own terminal is said under the view, with what it asks about. */

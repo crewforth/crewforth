@@ -362,6 +362,9 @@ body.resizing .cv-root { pointer-events: none; }
 .sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 .srow-sub { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; }
 .srow.remote .srow-sub { padding-left: var(--space-6); }
+/* What the session spent, under its state: time, tokens and the estimate. */
+.srow-usage { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+.srow.remote .srow-usage { padding-left: var(--space-6); }
 .sub.bad, .nav-line.bad { color: var(--status-bad); }
 mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); color: inherit; border-radius: 2px; }
 
@@ -1071,6 +1074,11 @@ button.tl-lab { cursor: pointer; }
   cursor: default;
 }
 .cv-legend[hidden] { display: none; }
+/* The session's summary is the same kind of box, in the opposite corner. */
+.cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 220px; }
+.cv-spend-rows { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3); font-size: 12px; }
+.cv-spend-rows dt { color: var(--ink-dim); }
+.cv-spend-rows dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink); }
 .cv-legend-head { display: flex; align-items: center; justify-content: space-between; }
 .cv-legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1) var(--space-2); }
 .cv-legend-item { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
@@ -1132,6 +1140,10 @@ button.tl-lab { cursor: pointer; }
 /* `display: flex` outranks the UA's `[hidden] { display: none }`, so the hidden
    panel kept its width. Restate it explicitly. */
 .inspector[hidden] { display: none; }
+/* A command the session left running in the background: what it is, cut to one line, and for how long. */
+.ibg-row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.ibg-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
+.ibg-row .sub { flex: none; }
 /* Its left edge is a handle, as the navigator's right edge is: drag to resize, double-click for the default. */
 .inspector-split {
   position: absolute; left: -3px; top: 0; bottom: 0; width: 5px; z-index: 6;

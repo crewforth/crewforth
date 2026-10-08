@@ -276,17 +276,241 @@ process.stdout.write('\n== §7 completion notices ==\n');
 const seen = new Map();
 graphInternals.harvestCompletions(
   '<task-notification><task-id>abc123</task-id><status>completed</status></task-notification>', seen);
-check('a completion notice is read out of prose', seen.get('abc123') === 'completed');
+check('a completion notice is read out of prose', seen.get('abc123')?.status === 'completed');
 
 const multi = new Map();
 graphInternals.harvestCompletions(
   '<task-id>one</task-id><status>completed</status> ... <task-id>two</task-id><status>failed</status>', multi);
-check('two notices in one blob are both read', multi.get('one') === 'completed' && multi.get('two') === 'failed');
-check('a status other than completed is carried, not normalised', multi.get('two') === 'failed');
+check('two notices in one blob are both read', multi.get('one')?.status === 'completed' && multi.get('two')?.status === 'failed');
+check('a status other than completed is carried, not normalised', multi.get('two')?.status === 'failed');
 
 const none = new Map();
 graphInternals.harvestCompletions('no notice here', none);
 check('prose without a notice yields nothing', none.size === 0);
+
+/* A notice is not the end of a background agent: it is sent each time the agent stops, and the agent can be sent
+   another message and work again. Measured on one machine's own transcripts before this was written: of 433
+   background agents, 156 wrote to their transcript after their first "completed" notice. */
+{
+  const { buildGraph, midTurn, noticeStands } = await import(`../../kit/studio/server/lib/graph.js?bg=${Date.now()}`);
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?bg=${Date.now()}`);
+  const ins = await import(`../../kit/studio/web/inspect.js?bg=${Date.now()}`);
+
+  const timed = new Map();
+  graphInternals.harvestCompletions('<task-id>a1</task-id><status>completed</status>', timed, 5000);
+  check('a notice carries when it was written', timed.get('a1').at === 5000 && seen.get('abc123').at === null);
+  check('a notice stands until the agent writes again: after that it says how an earlier turn ended',
+    noticeStands({ status: 'completed', at: 100_000 }, 99_000) === true
+    && noticeStands({ status: 'completed', at: 100_000 }, 103_000) === true
+    && noticeStands({ status: 'completed', at: 100_000 }, 130_000) === false
+    && noticeStands(null, 1) === false && noticeStands({ status: 'failed', at: null }, 9e12) === true);
+  const asst = (content) => ({ type: 'assistant', message: { content } });
+  const user = (content) => ({ type: 'user', message: { content } });
+  check('a transcript that stops on a call with no answer, or on an answer with no reply, stops in the middle of a turn',
+    midTurn([user('go'), asst([{ type: 'tool_use', id: 't', name: 'Bash', input: {} }])]) === true
+    && midTurn([asst([{ type: 'tool_use', id: 't' }]), user([{ type: 'tool_result', tool_use_id: 't' }])]) === true
+    && midTurn([user('go'), asst([{ type: 'text', text: 'Done.' }])]) === false && midTurn([]) === false);
+
+  // A session with four background agents and two background commands, written to a directory of its own.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-bg-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const MIN = 60_000;
+  const launch = (id, toolUseId, msAgo) => [
+    { type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: 'crew-devops-expert', description: `task ${id}`, run_in_background: true } }] } },
+    { type: 'user', timestamp: iso(msAgo), message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'launched' }] }, toolUseResult: { agentId: id, status: 'async_launched', isAsync: true } },
+  ];
+  const notice = (id, msAgo, status = 'completed') => ({ type: 'user', timestamp: iso(msAgo), message: { content: `<task-notification>\n<task-id>${id}</task-id>\n<status>${status}</status>\n</task-notification>` } });
+  const bash = (toolUseId, taskId, command, msAgo) => [
+    { type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Bash', input: { command, run_in_background: true } }] } },
+    { type: 'user', timestamp: iso(msAgo), message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: '' }] }, toolUseResult: { stdout: '', stderr: '', backgroundTaskId: taskId } },
+  ];
+  const main = [
+    { type: 'user', timestamp: iso(40 * MIN), message: { content: 'start' } },
+    ...launch('aquiet', 'tu1', 30 * MIN), ...launch('aresumed', 'tu2', 30 * MIN), ...launch('adone', 'tu3', 30 * MIN), ...launch('aover', 'tu4', 30 * MIN),
+    notice('aresumed', 25 * MIN), notice('adone', 25 * MIN),
+    ...bash('tu5', 'bfirst', 'npm run migrate -- --dry-run', 12 * MIN), ...bash('tu6', 'bsecond', 'sleep 1', 11 * MIN),
+    notice('bsecond', 10 * MIN),
+    { type: 'assistant', timestamp: iso(9 * MIN), message: { content: [{ type: 'text', text: 'Waiting for the agents.' }] } },
+  ];
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, main.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const agent = (id, toolUseId, records, quietMs) => {
+    fs.writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ agentType: 'crew-devops-expert', description: `task ${id}`, toolUseId }));
+    const f = path.join(sub, `agent-${id}.jsonl`);
+    fs.writeFileSync(f, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    fs.utimesSync(f, new Date(now - quietMs), new Date(now - quietMs));
+  };
+  const call = (msAgo) => ({ type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id: `c${msAgo}`, name: 'Bash', input: { command: 'make' } }] } });
+  const reply = (msAgo) => ({ type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'text', text: 'Finished.' }] } });
+  agent('aquiet', 'tu1', [call(20 * MIN)], 20 * MIN);                       // twenty minutes inside one tool call
+  agent('aresumed', 'tu2', [reply(25 * MIN + 2000), call(8 * MIN)], 8 * MIN);  // told "completed", then sent on again
+  agent('adone', 'tu3', [reply(25 * MIN + 2000)], 25 * MIN);                // told "completed", and that was that
+  agent('aover', 'tu4', [reply(20 * MIN)], 20 * MIN);                       // its turn is over; no notice was read
+  const g = await buildGraph({ sessionId: 'bg-session', file, subagentsDir: sub });
+  const st = (graph, id) => graph.nodes.find((n) => n.id === id)?.status;
+  check('being started in the background is not finishing: the launch answer is not read as "done"',
+    st(g, 'aquiet') !== 'done' && st(g, 'aover') !== 'done' && g.nodes.find((n) => n.id === 'aquiet').background === true,
+    `a quiet background agent with no notice is "${st(g, 'aquiet')}" on the server`);
+  check('an agent told "completed" that then worked again is not drawn done on that notice',
+    st(g, 'aresumed') !== 'done' && st(g, 'adone') === 'done', `resumed: ${st(g, 'aresumed')}, not resumed: ${st(g, 'adone')}`);
+  const live = gpl.settle(g, true);
+  check('while the session is live, a background agent stopped in the middle of a turn is working now, however quiet',
+    st(live, 'aquiet') === 'running' && st(live, 'aresumed') === 'running' && live.nodes.find((n) => n.id === 'aquiet').quiet === true,
+    `quiet for 20 minutes: ${st(live, 'aquiet')}; resumed, quiet for 8: ${st(live, 'aresumed')}`);
+  check('one whose turn is over, and one that is done, are left as the server read them',
+    st(live, 'aover') === st(g, 'aover') && st(live, 'adone') === 'done');
+  const over = gpl.settle(g, false);
+  check('in a session that is over, or that nobody measured, nothing is called working on the transcript alone',
+    st(over, 'aquiet') === st(g, 'aquiet') && st(gpl.settle(g, null), 'aquiet') === st(g, 'aquiet') && st(over, 'aquiet') !== 'running');
+  const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+  check('the summary\'s counts move with the cards, and still add up',
+    live.stats.byStatus.running === (g.stats.byStatus.running ?? 0) + 2 && sum(live.stats.byStatus) === sum(g.stats.byStatus)
+    && sum(g.stats.byStatus) === 4, JSON.stringify(live.stats.byStatus));
+  check('settling changes nothing in what the server sent', st(g, 'aquiet') !== 'running' && g.nodes[0].backgroundNow === undefined);
+
+  const sessionNode = g.nodes.find((n) => n.kind === 'session');
+  check('a command sent to the background is read with what it runs, until a notice ends it',
+    sessionNode.backgroundCommands.length === 1 && sessionNode.backgroundCommands[0].id === 'bfirst'
+    && sessionNode.backgroundCommands[0].detail === 'npm run migrate -- --dry-run',
+    JSON.stringify(sessionNode.backgroundCommands.map((c) => c.id)));
+  const lines = ins.backgroundLines(live.nodes.find((n) => n.kind === 'session'), now);
+  check('the inspector says it as a line: what runs and for how long',
+    lines.length === 1 && lines[0].what === 'Bash · npm run migrate -- --dry-run' && /^12m/.test(lines[0].age), JSON.stringify(lines));
+  check('a session that is over lists no command as running',
+    ins.backgroundLines(over.nodes.find((n) => n.kind === 'session'), now).length === 0
+    && ins.backgroundLines(sessionNode, now).length === 0 && ins.backgroundLines(null, now).length === 0);
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the page settles what the stream sent against the fleet, and again when the fleet changes its mind',
+    /const g = settle\(lastGraph, lastLive\);/.test(appSrc) && /if \(lastGraph && sessionIsLive\(\) !== lastLive\) showGraph\(\);/.test(appSrc)
+    && /isection\('In the background', \.\.\.rows\)/.test(appSrc)
+    && /bits\.push\(`\$\{bg\} in background`\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
+   hold the arithmetic and the rules, not the prices' truth. */
+{
+  const pr = await import(`../../kit/studio/server/lib/pricing.js?u=${Date.now()}`);
+  const us = await import(`../../kit/studio/server/lib/usage.js?u=${Date.now()}`);
+  const wu = await import(`../../kit/studio/web/usage.js?u=${Date.now()}`);
+  const { buildGraph } = await import(`../../kit/studio/server/lib/graph.js?u=${Date.now()}`);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const one = (o) => ({ model: 'claude-opus-5-5', input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, fast: false, usOnly: false, ...o });
+  const M = 1_000_000;
+
+  check('the price table says where it was read and when, and prices are written in that one file',
+    /^https:\/\//.test(pr.SOURCE.url) && /^\d{4}-\d{2}-\d{2}$/.test(pr.SOURCE.read)
+    && fs.readdirSync(WEB_ROOT).filter((f) => f.endsWith('.js')).every((f) => !/per million|\/ ?MTok|PRICES/.test(read(path.join(WEB_ROOT, f)) ?? '')));
+  check('input, output, the two cache writes and a cache read are each priced on their own',
+    near(pr.costOf(one({ input: M })), 4) && near(pr.costOf(one({ output: M })), 20)
+    && near(pr.costOf(one({ cacheWrite5m: M })), 5) && near(pr.costOf(one({ cacheWrite1h: M })), 8)
+    && near(pr.costOf(one({ cacheRead: M })), 0.2),
+    `opus 5.5, a million of each: ${['input', 'output', 'cacheWrite5m', 'cacheWrite1h', 'cacheRead'].map((k) => pr.costOf(one({ [k]: M }))).join(', ')}`);
+  check('a cache read is a tenth of the input price unless the model\'s row says otherwise',
+    near(pr.costOf(one({ model: 'claude-opus-5', cacheRead: M })), 0.5) && near(pr.costOf(one({ model: 'claude-fable-5-1', cacheRead: M })), 0.25));
+  check('a model with a second set of prices for a long prompt is priced by the prompt, and fast mode and US-only inference by their own rules',
+    near(pr.costOf(one({ model: 'claude-haiku-5-5', input: 100_000, output: M })), 0.01 + 0.5)
+    && near(pr.costOf(one({ model: 'claude-haiku-5-5', input: 60_000, cacheRead: 60_000, output: M })), 0.03 + 0.003 + 2.5)
+    && near(pr.costOf(one({ fast: true, input: M, cacheRead: M })), 8 + 0.4)
+    && near(pr.costOf(one({ usOnly: true, output: M })), 22));
+  check('a dated snapshot is the model it is a snapshot of; nothing else is matched to a neighbour',
+    pr.priceOf('claude-haiku-4-5-20251001') === pr.PRICES['claude-haiku-4-5'] && pr.priceOf('claude-opus-5-5') !== null
+    && pr.priceOf('claude-opus-5-5-preview') === null && pr.priceOf('claude-opus-9') === null && pr.priceOf('<synthetic>') === null
+    && pr.priceOf(null) === null && pr.costOf(one({ model: 'claude-opus-9', input: M })) === null);
+
+  const rec = (id, model, usage, extra = {}) => ({ type: 'assistant', timestamp: '2026-01-01T00:00:00Z', message: { id, model, usage, content: [] }, ...extra });
+  const u1 = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 300, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 200 } };
+  const twice = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1), rec('m1', 'claude-opus-5-5', u1), rec('m2', 'claude-opus-5-5', u1)]).result();
+  check('a response written as several records is counted once, by its message id',
+    twice.responses === 2 && twice.tokens.input === 200 && twice.tokens.cacheWrite === 600 && twice.tokens.total === 2 * 1450,
+    JSON.stringify(twice.tokens));
+  const across = new us.Usage();
+  across.add([rec('m1', 'claude-opus-5-5', u1)]);
+  across.add([rec('m1', 'claude-opus-5-5', u1), rec('m3', 'claude-opus-5-5', u1)]);
+  check('and once across a session\'s files, so an agent\'s tokens are added to the total a single time',
+    across.result().responses === 2 && across.result().tokens.total === 2 * 1450);
+  const priced = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1)]).result();
+  check('the cost is the sum of the five kinds at their prices',
+    near(priced.cost, (100 * 4 + 100 * 5 + 200 * 8 + 1000 * 0.2 + 50 * 20) / M), String(priced.cost));
+  const mixed = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1), rec('m2', 'some-other-model', u1)]).result();
+  check('tokens from a model the table does not have make the cost unknown, not smaller; the tokens are still counted',
+    mixed.cost === null && mixed.unpriced.join() === 'some-other-model' && mixed.tokens.total === 2 * 1450);
+  check('a record with no tokens, and one that is not a model\'s answer, add nothing',
+    new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 }), { type: 'user', message: { usage: u1 } }, null]).result().responses === 0
+    && new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 })]).result().cost === 0);
+  check('with no split recorded a cache write is the five-minute kind',
+    us.usageOfRecord(rec('m', 'claude-opus-5-5', { input_tokens: 1, cache_creation_input_tokens: 40 })).cacheWrite5m === 40);
+  const times = us.timesOf([
+    { timestamp: '2026-01-01T00:00:00Z' }, { type: 'system', subtype: 'turn_duration', durationMs: 60_000, timestamp: '2026-01-01T00:10:00Z' },
+    { type: 'system', subtype: 'turn_duration', durationMs: 30_000, timestamp: '2026-01-01T05:00:00Z' },
+  ]);
+  check('a session\'s time is read two ways: the turns Claude Code timed, and first record to last',
+    times.workedMs === 90_000 && times.turns === 2 && times.durationMs === 5 * 3_600_000 && us.timesOf([]).durationMs === null);
+
+  // The real builder, on a session with one agent whose transcript repeats a response the main one also has.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-usage-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const file = path.join(dir, 'main.jsonl');
+  const lines = (rs) => rs.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  fs.writeFileSync(file, lines([rec('m1', 'claude-opus-5-5', u1), rec('m1', 'claude-opus-5-5', u1), rec('shared', 'claude-opus-5-5', u1, { isSidechain: true })]));
+  fs.writeFileSync(path.join(sub, 'agent-a1.meta.json'), JSON.stringify({ agentType: 'Explore' }));
+  fs.writeFileSync(path.join(sub, 'agent-a1.jsonl'), lines([rec('shared', 'claude-opus-5-5', u1), rec('a-own', 'claude-opus-5-5', u1)]));
+  const session = { sessionId: 'usage-session', file, subagentsDir: sub };
+  const g = await buildGraph(session);
+  const su = g.nodes.find((n) => n.kind === 'session').usage;
+  const direct = await us.sessionUsage(session);
+  check('the graph\'s session carries the total, agents included once, and the navigator\'s reader gives the same answer',
+    su.responses === 3 && su.tokens.total === 3 * 1450 && near(su.cost, 3 * priced.cost)
+    && direct.tokens.total === su.tokens.total && near(direct.cost, su.cost),
+    `${su.responses} responses, ${su.tokens.total} tokens, $${su.cost}`);
+  const first = await us.cachedUsage(session);
+  fs.appendFileSync(path.join(sub, 'agent-a1.jsonl'), lines([rec('a-later', 'claude-opus-5-5', u1)]));
+  const second = await us.cachedUsage(session);
+  check('the kept answer is dropped when a transcript grows', first.responses === 3 && second.responses === 4 && (await us.cachedUsage(session)) === second);
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  check('an estimate is written as one, and no estimate is a dash',
+    wu.fmtCost(4.1) === '~$4.10' && wu.fmtCost(1240.4) === '~$1,240' && wu.fmtCost(0.004) === '<$0.01' && wu.fmtCost(0) === '~$0.00'
+    && wu.fmtCost(null) === '—' && /list price/.test(wu.COST_NOTE) && /subscription/.test(wu.COST_NOTE));
+  check('counts and spans are short enough for a row',
+    wu.fmtCount(950) === '950' && wu.fmtCount(12_400) === '12.4k' && wu.fmtCount(3_200_000) === '3.2M' && wu.fmtCount(1_530_000_000) === '1.53B'
+    && wu.fmtSpan(40_000) === '40s' && wu.fmtSpan(12 * 60_000) === '12m' && wu.fmtSpan(185 * 60_000) === '3h 5m' && wu.fmtSpan(52 * 3_600_000) === '2d 4h');
+  check('the navigator\'s line is time, tokens and the estimate, and nothing when nothing was read',
+    wu.usageLine({ durationMs: 12 * 60_000, workedMs: 0, tokens: 208_000, cost: 0.27, unpriced: [] }) === '12m · 208k · ~$0.27'
+    && wu.usageLine({ durationMs: 9e7, workedMs: 5 * 60_000, tokens: 1000, cost: null, unpriced: ['x'] }) === '5m · 1.0k · —'
+    && wu.usageLine(null) === null && wu.usageLine({ durationMs: null, workedMs: 0, tokens: 0, cost: 0 }) === null);
+  const rows = wu.summaryRows({ durationMs: 9e7, workedMs: 5 * 60_000, tokens: { total: 1000, input: 1, output: 2, cacheWrite: 3, cacheRead: 994 }, cost: null, unpriced: ['some-other-model'] });
+  check('the summary says which time it is, breaks the tokens down on hover, and names the model it has no price for',
+    rows.map((r) => r[0]).join() === 'Working time,First to last record,Tokens,Cost' && rows[3][1] === '—'
+    && /some-other-model/.test(rows[3][2]) && /cache read 994/.test(rows[2][2])
+    && wu.summaryRows({ durationMs: 60_000, workedMs: 0, tokens: { total: 5 }, cost: 0.5, unpriced: [] })[0][0] === 'First to last record'
+    && wu.summaryRows(null).length === 0);
+
+  const spendDom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?spend=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  const hiddenEmpty = c.spendEl.hidden;
+  c.setSpend(rows);
+  const shown = !c.spendEl.hidden && c.spendRows.children.length === 8;
+  c.showSpend(false);
+  const c2 = new Canvas(document.createElement('div'), {});
+  c2.setSpend(rows);
+  check('the summary box shows once there is something to show, closes, and stays closed in the next window',
+    hiddenEmpty && shown && c.spendEl.hidden && localStorage.getItem('crewforth-studio-spend') === 'closed' && c2.spendEl.hidden,
+    'and "View options" brings it back');
+  c2.showSpend(true);
+  check('asked for again, it is back with what it had', !c2.spendEl.hidden && c2.spendRows.children.length === 8);
+  spendDom();
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
+    /canvas\.setSpend\(summaryRows\(g\.nodes\.find\(\(n\) => n\.kind === 'session'\)\?\.usage \?\? null\)\);/.test(appSrc)
+    && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
+    && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
+}
 
 /* --------------------------------------------------------- §8 palette */
 
