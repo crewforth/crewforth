@@ -6179,13 +6179,14 @@ GBCP
   if [ ! -d "$DAP/old" ]; then fail "FIXTURE: the linked worktree for doctor's approval cases was not created"
   else
     _d1="$(_dap)"
-    case "$_d1" in *"approval by your own message is wired"*) case "$_d1" in *"worktree $DAP/old carries"*|*"records nothing"*) fail "doctor warned about the approval path on a healthy install with a worktree that carries no Crewforth" ;;
+    case "$_d1" in *"approval by your own message is wired"*) case "$_d1" in *"carries Crewforth"*|*"records nothing"*) fail "doctor warned about the approval path on a healthy install with a worktree that carries no Crewforth" ;;
                      *) pass "doctor: the approval hook is reported wired on a fresh install, with no warning" ;; esac ;;
                    *) fail "doctor did not report the approval hook as wired on a fresh install" ;; esac
     mkdir -p "$DAP/old/.claude"; echo 3.1.0 > "$DAP/old/.claude/VERSION"; _d2="$(_dap)"
     echo 3.0.4 > "$DAP/old/.claude/VERSION"; _d3="$(_dap)"
     case "$_d2" in *"carries Crewforth"*) fail "doctor warned about a worktree on the SAME Crewforth" ;; *)
-      case "$_d3" in *"worktree $DAP/old carries Crewforth 3.0.4, this one 3.1.0"*) pass "doctor: a worktree on another Crewforth is named with both versions; one on the same version is not" ;;
+      # The path is git's own spelling (`C:/…` on Windows, where this script says `/tmp/…`), so only its last part is read.
+      case "$_d3" in *"/old carries Crewforth 3.0.4, this one 3.1.0"*) pass "doctor: a worktree on another Crewforth is named with both versions; one on the same version is not" ;;
                      *) fail "doctor did not name a worktree that carries Crewforth 3.0.4 beside this 3.1.0" ;; esac ;; esac
     mv "$DAP/p/.claude/hooks/prompt-approval.sh" "$DAP/pa.sh"; _d4="$(_dap)"; mv "$DAP/pa.sh" "$DAP/p/.claude/hooks/prompt-approval.sh"
     case "$_d4" in *"wires prompt-approval.sh but the script is missing"*) pass "doctor: wired with the script missing is a warning that names the two ways that still work" ;;
