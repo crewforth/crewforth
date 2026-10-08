@@ -15,7 +15,7 @@ import {
   liveSessions, machines, seenAgo, isFirstRun,
 } from './nav.js';
 import { liveness, offlineNote } from './liveness.js';
-import { attention, AUTO } from './graph-plan.js';
+import { attention, settle, AUTO } from './graph-plan.js';
 import { ServerClock, queue, settled, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
 import { NewSession } from './newsession.js';
@@ -23,7 +23,7 @@ import { Timeline } from './timeline.js';
 import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
-import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
+import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
 const FLEET_POLL_MS = 2000;
 const SESSION_POLL_MS = 5000;
@@ -885,6 +885,21 @@ function paintSessionOverview(body, n) {
     body.append(banner);
   }
   body.append(metaRows(n));
+
+  // Commands the session sent to the background and that are still going. They are not agents and have no card.
+  const running = backgroundLines(n, serverNow());
+  if (running.length) {
+    const rows = running.map((c) => {
+      const row = node('div', 'ibg-row');
+      const what = node('code', 'ibg-what', c.what);
+      what.title = c.what;
+      row.append(what);
+      if (c.age) row.append(node('span', 'sub', c.age));
+      return row;
+    });
+    const box = isection('In the background', ...rows);
+    body.append(box);
+  }
 
   const b = kitData?.board;
   let board;
@@ -1900,36 +1915,13 @@ function selectSession(sessionId) {
   detailCache.clear();
 
   if (source) source.close();
+  lastGraph = null;
   source = new EventSource(api(`/api/stream?session=${encodeURIComponent(sessionId)}`));
 
   source.addEventListener('graph', (e) => {
     heardNow();
-    const g = JSON.parse(e.data);
-    canvas.render(g);
-    lastNodes = g.nodes;
-    timeline.setNodes(g.nodes);
-    list.setNodes(g.nodes);
-    paintAttention(g.nodes);
-    // The conversation's delegation cards and its context figure are the graph's.
-    chat.refresh(sessionId, { contextTokens: g.nodes.find((n) => n.kind === 'session')?.tokens ?? null });
-    // The inspector holds a node object from an earlier frame; refresh it so
-    // status, tokens and tool counts keep moving while it is open.
-    if (inspectorNode) {
-      const fresh = g.nodes.find((n) => n.id === inspectorNode.id);
-      if (fresh) {
-        const changed = fresh.status !== inspectorNode.status;
-        inspectorNode = fresh;
-        paintInspector();
-        if (changed && fresh.kind === 'agent') loadDetail(fresh.id, fresh.status);
-      }
-    }
-    // Every status is named, so the chips add up to the total. A summary that
-    // reports "250 agents · 7 done" and stops invites the reader to assume the
-    // other 243 failed. A count of records that could not be read stays beside
-    // them: it is not a status, and it is not nothing.
-    const s = g.stats ?? {};
-    paintSummary(s, s.malformed ? [`${s.malformed} malformed`] : []);
-    el.foot.textContent = '';
+    lastGraph = JSON.parse(e.data);
+    showGraph();
   });
 
   source.addEventListener('idle', heardNow);
@@ -2053,6 +2045,8 @@ const outcomes = new Map();     // sessionId -> what became of its requests, as 
 let waitingNow = [];
 let waitingSig = '';
 let lastNodes = null;
+let lastGraph = null;   // what the stream last sent, before it is settled against the fleet
+let lastLive = null;    // whether the session was live when that was last drawn
 
 function sessionLabel(id) {
   const known = findSessionRow(id);
@@ -2216,6 +2210,43 @@ function paintStageNote() {
   stageNote.retry.textContent = off ? off.retry : '';
   stageNote.retry.hidden = !off;
   stageNote.button.hidden = !off;
+  // The fleet can say a session ended, or came back, with no transcript changing.
+  if (lastGraph && sessionIsLive() !== lastLive) showGraph();
+}
+
+/**
+ * Draw the graph the stream last sent. What the server read from files is settled against what the machine says
+ * of the session first, so this is called again when that changes with no file changing.
+ */
+function showGraph() {
+  if (!lastGraph) return;
+  lastLive = sessionIsLive();
+  const g = settle(lastGraph, lastLive);
+  canvas.render(g);
+  lastNodes = g.nodes;
+  timeline.setNodes(g.nodes);
+  list.setNodes(g.nodes);
+  paintAttention(g.nodes);
+  // The conversation's delegation cards and its context figure are the graph's.
+  chat.refresh(current, { contextTokens: g.nodes.find((n) => n.kind === 'session')?.tokens ?? null });
+  // The inspector holds a node object from an earlier frame; refresh it so
+  // status, tokens and tool counts keep moving while it is open.
+  if (inspectorNode) {
+    const fresh = g.nodes.find((n) => n.id === inspectorNode.id);
+    if (fresh) {
+      const changed = fresh.status !== inspectorNode.status;
+      inspectorNode = fresh;
+      paintInspector();
+      if (changed && fresh.kind === 'agent') loadDetail(fresh.id, fresh.status);
+    }
+  }
+  // Every status is named, so the chips add up to the total. A summary that
+  // reports "250 agents · 7 done" and stops invites the reader to assume the
+  // other 243 failed. A count of records that could not be read stays beside
+  // them: it is not a status, and it is not nothing.
+  const s = g.stats ?? {};
+  paintSummary(s, s.malformed ? [`${s.malformed} malformed`] : []);
+  el.foot.textContent = '';
 }
 
 function retryNow() {

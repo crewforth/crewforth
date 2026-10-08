@@ -37,8 +37,12 @@ function textOf(content) {
  * pairs the first id with the status swallows the rest; measured on this
  * machine, one notice carried six ids and five were being dropped. Every id
  * seen since the previous status takes that status.
+ *
+ * `at` is when the record carrying the notice was written. A notice is not the end of an agent: Claude Code sends
+ * one each time a background agent stops, and the agent can be sent another message and work again. Whether a
+ * notice still stands is decided by comparing `at` with what the agent wrote afterwards.
  */
-function harvestCompletions(text, into) {
+function harvestCompletions(text, into, at = null) {
   if (!text || !text.includes('<task-id>')) return;
   const token = /<task-id>([^<]+)<\/task-id>|<status>([^<]+)<\/status>/g;
   let pending = [];
@@ -48,7 +52,7 @@ function harvestCompletions(text, into) {
       pending.push(m[1].trim());
     } else {
       const status = m[2].trim();
-      for (const id of pending) into.set(id, status);
+      for (const id of pending) into.set(id, { status, at });
       pending = [];
     }
   }
@@ -60,7 +64,9 @@ function scanMain(records) {
     startedAt: null, updatedAt: null,
     agentCalls: new Map(),   // toolUseId -> { subagentType, description }
     links: new Map(),        // toolUseId -> { agentId, status, model }
-    completions: new Map(),  // agentId  -> status
+    completions: new Map(),  // task id (an agent's, or a background command's) -> { status, at }
+    commands: new Map(),     // toolUseId -> the command a Bash call ran
+    background: new Map(),   // background task id -> { toolUseId, startedAt }
     owners: new Map(),       // toolUseId -> owner node id
     userTurns: 0,
   };
@@ -71,9 +77,11 @@ function scanMain(records) {
     if (r?.cwd && !out.cwd) out.cwd = r.cwd;
     if (r?.gitBranch && !out.gitBranch) out.gitBranch = r.gitBranch;
     if (r?.version && !out.version) out.version = r.version;
+    let at = null;
     if (r?.timestamp) {
       const t = Date.parse(r.timestamp);
       if (Number.isFinite(t)) {
+        at = t;
         if (out.startedAt === null || t < out.startedAt) out.startedAt = t;
         if (out.updatedAt === null || t > out.updatedAt) out.updatedAt = t;
       }
@@ -86,6 +94,7 @@ function scanMain(records) {
         for (const c of content) {
           if (c?.type === 'tool_use' && c.id) {
             out.owners.set(c.id, SESSION_NODE);
+            if (typeof c.input?.command === 'string') out.commands.set(c.id, c.input.command);
             if (c.name === 'Agent') {
               out.agentCalls.set(c.id, {
                 subagentType: c.input?.subagent_type ?? null,
@@ -95,12 +104,12 @@ function scanMain(records) {
           }
         }
       }
-      harvestCompletions(textOf(content), out.completions);
+      harvestCompletions(textOf(content), out.completions, at);
     }
 
     if (r?.type === 'user') {
       out.userTurns += 1;
-      harvestCompletions(textOf(r.message?.content), out.completions);
+      harvestCompletions(textOf(r.message?.content), out.completions, at);
     }
 
     // Present on the record that carries a subagent's result, whatever its type.
@@ -112,10 +121,44 @@ function scanMain(records) {
       if (id) out.links.set(id, entry);
       else out.links.set(`agent:${tur.agentId}`, entry);
     }
-    if (r?.type === 'attachment') harvestCompletions(JSON.stringify(r.attachment ?? ''), out.completions);
+    // A command sent to the background answers at once with the id it runs under; its end comes later, as a notice.
+    if (tur && typeof tur === 'object' && typeof tur.backgroundTaskId === 'string') {
+      const id = r.message?.content?.find?.((c) => c?.type === 'tool_result')?.tool_use_id ?? null;
+      out.background.set(tur.backgroundTaskId, { toolUseId: id, startedAt: at });
+    }
+    if (r?.type === 'attachment') harvestCompletions(JSON.stringify(r.attachment ?? ''), out.completions, at);
   }
 
   return out;
+}
+
+/**
+ * Does a transcript stop in the middle of a turn? It does when the last thing in it is a tool call with no answer,
+ * or an answer the agent has not replied to. A turn that is over ends on the agent's own words.
+ */
+export function midTurn(records) {
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const r = records[i];
+    if (r?.type !== 'assistant' && r?.type !== 'user') continue;
+    const content = r.message?.content;
+    if (r.type === 'user') return true;
+    return Array.isArray(content) && content.some((c) => c?.type === 'tool_use');
+  }
+  return false;
+}
+
+// How long after a notice an agent's own last record may be and still belong to the turn the notice ended. The
+// notice is written after the agent's last record, so anything later than this is the agent working again.
+const NOTICE_SLACK_MS = 5000;
+
+/**
+ * Does a completion notice still say how the agent stands? Not when the agent wrote to its transcript after it:
+ * it was sent another message and is working, or has worked, again.
+ */
+export function noticeStands(notice, lastOwnAt) {
+  if (!notice) return false;
+  if (notice.at == null || lastOwnAt == null) return true;
+  return lastOwnAt <= notice.at + NOTICE_SLACK_MS;
 }
 
 /** Roll one agent's own transcript into the numbers its node shows. */
@@ -164,6 +207,7 @@ async function scanAgent(file) {
   stats.durationMs = stats.startedAt !== null && stats.endedAt !== null
     ? stats.endedAt - stats.startedAt
     : null;
+  stats.midTurn = midTurn(records);
   return stats;
 }
 
@@ -248,13 +292,20 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
     tokens: contextFill(records),
     startedAt: main.startedAt,
     endedAt: main.updatedAt,
+    // Commands sent to the background that no notice has ended, oldest first. A session that is over has none
+    // running whatever this says: the page shows them only while the session is live.
+    backgroundCommands: [...main.background]
+      .filter(([id]) => !main.completions.has(id))
+      .map(([id, b]) => ({ id, toolName: 'Bash', detail: main.commands.get(b.toolUseId) ?? null, startedAt: b.startedAt }))
+      .sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0)),
   }];
   const edges = [];
 
   for (const a of agents) {
     const call = a.toolUseId ? main.agentCalls.get(a.toolUseId) : null;
     const link = a.toolUseId ? byToolUse.get(a.toolUseId) : null;
-    const completion = main.completions.get(a.agentId) ?? null;
+    const notice = main.completions.get(a.agentId) ?? null;
+    const completion = noticeStands(notice, a.stats?.endedAt ?? null) ? notice.status : null;
 
     // Order matters. A synchronous Agent call never produces a task
     // notification — it reports through toolUseResult.status instead. Reading
@@ -288,6 +339,11 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       toolUseId: a.toolUseId,
       model: link?.model ?? null,
       launchStatus: link?.status ?? null,
+      // Started in the background, and its transcript stops in the middle of a turn. Such an agent can be quiet
+      // for a long time inside one tool call; whether it is still working is the live session's to say, so the
+      // page decides (graph-plan.js `settle`), not this file.
+      background: link?.status === 'async_launched',
+      midTurn: a.stats?.midTurn ?? false,
       parentId,
       tools: a.stats?.tools ?? {},
       toolCount: a.stats?.toolCount ?? 0,

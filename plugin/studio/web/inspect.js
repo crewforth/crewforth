@@ -87,6 +87,18 @@ export function skillsOf(detail) {
   return seen;
 }
 
+/**
+ * The commands a session has running in the background, as lines: what runs, and for how long.
+ * `backgroundNow` is empty unless the session is live (graph-plan.js `settle`), so a session that is over lists none.
+ */
+export function backgroundLines(session, now) {
+  return (session?.backgroundNow ?? []).map((c) => ({
+    id: c.id,
+    what: `${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`,
+    age: c.startedAt != null && now >= c.startedAt ? fmtDuration(now - c.startedAt) : null,
+  }));
+}
+
 /** Who handed this agent its work: the node it hangs from. */
 export function delegatedBy(n, nodes) {
   const p = (nodes ?? []).find((x) => x.id === n.parentId) ?? null;

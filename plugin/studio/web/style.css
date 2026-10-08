@@ -1110,6 +1110,10 @@ button.tl-lab { cursor: pointer; }
 /* `display: flex` outranks the UA's `[hidden] { display: none }`, so the hidden
    panel kept its width. Restate it explicitly. */
 .inspector[hidden] { display: none; }
+/* A command the session left running in the background: what it is, cut to one line, and for how long. */
+.ibg-row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.ibg-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
+.ibg-row .sub { flex: none; }
 
 .inspector dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
 .inspector dt { font-size: 11px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; }

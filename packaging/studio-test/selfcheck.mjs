@@ -276,17 +276,119 @@ process.stdout.write('\n== §7 completion notices ==\n');
 const seen = new Map();
 graphInternals.harvestCompletions(
   '<task-notification><task-id>abc123</task-id><status>completed</status></task-notification>', seen);
-check('a completion notice is read out of prose', seen.get('abc123') === 'completed');
+check('a completion notice is read out of prose', seen.get('abc123')?.status === 'completed');
 
 const multi = new Map();
 graphInternals.harvestCompletions(
   '<task-id>one</task-id><status>completed</status> ... <task-id>two</task-id><status>failed</status>', multi);
-check('two notices in one blob are both read', multi.get('one') === 'completed' && multi.get('two') === 'failed');
-check('a status other than completed is carried, not normalised', multi.get('two') === 'failed');
+check('two notices in one blob are both read', multi.get('one')?.status === 'completed' && multi.get('two')?.status === 'failed');
+check('a status other than completed is carried, not normalised', multi.get('two')?.status === 'failed');
 
 const none = new Map();
 graphInternals.harvestCompletions('no notice here', none);
 check('prose without a notice yields nothing', none.size === 0);
+
+/* A notice is not the end of a background agent: it is sent each time the agent stops, and the agent can be sent
+   another message and work again. Measured on one machine's own transcripts before this was written: of 433
+   background agents, 156 wrote to their transcript after their first "completed" notice. */
+{
+  const { buildGraph, midTurn, noticeStands } = await import(`../../kit/studio/server/lib/graph.js?bg=${Date.now()}`);
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?bg=${Date.now()}`);
+  const ins = await import(`../../kit/studio/web/inspect.js?bg=${Date.now()}`);
+
+  const timed = new Map();
+  graphInternals.harvestCompletions('<task-id>a1</task-id><status>completed</status>', timed, 5000);
+  check('a notice carries when it was written', timed.get('a1').at === 5000 && seen.get('abc123').at === null);
+  check('a notice stands until the agent writes again: after that it says how an earlier turn ended',
+    noticeStands({ status: 'completed', at: 100_000 }, 99_000) === true
+    && noticeStands({ status: 'completed', at: 100_000 }, 103_000) === true
+    && noticeStands({ status: 'completed', at: 100_000 }, 130_000) === false
+    && noticeStands(null, 1) === false && noticeStands({ status: 'failed', at: null }, 9e12) === true);
+  const asst = (content) => ({ type: 'assistant', message: { content } });
+  const user = (content) => ({ type: 'user', message: { content } });
+  check('a transcript that stops on a call with no answer, or on an answer with no reply, stops in the middle of a turn',
+    midTurn([user('go'), asst([{ type: 'tool_use', id: 't', name: 'Bash', input: {} }])]) === true
+    && midTurn([asst([{ type: 'tool_use', id: 't' }]), user([{ type: 'tool_result', tool_use_id: 't' }])]) === true
+    && midTurn([user('go'), asst([{ type: 'text', text: 'Done.' }])]) === false && midTurn([]) === false);
+
+  // A session with four background agents and two background commands, written to a directory of its own.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-bg-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const MIN = 60_000;
+  const launch = (id, toolUseId, msAgo) => [
+    { type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: 'crew-devops-expert', description: `task ${id}`, run_in_background: true } }] } },
+    { type: 'user', timestamp: iso(msAgo), message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'launched' }] }, toolUseResult: { agentId: id, status: 'async_launched', isAsync: true } },
+  ];
+  const notice = (id, msAgo, status = 'completed') => ({ type: 'user', timestamp: iso(msAgo), message: { content: `<task-notification>\n<task-id>${id}</task-id>\n<status>${status}</status>\n</task-notification>` } });
+  const bash = (toolUseId, taskId, command, msAgo) => [
+    { type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Bash', input: { command, run_in_background: true } }] } },
+    { type: 'user', timestamp: iso(msAgo), message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: '' }] }, toolUseResult: { stdout: '', stderr: '', backgroundTaskId: taskId } },
+  ];
+  const main = [
+    { type: 'user', timestamp: iso(40 * MIN), message: { content: 'start' } },
+    ...launch('aquiet', 'tu1', 30 * MIN), ...launch('aresumed', 'tu2', 30 * MIN), ...launch('adone', 'tu3', 30 * MIN), ...launch('aover', 'tu4', 30 * MIN),
+    notice('aresumed', 25 * MIN), notice('adone', 25 * MIN),
+    ...bash('tu5', 'bfirst', 'npm run migrate -- --dry-run', 12 * MIN), ...bash('tu6', 'bsecond', 'sleep 1', 11 * MIN),
+    notice('bsecond', 10 * MIN),
+    { type: 'assistant', timestamp: iso(9 * MIN), message: { content: [{ type: 'text', text: 'Waiting for the agents.' }] } },
+  ];
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, main.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const agent = (id, toolUseId, records, quietMs) => {
+    fs.writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ agentType: 'crew-devops-expert', description: `task ${id}`, toolUseId }));
+    const f = path.join(sub, `agent-${id}.jsonl`);
+    fs.writeFileSync(f, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    fs.utimesSync(f, new Date(now - quietMs), new Date(now - quietMs));
+  };
+  const call = (msAgo) => ({ type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id: `c${msAgo}`, name: 'Bash', input: { command: 'make' } }] } });
+  const reply = (msAgo) => ({ type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'text', text: 'Finished.' }] } });
+  agent('aquiet', 'tu1', [call(20 * MIN)], 20 * MIN);                       // twenty minutes inside one tool call
+  agent('aresumed', 'tu2', [reply(25 * MIN + 2000), call(8 * MIN)], 8 * MIN);  // told "completed", then sent on again
+  agent('adone', 'tu3', [reply(25 * MIN + 2000)], 25 * MIN);                // told "completed", and that was that
+  agent('aover', 'tu4', [reply(20 * MIN)], 20 * MIN);                       // its turn is over; no notice was read
+  const g = await buildGraph({ sessionId: 'bg-session', file, subagentsDir: sub });
+  const st = (graph, id) => graph.nodes.find((n) => n.id === id)?.status;
+  check('being started in the background is not finishing: the launch answer is not read as "done"',
+    st(g, 'aquiet') !== 'done' && st(g, 'aover') !== 'done' && g.nodes.find((n) => n.id === 'aquiet').background === true,
+    `a quiet background agent with no notice is "${st(g, 'aquiet')}" on the server`);
+  check('an agent told "completed" that then worked again is not drawn done on that notice',
+    st(g, 'aresumed') !== 'done' && st(g, 'adone') === 'done', `resumed: ${st(g, 'aresumed')}, not resumed: ${st(g, 'adone')}`);
+  const live = gpl.settle(g, true);
+  check('while the session is live, a background agent stopped in the middle of a turn is working now, however quiet',
+    st(live, 'aquiet') === 'running' && st(live, 'aresumed') === 'running' && live.nodes.find((n) => n.id === 'aquiet').quiet === true,
+    `quiet for 20 minutes: ${st(live, 'aquiet')}; resumed, quiet for 8: ${st(live, 'aresumed')}`);
+  check('one whose turn is over, and one that is done, are left as the server read them',
+    st(live, 'aover') === st(g, 'aover') && st(live, 'adone') === 'done');
+  const over = gpl.settle(g, false);
+  check('in a session that is over, or that nobody measured, nothing is called working on the transcript alone',
+    st(over, 'aquiet') === st(g, 'aquiet') && st(gpl.settle(g, null), 'aquiet') === st(g, 'aquiet') && st(over, 'aquiet') !== 'running');
+  const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+  check('the summary\'s counts move with the cards, and still add up',
+    live.stats.byStatus.running === (g.stats.byStatus.running ?? 0) + 2 && sum(live.stats.byStatus) === sum(g.stats.byStatus)
+    && sum(g.stats.byStatus) === 4, JSON.stringify(live.stats.byStatus));
+  check('settling changes nothing in what the server sent', st(g, 'aquiet') !== 'running' && g.nodes[0].backgroundNow === undefined);
+
+  const sessionNode = g.nodes.find((n) => n.kind === 'session');
+  check('a command sent to the background is read with what it runs, until a notice ends it',
+    sessionNode.backgroundCommands.length === 1 && sessionNode.backgroundCommands[0].id === 'bfirst'
+    && sessionNode.backgroundCommands[0].detail === 'npm run migrate -- --dry-run',
+    JSON.stringify(sessionNode.backgroundCommands.map((c) => c.id)));
+  const lines = ins.backgroundLines(live.nodes.find((n) => n.kind === 'session'), now);
+  check('the inspector says it as a line: what runs and for how long',
+    lines.length === 1 && lines[0].what === 'Bash · npm run migrate -- --dry-run' && /^12m/.test(lines[0].age), JSON.stringify(lines));
+  check('a session that is over lists no command as running',
+    ins.backgroundLines(over.nodes.find((n) => n.kind === 'session'), now).length === 0
+    && ins.backgroundLines(sessionNode, now).length === 0 && ins.backgroundLines(null, now).length === 0);
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the page settles what the stream sent against the fleet, and again when the fleet changes its mind',
+    /const g = settle\(lastGraph, lastLive\);/.test(appSrc) && /if \(lastGraph && sessionIsLive\(\) !== lastLive\) showGraph\(\);/.test(appSrc)
+    && /isection\('In the background', \.\.\.rows\)/.test(appSrc)
+    && /bits\.push\(`\$\{bg\} in background`\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 /* --------------------------------------------------------- §8 palette */
 

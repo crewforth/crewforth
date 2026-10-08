@@ -701,7 +701,8 @@ export class Canvas {
   #fillSession(el, it) {
     const n = it.node;
     const st = this.sessionState;
-    const sig = JSON.stringify([n.gitBranch, n.cwd, n.turns, n.tokens, st?.word, st?.tone]);
+    const bg = n.backgroundNow?.length ?? 0;
+    const sig = JSON.stringify([n.gitBranch, n.cwd, n.turns, n.tokens, st?.word, st?.tone, bg]);
     if (el.sig === sig) return;
     el.sig = sig;
     const p = el.parts;
@@ -712,7 +713,10 @@ export class Canvas {
     p.name.textContent = n.gitBranch || shortPath(n.cwd) || n.sessionId || '';
     const bits = [`${n.turns ?? 0} ${n.turns === 1 ? 'turn' : 'turns'}`];
     if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} ctx`);
+    // What the session has running that is not an agent: commands sent to the background.
+    if (bg) bits.push(`${bg} in background`);
     p.sub.textContent = bits.join(' · ');
+    p.sub.title = bg ? n.backgroundNow.map((c) => `In the background: ${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
     el.title = 'Click to inspect this session';
     el.setAttribute('aria-label', `Session, ${st?.word ?? 'state not measured'}, ${p.name.textContent}, ${p.sub.textContent}`);
   }
