@@ -67,6 +67,7 @@ function scanMain(records) {
     agentCalls: new Map(),   // toolUseId -> { subagentType, description }
     links: new Map(),        // toolUseId -> { agentId, status, model }
     completions: new Map(),  // task id (an agent's, or a background command's) -> { status, at }
+    waves: new Map(),        // assistant message id -> wave number, in the order the messages were written
     commands: new Map(),     // toolUseId -> the command a Bash call ran
     background: new Map(),   // background task id -> { toolUseId, startedAt }
     owners: new Map(),       // toolUseId -> owner node id
@@ -97,10 +98,18 @@ function scanMain(records) {
           if (c?.type === 'tool_use' && c.id) {
             out.owners.set(c.id, SESSION_NODE);
             if (typeof c.input?.command === 'string') out.commands.set(c.id, c.input.command);
-            if (c.name === 'Agent') {
+            if (c.name === 'Agent' || c.name === 'Task') {
+              // The order the session called its agents in, and which calls were made together: the calls of one
+              // assistant message are one wave. A message is written as several records, one per block, and they
+              // share its id — so the wave is the message id, not the record.
+              const mid = r.message?.id ?? `record:${out.agentCalls.size}`;
+              if (!out.waves.has(mid)) out.waves.set(mid, out.waves.size + 1);
               out.agentCalls.set(c.id, {
                 subagentType: c.input?.subagent_type ?? null,
                 description: c.input?.description ?? null,
+                order: out.agentCalls.size + 1,
+                wave: out.waves.get(mid),
+                calledAt: at,
               });
             }
           }
@@ -119,7 +128,8 @@ function scanMain(records) {
     if (tur && typeof tur === 'object' && tur.agentId) {
       const id = r.message?.content?.find?.((c) => c?.type === 'tool_result')?.tool_use_id
         ?? r.toolUseID ?? null;
-      const entry = { agentId: tur.agentId, status: tur.status ?? null, model: tur.resolvedModel ?? null };
+      // `at` is when the answer was written: for a call the session waited on, that is when the agent reported.
+      const entry = { agentId: tur.agentId, status: tur.status ?? null, model: tur.resolvedModel ?? null, at };
       if (id) out.links.set(id, entry);
       else out.links.set(`agent:${tur.agentId}`, entry);
     }
@@ -314,6 +324,8 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
   // toolUseId -> agentId, from the returning result record.
   const byToolUse = new Map();
   for (const [k, v] of main.links) if (!k.startsWith('agent:')) byToolUse.set(k, v);
+  const callOf = new Map();
+  for (const [k, v] of byToolUse) callOf.set(v.agentId, k);
 
   const nodes = [{
     id: SESSION_NODE,
@@ -345,8 +357,10 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
   const edges = [];
 
   for (const a of agents) {
-    const call = a.toolUseId ? main.agentCalls.get(a.toolUseId) : null;
-    const link = a.toolUseId ? byToolUse.get(a.toolUseId) : null;
+    // The call that started it: named by its own meta file, or found from the answer that named the agent.
+    const callId = a.toolUseId ?? callOf.get(a.agentId) ?? null;
+    const call = callId ? main.agentCalls.get(callId) : null;
+    const link = callId ? byToolUse.get(callId) : null;
     const notice = main.completions.get(a.agentId) ?? null;
     const completion = noticeStands(notice, a.stats?.endedAt ?? null) ? notice.status : null;
 
@@ -398,6 +412,15 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       endedAt: a.stats?.endedAt ?? null,
       durationMs: a.stats?.durationMs ?? null,
       updatedAt: a.mtime,
+      // Where it stands among the agents the session called: its place in the order of the calls, the wave it
+      // was called in, and when. Null for an agent the session's own transcript did not call (one a workflow
+      // started): nothing is known about its place from here.
+      order: call?.order ?? null,
+      wave: call?.wave ?? null,
+      calledAt: call?.calledAt ?? null,
+      // When it handed its result back: the answer to a call the session waited on, or the notice that ended a
+      // background agent. Null while it has not, and when no time was recorded.
+      reportedAt: link?.status === 'completed' ? (link.at ?? null) : (completion ? (notice.at ?? null) : null),
     });
 
     edges.push({ id: `${parentId}->${a.agentId}`, source: parentId, target: a.agentId, kind: 'spawn' });

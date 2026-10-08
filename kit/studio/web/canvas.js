@@ -11,10 +11,11 @@
 //   A status is never colour alone: every dot has its word beside it.
 //   A poll that changed nothing writes nothing. Each element remembers what it last drew.
 import {
-  plan, sequence, crowdFolds, fitZoom, stateOf, ZOOM, GROUPINGS, DENSITIES,
+  plan, sequence, crowdFolds, fitZoom, stateOf, ZOOM, GROUPINGS, DENSITIES, INFERRED_NOTE,
 } from './graph-plan.js';
+import { clock } from './timeline-plan.js';
 import { agentStatus } from './nav.js';
-import { roleName, shownType, hoverOf } from './names.js';
+import { roleName, shownType, hoverOf, orderTag } from './names.js';
 
 // How long an arriving wire takes to draw itself toward its new card. Short on purpose: this is a status panel,
 // and anything a viewer has to wait through is a cost they pay on every spawn.
@@ -213,6 +214,10 @@ export class Canvas {
     const rows = mk('div', 'cv-legend-grid');
     rows.append(line('live', 'working now'), line('waiting', 'needs you'), line('done', 'finished'), line('failed', 'failed'));
     box.append(rows);
+    // The one wire that is not a call: in the Order view, from an agent to the wave called after it reported.
+    const inferred = line('inferred', 'after it reported (inferred, not a call)');
+    inferred.title = INFERRED_NOTE;
+    box.append(inferred);
     const marks = mk('div', 'cv-legend-grid');
     this.legendBuiltin = mk('span', 'cv-tile cv-tile-sm');
     const crew = mk('span', 'cv-tile cv-tile-sm');
@@ -647,7 +652,7 @@ export class Canvas {
     el.classList.toggle('cv-pinned', Boolean(it.pinned));
     if (it.kind === 'session') this.#fillSession(el, it);
     else if (it.kind === 'group') this.#fillGroup(el, it, liveCells);
-    else this.#fillAgent(el, it.node, it.compact);
+    else this.#fillAgent(el, it.node, it.compact, it.after ?? null);
   }
 
   /** The skeleton of a card: the parts it will fill. */
@@ -686,18 +691,24 @@ export class Canvas {
     } else if (it.compact) {
       el.classList.add('cv-chip');
       p.dot = mk('span', 'dot');
+      p.order = mk('span', 'cv-order');
       p.name = mk('span', 'cv-name');
       p.task = mk('span', 'cv-task');
       p.word = mk('span', 'cv-word');
-      el.append(p.dot, p.name, p.task, p.word);
+      el.append(p.dot, p.order, p.name, p.task, p.word);
     } else {
       p.tile = mk('span', 'cv-tile');
       p.name = mk('span', 'cv-name');
+      p.order = mk('span', 'cv-order');
       p.pill = this.#pill();
       const row = mk('div', 'cv-row');
       row.append(p.tile, p.name, mk('span', 'cv-fill'), p.pill.el);
-      p.task = mk('div', 'cv-task cv-indent');
-      el.append(row, p.task);
+      // The second line: the task, and at its end where the card stands in the order of the calls. The name
+      // keeps the first line to itself.
+      p.task = mk('span', 'cv-task');
+      const under = mk('div', 'cv-under cv-indent');
+      under.append(p.task, p.order);
+      el.append(row, under);
     }
     el.parts = p;
   }
@@ -768,13 +779,15 @@ export class Canvas {
     el.setAttribute('aria-label', `Session, ${st?.word ?? 'state not measured'}, ${p.name.textContent}, ${p.sub.textContent}`);
   }
 
-  #fillAgent(el, n, compact) {
+  #fillAgent(el, n, compact, after = null) {
     const st = this.#statusOf(n);
     const who = compact ? this.#identity(n) : this.#fillTile(el.parts.tile, n);
     const type = n.kind === 'workflow' ? (n.workflowId ?? 'workflow run') : shownType(n);
     const task = n.kind === 'workflow' ? `${n.members ?? 0} agents` : (n.description ?? '');
     const dim = this.dimmed(n);
-    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status]);
+    // Its place in the order the session called its agents, and when: "#3 · 09:14". A chip has room for the number.
+    const tag = orderTag(n, compact ? null : clock);
+    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after]);
     if (el.sig === sig) return;
     el.sig = sig;
     const p = el.parts;
@@ -789,6 +802,11 @@ export class Canvas {
     // Both are cut to the card's width; hovering says them whole, and the type as it is declared.
     p.name.title = n.kind === 'workflow' ? '' : (n.agentType ?? '');
     p.task.title = task;
+    p.order.textContent = tag;
+    p.order.hidden = !tag;
+    p.order.title = tag ? `Called ${orderTag(n, clock)} by the session` : '';
+    // In the Order view: what had reported before this wave was called. A reading of the order of events.
+    el.title = after?.length ? `Called after ${after.join(', ')} reported.\n${INFERRED_NOTE}` : '';
     if (compact) {
       p.dot.dataset.tone = st.tone ?? 'none';
       p.word.textContent = st.word;
@@ -806,7 +824,7 @@ export class Canvas {
     const p = el.parts;
     const counts = it.counts;
     const says = Object.entries(counts).map(([s, c]) => `${c} ${agentStatus(s).word}`).join(' · ');
-    const sig = JSON.stringify([it.label, says, it.open, it.boxed, it.type, it.status]);
+    const sig = JSON.stringify([it.label, says, it.open, it.boxed, it.type, it.status, it.first?.order ?? null]);
     if (el.sig !== sig) {
       el.sig = sig;
       el.dataset.state = stateOf(it.status);
@@ -820,7 +838,9 @@ export class Canvas {
       if (it.type === 'run') { p.tile.innerHTML = MARK.run; p.tile.title = 'Workflow run'; }
       else this.#fillTile(p.tile, it.type === 'type' ? { agentType: it.agentType } : (it.of ?? {}));
       // Several agents of one type: the number is a badge beside the role. Any other group says how many it holds.
-      p.sub.textContent = it.type === 'type' ? `× ${it.count}` : `${it.members.length} ${it.members.length === 1 ? 'agent' : 'agents'}`;
+      const size = it.type === 'type' ? `× ${it.count}` : `${it.members.length} ${it.members.length === 1 ? 'agent' : 'agents'}`;
+      // The group stands where its first member does in the order of the calls.
+      p.sub.textContent = [orderTag(it.first), size].filter(Boolean).join(' · ');
       p.sub.classList.toggle('cv-times', it.type === 'type');
       p.fold.innerHTML = it.boxed ? MARK.down : MARK.chevron;
       // Read aloud, the badge is part of the name.
@@ -856,8 +876,9 @@ export class Canvas {
         c.tabIndex = 0;
         const q = {};
         if (!it.grid) { q.tile = mk('span', 'cv-tile'); c.append(q.tile); } else { q.dot = mk('span', 'dot'); c.append(q.dot); }
+        q.order = mk('span', 'cv-order');
         q.name = mk('span', 'cv-name');
-        c.append(q.name);
+        c.append(q.order, q.name);
         if (!it.grid) { c.append(mk('span', 'cv-fill')); q.dot = mk('span', 'dot'); c.append(q.dot); }
         q.word = mk('span', 'cv-word');
         c.append(q.word);
@@ -879,7 +900,8 @@ export class Canvas {
       // Inside a group of one type the type is the group's name, so a member is told apart by its task.
       const text = it.type === 'type' ? (n.description || shownType(n) || n.id) : shownType(n);
       const dim = this.dimmed(n);
-      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id]);
+      const ctag = orderTag(n, it.grid ? null : clock);
+      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag]);
       if (c.sig === csig) continue;
       c.sig = csig;
       c.dataset.state = st.state;
@@ -887,11 +909,37 @@ export class Canvas {
       c.classList.toggle('cv-dim', dim);
       c.classList.toggle('cv-selected', this.selected === n.id);
       c.parts.name.textContent = text;
+      c.parts.order.textContent = ctag;
+      c.parts.order.hidden = !ctag;
       c.title = hoverOf(n);
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
     }
+  }
+
+  /** What an inferred wire says: on hover that it is an inference, and once per reporter, in words beside it. */
+  #edgeWords(path, e, c) {
+    const title = e.title ?? '';
+    if (path.said !== title) {
+      path.said = title;
+      path.querySelector?.('title')?.remove();
+      if (title) {
+        const t = document.createElementNS(SVG, 'title');
+        t.textContent = title;
+        path.append(t);
+      }
+    }
+    if (!e.label) { path.label?.remove(); path.label = null; return; }
+    if (!path.label) {
+      path.label = document.createElementNS(SVG, 'text');
+      path.label.setAttribute('class', 'cv-edge-label');
+      this.edgeG.append(path.label);
+    }
+    path.label.textContent = e.label;
+    // Just off the reporter's edge, above the wire, where it does not sit on a card.
+    path.label.setAttribute('x', String(e.from.x + 8));
+    path.label.setAttribute('y', String(e.from.y - 6));
   }
 
   // Wires are kept and updated, never rebuilt.
@@ -932,9 +980,13 @@ export class Canvas {
 
       const target = this.nodes.get(e.target);
       const waiting = target && this.waiting.has(target.id);
-      const state = waiting ? 'waiting' : e.state;
+      // A wire that is a reading of the order of events says nothing about what its target is doing now.
+      const inferred = e.kind === 'inferred';
+      const state = inferred ? 'inferred' : (waiting ? 'waiting' : e.state);
       path.dataset.status = e.status;
       path.dataset.state = state;
+      path.dataset.kind = inferred ? 'inferred' : 'call';
+      this.#edgeWords(path, e, c);
       path.classList.toggle('cv-dim', Boolean(target) && this.dimmed(target));
       path.classList.toggle('cv-path', onPath.has(e.target));
 
@@ -950,6 +1002,7 @@ export class Canvas {
 
     for (const [key, path] of this.edgeEls) {
       if (alive.has(key)) continue;
+      path.label?.remove();
       path.remove();
       this.edgeEls.delete(key);
     }

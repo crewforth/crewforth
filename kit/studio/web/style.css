@@ -836,6 +836,21 @@ button.tl-lab { cursor: pointer; }
 }
 
 /* Working. The brightest and the only one that travels. */
+/* A wire that is an inference, not a call: dotted, still, and it can be hovered for what it means. A working wire
+   is dashed and moves; this one is neither. */
+.cv-edge[data-kind="inferred"] {
+  stroke: var(--ink-faint);
+  stroke-dasharray: 1.5 5;
+  pointer-events: stroke;
+}
+.cv-edge-label { font-size: 10px; fill: var(--ink-faint); pointer-events: none; }
+/* "#3 · 09:14": where a card stands in the order the session called its agents. */
+.cv-under { display: flex; align-items: baseline; min-width: 0; }
+.cv-under .cv-task { flex: 1 1 auto; min-width: 0; }
+.cv-order { flex: none; margin-left: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cv-order[hidden] { display: none; }
+.cv-chip .cv-order, .cv-member .cv-order { margin-left: 0; margin-right: 6px; }
+
 .cv-edge[data-state="live"] {
   stroke: var(--status-busy);
   opacity: var(--cv-edge-live);
@@ -1086,6 +1101,7 @@ button.tl-lab { cursor: pointer; }
 .cv-legend-line[data-state="live"] { border-top: 1.5px dashed var(--status-busy); }
 .cv-legend-line[data-state="waiting"] { border-top: 1.5px dashed var(--status-waiting); }
 .cv-legend-line[data-state="failed"] { border-top-color: var(--cv-fail); }
+.cv-legend-line[data-state="inferred"] { border-top: 1.5px dotted var(--ink-faint); }
 .cv-x {
   width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   background: none; border: 0; border-radius: var(--radius-sm); color: var(--ink-dim); cursor: pointer;

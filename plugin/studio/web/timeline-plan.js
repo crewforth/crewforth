@@ -120,6 +120,8 @@ export function groupsOf(nodes, grouping) {
       return { id: `parent:${p.id}`, label: p.kind === 'workflow' ? (p.workflowId ?? p.id) : `under ${shownType(p)}` };
     }
     if (grouping === 'none') return { id: 'all', label: null };
+    // `order`: the agents called in one assistant message are a wave, and a wave is a group.
+    if (grouping === 'order') return n.wave != null ? { id: `wave:${n.wave}`, label: `Wave ${n.wave}` } : { id: 'wave:none', label: 'Not called by the session' };
     // `run`: a workflow run is a group; everything the session started itself is another.
     if (n.workflow) return { id: `run:${n.workflow}`, label: String(n.workflow) };
     return { id: 'direct', label: 'Session · direct' };
@@ -135,6 +137,12 @@ export function groupsOf(nodes, grouping) {
   for (const g of out) g.members.sort((a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity) || String(a.id).localeCompare(String(b.id)));
   // What the session did itself comes first; the rest in the order they began.
   out.sort((a, b) => Number(b.id === 'direct') - Number(a.id === 'direct') || first(a) - first(b) || a.id.localeCompare(b.id));
+  // Waves are in the order they were called, which is not always the order their agents first wrote.
+  if (grouping === 'order') {
+    const wave = (g) => g.members[0].wave ?? Infinity;
+    out.sort((a, b) => wave(a) - wave(b));
+    for (const g of out) g.members.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
+  }
   return out;
 }
 
