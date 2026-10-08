@@ -211,9 +211,8 @@ dragPanel(el.chatSplit, 'chat', 'right');
 
 /* ------------------------------------------------------------ full screen
    The browser's own, so it hides the browser too — a panel meant to be watched
-   while work runs should be able to take the whole display. The stylesheet
-   takes the navigator, the inspector and the conversation off with it, so what
-   is left is the canvas; Esc brings everything back. */
+   while work runs should be able to take the whole display. The panels keep
+   their state: what was open stays open, and `[` and `]` still fold the navigator. */
 
 async function toggleFullscreen() {
   try {

@@ -1587,15 +1587,10 @@ body.vresizing { cursor: row-resize; user-select: none; }
 
 /* --------------------------------------------------------- full screen --- */
 
-/* Full screen is the canvas and nothing beside it: the navigator, its rail,
-   the inspector and the conversation step out until Esc. */
-:root:fullscreen .shell { grid-template-columns: 0 0 minmax(0, 1fr) 0 0 0; }
-:root:fullscreen .shell > .side,
-:root:fullscreen .shell > .side-rail,
-:root:fullscreen .shell > .resizer,
-:root:fullscreen .shell > .inspector,
-:root:fullscreen .shell > .chat,
-:root:fullscreen .shell > .newpanel { display: none; }
+/* Full screen takes the browser away and nothing of the panel: the navigator,
+   the inspector and the conversation stay where they were, and open and close
+   as they do in a window. A rule here used to remove them, and with them the
+   only way to an agent's details or to a conversation that was waiting. */
 
 /* ------------------------------------------------- tab bar that fits --- */
 
