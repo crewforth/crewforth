@@ -138,6 +138,12 @@ versioning follows [SemVer](https://semver.org/).
   estimate at API list price and reads as one (a leading `~`; on a subscription it is not what you are billed). The
   prices are one table, read from the pricing page on 2026-10-08; a model with no row in it shows `—`, never a guess.
   Not checked against an invoice.
+- **Studio: the order the session called its agents in.** Each agent's card says its place and the time
+  (`#3 · 09:14`). **Order**, in the Group menu, lays the agents out by wave: the agents called in one message are a
+  wave, waves run left to right, and the Timeline groups by the same waves. A later wave is wired, dotted, from each
+  agent that reported before it was called, with the words `after Planner reported`; that wire is inferred from the
+  order of events and is not a call from one agent to another, and the panel says so. Read from the transcript
+  alone. Agents a workflow started are not called by the session, so they carry no place.
 - **Studio: background work is shown.** A Bash command sent to the background is listed on its session (`1 in
   background` on the card, **In the background** in the inspector) until the notice that ends it arrives.
 - **Studio: a question waiting in a terminal is named.** For a session started in a terminal, a permission question
