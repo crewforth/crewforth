@@ -362,6 +362,9 @@ body.resizing .cv-root { pointer-events: none; }
 .sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 .srow-sub { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; }
 .srow.remote .srow-sub { padding-left: var(--space-6); }
+/* What the session spent, under its state: time, tokens and the estimate. */
+.srow-usage { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+.srow.remote .srow-usage { padding-left: var(--space-6); }
 .sub.bad, .nav-line.bad { color: var(--status-bad); }
 mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); color: inherit; border-radius: 2px; }
 
@@ -1052,6 +1055,11 @@ button.tl-lab { cursor: pointer; }
   cursor: default;
 }
 .cv-legend[hidden] { display: none; }
+/* The session's summary is the same kind of box, in the opposite corner. */
+.cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 220px; }
+.cv-spend-rows { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3); font-size: 12px; }
+.cv-spend-rows dt { color: var(--ink-dim); }
+.cv-spend-rows dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink); }
 .cv-legend-head { display: flex; align-items: center; justify-content: space-between; }
 .cv-legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1) var(--space-2); }
 .cv-legend-item { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }

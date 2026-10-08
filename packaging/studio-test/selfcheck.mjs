@@ -390,6 +390,128 @@ check('prose without a notice yields nothing', none.size === 0);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
+   hold the arithmetic and the rules, not the prices' truth. */
+{
+  const pr = await import(`../../kit/studio/server/lib/pricing.js?u=${Date.now()}`);
+  const us = await import(`../../kit/studio/server/lib/usage.js?u=${Date.now()}`);
+  const wu = await import(`../../kit/studio/web/usage.js?u=${Date.now()}`);
+  const { buildGraph } = await import(`../../kit/studio/server/lib/graph.js?u=${Date.now()}`);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const one = (o) => ({ model: 'claude-opus-5-5', input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, fast: false, usOnly: false, ...o });
+  const M = 1_000_000;
+
+  check('the price table says where it was read and when, and prices are written in that one file',
+    /^https:\/\//.test(pr.SOURCE.url) && /^\d{4}-\d{2}-\d{2}$/.test(pr.SOURCE.read)
+    && fs.readdirSync(WEB_ROOT).filter((f) => f.endsWith('.js')).every((f) => !/per million|\/ ?MTok|PRICES/.test(read(path.join(WEB_ROOT, f)) ?? '')));
+  check('input, output, the two cache writes and a cache read are each priced on their own',
+    near(pr.costOf(one({ input: M })), 4) && near(pr.costOf(one({ output: M })), 20)
+    && near(pr.costOf(one({ cacheWrite5m: M })), 5) && near(pr.costOf(one({ cacheWrite1h: M })), 8)
+    && near(pr.costOf(one({ cacheRead: M })), 0.2),
+    `opus 5.5, a million of each: ${['input', 'output', 'cacheWrite5m', 'cacheWrite1h', 'cacheRead'].map((k) => pr.costOf(one({ [k]: M }))).join(', ')}`);
+  check('a cache read is a tenth of the input price unless the model\'s row says otherwise',
+    near(pr.costOf(one({ model: 'claude-opus-5', cacheRead: M })), 0.5) && near(pr.costOf(one({ model: 'claude-fable-5-1', cacheRead: M })), 0.25));
+  check('a model with a second set of prices for a long prompt is priced by the prompt, and fast mode and US-only inference by their own rules',
+    near(pr.costOf(one({ model: 'claude-haiku-5-5', input: 100_000, output: M })), 0.01 + 0.5)
+    && near(pr.costOf(one({ model: 'claude-haiku-5-5', input: 60_000, cacheRead: 60_000, output: M })), 0.03 + 0.003 + 2.5)
+    && near(pr.costOf(one({ fast: true, input: M, cacheRead: M })), 8 + 0.4)
+    && near(pr.costOf(one({ usOnly: true, output: M })), 22));
+  check('a dated snapshot is the model it is a snapshot of; nothing else is matched to a neighbour',
+    pr.priceOf('claude-haiku-4-5-20251001') === pr.PRICES['claude-haiku-4-5'] && pr.priceOf('claude-opus-5-5') !== null
+    && pr.priceOf('claude-opus-5-5-preview') === null && pr.priceOf('claude-opus-9') === null && pr.priceOf('<synthetic>') === null
+    && pr.priceOf(null) === null && pr.costOf(one({ model: 'claude-opus-9', input: M })) === null);
+
+  const rec = (id, model, usage, extra = {}) => ({ type: 'assistant', timestamp: '2026-01-01T00:00:00Z', message: { id, model, usage, content: [] }, ...extra });
+  const u1 = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 300, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 200 } };
+  const twice = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1), rec('m1', 'claude-opus-5-5', u1), rec('m2', 'claude-opus-5-5', u1)]).result();
+  check('a response written as several records is counted once, by its message id',
+    twice.responses === 2 && twice.tokens.input === 200 && twice.tokens.cacheWrite === 600 && twice.tokens.total === 2 * 1450,
+    JSON.stringify(twice.tokens));
+  const across = new us.Usage();
+  across.add([rec('m1', 'claude-opus-5-5', u1)]);
+  across.add([rec('m1', 'claude-opus-5-5', u1), rec('m3', 'claude-opus-5-5', u1)]);
+  check('and once across a session\'s files, so an agent\'s tokens are added to the total a single time',
+    across.result().responses === 2 && across.result().tokens.total === 2 * 1450);
+  const priced = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1)]).result();
+  check('the cost is the sum of the five kinds at their prices',
+    near(priced.cost, (100 * 4 + 100 * 5 + 200 * 8 + 1000 * 0.2 + 50 * 20) / M), String(priced.cost));
+  const mixed = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1), rec('m2', 'some-other-model', u1)]).result();
+  check('tokens from a model the table does not have make the cost unknown, not smaller; the tokens are still counted',
+    mixed.cost === null && mixed.unpriced.join() === 'some-other-model' && mixed.tokens.total === 2 * 1450);
+  check('a record with no tokens, and one that is not a model\'s answer, add nothing',
+    new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 }), { type: 'user', message: { usage: u1 } }, null]).result().responses === 0
+    && new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 })]).result().cost === 0);
+  check('with no split recorded a cache write is the five-minute kind',
+    us.usageOfRecord(rec('m', 'claude-opus-5-5', { input_tokens: 1, cache_creation_input_tokens: 40 })).cacheWrite5m === 40);
+  const times = us.timesOf([
+    { timestamp: '2026-01-01T00:00:00Z' }, { type: 'system', subtype: 'turn_duration', durationMs: 60_000, timestamp: '2026-01-01T00:10:00Z' },
+    { type: 'system', subtype: 'turn_duration', durationMs: 30_000, timestamp: '2026-01-01T05:00:00Z' },
+  ]);
+  check('a session\'s time is read two ways: the turns Claude Code timed, and first record to last',
+    times.workedMs === 90_000 && times.turns === 2 && times.durationMs === 5 * 3_600_000 && us.timesOf([]).durationMs === null);
+
+  // The real builder, on a session with one agent whose transcript repeats a response the main one also has.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-usage-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const file = path.join(dir, 'main.jsonl');
+  const lines = (rs) => rs.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  fs.writeFileSync(file, lines([rec('m1', 'claude-opus-5-5', u1), rec('m1', 'claude-opus-5-5', u1), rec('shared', 'claude-opus-5-5', u1, { isSidechain: true })]));
+  fs.writeFileSync(path.join(sub, 'agent-a1.meta.json'), JSON.stringify({ agentType: 'Explore' }));
+  fs.writeFileSync(path.join(sub, 'agent-a1.jsonl'), lines([rec('shared', 'claude-opus-5-5', u1), rec('a-own', 'claude-opus-5-5', u1)]));
+  const session = { sessionId: 'usage-session', file, subagentsDir: sub };
+  const g = await buildGraph(session);
+  const su = g.nodes.find((n) => n.kind === 'session').usage;
+  const direct = await us.sessionUsage(session);
+  check('the graph\'s session carries the total, agents included once, and the navigator\'s reader gives the same answer',
+    su.responses === 3 && su.tokens.total === 3 * 1450 && near(su.cost, 3 * priced.cost)
+    && direct.tokens.total === su.tokens.total && near(direct.cost, su.cost),
+    `${su.responses} responses, ${su.tokens.total} tokens, $${su.cost}`);
+  const first = await us.cachedUsage(session);
+  fs.appendFileSync(path.join(sub, 'agent-a1.jsonl'), lines([rec('a-later', 'claude-opus-5-5', u1)]));
+  const second = await us.cachedUsage(session);
+  check('the kept answer is dropped when a transcript grows', first.responses === 3 && second.responses === 4 && (await us.cachedUsage(session)) === second);
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  check('an estimate is written as one, and no estimate is a dash',
+    wu.fmtCost(4.1) === '~$4.10' && wu.fmtCost(1240.4) === '~$1,240' && wu.fmtCost(0.004) === '<$0.01' && wu.fmtCost(0) === '~$0.00'
+    && wu.fmtCost(null) === '—' && /list price/.test(wu.COST_NOTE) && /subscription/.test(wu.COST_NOTE));
+  check('counts and spans are short enough for a row',
+    wu.fmtCount(950) === '950' && wu.fmtCount(12_400) === '12.4k' && wu.fmtCount(3_200_000) === '3.2M' && wu.fmtCount(1_530_000_000) === '1.53B'
+    && wu.fmtSpan(40_000) === '40s' && wu.fmtSpan(12 * 60_000) === '12m' && wu.fmtSpan(185 * 60_000) === '3h 5m' && wu.fmtSpan(52 * 3_600_000) === '2d 4h');
+  check('the navigator\'s line is time, tokens and the estimate, and nothing when nothing was read',
+    wu.usageLine({ durationMs: 12 * 60_000, workedMs: 0, tokens: 208_000, cost: 0.27, unpriced: [] }) === '12m · 208k · ~$0.27'
+    && wu.usageLine({ durationMs: 9e7, workedMs: 5 * 60_000, tokens: 1000, cost: null, unpriced: ['x'] }) === '5m · 1.0k · —'
+    && wu.usageLine(null) === null && wu.usageLine({ durationMs: null, workedMs: 0, tokens: 0, cost: 0 }) === null);
+  const rows = wu.summaryRows({ durationMs: 9e7, workedMs: 5 * 60_000, tokens: { total: 1000, input: 1, output: 2, cacheWrite: 3, cacheRead: 994 }, cost: null, unpriced: ['some-other-model'] });
+  check('the summary says which time it is, breaks the tokens down on hover, and names the model it has no price for',
+    rows.map((r) => r[0]).join() === 'Working time,First to last record,Tokens,Cost' && rows[3][1] === '—'
+    && /some-other-model/.test(rows[3][2]) && /cache read 994/.test(rows[2][2])
+    && wu.summaryRows({ durationMs: 60_000, workedMs: 0, tokens: { total: 5 }, cost: 0.5, unpriced: [] })[0][0] === 'First to last record'
+    && wu.summaryRows(null).length === 0);
+
+  const spendDom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?spend=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  const hiddenEmpty = c.spendEl.hidden;
+  c.setSpend(rows);
+  const shown = !c.spendEl.hidden && c.spendRows.children.length === 8;
+  c.showSpend(false);
+  const c2 = new Canvas(document.createElement('div'), {});
+  c2.setSpend(rows);
+  check('the summary box shows once there is something to show, closes, and stays closed in the next window',
+    hiddenEmpty && shown && c.spendEl.hidden && localStorage.getItem('crewforth-studio-spend') === 'closed' && c2.spendEl.hidden,
+    'and "View options" brings it back');
+  c2.showSpend(true);
+  check('asked for again, it is back with what it had', !c2.spendEl.hidden && c2.spendRows.children.length === 8);
+  spendDom();
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
+    /canvas\.setSpend\(summaryRows\(g\.nodes\.find\(\(n\) => n\.kind === 'session'\)\?\.usage \?\? null\)\);/.test(appSrc)
+    && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
+    && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
+}
+
 /* --------------------------------------------------------- §8 palette */
 
 process.stdout.write('\n== §8 palette ==\n');

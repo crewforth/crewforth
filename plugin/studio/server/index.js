@@ -19,6 +19,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getFleet, measureSpawnCost } from './lib/fleet.js';
 import { projectDir, listSessions, findSession, listProjects, sessionCwd } from './lib/projects.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
+import { cachedUsage } from './lib/usage.js';
+
+const USAGE_BATCH = 12;
 import { palette } from './lib/palette.js';
 import { latestVersion, latestVersionCached, kitStatus } from './lib/kit.js';
 import { parsePeers, askAll, ask } from './lib/peers.js';
@@ -190,6 +193,21 @@ async function handle(req, res) {
       pid: process.pid,
       uptimeMs: Math.round(process.uptime() * 1000),
     });
+  }
+
+  // What a handful of sessions spent, for the navigator's rows. Asked for a few at a time and answered from a
+  // cache that lasts until a transcript grows: reading every transcript on the machine to draw a list is not
+  // something a page load should do.
+  if (url.pathname === '/api/usage') {
+    const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).slice(0, USAGE_BATCH);
+    const usage = {};
+    for (const id of ids) {
+      const session = await findSession(id);
+      if (!session) continue;                 // a session on another machine: not read here, and not guessed
+      const u = await cachedUsage(session);
+      usage[id] = { durationMs: u.durationMs, workedMs: u.workedMs, tokens: u.tokens.total, cost: u.cost, unpriced: u.unpriced };
+    }
+    return sendJson(res, 200, { measured: true, usage });
   }
 
   if (url.pathname === '/api/fleet') {

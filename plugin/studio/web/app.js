@@ -16,6 +16,7 @@ import {
 } from './nav.js';
 import { liveness, offlineNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
+import { summaryRows, usageLine, costNote } from './usage.js';
 import { ServerClock, queue, settled, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
 import { NewSession } from './newsession.js';
@@ -530,6 +531,10 @@ el.tbOptions.addEventListener('click', (e) => {
   items.push({ note: 'Show' }, ...pick(SHOW, show, (key) => setShow(key)));
   if (view === 'graph' && st.groups > 0) {
     items.push({ note: 'Groups' }, { label: 'Expand all', run: () => canvas.expandAll() }, { label: 'Fold all', run: () => canvas.foldAll() });
+  }
+  if (view === 'graph') {
+    const open = canvas.spendOpen;
+    items.push({ note: 'Session summary' }, { label: open ? 'Hide time, tokens and cost' : 'Show time, tokens and cost', run: () => canvas.showSpend(!open) });
   }
   openMenu(el.tbOptions, items);
 });
@@ -1471,6 +1476,14 @@ function sessionRow(project, sn) {
 
   const subText = sessionSub(sn, status) + (ownedIds.has(sn.sessionId) ? ' · started here' : '');
   if (subText) row.append(marked(subText, 'sub srow-sub'));
+  // What it spent, once the server has read it: time · tokens · ~cost. Asked for a few rows at a time.
+  const spent = usageFor(sn);
+  const line = usageLine(spent);
+  if (line) {
+    const u = node('span', 'sub srow-usage', line);
+    u.title = costNote(spent);
+    row.append(u);
+  }
 
   row.title = `${sn.sessionId}${sn.title ? `\n${sn.title}` : ''}`;
   const open = () => selectSession(sn.sessionId);
@@ -1480,6 +1493,36 @@ function sessionRow(project, sn) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
   });
   return row;
+}
+
+/* What each session spent, for its row. The server reads a transcript once and keeps the answer until it grows, so
+   this asks only for rows that are on screen and whose transcript has changed since it last asked. */
+const usageRows = new Map();    // sessionId -> { at: modifiedAt it was read for, value }
+const usageWanted = new Set();
+let usageBusy = false;
+function usageFor(sn) {
+  const hit = usageRows.get(sn.sessionId);
+  if (!hit || hit.at !== sn.modifiedAt) { usageWanted.add(sn.sessionId); queueMicrotask(pullUsage); }
+  return hit?.value ?? null;
+}
+async function pullUsage() {
+  if (usageBusy || !usageWanted.size) return;
+  usageBusy = true;
+  const ids = [...usageWanted].slice(0, 12);
+  for (const id of ids) usageWanted.delete(id);
+  try {
+    const got = await getJson(`/api/usage?ids=${ids.map(encodeURIComponent).join(',')}`);
+    for (const id of ids) {
+      const sn = findSessionRow(id)?.session;
+      // A session the server did not answer for (another machine's) is remembered as not read, and not asked again
+      // until its row changes.
+      usageRows.set(id, { at: sn?.modifiedAt ?? null, value: got.usage?.[id] ?? null });
+    }
+    paintProjects();
+  } catch { /* the Live indicator says so; the rows keep what they had */ } finally {
+    usageBusy = false;
+    if (usageWanted.size) queueMicrotask(pullUsage);
+  }
 }
 
 function paintProjects() {
@@ -2223,6 +2266,7 @@ function showGraph() {
   lastLive = sessionIsLive();
   const g = settle(lastGraph, lastLive);
   canvas.render(g);
+  canvas.setSpend(summaryRows(g.nodes.find((n) => n.kind === 'session')?.usage ?? null));
   lastNodes = g.nodes;
   timeline.setNodes(g.nodes);
   list.setNodes(g.nodes);

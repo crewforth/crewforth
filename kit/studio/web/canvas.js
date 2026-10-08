@@ -139,11 +139,53 @@ export class Canvas {
     this.mapEl.append(this.mapSvg);
 
     this.legendEl = this.#legend();
+    this.spendEl = this.#spend();
     this.tipEl = mk('div', 'cv-tip');
     this.tipEl.setAttribute('role', 'tooltip');
     this.tipEl.hidden = true;
 
-    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.tipEl);
+    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.spendEl, this.tipEl);
+  }
+
+  /** What the session spent: time, tokens and an estimate of the cost. Closed, it stays closed until asked for. */
+  #spend() {
+    const box = mk('div', 'cv-legend cv-spend');
+    box.setAttribute('aria-label', 'Session summary');
+    const head = mk('div', 'cv-legend-head');
+    head.append(mk('span', 'cv-label', 'Session'));
+    const close = mk('button', 'cv-x');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close the session summary');
+    close.innerHTML = MARK.close;
+    close.addEventListener('click', () => this.showSpend(false));
+    head.append(close);
+    this.spendRows = mk('dl', 'cv-spend-rows');
+    box.append(head, this.spendRows);
+    this.spendOpen = readFlag('crewforth-studio-spend') !== 'closed';
+    box.hidden = true;                       // until there is a session's usage to show
+    return box;
+  }
+
+  showSpend(on) {
+    this.spendOpen = Boolean(on);
+    writeFlag('crewforth-studio-spend', on ? 'open' : 'closed');
+    this.spendEl.hidden = !on || !this.spendCount;
+  }
+
+  /** The rows to show: [label, value, note], from usage.js `summaryRows`. An empty list hides the box. */
+  setSpend(rows) {
+    const sig = JSON.stringify(rows ?? []);
+    if (sig === this.spendSig) return;
+    this.spendSig = sig;
+    this.spendCount = (rows ?? []).length;
+    this.spendRows.replaceChildren(...(rows ?? []).flatMap(([label, value, note]) => {
+      const dd = mk('dd', null, value ?? '');
+      dd.title = note ?? '';
+      const dt = mk('dt', null, label);
+      dt.title = note ?? '';
+      return [dt, dd];
+    }));
+    this.spendEl.hidden = !this.spendOpen || !this.spendCount;
   }
 
   /** What the lines and the two marks mean. Shown until it is closed, and then not again unless asked for. */
@@ -196,7 +238,7 @@ export class Canvas {
     this.root.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;                 // right/middle must not pan
       const t = e.target;
-      if (t.closest?.('.cv-node') || t.closest?.('.cv-minimap') || t.closest?.('.cv-legend')) return;
+      if (t.closest?.('.cv-node') || t.closest?.('.cv-minimap') || t.closest?.('.cv-legend')) return;   // the summary box is a .cv-legend too
       panning = { px: e.clientX, py: e.clientY, x: this.view.x, y: this.view.y };
       this.root.setPointerCapture(e.pointerId);
       this.root.classList.add('cv-panning');

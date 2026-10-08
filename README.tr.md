@@ -92,7 +92,7 @@ Bütün hook'lar ve kurallar: [crewforth.com/tr/gates](https://crewforth.com/tr/
 
 ## Studio
 
-Studio, delegasyonu olurken çizen yerel bir panel; üç görünümü var: kimin kimi başlattığını gösteren bir grafik, aynı ajanları saate karşı gösteren bir zaman çizelgesi ve size ihtiyacı olana göre sıralı bir liste. Bir ajanı seçince ne yaptığı, ne harcadığı ve ne bildirdiği açılır. Panelden başlatılan oturum her araç çağrısından önce onay dock'unda sorar; cevaplanmayan istek reddedilir. Makinedeki bütün Claude Code oturumlarını okur, `/crew-studio` ya da `npx crewforth studio` ile açılır ve yalnızca `127.0.0.1`'e bağlanır. Ayrıntılar: [crewforth.com/tr/studio](https://crewforth.com/tr/studio).
+Studio, delegasyonu olurken çizen yerel bir panel; üç görünümü var: kimin kimi başlattığını gösteren bir grafik, aynı ajanları saate karşı gösteren bir zaman çizelgesi ve size ihtiyacı olana göre sıralı bir liste. Bir ajanı seçince ne yaptığı, ne harcadığı ve ne bildirdiği açılır. Her oturum süresini, token'ını ve bunların API liste fiyatıyla tahmini maliyetini gösterir. Panelden başlatılan oturum her araç çağrısından önce onay dock'unda sorar; cevaplanmayan istek reddedilir. Makinedeki bütün Claude Code oturumlarını okur, `/crew-studio` ya da `npx crewforth studio` ile açılır ve yalnızca `127.0.0.1`'e bağlanır. Ayrıntılar: [crewforth.com/tr/studio](https://crewforth.com/tr/studio).
 
 ## Kurulum ve güncelleme
 

@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import { readAll, contextFill } from './transcript.js';
 import { agentMetaFiles } from './projects.js';
+import { Usage, timesOf } from './usage.js';
 
 const SESSION_NODE = 'session';
 
@@ -162,8 +163,9 @@ export function noticeStands(notice, lastOwnAt) {
 }
 
 /** Roll one agent's own transcript into the numbers its node shows. */
-async function scanAgent(file) {
+async function scanAgent(file, usage = null) {
   const { records } = await readAll(file);
+  usage?.add(records);
   const stats = {
     tools: {}, toolCount: 0, lastTool: null, errors: 0,
     tokens: null, startedAt: null, endedAt: null, turns: 0,
@@ -211,7 +213,7 @@ async function scanAgent(file) {
   return stats;
 }
 
-async function readAgentDir(subagentsDir) {
+async function readAgentDir(subagentsDir, usage = null) {
   const out = [];
   // Nested too: a workflow puts its agents under subagents/workflows/<id>/.
   for (const metaPath of await agentMetaFiles(subagentsDir)) {
@@ -229,7 +231,7 @@ async function readAgentDir(subagentsDir) {
     // `stats` needs the transcript read; a missing file is a normal state (the
     // agent has not written yet), so absence is a null rather than a throw.
     let stats = null;
-    if (mtime !== null) stats = await scanAgent(jsonl);
+    if (mtime !== null) stats = await scanAgent(jsonl, usage);
 
     out.push({
       agentId,
@@ -264,7 +266,9 @@ export const STALE_MS = 120000;
 export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
   const { records, malformed } = await readAll(session.file);
   const main = scanMain(records);
-  const agents = await readAgentDir(session.subagentsDir);
+  // What the session spent, its agents' tokens included and each response counted once.
+  const usage = new Usage().add(records);
+  const agents = await readAgentDir(session.subagentsDir, usage);
   const now = Date.now();
 
   // Ownership: session first, then every agent's own tool_use ids, so a nested
@@ -292,6 +296,7 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
     tokens: contextFill(records),
     startedAt: main.startedAt,
     endedAt: main.updatedAt,
+    usage: { ...usage.result(), ...timesOf(records) },
     // Commands sent to the background that no notice has ended, oldest first. A session that is over has none
     // running whatever this says: the page shows them only while the session is live.
     backgroundCommands: [...main.background]
