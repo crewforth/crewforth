@@ -3859,6 +3859,10 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     /el\.phoneHead\.append\(el\.crumb, el\.summary\);/.test(appJs) && /el\.bar\.insertBefore\(el\.summary, afterSummary\);/.test(appJs)
     && /\.bar \.crumb, \.bar \.chips, \.bar #fullscreen \{ display: none; \}/.test(phone));
 
+  check('full screen takes nothing of the panel away: no rule hides or resizes a panel because the page is full screen',
+    !/:fullscreen/.test(css34.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'the navigator, the inspector and the conversation could not be opened there');
+
   /* -- 3. the view switch ----------------------------------------------------- */
 
   check('there are three views, and g, t and l go to them',
