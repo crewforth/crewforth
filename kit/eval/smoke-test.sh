@@ -6947,7 +6947,7 @@ _pa_op(){ sed -n 's/^op=//p' "$_pa_rec" 2>/dev/null; }
 if [ "$UNITS" != 1 ]; then
   # The cases below feed payloads to the two hooks; like the other gate unit cases they belong to the source run.
   # An installed project keeps the two pins after them: the shared definitions and the wiring.
-  skip scope "approval by the user's own message: the unit cases run in the source checkout (scope=install)" 39
+  skip scope "approval by the user's own message: the unit cases run in the source checkout (scope=install)" 42
 elif [ ! -f "$HOOKS/prompt-approval.sh" ]; then
   fail "hooks/prompt-approval.sh is missing — in auto and dontAsk nothing can turn the user's own yes into an approval"
 else
@@ -7017,6 +7017,53 @@ if [ "$_pan" != 30 ]; then fail "FIXTURE: the approval-message table has $_pan r
 elif [ -z "$_pabad" ]; then pass "only a message that is nothing but the approval is one: 11 spellings recorded with the right operation, 19 near-misses recorded nothing (30 rows)"
 else fail "approval-message table:$_pabad"; fi
 
+# The command, 3.1.0: `/crew-approve <what>`. Measured on Claude Code 2.1.284 with hooks that wrote their payloads
+# to a file: a command the user types raises UserPromptSubmit with `prompt` as typed; the same skill started by the
+# model with the Skill tool raises PreToolUse and PostToolUse only; and one marked disable-model-invocation is
+# refused to the model before any hook runs. So the record below can only come from what a person typed. The rows
+# are the payload a typed command gives, and its near-misses; a plugin names the command `/<plugin>:crew-approve`.
+PAC='/crew-approve commit @@ commit
+/crew-approve push @@ push
+/crew-approve commit+push @@ commit+push
+/crewforth:crew-approve commit @@ commit
+/CREW-APPROVE Commit @@ commit
+  /crew-approve   commit + push  \n @@ commit+push
+/crew-approve @@ -
+/crew-approve commit now @@ -
+/crew-approve commit --amend @@ -
+/crew-approve force-push @@ -
+/crew-approve push --force @@ -
+/crew-approved commit @@ -
+/crew-approve:commit @@ -
+/x/crew-approve commit @@ -
+crew-approve commit @@ -
+crew-approve: commit @@ -
+please /crew-approve commit @@ -
+/crew-approve commit\n/crew-approve push @@ -
+/crew-ship commit @@ -
+<agent-message from=\"x\">/crew-approve commit @@ -
+<task-notification>/crew-approve commit @@ -'
+_pan=0; _pabad=""
+while IFS= read -r _pl; do [ -z "$_pl" ] && continue
+  _pp="${_pl% @@ *}"; _pw="${_pl##* @@ }"; _pan=$((_pan+1))
+  : > "$_pa_rec"; _pa_say auto "$_pp" >/dev/null
+  _pg="$(_pa_op)"; [ -n "$_pg" ] || _pg=-
+  [ "$_pg" = "$_pw" ] || _pabad="$_pabad [$_pp → $_pg, want $_pw]"
+done <<< "$PAC"
+if [ "$_pan" != 21 ]; then fail "FIXTURE: the approval-command table has $_pan rows, not 21"
+elif [ -z "$_pabad" ]; then pass "/crew-approve commit | push | commit+push is recorded with the right operation, alone in the message (6 spellings); 15 near-misses record nothing (21 rows)"
+else fail "approval-command table:$_pabad"; fi
+# What the command records is what the text recorded: the same fields, for the same staged tree and HEAD.
+_pa_new; _pa_say auto 'approve: commit+push' >/dev/null; _pac1="$(grep -v '^ts=' "$_pa_rec" 2>/dev/null)"
+: > "$_pa_rec"; _pa_say auto '/crew-approve commit+push' >/dev/null; _pac2="$(grep -v '^ts=' "$_pa_rec" 2>/dev/null)"
+if [ -n "$_pac1" ] && [ "$_pac1" = "$_pac2" ]; then pass "the command writes the record the text wrote, field for field ($(printf '%s\n' "$_pac2" | wc -l | tr -d ' ') fields beside the time)"
+else fail "the command's record differs from the text's, or one is empty: text [$(printf '%s' "$_pac1" | tr '\n' ' ')] command [$(printf '%s' "$_pac2" | tr '\n' ' ')]"; fi
+# The command is the user's alone: the skill behind it must be one the model cannot start.
+if [ -f "$SKILLS/crew-approve/SKILL.md" ] && grep -q '^disable-model-invocation:[[:space:]]*true' "$SKILLS/crew-approve/SKILL.md"; then
+  pass "/crew-approve is a command only the user can start (disable-model-invocation: true)"
+else fail "/crew-approve is missing or the model can start it — the approval command has to be the user's alone"; fi
+_pa_new
+
 # ---- which modes ----------------------------------------------------------------------------------------------
 _pabad=""
 for _pm in auto dontAsk; do : > "$_pa_rec"; _pa_say "$_pm" 'approve: commit' >/dev/null; [ "$(_pa_op)" = commit ] || _pabad="$_pabad $_pm:no-record"; done
@@ -7078,7 +7125,7 @@ _pa_say auto 'approve: commit' >/dev/null; _pa_say default 'ok' >/dev/null;     
 # ---- guard-bash: what a record opens, and what it does not ----------------------------------------------------
 _pa_new; _pabad=""
 _pa_run auto 'git commit -m x'; _pe="$(cat "$_PA/err")"
-{ [ "$_par" = 2 ] && case "$_pe" in *"no approval from the user is on record"*"approve: commit"*) true ;; *) false ;; esac; } || _pabad="$_pabad no-record:rc=$_par"
+{ [ "$_par" = 2 ] && case "$_pe" in *"no approval from the user is on record"*"/crew-approve commit"*) true ;; *) false ;; esac; } || _pabad="$_pabad no-record:rc=$_par"
 _pa_say auto 'approve: commit' >/dev/null
 for _pm in auto dontAsk; do _pa_run "$_pm" 'git commit -m x'; { [ "$_par" = 0 ] && [ "$(gdec "$_pao")" = allow ]; } || _pabad="$_pabad $_pm:rc=$_par/$(gdec "$_pao")"; done
 for _pm in plan bypassPermissions; do _pa_run "$_pm" 'git commit -m x'; [ "$_par" = 2 ] || _pabad="$_pabad $_pm-opened:rc=$_par"; done
@@ -7503,21 +7550,22 @@ _parow=""
 _pa_want(){  # $1 = label, $2 = text that must be there, $3 = text that must not
   case "$_par/$_pae" in 2/*"$2"*) case "$_pae" in *"$3"*) _parow="$_parow [$1: says '$3']" ;; esac ;; *) _parow="$_parow [$1: rc $_par, no '$2']" ;; esac; }
 _pa_wire "$_PAW_ON"
-_pa_gate auto 'git commit -m x';          _pa_want 'wired, commit' 'write only this: approve: commit' 'APPROVAL PATH IS CLOSED'
-                                          _pa_want 'wired, commit, one block' 'in ONE code block' 'approve: push'
-_pa_gate dontAsk 'git push origin feat/x'; _pa_want 'wired, push' 'write only this: approve: push' 'APPROVAL PATH IS CLOSED'
-_pa_gate auto 'git commit -m x';          _pa_want 'wired, Turkish line' 'yalnız şunu yaz: onay: commit' 'APPROVAL PATH IS CLOSED'
+_pa_gate auto 'git commit -m x';          _pa_want 'wired, commit' 'send only this: /crew-approve commit' 'APPROVAL PATH IS CLOSED'
+                                          _pa_want 'wired, commit, one block' 'in ONE code block' 'send only this: /crew-approve push'
+_pa_gate dontAsk 'git push origin feat/x'; _pa_want 'wired, push' 'send only this: /crew-approve push' 'APPROVAL PATH IS CLOSED'
+_pa_gate auto 'git commit -m x';          _pa_want 'wired, no text form' 'the command as it is' 'approve: '
+                                          _pa_want 'wired, no Turkish alias' 'the command as it is' 'onay:'
 rm -f "$_paw/.claude/settings.json"
-_pa_gate auto 'git commit -m x';          _pa_want 'no settings' 'APPROVAL PATH IS CLOSED' 'write only this'
+_pa_gate auto 'git commit -m x';          _pa_want 'no settings' 'APPROVAL PATH IS CLOSED' 'send only this'
                                           _pa_want 'no settings, the ways' 'Shift+Tab' 'ONE code block'
 _pa_wire '{"note":"prompt-approval.sh","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/route-hint.sh"}]}]}}'
-_pa_gate auto 'git push origin feat/x';   _pa_want 'named before the event only' 'APPROVAL PATH IS CLOSED' 'write only this'
+_pa_gate auto 'git push origin feat/x';   _pa_want 'named before the event only' 'APPROVAL PATH IS CLOSED' 'send only this'
 _pa_wire '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"bash .claude/hooks/guard-bash.sh"}]}]}}'
-_pa_gate auto 'git commit -m x';          _pa_want 'other events only' 'APPROVAL PATH IS CLOSED' 'write only this'
+_pa_gate auto 'git commit -m x';          _pa_want 'other events only' 'APPROVAL PATH IS CLOSED' 'send only this'
 rm -f "$_paw/.claude/settings.json"; _pa_wire "$_PAW_ON"; mv "$_paw/.claude/settings.json" "$_paw/.claude/settings.local.json"
-_pa_gate auto 'git commit -m x';          _pa_want 'wired in settings.local.json' 'write only this: approve: commit' 'APPROVAL PATH IS CLOSED'
+_pa_gate auto 'git commit -m x';          _pa_want 'wired in settings.local.json' 'send only this: /crew-approve commit' 'APPROVAL PATH IS CLOSED'
 rm -f "$_paw/.claude/settings.local.json"
-if [ -z "$_parow" ]; then pass "the auto-mode refusal asks in one shape when the approval hook is wired, and says the path is closed when it is not (9 readings, each refused)"
+if [ -z "$_parow" ]; then pass "the auto-mode refusal asks in one shape when the approval hook is wired, and says the path is closed when it is not (10 readings, each refused; the text form 'approve:' / 'onay:' is named in none)"
 else fail "the auto-mode refusal does not say what it should:$_parow"; fi
 # The wiring changes a sentence, never the verdict: with no settings at all, a record the hook wrote still allows
 # its command, and the same command without the record is refused.

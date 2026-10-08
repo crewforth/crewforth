@@ -809,7 +809,7 @@ else
   CMDN=0; for kf in $(grep -l '^  kind: command' kit/skills/crew-*/SKILL.md); do CMDN=$((CMDN+1)); kn="${kf%/SKILL.md}"; kn="${kn##*/}"
     [ -f "$MG/.claude/skills/$kn/SKILL.md" ] || { echo "FAIL: the update did not bring /$kn to skills/$kn/SKILL.md"; exit 1; }
   done
-  [ "$CMDN" = 11 ] || { echo "FAIL: FIXTURE — expected 11 command skills in the payload, found $CMDN"; exit 1; }
+  [ "$CMDN" = 12 ] || { echo "FAIL: FIXTURE — expected 12 command skills in the payload, found $CMDN"; exit 1; }   # 11 came from 2.x; /crew-approve is new in 3.1.0
   KLEFT="$(cd "$MG/.claude" && { ls commands 2>/dev/null | grep -v '^my-cmd\.md$' || true; } | tr '\n' ' ')"   # grep -v finding nothing is the pass
   [ -z "$KLEFT" ] || { echo "FAIL: kit command files were left in .claude/commands/: $KLEFT"; exit 1; }
   cmp -s "$MG/.claude/commands/my-cmd.md" "$WORK/my-cmd.before" || { echo "FAIL: the move touched the user's own .claude/commands/my-cmd.md"; exit 1; }

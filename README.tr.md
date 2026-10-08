@@ -56,7 +56,7 @@ Hiçbir şey yazılmadan önce bir özeti onaylarsınız; `add` tam kurulum yapm
 | Teslim et | `/crew-ship` | `crew-review-agent` temiz incelemeyi kaydeder; `crew-commit-agent` commit'i önerir ve onayınızı bekler |
 | Devret | `/crew-handoff` | `handoff` durumu bir sonraki oturum için yazar |
 
-Toplam **10 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`.
+Toplam **11 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`.
 
 ## Ajanlar
 
@@ -81,7 +81,7 @@ Toplam **10 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-pl
 
 | Kural | Neyle uygulanır |
 |:--|:--|
-| Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay kendi mesajınızdır: `onay: commit`. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
+| Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay sizin yazdığınız bir komuttur: `/crew-approve commit`. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
 | Bir commit, tam olarak kendi diff'i için temiz bir inceleme ister | `guard-bash.sh` ve `crew-review-agent`'ın yazdığı kayıt |
 | Yıkıcı komutlar (`reset --hard`, force push, `rm -rf`, `--no-verify`) reddedilir | `guard-bash.sh` |
 | Yapay zekâ imzası commit'e girmez | `pre-commit` ve `commit-msg` git hook'ları |

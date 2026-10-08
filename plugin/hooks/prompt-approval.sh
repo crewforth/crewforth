@@ -8,8 +8,8 @@
 # yes, and this hook is the only thing that turns it into a record.
 #
 # WHAT COUNTS. The WHOLE message, trimmed, is one of (letter case does not matter):
-#     approve: commit      approve: push      approve: commit+push
-#     onay: commit         onay: push         onay: commit+push
+#     /crew-approve commit      /crew-approve push      /crew-approve commit+push
+# and, as the release candidates of 3.1.0 had it, `approve: <what>` or `onay: <what>`.
 # A sentence that contains those words is not an approval, and neither is a message with a second line: text
 # that was pasted, quoted or relayed from somewhere else never has that shape by accident.
 #
@@ -389,14 +389,23 @@ P="${P//$'\r'/}"
 while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
 while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
 [ "${#P}" -le 40 ] || exit 0
-case "$P" in *$'\n'*) exit 0 ;; *:*) ;; *) exit 0 ;; esac
-_k="${P%%:*}"; _v="${P#*:}"
+case "$P" in
+  *$'\n'*) exit 0 ;;
+  # THE COMMAND: `/crew-approve <what>`, or `/<plugin>:crew-approve <what>` as a plugin names its commands. Measured
+  # on Claude Code 2.1.284: a command the user types reaches this event with `prompt` as typed, and a skill the
+  # model starts with the Skill tool raises PreToolUse and PostToolUse only, never this event.
+  /*) _k="${P%%[$' \t']*}"; [ "$_k" != "$P" ] || exit 0
+      _v="${P:${#_k}}"; _k="${_k#/}"; _k="@${_k##*:}" ;;      # `@`: a command, so `crew-approve: commit` as text is not one
+  # The text form of 3.1.0's release candidates, kept: `approve: <what>` and `onay: <what>`.
+  *:*) _k="${P%%:*}"; _v="${P#*:}" ;;
+  *) exit 0 ;;
+esac
 _k="${_k//[$' \t']/}"; _v="${_v//[$' \t']/}"
 OP=""
 # In the C locale: under tr_TR an upper-case I does not fold to i, and `ONAY: COMMIT` was not an approval (review).
 _pa_match(){ local LC_ALL=C; shopt -s nocasematch
   case "$_k" in
-    approve|onay)
+    @crew-approve|approve|onay)
       case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; esac ;;
   esac
   shopt -u nocasematch; }

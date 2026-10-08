@@ -88,9 +88,9 @@ On a mixed/non-atomic diff, **propose a split**; do not commit before approval (
   approval prompt only the user can answer — so present the message FIRST, then run the commit yourself and let the user
   approve it at the prompt. Never hand the user a command to paste into their own terminal. In `auto` and `dontAsk`
   the prompt reaches nobody: stage, then ask in this shape and with nothing after it — the message in ONE code block,
-  and under it one line in the user's language: "If you approve, write only this: `approve: commit`" (`approve: push`,
-  `approve: commit+push`; `onay:` too). The user approves by sending that text alone; a sentence that says yes is not an
-  approval. It covers what is staged on that HEAD. If the gate says the approval path is closed in this session (the
+  and under it one line, the sentence in the user's language and the command as it is: "If you approve, send only
+  this: `/crew-approve commit`" (or `/crew-approve push`, `/crew-approve commit+push`). The user approves by sending
+  that command alone; a sentence that says yes is not an approval, and you cannot run `/crew-approve` for them. It covers what is staged on that HEAD. If the gate says the approval path is closed in this session (the
   recording hook is not wired), say so and offer Shift+Tab or their own terminal instead.
   Then run `git commit -m '…'` alone in its call (single-quoted, or from a here-document with a quoted delimiter),
   and a push as `git push <remote> <branch>`. Never write that message yourself. Under `plan` and

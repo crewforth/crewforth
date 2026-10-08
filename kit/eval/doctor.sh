@@ -96,9 +96,9 @@ _mt() {
       'SessionStart not wired — session rehydration after /compact or /clear is inactive (update Crewforth)') s="SessionStart bağlı değil — /compact ya da /clear sonrasında oturum toparlanmıyor (Crewforth'u güncelleyin)" ;;
       'SessionStart wired (session rehydration active)') s='SessionStart bağlı (oturum toparlama devrede)' ;;
       'settings.json is invalid JSON') s='settings.json geçersiz JSON' ;;
-      'approval by your own message is wired (auto / dontAsk: approve: commit)') s='kendi mesajınızla onay bağlı (auto / dontAsk: onay: commit)' ;;
-      "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk the message 'approve: commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda 'onay: commit' mesajı hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
-      "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk the message 'approve: commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda 'onay: commit' mesajı hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
+      'approval by your own message is wired (auto / dontAsk: /crew-approve commit)') s='kendi mesajınızla onay bağlı (auto / dontAsk: /crew-approve commit)' ;;
+      "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
+      "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
       "fix the syntax by hand — restoring Crewforth's file would drop any hooks you added") s="sözdizimini elle düzeltin — Crewforth'un dosyasını geri yüklemek eklediğiniz hook'ları siler" ;;
       'settings.json wires hooks through the %s placeholder — on Windows its separators are stripped before bash runs, so NO hook launches and every gate is silently absent') s="settings.json hook'ları %s yer tutucusuyla bağlıyor — Windows'ta ayırıcılar bash çalışmadan silinir, bu yüzden HİÇBİR hook başlamaz ve bütün kapılar sessizce yok olur" ;;
@@ -354,12 +354,12 @@ if [ -f "$S" ]; then
     sn="$(awk -v op=len -v path=hooks.SessionStart -f "$SJ" "$S" 2>/dev/null)"
     case "$sn" in ''|0) warn "SessionStart not wired — session rehydration after /compact or /clear is inactive (update Crewforth)" ;; *) ok "SessionStart wired (session rehydration active)" ;; esac
     # In auto and dontAsk the only approval is the user's own message, and ONE hook records it. Where it is not wired
-    # the gate stays closed and a message 'approve: commit' records nothing (field report: a worktree on an older
+    # the gate stays closed and '/crew-approve commit' records nothing (field report: a worktree on an older
     # Crewforth). A warning, not a failure: commit and push still cannot happen without the user.
     case "$(awk -v op=get -v path=hooks.UserPromptSubmit -f "$SJ" "$S" 2>/dev/null)" in
-      *prompt-approval.sh*) if [ -f .claude/hooks/prompt-approval.sh ]; then ok "approval by your own message is wired (auto / dontAsk: approve: commit)"
-                            else warn "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk the message 'approve: commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)"; fi ;;
-      *) warn "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk the message 'approve: commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)" ;;
+      *prompt-approval.sh*) if [ -f .claude/hooks/prompt-approval.sh ]; then ok "approval by your own message is wired (auto / dontAsk: /crew-approve commit)"
+                            else warn "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)"; fi ;;
+      *) warn "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)" ;;
     esac
   else bad "settings.json is invalid JSON" "fix the syntax by hand — restoring Crewforth's file would drop any hooks you added"; fi
   # `${CLAUDE_PROJECT_DIR}` inside a hook command is the shape that breaks on Windows, and it breaks invisibly.
