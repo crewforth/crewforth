@@ -3,6 +3,7 @@
 // The same shapes come from two places: the server's reading of a transcript (history, and sessions Studio only
 // watches) and the live stream of a session started here. Both go through these functions, so a tool row reads
 // the same whichever way it arrived.
+import { roleName } from './names.js';
 
 // How much of a tool's output the page keeps for a live result: the same tail the server keeps for history.
 const RESULT_TAIL = 4096;
@@ -76,7 +77,8 @@ export function outputOf(block) {
 export function delegationCard(block, nodes) {
   const node = block.id ? (nodes ?? []).find((n) => n.kind === 'agent' && n.toolUseId === block.id) ?? null : null;
   return {
-    type: block.subagentType ?? node?.agentType ?? 'agent',
+    type: roleName(block.subagentType ?? node?.agentType ?? 'agent'),
+    real: block.subagentType ?? node?.agentType ?? null,
     task: block.label ?? node?.description ?? '',
     agentId: node?.id ?? null,
     status: node?.status ?? null,
@@ -121,7 +123,7 @@ export function refusals(denials, wasAllowed, resultOf = () => null) {
 export function reminderOf(waiting) {
   const list = waiting ?? [];
   if (!list.length) return null;
-  const who = list[0].agentType ?? 'This session';
+  const who = list[0].agentType ? roleName(list[0].agentType) : 'This session';
   const more = list.length - 1;
   return `${who} is waiting for approval${more > 0 ? `, and ${more} more ${more === 1 ? 'request is' : 'requests are'}` : ''}`;
 }

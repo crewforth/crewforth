@@ -17,13 +17,14 @@ import {
 import { liveness, offlineNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote } from './usage.js';
-import { ServerClock, queue, settled, OUTCOME_WORD } from './approvals.js';
+import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
 import { NewSession } from './newsession.js';
 import { Timeline } from './timeline.js';
 import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
+import { roleName, shownType } from './names.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
 const FLEET_POLL_MS = 2000;
@@ -55,6 +56,7 @@ const el = {
   toast: document.getElementById('toast'),
   attention: document.getElementById('attention'),
   dock: document.getElementById('dock'),
+  terminalWait: document.getElementById('terminal-wait'),
   newPanel: document.getElementById('new-panel'),
   tbGroup: document.getElementById('tb-group'),
   tbDensity: document.getElementById('tb-density'),
@@ -133,6 +135,8 @@ systemLight.addEventListener('change', relabelTheme);
 const PANEL = {
   side: { min: 170, max: 620, def: 272, wide: 460, varName: '--side-w', key: 'crewforth-studio-side-w' },
   chat: { min: 280, max: 900, def: 480, wide: 720, varName: '--chat-w', key: 'crewforth-studio-chat-w' },
+  // The inspector's default is the stylesheet's own --inspector-w.
+  inspector: { min: 280, max: 720, def: 344, varName: '--inspector-w', key: 'crewforth-studio-inspector-w' },
 };
 
 function setPanel(which, px, persist = true) {
@@ -143,7 +147,7 @@ function setPanel(which, px, persist = true) {
   return w;
 }
 
-for (const which of ['side', 'chat']) {
+for (const which of Object.keys(PANEL)) {
   setPanel(which, Number(store.get(PANEL[which].key)) || PANEL[which].def, false);
 }
 
@@ -210,11 +214,20 @@ function dragPanel(handle, which, edge) {
 dragPanel(el.resizer, 'side', 'left');
 dragPanel(el.chatSplit, 'chat', 'right');
 
+// The inspector is filled again whenever its agent changes; its handle is made once and put back each time, so a
+// drag is not cut short by a poll.
+const inspectorSplit = document.createElement('div');
+inspectorSplit.className = 'resizer inspector-split';
+inspectorSplit.setAttribute('role', 'separator');
+inspectorSplit.setAttribute('aria-orientation', 'vertical');
+inspectorSplit.setAttribute('aria-label', 'Resize inspector');
+inspectorSplit.tabIndex = 0;
+dragPanel(inspectorSplit, 'inspector', 'right');
+
 /* ------------------------------------------------------------ full screen
    The browser's own, so it hides the browser too — a panel meant to be watched
-   while work runs should be able to take the whole display. The stylesheet
-   takes the navigator, the inspector and the conversation off with it, so what
-   is left is the canvas; Esc brings everything back. */
+   while work runs should be able to take the whole display. The panels keep
+   their state: what was open stays open, and `[` and `]` still fold the navigator. */
 
 async function toggleFullscreen() {
   try {
@@ -487,6 +500,11 @@ const pickFrom = (button, words, current, set) => button.addEventListener('click
   })));
 });
 pickFrom(el.tbGroup, GROUP_WORD, () => canvas.state().group, (g) => canvas.setGroup(g));
+
+// In a window with room an agent group opens into the next column; in the band where the navigator is a rail
+// there is no room for another column, and it opens downward as it always did.
+canvas.setAside(!railBand.matches);
+railBand.addEventListener('change', () => canvas.setAside(!railBand.matches));
 pickFrom(el.tbDensity, DENSITY_WORD, () => canvas.state().density, (d) => canvas.setDensity(d));
 pickFrom(el.tbShow, SHOW, () => show, (key) => setShow(key));
 // The toolbar is measured, not assumed: it gives up a step at a time until what it shows fits (toolbar-fit.js).
@@ -765,14 +783,18 @@ function paintInspector() {
   back.append(icon(ICON.back));
   back.addEventListener('click', () => { canvas.clearSelection(); showInspector(null); });
   close.classList.add('ihead-close');
-  const name = isSession ? 'Session' : n.kind === 'workflow' ? (n.workflowId ?? 'Workflow run') : (n.agentType ?? 'unknown agent');
-  head.append(back, canvas.tileFor(n), node('h3', 'iname', name), close);
+  const name = isSession ? 'Session' : n.kind === 'workflow' ? (n.workflowId ?? 'Workflow run') : shownType(n);
+  const iname = node('h3', 'iname', name);
+  if (n.kind === 'agent') iname.title = n.agentType ?? '';
+  head.append(back, canvas.tileFor(n), iname, close);
 
   const meta = node('div', 'imeta');
   const pill = node('span', 'pill');
   // A state nobody read is said, not left as a blank pill.
   pill.append(dot(st.tone), node('span', null, st.word ?? 'State not measured'));
   meta.append(pill, node('span', 'sub', timeLine(n, serverNow())));
+  // The role is the name; the type as it is declared is said here, where there is room for it.
+  if (n.kind === 'agent' && n.agentType) meta.append(node('code', 'ireal', n.agentType));
 
   const task = node('div', 'itask', isSession
     ? (sessionLabel(current) ?? n.sessionId ?? '')
@@ -812,7 +834,7 @@ function paintInspector() {
   copy.addEventListener('click', () => copyText(file, 'Copied'));
   foot.append(open, copy);
 
-  el.inspector.replaceChildren(head, meta, task, tabs, body, foot);
+  el.inspector.replaceChildren(inspectorSplit, head, meta, task, tabs, body, foot);
 }
 
 function paintAgentOverview(body, n, detail) {
@@ -1076,7 +1098,7 @@ function paintGates(body) {
     for (const a of answers.slice(-12)) {
       const row = node('div', 'gate-row');
       row.append(node('span', 'gate-when', new Date(a.at - clock.offset).toLocaleTimeString()));
-      row.append(node('span', 'gate-name', `${a.toolName}${a.agentType ? ` · ${a.agentType}` : ''}`));
+      row.append(node('span', 'gate-name', `${a.toolName}${a.agentType ? ` · ${roleName(a.agentType)}` : ''}`));
       const v = node('span', 'gate-verdict', OUTCOME_WORD[a.outcome]);
       v.dataset.verdict = a.outcome.startsWith('allowed') ? 'ALLOW' : a.outcome === 'answered-elsewhere' ? 'ASK' : 'BLOCK';
       row.append(v);
@@ -1902,6 +1924,7 @@ function paintAttention(nodes) {
     const b = node('button', 'att');
     b.type = 'button';
     b.append(dot(a.tone), node('span', 'att-name', a.name), node('span', 'att-says', a.says));
+    b.title = a.real ?? '';
     b.addEventListener('click', () => { attentionAt = attentionIds.indexOf(a.id); goTo(a.id); });
     return b;
   });
@@ -2255,6 +2278,7 @@ function paintStageNote() {
   stageNote.button.hidden = !off;
   // The fleet can say a session ended, or came back, with no transcript changing.
   if (lastGraph && sessionIsLive() !== lastLive) showGraph();
+  paintTerminalWait();
 }
 
 /**
@@ -2291,6 +2315,28 @@ function showGraph() {
   const s = g.stats ?? {};
   paintSummary(s, s.malformed ? [`${s.malformed} malformed`] : []);
   el.foot.textContent = '';
+}
+
+/** A session waiting on its own terminal is said under the view, with what it asks about. */
+let terminalWaitSig = '';
+function paintTerminalWait() {
+  const session = lastNodes?.find((n) => n.kind === 'session') ?? null;
+  const w = current
+    ? terminalWait(sessionStatus(current, fleetData), session, ownedIds.has(current) || owned.has(current))
+    : null;
+  const sig = w ? `${w.text}|${w.what ?? ''}` : '';
+  if (sig === terminalWaitSig) return;
+  terminalWaitSig = sig;
+  el.terminalWait.hidden = !w;
+  if (w) {
+    const what = node('span', 'terminal-wait-what', w.what ?? '');
+    what.title = w.what ?? '';
+    el.terminalWait.replaceChildren(
+      node('span', 'terminal-wait-word', `${w.text}${w.what ? ':' : ''}`), what,
+      node('span', 'sub terminal-wait-note', 'Studio answers only for sessions started here'),
+    );
+  }
+  canvas.fitIfUntouched();
 }
 
 function retryNow() {

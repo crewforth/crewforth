@@ -9,6 +9,7 @@
 // records: the server's log of approvals, for sessions started here. An agent that failed is drawn failed for
 // its whole length — the transcript says how it ended, not when it started going wrong.
 import { stateOf, tally } from './graph-plan.js';
+import { typeOf, shownType } from './names.js';
 
 export const RANGES = [
   { key: '5m', ms: 5 * 60_000 },
@@ -24,7 +25,6 @@ export const GROUP_ROWS = { showAllUpTo: 6, shown: 4 };
 const SESSION = 'session';
 const TONE = { live: 'busy', waking: 'busy', done: 'done', failed: 'fail', quiet: 'quiet', unknown: 'quiet' };
 
-const typeOf = (n) => n.agentType ?? 'unknown agent';
 const isLive = (n) => { const s = stateOf(n.status); return s === 'live' || s === 'waking'; };
 
 /** Where an agent's bar ends: its recorded end, or now while it is still going. */
@@ -113,11 +113,11 @@ export function groupsOf(nodes, grouping) {
   const agents = nodes.filter((n) => n.kind === 'agent');
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const key = (n) => {
-    if (grouping === 'type') return { id: `type:${typeOf(n)}`, label: typeOf(n) };
+    if (grouping === 'type') return { id: `type:${typeOf(n)}`, label: shownType(n), real: typeOf(n) };
     if (grouping === 'parent') {
       const p = byId.get(n.parentId);
       if (!p || p.kind === 'session') return { id: 'direct', label: 'Session · direct' };
-      return { id: `parent:${p.id}`, label: p.kind === 'workflow' ? (p.workflowId ?? p.id) : `under ${typeOf(p)}` };
+      return { id: `parent:${p.id}`, label: p.kind === 'workflow' ? (p.workflowId ?? p.id) : `under ${shownType(p)}` };
     }
     if (grouping === 'none') return { id: 'all', label: null };
     // `run`: a workflow run is a group; everything the session started itself is another.
@@ -180,13 +180,13 @@ export function rows(nodes, opts = {}) {
       for (const m of same) seen.add(m.id);
       if (same.length > 1) {
         body.push({
-          kind: 'merged', id: `${g.id}|${typeOf(n)}`, group: g.id, label: `${typeOf(n)} × ${same.length}`,
+          kind: 'merged', id: `${g.id}|${typeOf(n)}`, group: g.id, label: `${shownType(n)} × ${same.length}`, real: typeOf(n),
           sub: countsSub(same, waiting), members: same, lanes: lanes(same.flatMap(bar)), indent: headed && g.id !== 'direct',
         });
       } else {
         const sub = agentSub(n, waiting);
         body.push({
-          kind: 'agent', id: n.id, group: g.id, node: n, label: typeOf(n), sub: sub.text, tone: sub.tone,
+          kind: 'agent', id: n.id, group: g.id, node: n, label: shownType(n), real: typeOf(n), sub: sub.text, tone: sub.tone,
           bars: bar(n), timed: n.startedAt != null, indent: headed && g.id !== 'direct',
         });
       }

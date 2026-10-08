@@ -725,6 +725,23 @@ button.tl-lab { cursor: pointer; }
 .att-says { color: var(--ink-dim); }
 .attention-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
+/* A session waiting on its own terminal: said where an approval would be, with no answers, because there are
+   none to give from here. */
+.terminal-wait {
+  flex: none; min-width: 0;
+  display: flex; align-items: baseline; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line); background: var(--surface);
+  font-size: 13px;
+}
+.terminal-wait[hidden] { display: none; }
+.terminal-wait-word { flex: none; font-weight: 600; color: var(--status-waiting); }
+.terminal-wait-what {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim);
+}
+.terminal-wait-note { flex: none; margin-left: auto; }
+
 /* -------------------------------------------------------------- dock ---
    The approval dock: a row under the canvas, there only while a tool call is
    waiting. It is part of the stage's column, so the canvas above it stays
@@ -993,6 +1010,8 @@ button.tl-lab { cursor: pointer; }
 }
 .cv-fold .ic { width: 12px; height: 12px; }
 .cv-fold:hover { color: var(--ink); background: var(--surface-raised); }
+/* Open beside itself, the control points back at the card it would fold into. */
+.cv-group[data-aside="true"] .cv-fold .ic { rotate: 180deg; }
 
 /* How the group went: one segment per status, as wide as its share. The words
    are beside it when the group is folded and in its title when it is open. */
@@ -1084,6 +1103,9 @@ button.tl-lab { cursor: pointer; }
 }
 .cv-tip[hidden] { display: none; }
 .cv-tip strong { font-family: var(--font-mono); font-weight: 600; }
+.cv-real { font-family: var(--font-mono); }
+/* "× 3": how many agents of one type a card stands for. */
+.cv-times { flex: none; padding: 0 6px; border-radius: 999px; background: var(--surface-raised); color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* The small chip the inspector's gate summary is made of. */
 .cv-bit {
@@ -1122,6 +1144,11 @@ button.tl-lab { cursor: pointer; }
 .ibg-row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .ibg-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
 .ibg-row .sub { flex: none; }
+/* Its left edge is a handle, as the navigator's right edge is: drag to resize, double-click for the default. */
+.inspector-split {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 5px; z-index: 6;
+  background: transparent;
+}
 
 .inspector dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
 .inspector dt { font-size: 11px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1166,6 +1193,9 @@ button.tl-lab { cursor: pointer; }
 .iname { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imeta { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4) 0; flex: none; }
 .imeta .sub { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The agent's type as it is declared, beside the role it is shown as. */
+.imeta { flex-wrap: wrap; }
+.ireal { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The task in full: it is the one place the whole sentence is shown. */
 .itask { padding: var(--space-3) var(--space-4); font-size: 16px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; flex: none; max-height: 30%; overflow-y: auto; }
 .itask:empty { padding-bottom: 0; }
@@ -1599,15 +1629,10 @@ body.vresizing { cursor: row-resize; user-select: none; }
 
 /* --------------------------------------------------------- full screen --- */
 
-/* Full screen is the canvas and nothing beside it: the navigator, its rail,
-   the inspector and the conversation step out until Esc. */
-:root:fullscreen .shell { grid-template-columns: 0 0 minmax(0, 1fr) 0 0 0; }
-:root:fullscreen .shell > .side,
-:root:fullscreen .shell > .side-rail,
-:root:fullscreen .shell > .resizer,
-:root:fullscreen .shell > .inspector,
-:root:fullscreen .shell > .chat,
-:root:fullscreen .shell > .newpanel { display: none; }
+/* Full screen takes the browser away and nothing of the panel: the navigator,
+   the inspector and the conversation stay where they were, and open and close
+   as they do in a window. A rule here used to remove them, and with them the
+   only way to an agent's details or to a conversation that was waiting. */
 
 /* ------------------------------------------------- tab bar that fits --- */
 
@@ -1639,7 +1664,7 @@ body.vresizing { cursor: row-resize; user-select: none; }
 
 @media (min-width: 1280px) {
   /* Docked: back in the grid, in the column kept for it. */
-  .shell.no-chat > .inspector { position: static; grid-column: 4; box-shadow: none; }
+  .shell.no-chat > .inspector { position: relative; top: auto; bottom: auto; right: auto; grid-column: 4; box-shadow: none; }
 }
 
 @media (max-width: 1279px) {
@@ -1729,4 +1754,5 @@ body.vresizing { cursor: row-resize; user-select: none; }
   .shell > .newpanel { grid-column: auto; position: absolute; z-index: 35; inset: 0 0 var(--dock-h, 0px) 0; border-left: none; }
   .shell > .inspector,
   .shell.no-chat > .inspector { left: 0; right: 0; top: 0; width: auto; border-left: none; }
+  .inspector-split { display: none; }
 }

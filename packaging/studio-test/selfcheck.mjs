@@ -2153,9 +2153,10 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     check('by workflow run: a run is one group holding its agents',
       kinds(run) === 'run:audit' && at(run, 'wf:audit').members.length === 4 && at(run, 'wf:audit').open === true, kinds(run));
     check('by agent type: siblings of one type are a group too, folded until asked for',
-      kinds(type) === 'type:Explore × 2 | run:audit' && at(type, 'type:session:Explore').open === false, kinds(type));
+      kinds(type) === 'type:Explore | run:audit' && at(type, 'type:session:Explore').count === 2
+      && at(type, 'type:session:Explore').open === false, kinds(type));
     check('by parent: an agent\'s children are a group',
-      kinds(parent).includes('parent:crew-backend-expert → 2'), kinds(parent));
+      kinds(parent).includes('parent:Backend → 2'), kinds(parent));
     check('with no grouping a run is an ordinary card and its agents come after it',
       kinds(none) === '' && at(none, 'wf:audit').kind === 'run-card' && at(none, 'w0').x > at(none, 'wf:audit').x, kinds(none) || 'no groups');
     check('a folded group is one card; open, it holds its members where the card was',
@@ -2393,10 +2394,81 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     check('a right click on an agent asks the page for its menu', menus.length === 1 && menus[0][0] === 'b' && menus[0][1] === 40);
     c.setFocus('b');
     check('focusing a branch shows what led to it and what it spawned, and nothing else',
-      [...c.els.keys()].sort().join() === 'b,k1,session' && c.state().focus === 'crew-backend-expert',
+      [...c.els.keys()].sort().join() === 'b,k1,session' && c.state().focus === 'Backend',
       [...c.els.keys()].join(', '));
     c.setFocus(null);
     check('and letting go of the focus brings the rest back', c.els.has('wf:audit') && c.state().focus === null);
+  }
+
+  /* -- 9b. roles on screen, and an agent group that opens beside itself --- */
+
+  {
+    const nm = await import(`../../kit/studio/web/names.js?t=${Date.now()}`);
+    const kitTypes = fs.readdirSync(path.join(PAYLOAD, 'agents')).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3));
+    const roles = kitTypes.map(nm.roleName).sort().join(', ');
+    check('each of the kit\'s agents is shown by its role, without the prefix and the suffix its file has',
+      roles === 'Backend, Commit, Database, DevOps, Frontend, Performance, Planner, Privacy, Review, Security, Session Manager, Test',
+      roles);
+    check('a built-in agent is shown by its words, and a name that is not hyphenated words is left as it came',
+      nm.roleName('general-purpose') === 'General Purpose' && nm.roleName('Explore') === 'Explore'
+      && nm.roleName('unknown agent') === 'unknown agent' && nm.shownType({}) === 'unknown agent' && nm.roleName('crew-') === 'crew-');
+    check('hovering says the type as it is declared and the task in full',
+      nm.hoverOf({ agentType: 'crew-test-expert', description: 'Prove both keys verify' }) === 'crew-test-expert\nProve both keys verify'
+      && nm.hoverOf({ agentType: 'Explore' }) === 'Explore' && nm.hoverOf({}) === '');
+
+    const nodes = [...screenOne(), A('e3', 'Explore', { startedAt: 40 }), A('b2', 'crew-backend-expert', { startedAt: 41 })];
+    const open = new Map([['type:session:Explore', true]]);
+    const down = gp.plan(nodes, { group: 'type', density: 'comfortable', open });
+    const side = gp.plan(nodes, { group: 'type', density: 'comfortable', open, aside: true });
+    const at = (p, id) => p.items.find((it) => it.id === id);
+    const g = at(side, 'type:session:Explore');
+    const members = side.items.filter((it) => it.member && it.parent === g);
+    check('several agents of one type are one card: the role is its name, the number a badge, the type its key',
+      g.label === 'Explore' && g.count === 3 && at(side, 'type:session:crew-backend-expert').label === 'Backend'
+      && at(side, 'type:session:crew-backend-expert').real === 'crew-backend-expert');
+    check('in a window with room an agent group opens beside itself: it stays a card, and its agents are the next column',
+      g.open === true && g.boxed === false && g.h === gp.SIZE.card.h && g.cells === null && members.length === 3
+      && members.every((m) => m.kind === 'agent' && m.depth === g.depth + 1 && m.x > g.x + g.w)
+      && side.edges.filter((e) => e.source === g.id).length === 3,
+      `${members.length} agents beside the card, at x ${members.map((m) => m.x).join(', ')} against the card's ${g.x}`);
+    check('without the room it opens downward as before: a container that holds its members',
+      at(down, 'type:session:Explore').boxed === true && at(down, 'type:session:Explore').cells.length === 3
+      && at(down, 'type:session:Explore').h > gp.SIZE.card.h && !down.items.some((it) => it.member));
+    check('opened either way the same agents are counted once',
+      side.drawn === down.drawn, `${side.drawn} beside, ${down.drawn} downward`);
+    check('a folded agent group is the same card whichever way it would open',
+      at(gp.plan(nodes, { group: 'type', density: 'comfortable', aside: true }), 'type:session:Explore').boxed === false
+      && !gp.plan(nodes, { group: 'type', density: 'comfortable', aside: true }).items.some((it) => it.member));
+
+    const c = new Canvas(document.createElement('div'), {});
+    c.setPalette(PAL);
+    c.setSession('aside');
+    c.setGroup('type');
+    c.setAside(true);
+    c.render({ nodes, edges: [] });
+    const explore = c.els.get('type:session:Explore');
+    check('the card carries the badge, and the type as it is declared on hover',
+      explore.parts.name.textContent === 'Explore' && explore.parts.sub.textContent === '× 3'
+      && c.els.get('type:session:crew-backend-expert').parts.name.title === 'crew-backend-expert'
+      && explore.parts.fold.getAttribute('aria-label') === 'Open Explore × 3');
+    explore.emit('click');
+    check('a click opens the group beside itself: its agents are cards of their own',
+      c.els.has('e1') && c.els.has('e3') && !c.cellEls.has('e1') && c.els.get('type:session:Explore').dataset.aside === 'true',
+      `${[...c.els.keys()].filter((k) => /^e\d/.test(k)).join(', ')} drawn as cards`);
+    check('an agent\'s card says its task in full on hover',
+      c.els.get('e1').parts.task.title === 'task of e1' && c.els.get('e1').parts.name.title === 'Explore');
+    c.els.get('type:session:crew-backend-expert').emit('click');
+    check('one agent group is open at a time: opening another folds the first',
+      c.els.has('b2') && !c.els.has('e1') && c.els.get('type:session:Explore').dataset.aside === 'false',
+      [...c.els.keys()].join(', '));
+    c.expandAll();
+    check('"Expand all" leaves agent groups to their own cards while they open beside themselves',
+      !c.els.has('e1') && c.els.has('b2'));
+    c.setAside(false);
+    check('when the window narrows the open group is a container again',
+      !c.els.has('b2') && c.cellEls.has('b2') && c.els.get('type:session:crew-backend-expert').classList.contains('cv-open'));
+    check('the window decides which way: beside itself above the band where the navigator is a rail',
+      /canvas\.setAside\(!railBand\.matches\);\s*railBand\.addEventListener\('change', \(\) => canvas\.setAside\(!railBand\.matches\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   }
 
   /* -- 10. the viewer's own arrangement is kept --------------------------- */
@@ -2856,7 +2928,7 @@ process.stdout.write('\n== §29 design tokens and the frame ==\n');
   const PHONE = ['(max-width: 1279px)', '(max-width: 1023px)', '(max-width: 639px)'];
   const inspectorIn = (shell, media) => computed(rules, node(['inspector']), [node(shell)], media);
   check('at 1280 and up the inspector is docked in its own column',
-    inspectorIn(['shell', 'no-chat'], WIDE).get('position') === 'static'
+    inspectorIn(['shell', 'no-chat'], WIDE).get('position') === 'relative'
     && inspectorIn(['shell', 'no-chat'], WIDE).get('grid-column') === '4');
   check('with a conversation open it floats instead, at any width',
     inspectorIn(['shell'], WIDE).get('position') === 'absolute'
@@ -3256,6 +3328,45 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
     !q.some((r) => r.toolUseId === 'never'));
   check('a request says who asked — the agent, or the session itself',
     ap.asker(q[1]) === 'Explore' && ap.asker(q[0]) === 'Session');
+  {
+    const { openCalls } = await import(`../../kit/studio/server/lib/graph.js?o=${Date.now()}`);
+    const use = (id, name, input, at) => ({ type: 'assistant', timestamp: at, message: { content: [{ type: 'tool_use', id, name, input }] } });
+    const res = (id) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id }] } });
+    const recs = [
+      use('t1', 'Bash', { command: 'ls' }, '2026-01-01T00:00:01Z'), res('t1'),
+      use('t2', 'Agent', { description: 'hand it on' }, '2026-01-01T00:00:02Z'),
+      use('t3', 'Bash', { command: 'npm run build', description: 'Build' }, '2026-01-01T00:00:03Z'),
+    ];
+    const openNow = openCalls(recs);
+    check('the call a transcript has no result for is read from it: the tool and its command',
+      openNow.length === 1 && openNow[0].toolName === 'Bash' && openNow[0].detail === 'npm run build' && openNow[0].toolUseId === 't3',
+      JSON.stringify(openNow));
+    check('a call that got its result is not open, and handing work to an agent is not a call anyone is asked about',
+      openCalls([...recs, res('t3')]).length === 0 && openCalls([]).length === 0 && openCalls([{ type: 'user', message: { content: 'hi' } }]).length === 0);
+    const waiting = { key: 'waiting', waitingFor: 'approve Bash' };
+    const tw = ap.terminalWait(waiting, { openCall: { toolName: 'Bash', detail: 'npm run build', agentType: 'crew-test-expert' } }, false);
+    check('a session waiting on its own terminal says so, with the tool and the command it asks about',
+      tw.text === 'Waiting for an answer in the terminal' && tw.what === 'Test · Bash · npm run build'
+      && ap.terminalWait(waiting, { openCall: { toolName: 'Read', detail: null } }, false).what === 'Read', JSON.stringify(tw));
+    check('with no open call in the transcript it says what the CLI says, and with neither it says no more than that it waits',
+      ap.terminalWait(waiting, { openCall: null }, false).what === 'approve Bash'
+      && ap.terminalWait({ key: 'waiting' }, null, false).what === null);
+    check('a session that is not waiting, and one started here, have no such line: the dock is where those are answered',
+      ap.terminalWait({ key: 'busy' }, { openCall: { toolName: 'Bash', detail: 'x' } }, false) === null
+      && ap.terminalWait(waiting, { openCall: { toolName: 'Bash', detail: 'x' } }, true) === null
+      && ap.terminalWait(null, null, false) === null);
+    const appSrc = web('app.js');
+    check('the line is drawn under the view for the session on screen, and carries no answers',
+      /terminalWait\(sessionStatus\(current, fleetData\), session, ownedIds\.has\(current\) \|\| owned\.has\(current\)\)/.test(appSrc)
+      && /<div id="terminal-wait" class="terminal-wait" role="status" hidden><\/div>/.test(web('index.html'))
+      && !/<button/.test(appSrc.slice(appSrc.indexOf('function paintTerminalWait'), appSrc.indexOf('function retryNow'))));
+    check('the inspector has a handle on its left edge and a width that is remembered, like the other two panels',
+      /inspector: \{ min: 280, max: 720, def: 344, varName: '--inspector-w', key: 'crewforth-studio-inspector-w' \}/.test(appSrc)
+      && /for \(const which of Object\.keys\(PANEL\)\)/.test(appSrc)
+      && /dragPanel\(inspectorSplit, 'inspector', 'right'\);/.test(appSrc)
+      && /el\.inspector\.replaceChildren\(inspectorSplit, head,/.test(appSrc)
+      && /--inspector-w: 344px;/.test(web('tokens.css') + web('style.css')));
+  }
 
   /* -- 2. the countdown is the server's -------------------------------------- */
 
@@ -3384,7 +3495,7 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
 
   check('the dock is not a dialog and takes no focus',
     !/showModal|role="dialog"|aria-modal|\.focus\(/.test(dockJs)
-    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
+    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
     'a region under the canvas, inside the stage: the graph stays usable above it');
   check('the dock is the one place requests are drawn: the conversation pane no longer draws its own',
     !/perm-queue|paintPermissions/.test(chatJs) && !/\.perm-/.test(cssSrc31) && /this\.onPermissions\(this, rec\)/.test(chatJs));
@@ -3510,10 +3621,11 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
       cv.isDelegation(deleg) && cv.isDelegation({ kind: 'tool', name: 'Task' }) && !cv.isDelegation(call));
     const card = cv.delegationCard(deleg, nodes);
     check('a card is tied to the agent that call became, by the call\'s id',
-      card.agentId === 'a1' && card.status === 'running' && card.type === 'crew-test-expert' && card.task === 'Prove both keys verify');
+      card.agentId === 'a1' && card.status === 'running' && card.type === 'Test' && card.real === 'crew-test-expert'
+      && card.task === 'Prove both keys verify');
     const loose = cv.delegationCard(deleg, []);
     check('a card whose agent the graph has not seen has no status and goes nowhere: none is guessed',
-      loose.agentId === null && loose.status === null && loose.type === 'crew-test-expert'
+      loose.agentId === null && loose.status === null && loose.type === 'Test'
       && /node\.disabled = !card\.agentId/.test(chatJs));
     check('clicking a card selects that agent on the graph',
       /onAgent: \(pane, agentId\) => \{\s*if \(pane\.id !== current\) selectSession\(pane\.id\);\s*goTo\(agentId\);/.test(appJs)
@@ -3533,7 +3645,7 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
     check('a session started here without the gate says it has none', cv.headerOf({ gated: false }).ungated === true
       && /No approval gate/.test(chatJs));
     check('a waiting request is said in the conversation, and Review leads to the dock',
-      cv.reminderOf([{ agentType: 'crew-frontend-expert' }]) === 'crew-frontend-expert is waiting for approval'
+      cv.reminderOf([{ agentType: 'crew-frontend-expert' }]) === 'Frontend is waiting for approval'
       && cv.reminderOf([{ agentType: null }, {}, {}]) === 'This session is waiting for approval, and 2 more requests are'
       && cv.reminderOf([]) === null
       && /onReview: \(\) => el\.dock\.focus\(\)/.test(appJs) && /chat\.setWaiting\(next\)/.test(appJs));
@@ -3809,14 +3921,14 @@ process.stdout.write('\n== §33 the Timeline ==\n');
       shape[0] === 'group:Session · direct' && shape.includes('group:wf-audit')
       && shape.indexOf('group:wf-audit') > shape.indexOf('group:Session · direct'), shape.join(' | '));
     check('several agents of one type in a group are one row, and a single one is its own',
-      shape[1] === 'merged:Explore × 3' && shape[2] === 'agent:crew-backend-expert');
+      shape[1] === 'merged:Explore × 3' && shape[2] === 'agent:Backend' && list[2].real === 'crew-backend-expert');
     const merged = list[1];
     check('a merged row puts overlapping bars on two thin lanes, never more',
       merged.lanes.length === 2 && merged.lanes[0].length + merged.lanes[1].length === 3
       && tp.lanes([{ from: 0, to: 5 }, { from: 6, to: 9 }]).length === 1
       && tp.lanes([{ from: 0, to: 9 }, { from: 1, to: 9 }, { from: 2, to: 9 }, { from: 3, to: 9 }]).length === 2);
     check('a group longer than six rows shows four and a link to the rest',
-      shape.filter((x) => x.startsWith('agent:kind-')).length === 4 && shape[shape.length - 1] === 'more:4', shape.slice(-6).join(' | '));
+      shape.filter((x) => x.startsWith('agent:Kind ')).length === 4 && shape[shape.length - 1] === 'more:4', shape.slice(-6).join(' | '));
     check('the link shows the rest',
       tp.rows(nodes, { group: 'run', now, expanded: new Set(['run:wf-audit']) }).filter((r) => r.group === 'run:wf-audit' && r.kind === 'agent').length === 8);
     const folded = tp.rows(nodes, { group: 'run', now, folded: new Set(['run:wf-audit']) });
@@ -4082,6 +4194,10 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   check('the session\'s name and its summary move under the bar on a phone, and back when the window widens',
     /el\.phoneHead\.append\(el\.crumb, el\.summary\);/.test(appJs) && /el\.bar\.insertBefore\(el\.summary, afterSummary\);/.test(appJs)
     && /\.bar \.crumb, \.bar \.chips, \.bar #fullscreen \{ display: none; \}/.test(phone));
+
+  check('full screen takes nothing of the panel away: no rule hides or resizes a panel because the page is full screen',
+    !/:fullscreen/.test(css34.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'the navigator, the inspector and the conversation could not be opened there');
 
   /* -- 3. the view switch ----------------------------------------------------- */
 

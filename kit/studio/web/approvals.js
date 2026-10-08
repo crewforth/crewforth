@@ -7,6 +7,7 @@
 // Every number here is the server's. How long the hook waits (`gateWaitSeconds`), when a request was asked
 // (`askedAt`) and what time it is now (`now`) all come from the machine the hook runs on, so a viewer whose clock
 // differs — a browser on the far end of a tunnel — still counts down to the moment the hook will really give up.
+import { roleName } from './names.js';
 
 /** The server's clock, as seen from this page: the difference is measured each time the server says what time it is. */
 export class ServerClock {
@@ -70,8 +71,26 @@ export function remaining(item, serverNowMs) {
 }
 
 /** Who asked, in the words the dock uses. A call from the session itself has no agent, and says so. */
+/**
+ * A session started in a terminal that is waiting for its user there. Studio cannot answer for it: the question
+ * is Claude Code's own prompt, in that terminal, and no hook of the panel's is in that session.
+ *
+ * @param status   the session's state as the machine reports it (nav.js `sessionStatus`)
+ * @param session  the graph's session node, whose `openCall` is the newest call with no result
+ * @param ownedHere true when the panel started this session: its requests are in the dock instead
+ * @returns null, or { text, what } — `what` is the tool and its command when the transcript has them, and
+ *          otherwise what the CLI itself says it waits for; nothing is made up when neither is there.
+ */
+export function terminalWait(status, session, ownedHere) {
+  if (ownedHere || status?.key !== 'waiting') return null;
+  const call = session?.openCall ?? null;
+  const who = call?.agentType ? `${roleName(call.agentType)} · ` : '';
+  const what = call ? `${who}${call.toolName}${call.detail ? ` · ${call.detail}` : ''}` : (status.waitingFor ?? null);
+  return { text: 'Waiting for an answer in the terminal', what };
+}
+
 export function asker(item) {
-  return item.agentType ?? 'Session';
+  return item.agentType ? roleName(item.agentType) : 'Session';
 }
 
 export const VERDICTS = {

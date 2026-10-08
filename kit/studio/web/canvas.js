@@ -14,6 +14,7 @@ import {
   plan, sequence, crowdFolds, fitZoom, stateOf, ZOOM, GROUPINGS, DENSITIES,
 } from './graph-plan.js';
 import { agentStatus } from './nav.js';
+import { roleName, shownType, hoverOf } from './names.js';
 
 // How long an arriving wire takes to draw itself toward its new card. Short on purpose: this is a status panel,
 // and anything a viewer has to wait through is a cost they pay on every spawn.
@@ -84,6 +85,7 @@ export class Canvas {
     this.mapRects = new Map();   // drawn item id -> its box on the minimap
     this.seq = new Map();        // id -> arrival number (see graph-plan.js)
     this.open = new Map();       // group id -> the viewer's own fold
+    this.aside = false;          // an agent group opens into the next column, not downward
     // Ids that arrived on the last poll. A wire into one of these draws itself; every other wire is left alone,
     // so opening a group of 105 does not set 105 animations running at once.
     this.newborn = new Set();
@@ -345,7 +347,7 @@ export class Canvas {
       drawnAs: this.lastPlan?.density ?? null,
       stacked: Boolean(this.lastPlan?.stacked),
       drawn: this.drawn,
-      focus: this.focusId ? (this.nodes.get(this.focusId)?.agentType ?? this.focusId) : null,
+      focus: this.focusId ? (roleName(this.nodes.get(this.focusId)?.agentType) || this.focusId) : null,
       groups: (this.lastPlan?.items ?? []).filter((it) => it.kind === 'group').length,
     };
   }
@@ -426,12 +428,14 @@ export class Canvas {
   }
 
   expandAll() {
-    for (const it of this.lastPlan?.items ?? []) if (it.kind === 'group') this.open.set(it.id, true);
+    // Beside itself an agent group opens one at a time, by its own card; "all" is then every other kind of group.
+    const mine = (it) => it.kind === 'group' && !(this.aside && it.type === 'type');
+    for (const it of this.lastPlan?.items ?? []) if (mine(it)) this.open.set(it.id, true);
     // Opening one level can reveal groups inside it; open those too.
     for (let i = 0; i < 4; i += 1) {
       const p = this.#plan();
       let more = false;
-      for (const it of p.items) if (it.kind === 'group' && !it.open) { this.open.set(it.id, true); more = true; }
+      for (const it of p.items) if (mine(it) && !it.open) { this.open.set(it.id, true); more = true; }
       if (!more) break;
     }
     this.sessionY = null;
@@ -485,6 +489,7 @@ export class Canvas {
   #plan() {
     return plan(this.#visibleNodes(), {
       group: this.group, density: this.density, seq: this.seq, open: this.open, pinned: this.pinned, sessionY: this.sessionY,
+      aside: this.aside,
     });
   }
 
@@ -611,7 +616,7 @@ export class Canvas {
 
   #drawItem(it, liveCells) {
     let el = this.els.get(it.id);
-    const shape = it.kind === 'group' ? `group:${it.open ? `open:${it.grid ? 'grid' : 'rows'}` : 'folded'}`
+    const shape = it.kind === 'group' ? `group:${it.boxed ? `open:${it.grid ? 'grid' : 'rows'}` : 'folded'}`
       : `${it.kind}:${it.compact ? 'chip' : 'card'}`;
     // A card that changes what it IS (an agent that becomes a chip, a group that opens) is rebuilt; one that only
     // changes what it says is updated in place.
@@ -669,7 +674,7 @@ export class Canvas {
       p.head.append(p.tile, p.name, mk('span', 'cv-fill'), p.sub, p.fold);
       p.bar = mk('div', 'cv-bar');
       p.count = mk('span', 'cv-sub');
-      if (it.open) {
+      if (it.boxed) {
         el.classList.add('cv-open');
         el.append(p.head, p.bar);
       } else {
@@ -766,7 +771,7 @@ export class Canvas {
   #fillAgent(el, n, compact) {
     const st = this.#statusOf(n);
     const who = compact ? this.#identity(n) : this.#fillTile(el.parts.tile, n);
-    const type = n.kind === 'workflow' ? (n.workflowId ?? 'workflow run') : (n.agentType ?? 'unknown agent');
+    const type = n.kind === 'workflow' ? (n.workflowId ?? 'workflow run') : shownType(n);
     const task = n.kind === 'workflow' ? `${n.members ?? 0} agents` : (n.description ?? '');
     const dim = this.dimmed(n);
     const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status]);
@@ -781,6 +786,9 @@ export class Canvas {
     el.classList.toggle('cv-dim', dim);
     p.name.textContent = type;
     p.task.textContent = task;
+    // Both are cut to the card's width; hovering says them whole, and the type as it is declared.
+    p.name.title = n.kind === 'workflow' ? '' : (n.agentType ?? '');
+    p.task.title = task;
     if (compact) {
       p.dot.dataset.tone = st.tone ?? 'none';
       p.word.textContent = st.word;
@@ -798,19 +806,26 @@ export class Canvas {
     const p = el.parts;
     const counts = it.counts;
     const says = Object.entries(counts).map(([s, c]) => `${c} ${agentStatus(s).word}`).join(' · ');
-    const sig = JSON.stringify([it.label, says, it.open, it.type, it.status]);
+    const sig = JSON.stringify([it.label, says, it.open, it.boxed, it.type, it.status]);
     if (el.sig !== sig) {
       el.sig = sig;
       el.dataset.state = stateOf(it.status);
       el.dataset.status = it.status;
       el.dataset.group = it.type;
       el.dataset.open = String(Boolean(it.open));
+      // Open beside itself: the card stays a card and its agents are the next column.
+      el.dataset.aside = String(Boolean(it.open && !it.boxed));
       p.name.textContent = it.label;
+      p.name.title = it.real ?? '';
       if (it.type === 'run') { p.tile.innerHTML = MARK.run; p.tile.title = 'Workflow run'; }
       else this.#fillTile(p.tile, it.type === 'type' ? { agentType: it.agentType } : (it.of ?? {}));
-      p.sub.textContent = it.type === 'type' ? '' : `${it.members.length} ${it.members.length === 1 ? 'agent' : 'agents'}`;
-      p.fold.innerHTML = it.open ? MARK.down : MARK.chevron;
-      p.fold.setAttribute('aria-label', `${it.open ? 'Fold' : 'Open'} ${it.label}`);
+      // Several agents of one type: the number is a badge beside the role. Any other group says how many it holds.
+      p.sub.textContent = it.type === 'type' ? `× ${it.count}` : `${it.members.length} ${it.members.length === 1 ? 'agent' : 'agents'}`;
+      p.sub.classList.toggle('cv-times', it.type === 'type');
+      p.fold.innerHTML = it.boxed ? MARK.down : MARK.chevron;
+      // Read aloud, the badge is part of the name.
+      const said = it.type === 'type' ? `${it.label} × ${it.count}` : it.label;
+      p.fold.setAttribute('aria-label', `${it.open ? 'Fold' : 'Open'} ${said}`);
       p.fold.setAttribute('aria-expanded', String(Boolean(it.open)));
       // The bar: how the group went, in the order the eye wants it.
       const order = ['done', 'running', 'starting', 'failed', 'killed', 'stopped', 'stale', 'ended'];
@@ -822,11 +837,11 @@ export class Canvas {
         return seg;
       }));
       p.bar.title = says;
-      if (!it.open) p.count.textContent = says;
-      el.title = it.open ? '' : `Click to show ${it.members.length} agents`;
-      el.setAttribute('aria-label', `${it.label}, ${says}, ${it.open ? 'open' : 'folded'}`);
+      if (!it.boxed) p.count.textContent = says;
+      el.title = it.boxed ? '' : (it.open ? 'Click to fold' : `Click to show ${it.members.length} agents`);
+      el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? 'open' : 'folded'}`);
     }
-    if (!it.open) return;
+    if (!it.boxed) return;
 
     for (const cell of it.cells) {
       liveCells.add(cell.id);
@@ -862,7 +877,7 @@ export class Canvas {
       const st = this.#statusOf(n);
       const who = it.grid ? this.#identity(n) : this.#fillTile(c.parts.tile, n);
       // Inside a group of one type the type is the group's name, so a member is told apart by its task.
-      const text = it.type === 'type' ? (n.description || n.agentType || n.id) : (n.agentType ?? 'unknown agent');
+      const text = it.type === 'type' ? (n.description || shownType(n) || n.id) : shownType(n);
       const dim = this.dimmed(n);
       const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id]);
       if (c.sig === csig) continue;
@@ -872,9 +887,10 @@ export class Canvas {
       c.classList.toggle('cv-dim', dim);
       c.classList.toggle('cv-selected', this.selected === n.id);
       c.parts.name.textContent = text;
+      c.title = hoverOf(n);
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
-      c.setAttribute('aria-label', `${n.agentType ?? 'unknown agent'}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
+      c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
     }
   }
 
@@ -1032,9 +1048,21 @@ export class Canvas {
     const it = this.lastPlan?.items.find((x) => x.id === groupId);
     if (!it || it.kind !== 'group') return;
     this.open.set(groupId, !it.open);
+    // Beside itself, one agent's tasks at a time: a second column of them from two groups reads as one list.
+    if (!it.open && it.type === 'type' && this.aside) {
+      for (const other of this.lastPlan.items) if (other.kind === 'group' && other.type === 'type' && other.id !== groupId) this.open.set(other.id, false);
+    }
     this.sessionY = null;
     this.#persist();
     this.#redraw();
+  }
+
+  /** Whether an agent group opens into the next column (a window with room) or downward (a narrow one). */
+  setAside(on) {
+    if (this.aside === Boolean(on)) return;
+    this.aside = Boolean(on);
+    this.sessionY = null;
+    if (this.lastPlan) this.#redraw({ fit: true });
   }
 
   /** Drop the selection without pretending a card was clicked. */
@@ -1187,7 +1215,8 @@ export class Canvas {
         if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} tokens`);
         if (n.errors) bits.push(`${n.errors} ${n.errors === 1 ? 'error' : 'errors'}`);
         this.tipEl.replaceChildren(
-          mk('strong', null, n.agentType ?? 'unknown agent'),
+          mk('strong', null, shownType(n)),
+          mk('div', 'cv-sub cv-real', n.agentType ?? ''),
           mk('div', null, n.description || 'No task recorded'),
           mk('div', 'cv-sub', bits.length ? bits.join(' · ') : 'No numbers yet'),
         );

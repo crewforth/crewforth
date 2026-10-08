@@ -74,6 +74,16 @@ function gateMode(mode) {
   return typeof mode === 'string' && /^[A-Za-z]+$/.test(mode) ? `CREW_GATE_MODE=${mode} ` : '';
 }
 
+/**
+ * The most identifying field each tool has. Showing "Bash" alone would ask someone to approve a command they
+ * cannot see.
+ */
+export function detailOf(input) {
+  const i = input && typeof input === 'object' ? input : {};
+  const d = i.command ?? i.file_path ?? i.pattern ?? i.query ?? i.description ?? null;
+  return typeof d === 'string' ? d : null;
+}
+
 /** One pending request, as the panel needs to show it. */
 function readRequest(spool, file) {
   const toolUseId = file.replace(/\.json$/, '');
@@ -87,9 +97,7 @@ function readRequest(spool, file) {
   return {
     toolUseId,
     toolName: payload.tool_name ?? 'unknown',
-    // The most identifying field each tool has. Showing "Bash" alone would ask
-    // someone to approve a command they cannot see.
-    detail: input.command ?? input.file_path ?? input.pattern ?? input.query ?? input.description ?? null,
+    detail: detailOf(input),
     input,
     cwd: payload.cwd ?? null,
     // Who asked. Claude Code puts these in the hook's input only when the call comes from inside a subagent, so
