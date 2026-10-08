@@ -4,6 +4,7 @@
 // own three answers, so in this view the approval dock is not needed and is not shown.
 import { sections, wants } from './list-plan.js';
 import { Press } from './press.js';
+import { hoverOf } from './names.js';
 import { remaining, asker, allowSessionLabel, VERDICTS } from './approvals.js';
 
 function mk(tag, cls, text) {
@@ -146,6 +147,7 @@ export class List {
     if (tile) row.append(tile);
     const text = mk('span', 'ls-text');
     text.append(mk('span', 'ls-name', r.type), mk('span', 'ls-line', r.line));
+    row.title = hoverOf(r.node);
     row.append(text);
     if (r.aside) row.append(mk('span', 'sub ls-aside', r.aside));
     const chev = mk('span', 'ls-chev');
