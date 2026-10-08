@@ -122,6 +122,12 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-write.sh\"", "timeout": 600 }
         ]
+      },
+      {
+        "matcher": "CronCreate|ScheduleWakeup|RemoteTrigger|mcp__.*([Tt]rigger|[Ss]chedul|[Cc]ron|[Ll]ater).*",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-schedule.sh\"", "timeout": 600 }
+        ]
       }
     ],
     "UserPromptSubmit": [

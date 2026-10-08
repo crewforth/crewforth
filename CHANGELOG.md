@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Security
 
+- **A session could schedule its own approval.** In `auto` and `dontAsk` the approval for a commit or a push is what
+  you type, and the hook that records it reads the prompt Claude Code hands it. A prompt that a tool schedules
+  (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, an MCP tool that schedules) is handed to it in the same way when
+  it fires, so a session that scheduled `/crew-approve commit` would have approved its own commit. A new gate,
+  `guard-schedule.sh`, refuses such a call when any text in it is an approval, judged by the one function that reads
+  your own prompt. An ordinary scheduled prompt is untouched.
 - **A git subcommand the shell fills in walked past every gate.** Each rule about a git command finds it by its name,
   and with an expansion inside the word the name is not in the text: `git com${z}mit`, `c=commit; git "$c"`, `git
   $(printf com)mit`, a backtick, and the same for `git pu${z}sh --force`, `git re$(:)set --hard`, `git cl${z}ean -fdx`
