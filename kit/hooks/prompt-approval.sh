@@ -442,6 +442,31 @@ case "$PM" in
 esac
 [ -n "$REC" ] || no "this directory is not inside a git repository."
 
+# A PERSON, IN A SESSION THAT HAS SHOWN THEM SOMETHING. A session can start another one and hand it the approval as
+# its prompt: `claude -p "/crew-approve commit"`, or an interactive one driven through a pseudo-terminal. That
+# session's only message is the approval, this hook would record it, and the session would then commit: the first
+# session has approved for the user. Measured on Claude Code 2.1.294 (macOS), from a hook that printed what it saw:
+#   started how                                CLAUDE_CODE_SESSION_ATTENDED   the transcript file when this hook runs
+#   claude -p, from a session's Bash           0 (set to 1 by the caller: still 0)   not there (first message)
+#   claude -p, from an emptied environment     0                               not there (first message)
+#   interactive, in a pty, from a session      1                               not there, and never written: a
+#                                                                              session started inside another keeps none
+#   interactive, in a pty, emptied environment 1                               not there at the first message; there after
+#   the desktop app, a conversation under way  1                               there
+# Nothing else told them apart: the payload has the same fields, CLAUDECODE and CLAUDE_CODE_CHILD_SESSION are 1 in
+# all of them, CLAUDE_CODE_ENTRYPOINT is inherited from the outer session, and no hook has a terminal on stdin.
+# So two things are asked. Neither is a documented contract, and both fail towards NOT recording:
+#   1. the session is not a headless one;
+#   2. the session's transcript is already on disk when the approval arrives, so the approval is not the session's
+#      first message and the session is not one that keeps no transcript.
+# HONEST SCOPE: a session started with an emptied environment and driven through a pseudo-terminal for a second
+# message passes both. guard-bash.sh refuses the forms of that it can read; a program that types is past it.
+case "${CLAUDE_CODE_SESSION_ATTENDED-}" in
+  0) no "this session has nobody in front of it (it was started with -p, or by a program), and an approval is what a person types into their own session." ;;
+esac
+_json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+{ [ -n "$TP" ] && [ -s "$TP" ]; } || no "this is the first message of this session, or the session keeps no transcript (one started from inside another session keeps none). An approval answers a commit message the session has shown: have it shown, then approve."
+
 # The session the user is writing in. guard-bash.sh accepts the record only from that one: a session started by a
 # command can be handed any prompt.
 _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"

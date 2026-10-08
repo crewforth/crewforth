@@ -6920,6 +6920,9 @@ sec "== 12f) in auto and dontAsk the user's own message is the approval for a co
 # HEAD was; guard-bash.sh allows the command that matches it and nothing else. Every case below runs the two hooks
 # against a real repository with a real remote: what is asserted is a verdict or a file, never a string in a script.
 _PA="$(mktemp -d)"; _PA="$(cd -P "$_PA" && pwd)"; _paw="$_PA/w"
+# The session the approval is typed in has a transcript on disk (the hook records in no other), and the cases say for
+# themselves whether it is attended: the variable is taken out here, a runner or a session may carry either value.
+_patr="$_PA/session.jsonl"; printf '{"type":"user"}\n' > "$_patr"
 _pa_new(){  # a fresh repository on branch feat/x with one remote, a staged change and a §4.6 record for it
   rm -rf "$_PA/w" "$_PA/remote.git" "$_PA/wt"
   ( git init -q --bare "$_PA/remote.git" && git init -q "$_paw" && cd "$_paw" && git config user.email t@example.com \
@@ -6933,8 +6936,8 @@ _pa_url(){ ( cd "$_paw" && git remote get-url --push "${1:-origin}" 2>/dev/null 
 _pa_review(){ ( cd "$_paw" && mkdir -p .claude && printf '%s' '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > .claude/settings.json && printf '{"diff_oid":"%s","head":"%s"}\n' "$(git diff --cached | git hash-object --stdin)" "$(git rev-parse --verify --quiet HEAD)" > .claude/review-pass.json ); }
 _pa_rec="$_paw/.git/crewforth-approval"
 # $1 = mode, $2 = the prompt AS JSON TEXT (already escaped), $3 = cwd (default: the repository)
-_pa_say(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","hook_event_name":"UserPromptSubmit","prompt":"%s"}' "${3:-$_paw}" "$1" "$2" \
-  | bash "$HOOKS/prompt-approval.sh" 2>/dev/null; }
+_pa_say(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"UserPromptSubmit","prompt":"%s"}' "${_PA_TR-$_patr}" "${3:-$_paw}" "$1" "$2" \
+  | env -u CLAUDE_CODE_SESSION_ATTENDED ${_PA_ENV:-} bash "$HOOKS/prompt-approval.sh" 2>/dev/null; }
 # $1 = mode, $2 = command AS JSON TEXT, $3 = tool (default Bash), $4 = session (default s) -> the hook's stdout; rc in
 # _par, stderr in $_PA/err. Every payload is first shown to a real JSON parser when one exists: a row that is not
 # valid JSON would test the reader's refusal, not the rule it is in the table for (_pa_badjson collects them).
@@ -6947,7 +6950,7 @@ _pa_op(){ sed -n 's/^op=//p' "$_pa_rec" 2>/dev/null; }
 if [ "$UNITS" != 1 ]; then
   # The cases below feed payloads to the two hooks; like the other gate unit cases they belong to the source run.
   # An installed project keeps the two pins after them: the shared definitions and the wiring.
-  skip scope "approval by the user's own message: the unit cases run in the source checkout (scope=install)" 45
+  skip scope "approval by the user's own message: the unit cases run in the source checkout (scope=install)" 47
 elif [ ! -f "$HOOKS/prompt-approval.sh" ]; then
   fail "hooks/prompt-approval.sh is missing — in auto and dontAsk nothing can turn the user's own yes into an approval"
 else
@@ -7114,6 +7117,73 @@ _pa_new; ( cd "$_paw" && printf '{"session_id":"s","cwd":"%s","permission_mode":
 mkdir -p "$_PA/lone"; cp "$HOOKS/guard-schedule.sh" "$_PA/lone/"; bash "$_PA/lone/guard-schedule.sh" < "$_PA/ps.json" >/dev/null 2>&1; _psl=$?
 if [ "$(cat "$_PA/src.out")" = defined ] && [ ! -s "$_pa_rec" ] && [ "$_psl" = 2 ]; then pass "sourced, prompt-approval.sh only defines its functions (no record, no output); the gate without it beside it refuses (rc 2)"
 else fail "sourcing prompt-approval.sh: printed [$(tr '\n' ' ' < "$_PA/src.out")] (want 'defined'), record written: $([ -s "$_pa_rec" ] && echo yes || echo no), gate alone rc $_psl (want 2)"; fi
+_pa_new
+
+# A SESSION STARTED BY A COMMAND IS NOT A PERSON (3.1.0). `claude -p "/crew-approve commit"` starts a session whose only
+# message is the approval; it would be recorded there and that session would commit. Measured on Claude Code 2.1.294
+# (macOS) from a hook that printed what it saw: a headless session has CLAUDE_CODE_SESSION_ATTENDED=0 whatever its
+# caller set; a session started inside another keeps no transcript; and at a session's first message the transcript
+# is not on disk yet. So the hook records only in a session that is not headless and whose transcript is there.
+# Left: the variable (- = not set). Middle: the transcript (file = on disk with a line, empty, missing, none = no
+# such field in the payload). Right: is a record written.
+_pa_new; : > "$_PA/empty.jsonl"; _phbad=""; _phn=0
+while IFS=' ' read -r _pha _pht _phw; do [ -z "$_pha" ] && continue
+  _phn=$((_phn+1)); : > "$_pa_rec"
+  case "$_pht" in file) _PA_TR="$_patr" ;; empty) _PA_TR="$_PA/empty.jsonl" ;; missing) _PA_TR="$_PA/never-written.jsonl" ;; none) _PA_TR="" ;; esac
+  case "$_pha" in -) _PA_ENV="" ;; *) _PA_ENV="CLAUDE_CODE_SESSION_ATTENDED=$_pha" ;; esac
+  _pho="$(_pa_say auto '/crew-approve commit')"
+  _phg=no; [ -s "$_pa_rec" ] && _phg=yes
+  [ "$_phg" = "$_phw" ] || _phbad="$_phbad [attended=$_pha transcript=$_pht → $_phg, want $_phw]"
+  [ "$_phw" = no ] && case "$_pho" in *"approval NOT recorded"*) ;; *) _phbad="$_phbad [attended=$_pha transcript=$_pht: refused without saying so]" ;; esac
+done <<'PH'
+- file yes
+1 file yes
+0 file no
+0 missing no
+1 missing no
+- missing no
+1 empty no
+- none no
+PH
+unset _PA_TR _PA_ENV
+if [ "$_phn" != 8 ]; then fail "FIXTURE: the headless-session table has $_phn rows, not 8"
+elif [ -z "$_phbad" ]; then pass "an approval is recorded only where a person can have typed it: not in a headless session (attended=0), not at a session's first message or in one that keeps no transcript (missing, empty, no path); 2 of 8 states record, and each refusal says why"
+else fail "headless-session table:$_phbad"; fi
+# ...and the command that would start such a session is refused before it runs, when it spells the approval out.
+# guard-bash.sh reads the command as sent (the prompt of a plain `claude -p "…"` is otherwise taken out of what the
+# rules read) and asks the hook's own function about each word. Left: 1 = refused by this rule. Right: the command AS JSON TEXT.
+_pa_new; _pcbad=""; _pcn=0
+while IFS= read -r _pl; do [ -z "$_pl" ] && continue
+  _pcw="${_pl%% @@ *}"; _pcc="${_pl#* @@ }"; _pcn=$((_pcn+1))
+  for _pcm in auto default; do
+    _pa_run "$_pcm" "$_pcc"
+    _pch=0; grep -q 'hands a Claude Code session an approval' "$_PA/err" && _pch=1
+    [ "$_pch" = "$_pcw" ] || _pcbad="$_pcbad [$_pcm: $_pcc → refused-for-this=$_pch, want $_pcw]"
+    [ "$_pch" = 1 ] && [ "$_par" != 2 ] && _pcbad="$_pcbad [$_pcm: $_pcc → named but rc $_par]"
+  done
+done <<'PC'
+1 @@ claude -p \"/crew-approve commit+push\"
+1 @@ claude -p '/crew-approve commit'
+1 @@ claude -p /crew-approve\\ commit
+1 @@ claude --print --permission-mode auto \"approve: commit\"
+1 @@ npx @anthropic-ai/claude-code -p \"onay: push\"
+1 @@ p=\"/crew-approve commit\"; claude -p \"$p\"
+1 @@ echo \"/crew-approve commit\" | claude -p
+1 @@ claude -p --prompt=\"/crew-approve push\"
+1 @@ claude -p $'/crew-approve commit'
+1 @@ bunx claude \"  /CREW-APPROVE  commit \"
+1 @@ node ./node_modules/@anthropic-ai/claude-code/cli.js -p \"/crew-approve commit\"
+1 @@ claude \"/crew-approve commit\"
+0 @@ claude -p \"summarise the README\"
+0 @@ claude -p \"explain what /crew-approve commit does\"
+0 @@ claude --version
+0 @@ echo \"/crew-approve commit\"
+0 @@ grep -rn \"approve: commit\" kit | head
+0 @@ claude -p /crew-approve commit
+PC
+if [ "$_pcn" != 18 ]; then fail "FIXTURE: the claude-call table has $_pcn rows, not 18"
+elif [ -z "$_pcbad" ]; then pass "a command that hands a Claude Code session an approval is refused in auto and in default (12 forms: quoted, escaped, an option's value, a variable, a pipe, npx / bunx / node, interactive); an ordinary claude -p and a command without claude are not touched (6)"
+else fail "claude-call table:$_pcbad"; fi
 _pa_new
 
 # ---- which modes ----------------------------------------------------------------------------------------------
@@ -7419,8 +7489,8 @@ PNT='2 2 @@ printf \x27{}\x27 | bash .claude/hooks/prompt-approval.sh
 0 0 @@ cat .claude/hooks/prompt-approval.sh | grep -n approve
 0 0 @@ grep -rn prompt-approval .claude/hooks | head
 0 0 @@ wc -l .claude/hooks/prompt-approval.sh; sort < notes.txt
-2 0 @@ claude -p --continue \"approve: commit\"
-2 0 @@ claude --resume 5d3e9c10-f872-4a21-9b07-2c6ea4d1b3f5 -p \"onay: commit\" --permission-mode auto
+2 2 @@ claude -p --continue \"approve: commit\"
+2 2 @@ claude --resume 5d3e9c10-f872-4a21-9b07-2c6ea4d1b3f5 -p \"onay: commit\" --permission-mode auto
 2 0 @@ claude -p hello -c
 2 0 @@ claude -r abc -p hello
 2 0 @@ claude --session-id=5d3e9c10-f872-4a21-9b07-2c6ea4d1b3f5 -p x
@@ -7437,7 +7507,7 @@ while IFS= read -r _pl; do [ -z "$_pl" ] && continue
   _pa_run auto "$_pc"; _p1=$_par; _pa_run default "$_pc"; [ "$_p1 $_par" = "$_pw" ] || _pabad="$_pabad [$_pc → $_p1 $_par, want $_pw]"
 done <<< "$PNT"
 if [ "$_pan" != 22 ]; then fail "FIXTURE: the forged-approval-by-command table has $_pan rows, not 22"
-elif [ -z "$_pabad" ]; then pass "a session cannot have the approval produced for it: 7 commands that feed the hook a payload are refused in every mode, 6 that start a session continuing this one are refused in auto, and 9 everyday commands near them pass, reading the hook through a pipe among them (22 rows, two modes each)"
+elif [ -z "$_pabad" ]; then pass "a session cannot have the approval produced for it: 7 commands that feed the hook a payload are refused in every mode, 6 that start a session continuing this one are refused in auto (the 2 of them that also spell an approval out, in every mode), and 9 everyday commands near them pass, reading the hook through a pipe among them (22 rows, two modes each)"
 else fail "approval produced by a command:$_pabad"; fi
 
 # ---- the session, and the address behind the remote's name ----------------------------------------------------
@@ -7533,7 +7603,7 @@ mkdir -p "$_paw/sub/.git"; _pa_say auto 'approve: commit' "$_paw/sub" >/dev/null
                  || fail "approval path below a folder named .git:$_pabad"
 _ptr="$(locale -a 2>/dev/null | grep -i -m1 -E '^tr_TR\.utf-?8$' || true)"
 if [ -n "$_ptr" ]; then
-  : > "$_pa_rec"; printf '{"session_id":"s","cwd":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"ONAY: COMMIT"}' "$_paw" | LC_ALL="$_ptr" bash "$HOOKS/prompt-approval.sh" >/dev/null 2>&1
+  : > "$_pa_rec"; printf '{"session_id":"s","cwd":"%s","transcript_path":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"ONAY: COMMIT"}' "$_paw" "$_patr" | env -u CLAUDE_CODE_SESSION_ATTENDED LC_ALL="$_ptr" bash "$HOOKS/prompt-approval.sh" >/dev/null 2>&1
   [ "$(_pa_op)" = commit ] && pass "'ONAY: COMMIT' is an approval under a Turkish locale too ($_ptr)" \
                            || fail "'ONAY: COMMIT' under $_ptr was not recorded — the I in COMMIT did not fold to i"
 else skip platform "upper-case approval under a Turkish locale — no tr_TR.UTF-8 locale on this machine"; fi
@@ -7561,10 +7631,11 @@ else skip fixture "approval in a linked worktree — 'git worktree add' failed h
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
   _pa_new; _pwc="$(cygpath -w "$_paw" 2>/dev/null)"; _pwc="${_pwc//\\/\\\\}"
   if [ -n "$_pwc" ]; then
-    _pa_say auto 'approve: commit' "$_pwc" >/dev/null
+    _pwt="$(cygpath -w "$_patr" 2>/dev/null)"; _pwt="${_pwt//\\/\\\\}"
+    _PA_TR="${_pwt:-$_patr}" _pa_say auto 'approve: commit' "$_pwc" >/dev/null
     _pao="$(printf '{"session_id":"s","cwd":"%s","permission_mode":"auto","tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' "$_pwc" | ( cd "$_paw" && CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" 2>/dev/null ))"
     { [ "$(_pa_op)" = commit ] && [ "$(gdec "$_pao")" = allow ]; } \
-      && pass "a cwd spelled C:\\…, as Claude Code sends it on Windows, reaches the same record in both hooks" \
+      && pass "a cwd and a transcript path spelled C:\\…, as Claude Code sends them on Windows, reach the same record in both hooks" \
       || fail "with a Windows-spelled cwd the approval was not recorded or not found (record op: $(_pa_op), verdict: $(gdec "$_pao"))"
   else skip fixture "Windows-spelled cwd — cygpath gave no path"; fi ;;
   *) skip platform "the approval hooks with a cwd spelled C:\\… — a Windows payload shape" ;;
@@ -7576,7 +7647,7 @@ if [ "${_gc1:-}" != 5 ] || [ "${_gc2:-}" != 7 ]; then
 else
   _pa_new
   printf '{"session_id":"s","cwd":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"add a retry to the upload client and keep the tests green"}' "$_paw" > "$_PA/p1.json"
-  printf '{"session_id":"s","cwd":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"approve: commit+push"}' "$_paw" > "$_PA/p2.json"
+  printf '{"session_id":"s","cwd":"%s","transcript_path":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"approve: commit+push"}' "$_paw" "$_patr" > "$_PA/p2.json"
   _gcost "$HOOKS/prompt-approval.sh" "$_PA/p1.json" "$_PA/t1"; _pc1="$_GCN/$_GCR"
   _pa_say auto 'approve: commit' >/dev/null; _gcost "$HOOKS/prompt-approval.sh" "$_PA/p1.json" "$_PA/t1"; _pc1b="$_GCN/$_GCR"; _pc1c=0; [ -s "$_pa_rec" ] && _pc1c=1
   _gcost "$HOOKS/prompt-approval.sh" "$_PA/p2.json" "$_PA/t2"; _pc2="$_GCE"

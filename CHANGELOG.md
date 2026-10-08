@@ -9,6 +9,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Security
 
+- **A session could start another one and hand it the approval.** `claude -p "/crew-approve commit"` starts a session
+  whose only message is the approval; it was recorded there, and that session would then commit and push: the first
+  session had approved for you. Two things changed. The recording hook writes nothing in a headless session
+  (Claude Code marks one with `CLAUDE_CODE_SESSION_ATTENDED=0`, whatever its caller sets), and nothing unless the
+  session's transcript is already on disk, so not at a session's first message and not in a session started inside
+  another, which keeps none; each refusal says why. And `guard-bash.sh` refuses a command that names `claude` (also
+  through `npx`, `bunx` or `node`) when one of its words is an approval, judged by the function that reads your own
+  prompt. An ordinary `claude -p "…"` is untouched. Known limit: a session started with an emptied environment and
+  typed into by a program, for a second message, passes both.
 - **A session could schedule its own approval.** In `auto` and `dontAsk` the approval for a commit or a push is what
   you type, and the hook that records it reads the prompt Claude Code hands it. A prompt that a tool schedules
   (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, an MCP tool that schedules) is handed to it in the same way when

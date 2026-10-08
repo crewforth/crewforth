@@ -1843,6 +1843,62 @@ _appr_named
 [ "$_APN" = 2 ] && block "the approval hook fed by a command (only Claude Code runs it, with the user's message)" "4.4" tamper
 [ "$_APN" = 3 ] && block "a Claude Code session started from a command to continue this one (it could approve for it)" "4.4" tamper
 
+# §4.4: A SESSION STARTED FROM A COMMAND IS NOT HANDED AN APPROVAL. `claude -p "/crew-approve commit"` starts a session
+# whose only message is the approval; that session would record it and commit, and this one would have approved for
+# the user. hooks/prompt-approval.sh refuses to record in a headless session and at a session's first message, which
+# is the protection; this is the second line, for the forms a command spells out. A command that names claude (so
+# also `npx @anthropic-ai/claude-code`, `bunx`, `node …/claude-code/cli.js`) is read word by word, the way the shell
+# splits it, and refused when one WORD is an approval: a quoted argument, an escaped one, the value of an option
+# (`--prompt=…`) or of a variable (`p='…'`), a text echoed into it. Which text is an approval is asked of the one
+# function that reads the user's prompt, _crew_appr_op, sourced from prompt-approval.sh. The prompt of an ordinary
+# `claude -p "…"` is not an approval and nothing here touches it.
+# HONEST SCOPE: a prompt read from a file, built by printf, or written with an escape the shell decodes (`$'\x2f…'`)
+# is not spelled in the command, and is past this rule.
+_appr_word(){  # $1 = a word of the command -> 0 when it, or what follows its first `=`, is an approval
+  local w="$1"
+  [ "${#w}" -le 160 ] || return 1
+  _crew_appr_op "$w"; [ -n "$OP" ] && return 0
+  case "$w" in *=*) _crew_appr_op "${w#*=}"; [ -n "$OP" ] && return 0 ;; esac
+  return 1
+}
+_appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names it)
+  # The command AS IT WAS SENT: the prompt of a plain `claude -p "…"` has been taken out of CMD by now (it is text for
+  # another session, not a command of this one), and it is exactly the word this rule has to read.
+  local s="${CMD_REAL:-$CMD}" w="" pre c body inw=0 nc=0 here="${BASH_SOURCE%/*}"
+  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$s" in *claude*) [ "$nc" = 0 ] && shopt -u nocasematch ;; *) [ "$nc" = 0 ] && shopt -u nocasematch; return 1 ;; esac
+  [ -f "$here/prompt-approval.sh" ] || return 1          # no recording hook: no approval can be recorded at all
+  declare -F _crew_appr_op >/dev/null 2>&1 || . "$here/prompt-approval.sh"
+  declare -F _crew_appr_op >/dev/null 2>&1 || return 1
+  OP=""
+  while :; do
+    pre="${s%%[\"\'\\$' \t\n;|&()<>']*}"
+    [ -n "$pre" ] && { w="$w$pre"; inw=1; }
+    [ "$pre" = "$s" ] && break
+    c="${s:${#pre}:1}"; s="${s:${#pre}+1}"
+    case "$c" in
+      \\) case "$s" in $'\n'*) s="${s:1}" ;; *) w="$w${s:0:1}"; s="${s:1}"; inw=1 ;; esac ;;
+      \') [ "${w%\$}" != "$w" ] && w="${w%\$}"                # $'…': the text is kept as written
+          body="${s%%\'*}"; if [ "$body" = "$s" ]; then s=""; else s="${s:${#body}+1}"; fi
+          w="$w$body"; inw=1 ;;
+      \") inw=1
+          while :; do
+            body="${s%%[\"\\]*}"; w="$w$body"
+            [ "$body" = "$s" ] && { s=""; break; }
+            c="${s:${#body}:1}"; s="${s:${#body}+1}"
+            [ "$c" = '"' ] && break
+            w="$w${s:0:1}"; s="${s:1}"
+          done ;;
+      *)  if [ "$inw" = 1 ]; then _appr_word "$w" && return 0; fi
+          w=""; inw=0 ;;
+    esac
+  done
+  [ "$inw" = 1 ] && _appr_word "$w" && return 0
+  return 1
+}
+_appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper
+
 # §4.5-adjacent: a .env file holds secrets. The settings.json Read-tool deny does NOT cover the Bash tool, so a
 # `cat .env` would surface them. Block the direct-file readers/copiers and a `< .env` input redirect on a
 # .env / .env.<env> file; the templates (.env.example/.sample/.template/.dist) stay readable. Arg-taking readers
