@@ -70,6 +70,8 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | bash packaging/check-attribution.sh
 
+  # Runs on every pull request, a text-only one included: the listing budget, the reference pointers, the routing
+  # triggers and the plugin copy are checked here, and the text of a skill is exactly what they read.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
