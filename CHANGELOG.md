@@ -118,9 +118,27 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio: a layout for a narrow window.** Below 640 px the panel is one column: the navigator is a drawer, the
   inspector and the conversation take the whole stage and stop above the dock. Checked in a narrow desktop browser
   window; not measured on a phone.
+- **Studio: what a session spent.** A summary box on the canvas and one line in the navigator give the session's
+  time, its tokens (agents included) and an estimate of the cost, such as `51m · 2.8M · ~$3.22`. The cost is an
+  estimate at API list price and reads as one (a leading `~`; on a subscription it is not what you are billed). The
+  prices are one table, read from the pricing page on 2026-10-08; a model with no row in it shows `—`, never a guess.
+  Not checked against an invoice.
+- **Studio: background work is shown.** A Bash command sent to the background is listed on its session (`1 in
+  background` on the card, **In the background** in the inspector) until the notice that ends it arrives.
+- **Studio: a question waiting in a terminal is named.** For a session started in a terminal, a permission question
+  can only be answered there; the view now says so, with the tool and the command: `Waiting for an answer in the
+  terminal: Bash · npm run build`.
+- **Studio: the inspector can be resized** (drag its left edge, arrow keys, double-click for the default; 280 to
+  720 px, remembered).
 
 ### Changed
 
+- **Studio: agents are named by their role.** `crew-backend-expert` reads Backend, `general-purpose` General Purpose,
+  in the graph, the Timeline, the List, the dock, the inspector and the conversation; the declared type is under the
+  name in the inspector and on hover. A task cut short on a card is said in full on hover.
+- **Studio: a group of agents opens beside itself.** Several agents of one type are one card; in a window of 1024 px
+  and up, clicking it puts its agents in the next column as ordinary cards, and opening another group folds the
+  first. Below that width it opens downward as before.
 - **In `auto` and `dontAsk`, a refused commit or push says what to ask and what to send back.** The refusal was a
   paragraph with the approval text somewhere inside it, and the question the model made of it was as long. It now
   asks for one shape: the commit message in one code block and, under it, one line with the exact text to send,
@@ -216,6 +234,16 @@ versioning follows [SemVer](https://semver.org/).
   mode (measured on Windows). In Plan it still says nothing. A Crewforth gate or a `deny` rule refuses the call all
   the same (measured on Windows, in a real session), and the conversation says who refused it. Known limit: the dock
   can ask about a call that another gate refuses anyway.
+
+### Fixed
+
+- **Studio: full screen keeps its panels.** In full screen the navigator, the inspector and the conversation could
+  not be opened, so a selected agent showed nothing and a request under "Needs you" could not be answered. A style
+  rule hid every panel there; it is gone, and full screen now only takes the browser away.
+- **Studio: a background agent that is still working is no longer drawn "Done".** Claude Code sends a `completed`
+  notice each time a background agent stops, and the agent can be resumed after it; Studio took the first notice as
+  final. A notice now stands only until the agent writes to its transcript again, and while its session is running
+  an agent in the middle of a turn is drawn Running.
 
 ## [3.0.4] — 2026-10-05
 
