@@ -7641,6 +7641,18 @@ for _pf in $_pawf; do
   [ "$_pn" = "1 1" ] && pass "${_pf##*/}: prompt-approval.sh is wired once, on UserPromptSubmit, and names bash" \
                      || fail "${_pf##*/}: prompt-approval.sh is not wired exactly once on UserPromptSubmit with shell bash (found/with-bash: $_pn)"
 done
+# Every script the plugin's hooks.json runs is in the plugin. The build copies a LIST of hooks: a gate added to the
+# payload and wired there, and not added to the list, was wired to a file the plugin did not carry, and a hook that
+# cannot start does not block (found on guard-schedule.sh, before it shipped).
+if [ "$IS_KIT" = 1 ]; then
+  _phd="$(cd "$ROOT/.." && pwd)/plugin/hooks"; _phm=""; _phn=0
+  for _ph in $(grep -oE 'hooks/[A-Za-z0-9_.-]+\.(sh|ps1)' "$_phd/hooks.json" 2>/dev/null | sort -u); do
+    _phn=$((_phn+1)); [ -f "$_phd/${_ph#hooks/}" ] || _phm="$_phm ${_ph#hooks/}"
+  done
+  if [ "$_phn" -lt 8 ]; then fail "FIXTURE: only $_phn script(s) read from the plugin's hooks.json — the reader broke"
+  elif [ -z "$_phm" ]; then pass "every script the plugin's hooks.json runs is in plugin/hooks ($_phn scripts)"
+  else fail "the plugin's hooks.json runs a script the plugin does not carry:$_phm (add it to the list in packaging/build-plugin.sh)"; fi
+fi
 # ...and on PreToolUse for the tools that schedule a prompt, in both editions, with one matcher.
 for _pf in $_pawf; do
   _pn="$(json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" && $3 ~ /guard-schedule\.sh/ { n++; m = $2 } END { printf "%d %s", n, m }')"
