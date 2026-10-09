@@ -12,11 +12,18 @@ export function typingIn(target) {
 }
 
 /**
- * The key of a press that is a shortcut, or null: null while Cmd, Ctrl or Alt is held (those belong to the browser
- * and the system), and null while the press is going into a field.
+ * The key of a press that is a shortcut, or null.
+ *
+ * Null while Cmd or Ctrl is held: those belong to the browser and the system. Null while the press is going into a
+ * field. Alt is different, because on many keyboards it is how a symbol is typed at all: on a Turkish Mac "[" is
+ * Option+8 and "]" is Option+9, and the key the browser reports is the symbol. So Alt refuses a letter (Alt+R is
+ * not "r") and a named key, and lets a symbol through as the key it produced.
  */
 export function shortcutOf(e) {
-  if (!e || e.metaKey || e.ctrlKey || e.altKey) return null;
+  if (!e || e.metaKey || e.ctrlKey) return null;
   if (typingIn(e.target)) return null;
-  return typeof e.key === 'string' ? e.key : null;
+  if (typeof e.key !== 'string') return null;
+  if (e.altKey && (e.key.length !== 1 || LETTER.test(e.key))) return null;
+  return e.key;
 }
+const LETTER = /^\p{L}$/u;

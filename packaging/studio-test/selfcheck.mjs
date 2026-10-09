@@ -934,6 +934,16 @@ check('prose without a notice yields nothing', none.size === 0);
     && press('r', { target: { tagName: 'INPUT' } }) === null && press('r', { target: { tagName: 'TEXTAREA' } }) === null
     && press('r', { target: { tagName: 'select' } }) === null && press('r', { target: { tagName: 'DIV', isContentEditable: true } }) === null
     && press('r', { target: null }) === 'r' && keys.shortcutOf(null) === null);
+  check('a symbol typed with Alt is still its shortcut: "[" and "]" on a keyboard where they are Option+8 and Option+9, "/" and "?" the same',
+    press('[', { altKey: true }) === '[' && press(']', { altKey: true }) === ']' && press('/', { altKey: true }) === '/' && press('?', { altKey: true, shiftKey: true }) === '?'
+    && press('[') === '[' && press('[', { altKey: true, target: { tagName: 'INPUT' } }) === null
+    && press('[', { altKey: true, metaKey: true }) === null && press('[', { altKey: true, ctrlKey: true }) === null,
+    'the browser reports the symbol as the key and Alt as held');
+  check('Alt still refuses every letter, a letter outside ASCII among them, and a named key',
+    ['r', 'g', 't', 'l', 'j', 'k', 'f', 'R', 'ş', 'ı', 'ö'].every((k) => press(k, { altKey: true }) === null)
+    && press('ArrowLeft', { altKey: true }) === null && press('Escape', { altKey: true }) === null
+    // What Option+R gives on a Mac is a symbol, and it is no shortcut of this panel: it reaches the handler and matches nothing.
+    && press('®', { altKey: true }) === '®');
   check('every letter shortcut goes through that one rule, r among them, and r is bound once',
     /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(app) && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
     && (app.match(/key === 'r'\)/g) ?? []).length === 1 && !/e\.key === '[gtlrjk]'/.test(app));
