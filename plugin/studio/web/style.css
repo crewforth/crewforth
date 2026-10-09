@@ -744,6 +744,34 @@ button.tl-lab { cursor: pointer; }
 }
 .terminal-wait-note { flex: none; margin-left: auto; }
 
+/* A question the model asks, or a plan it wants approved: a form in the dock, or on a card in the List. */
+.ask { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin-top: var(--space-1); }
+.ask-q { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ask-head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
+.ask-tag { flex: none; padding: 0 6px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 11px; color: var(--ink-dim); }
+.ask-text { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-opt {
+  height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer;
+}
+.ask-opt:hover { border-color: var(--ink-faint); }
+.ask-opt[aria-checked="true"] { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.ask-opt:disabled, .ask-own:disabled { opacity: 0.5; cursor: default; }
+.ask-own {
+  height: 28px; padding: 0 8px; min-width: 0; max-width: 360px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--ground); color: var(--ink); font: inherit; font-size: 12px;
+}
+.ask-plan {
+  margin: 0; padding: var(--space-2) var(--space-3); max-height: 220px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--ground);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ask-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.dock-ask[hidden] { display: none; }
+/* With a form in it the dock is as tall as the form needs, and the countdown sits at its top. */
+.dock[data-ask="questions"], .dock[data-ask="plan"] { align-items: start; }
+
 /* -------------------------------------------------------------- dock ---
    The approval dock: a row under the canvas, there only while a tool call is
    waiting. It is part of the stage's column, so the canvas above it stays

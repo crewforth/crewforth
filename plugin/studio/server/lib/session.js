@@ -102,6 +102,9 @@ class OwnedSession {
     // Our own settings file in our own directory. The user's settings are never
     // read, written or merged.
     if (this.gate) args.push('--settings', this.gate.settingsPath);
+    // The permission host: with one, Claude Code offers the two tools that need a person (a question, leaving
+    // plan mode). It denies every prompt that reaches it; the dock is where a call is allowed.
+    if (this.gate?.host) args.push('--mcp-config', this.gate.host.mcpPath, '--permission-prompt-tool', this.gate.host.tool);
 
     this.child = spawn('claude', args, {
       cwd: this.cwd,
@@ -188,6 +191,14 @@ class OwnedSession {
 
   /** The panel recorded an answer to a request. Remembered until the request is seen to have gone. */
   noteDecision(toolUseId, verdict) { this.decisions.set(toolUseId, verdict); }
+
+  /** The viewer approved a plan into another mode: that is the session's mode from here on. Only a mode a session
+   *  may start in is taken, and never a way back into `plan` from here. */
+  setMode(mode) {
+    if (!ALLOWED_MODES.includes(mode) || mode === 'plan' || mode === this.permissionMode) return;
+    this.permissionMode = mode;
+    this.#emit({ type: 'mode', permissionMode: mode });
+  }
 
   /** Replay from `after`, then follow. Returns an unsubscribe function. */
   subscribe(fn, after = 0) {

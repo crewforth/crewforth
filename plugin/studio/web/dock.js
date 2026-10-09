@@ -4,6 +4,7 @@
 // request is not forgotten either, because its clock is on screen and counting. What it says and when comes from
 // approvals.js; this file draws it and hands the three answers back.
 import { remaining, asker, allowSessionLabel, VERDICTS, OUTCOME_WORD } from './approvals.js';
+import { AskForms } from './ask.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const RING = 2 * Math.PI * 15;      // the countdown ring's circumference, r = 15
@@ -39,6 +40,8 @@ export class Dock {
     this.flash = null;        // { word, outcome, until }
     this.flashTimer = null;
     this.suppressed = false;  // another surface is showing the requests with their answers
+    // A question and a plan are answered with a form, not with the three buttons.
+    this.forms = new AskForms((item, verdict, extra) => this.decide(verdict, extra, item));
     this.#build();
   }
 
@@ -111,7 +114,11 @@ export class Dock {
       this.decide(verdict);
     });
 
-    this.parts = { timer, ring, secs, word, who, tool, where, cmd, note, nav, prev, next, count, acts, deny, always, allow };
+    // Where the form of a question or a plan goes: under the line that says who asks, in place of the command.
+    const ask = mk('div', 'dock-ask');
+    ask.hidden = true;
+    text.append(ask);
+    this.parts = { timer, ring, secs, word, who, tool, where, cmd, note, nav, prev, next, count, acts, deny, always, allow, ask };
     this.root.replaceChildren(timer, text, nav, acts);
   }
 
@@ -125,6 +132,7 @@ export class Dock {
     this.at = keep === -1 ? Math.min(this.at, Math.max(0, this.items.length - 1)) : keep;
     if (keep === -1) this.open = false;
     for (const key of [...this.busy]) if (!this.items.some((r) => r.key === key)) this.busy.delete(key);
+    this.forms.keep(this.items.map((r) => r.key));
     this.paint();
   }
 
@@ -135,18 +143,21 @@ export class Dock {
     this.paint();
   }
 
-  decide(verdict) {
-    const item = this.current;
+  decide(verdict, extra = {}, of = null) {
+    const item = of ?? this.current;
     // While the dock is saying what became of the last request, the next one is not on screen yet, and a key
     // pressed then must not answer something nobody has read.
     if (!item || this.busy.has(item.key) || this.flashing) return;
+    // The keys a/s/d answer a command. A question and a plan are answered in their form, or denied.
+    if (item.ask && !['answer', 'plan', 'deny'].includes(verdict)) return;
     this.busy.add(item.key);
+    this.forms.setSent(item.key, true);
     this.paint();
-    this.onDecide(item, verdict);
+    this.onDecide(item, verdict, extra);
   }
 
   /** An answer could not be delivered: the buttons come back. */
-  release(key) { this.busy.delete(key); this.paint(); }
+  release(key) { this.busy.delete(key); this.forms.setSent(key, false); this.paint(); }
 
   /** Say what became of a request for a moment: "Denied", "Timed out — denied". */
   say(outcome, queued = false) {
@@ -173,7 +184,7 @@ export class Dock {
     if (this.root.hidden) return;
 
     // What became of the last request is said in the place it was, before the next one takes it.
-    for (const part of [p.timer, p.who, p.tool, p.where, p.cmd, p.note, p.nav, p.acts]) part.hidden = flashing;
+    for (const part of [p.timer, p.who, p.tool, p.where, p.cmd, p.note, p.nav, p.acts, p.ask]) part.hidden = flashing;
     if (flashing) {
       this.root.dataset.state = this.flash.outcome;
       p.word.textContent = this.flash.word;
@@ -189,7 +200,15 @@ export class Dock {
     const where = this.where(item);
     p.where.hidden = !where;
     p.where.textContent = where ? `in ${where}` : '';
-    p.cmd.hidden = !item.detail;
+    // A question or a plan: its form, in place of the command and the three buttons.
+    const form = this.forms.get(item);
+    p.ask.hidden = !form;
+    p.acts.hidden = Boolean(form);
+    // Put in once and left there: a form taken out and put back on every tick would lose the caret in it.
+    if (this.shownForm !== form) { p.ask.replaceChildren(...(form ? [form] : [])); this.shownForm = form; }
+    this.root.dataset.ask = form ? item.ask.kind : '';
+    p.tool.textContent = form ? (item.ask.kind === 'plan' ? 'wants its plan approved' : 'asks') : item.toolName;
+    p.cmd.hidden = !item.detail || Boolean(form);
     p.cmd.textContent = item.detail ?? '';
     p.cmd.classList.toggle('open', this.open);
     p.cmd.setAttribute('aria-expanded', String(this.open));
@@ -200,7 +219,7 @@ export class Dock {
       p.ring.style.strokeDasharray = `${(r.fraction * RING).toFixed(1)} ${RING.toFixed(1)}`;
       p.secs.textContent = `${r.left}s`;
       p.timer.setAttribute('aria-label', `Auto-deny in ${r.left} seconds`);
-      p.note.textContent = `Auto-deny in ${r.left}s if nobody answers`;
+      p.note.textContent = form ? `Refused in ${r.left}s if nobody answers` : `Auto-deny in ${r.left}s if nobody answers`;
     } else {
       // The server did not say how long the hook waits. No clock is better than an invented one.
       p.ring.style.strokeDasharray = `0 ${RING.toFixed(1)}`;
@@ -217,6 +236,8 @@ export class Dock {
     p.always.textContent = allowSessionLabel(item.toolName);
     p.always.title = `Allow this call, and stop asking here about ${item.toolName} for the rest of the session. Later calls are not approved for Claude Code: it still applies its own checks to them.`;
     for (const b of [p.deny, p.always, p.allow]) b.disabled = sent;
-    this.root.setAttribute('aria-label', `Waiting for approval: ${asker(item)} wants to run ${item.toolName}`);
+    this.root.setAttribute('aria-label', form
+      ? `Waiting for you: ${asker(item)} ${item.ask.kind === 'plan' ? 'wants its plan approved' : 'asks a question'}`
+      : `Waiting for approval: ${asker(item)} wants to run ${item.toolName}`);
   }
 }

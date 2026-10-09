@@ -1536,6 +1536,252 @@ if (gate) {
    for when prose counts as a question is what these pin: too loose and every
    bulleted list grows buttons. */
 
+/* The two tools that need a person: a question the model asks, and a plan it wants approved.
+ *
+ * Measured on Claude Code 2.1.294, in six short sessions, before any of this was written:
+ *   - with no permission host, neither AskUserQuestion nor ExitPlanMode is in the session's tool list;
+ *   - with a host named by --permission-prompt-tool, both are;
+ *   - a PreToolUse hook that returns `allow` with the answers as `updatedInput` answers a question: the model
+ *     received "Which colour?"="Blue", "Which fruits?"="Apple,Pear" (a list for the question that takes several),
+ *     and the host was not consulted;
+ *   - the same, for a plan, approves it and the session goes from `plan` to `default`;
+ *   - a host that answers a plan with `updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }]` moves
+ *     the session to `acceptEdits`;
+ *   - a write the hook says nothing about, which the host denies, does not run (permission_denials: Write).
+ * The claims below hold the parts that are Studio's: the hook, the server's answer, the host. */
+process.stdout.write('\n== §12b the question and the plan ==\n');
+{
+  const { spawn: spawnChild } = await import('node:child_process');
+  const perm = await import(`../../kit/studio/server/lib/permissions.js?ask=${Date.now()}`);
+  const hostMod = await import(`../../kit/studio/server/hooks/studio-host.mjs?ask=${Date.now()}`);
+  const sid = `selfcheck-ask-${process.pid}`;
+  const g = perm.prepare(sid, 'plan');
+  const hook = (payload, env = {}) => new Promise((resolve) => {
+    const c = spawnChild('bash', [HOOK, g.spool], { env: { ...process.env, CREW_GATE_WAIT: '3', CREW_GATE_WAIT_ASK: '3', ...env } });
+    let out = '';
+    let err = '';
+    c.stdout.on('data', (d) => { out += d; });
+    c.stderr.on('data', (d) => { err += d; });
+    c.on('close', (code) => resolve({ code, out: out.trim(), err: err.trim() }));
+    c.stdin.end(JSON.stringify({ session_id: sid, permission_mode: 'plan', ...payload }));
+  });
+  const parked = async (id) => {
+    for (let i = 0; i < 80; i += 1) {
+      if (perm.pending(sid).some((r) => r.toolUseId === id)) return true;
+      await new Promise((r) => { setTimeout(r, 50); });
+    }
+    return false;
+  };
+  const decisionIn = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } catch { return null; } };
+  const QUESTIONS = { questions: [
+    { question: 'Which colour?', header: 'Colour', options: [{ label: 'Red', description: 'r' }, { label: 'Blue', description: 'b' }], multiSelect: false },
+    { question: 'Which fruits?', header: 'Fruit', options: [{ label: 'Apple', description: '' }, { label: 'Pear', description: '' }], multiSelect: true },
+  ] };
+
+  const cfg = JSON.parse(fs.readFileSync(g.settingsPath, 'utf8')).hooks.PreToolUse[0].hooks[0];
+  const mcp = JSON.parse(fs.readFileSync(g.host.mcpPath, 'utf8'));
+  check('a session is started with a permission host: without one Claude Code does not offer the two tools at all',
+    g.host.tool === 'mcp__crew_studio_host__approve' && mcp.mcpServers.crew_studio_host.args[1] === g.spool
+    && fs.existsSync(mcp.mcpServers.crew_studio_host.args[0]) && mcp.mcpServers.crew_studio_host.command === process.execPath
+    && /args\.push\('--mcp-config', this\.gate\.host\.mcpPath, '--permission-prompt-tool', this\.gate\.host\.tool\);/.test(read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? ''));
+  check('a question and a plan wait longer than a command, and the hook still answers by itself before the harness would kill it',
+    perm._internals.ASK_WAIT_S > perm._internals.HOOK_WAIT_S && cfg.timeout > perm._internals.ASK_WAIT_S
+    && /CREW_GATE_WAIT_ASK=300 /.test(cfg.command), `${perm._internals.HOOK_WAIT_S}s, ${perm._internals.ASK_WAIT_S}s for these two, harness ${cfg.timeout}s`);
+
+  // A question.
+  let run = hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q1', tool_input: QUESTIONS });
+  await parked('toolu_q1');
+  const waiting = perm.pending(sid).find((r) => r.toolUseId === 'toolu_q1');
+  const bare = perm.decide(sid, 'toolu_q1', 'allow');
+  const always = perm.decide(sid, 'toolu_q1', 'always');
+  const half = perm.decide(sid, 'toolu_q1', 'answer', { answers: { 'Which colour?': 'Blue' } });
+  const wrongShape = perm.decide(sid, 'toolu_q1', 'answer', { answers: { 'Which colour?': ['Red', 'Blue'], 'Which fruits?': ['Apple'] } });
+  check('a question is not answered with a bare allow, cannot be allowed "for the session", and takes one answer per question in the shape the question asks for',
+    bare.ok === false && always.ok === false && half.ok === false && wrongShape.ok === false && waiting.waitSeconds === perm._internals.ASK_WAIT_S
+    && !fs.existsSync(path.join(g.spool, 'always', 'AskUserQuestion')) && !fs.existsSync(path.join(g.spool, 'ans', 'toolu_q1')),
+    `${bare.reason} | ${half.reason}`);
+  const sent = perm.decide(sid, 'toolu_q1', 'answer', { answers: { 'Which colour?': 'Blue', 'Which fruits?': ['Apple', 'Pear'] } });
+  let r = await run;
+  let d = decisionIn(r);
+  check('the viewer\'s answers reach Claude Code as the hooks reference says a hook answers a question: allow, with the questions and the answers as the tool\'s input',
+    sent.ok === true && r.code === 0 && d?.hookEventName === 'PreToolUse' && d?.permissionDecision === 'allow'
+    && JSON.stringify(d.updatedInput.answers) === '{"Which colour?":"Blue","Which fruits?":["Apple","Pear"]}'
+    && JSON.stringify(d.updatedInput.questions) === JSON.stringify(QUESTIONS.questions),
+    r.out.slice(0, 160));
+  r = await hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q2', tool_input: QUESTIONS });
+  check('a question nobody answers is refused when its time runs out, as it always was', r.code === 2 && r.out === '' && /denied/.test(r.err), r.err);
+  run = hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q3', tool_input: QUESTIONS });
+  await parked('toolu_q3');
+  perm.decide(sid, 'toolu_q3', 'deny');
+  r = await run;
+  check('and one the viewer dismisses is refused', r.code === 2 && r.out === '');
+
+  // A plan.
+  run = hook({ tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p1', tool_input: { plan: 'Create a.txt', planFilePath: '/x/plan.md' } });
+  await parked('toolu_p1');
+  const intoBypass = perm.decide(sid, 'toolu_p1', 'plan', { mode: 'bypassPermissions' });
+  const intoPlan = perm.decide(sid, 'toolu_p1', 'plan', { mode: 'plan' });
+  const intoAuto = perm.decide(sid, 'toolu_p1', 'plan', { mode: 'auto' });
+  const modeBefore = fs.readFileSync(path.join(g.spool, 'mode'), 'utf8').trim();
+  check('a plan is approved into acceptEdits or default and into nothing else: not bypassPermissions, not auto',
+    intoBypass.ok === false && intoPlan.ok === false && intoAuto.ok === false && modeBefore === 'plan'
+    && perm.PLAN_MODES.join() === 'acceptEdits,default' && perm.decide(sid, 'toolu_p1', 'allow').ok === false, intoBypass.reason);
+  perm.decide(sid, 'toolu_p1', 'plan', { mode: 'default' });
+  r = await run;
+  d = decisionIn(r);
+  check('approved into default, the hook approves the plan with the plan as its input, and the host has nothing to add',
+    r.code === 0 && d?.permissionDecision === 'allow' && d.updatedInput.plan === 'Create a.txt'
+    && fs.readFileSync(path.join(g.spool, 'mode'), 'utf8').trim() === 'default'
+    && hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: {}, tool_use_id: 'toolu_p1' }).behavior === 'deny');
+  run = hook({ tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p2', tool_input: { plan: 'Create b.txt' } });
+  await parked('toolu_p2');
+  perm.decide(sid, 'toolu_p2', 'plan', { mode: 'acceptEdits' });
+  r = await run;
+  const first = hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: { plan: 'Create b.txt' }, tool_use_id: 'toolu_p2' });
+  const again = hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: { plan: 'Create b.txt' }, tool_use_id: 'toolu_p2' });
+  check('approved into acceptEdits, the hook says nothing and the host approves it once, with the change of mode only it can make',
+    r.code === 0 && r.out === '' && first.behavior === 'allow' && first.updatedInput.plan === 'Create b.txt'
+    && JSON.stringify(first.updatedPermissions) === '[{"type":"setMode","mode":"acceptEdits","destination":"session"}]'
+    && again.behavior === 'deny' && fs.readFileSync(path.join(g.spool, 'mode'), 'utf8').trim() === 'acceptEdits',
+    JSON.stringify(first.updatedPermissions));
+  run = hook({ tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p3', tool_input: { plan: 'x' } });
+  await parked('toolu_p3');
+  perm.decide(sid, 'toolu_p3', 'deny');
+  r = await run;
+  check('"Keep planning" refuses the plan', r.code === 2 && r.out === '' && /denied in the panel/.test(r.err));
+
+  // What the host answers to everything else, and to a forged decision.
+  fs.writeFileSync(path.join(g.spool, 'host', 'toolu_b.json'), JSON.stringify({ mode: 'acceptEdits' }));
+  fs.writeFileSync(path.join(g.spool, 'host', 'toolu_x.json'), JSON.stringify({ mode: 'bypassPermissions' }));
+  check('the host denies every prompt that reaches it: a write, a command, a question — the dock is where a call is allowed',
+    ['Write', 'Bash', 'Edit', 'AskUserQuestion', 'mcp__x__y'].every((t) => hostMod.answer(g.spool, { tool_name: t, input: {}, tool_use_id: 'toolu_any' }).behavior === 'deny')
+    && hostMod.answer(g.spool, {}).behavior === 'deny' && hostMod.answer('', { tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p2' }).behavior === 'deny');
+  check('a decision file is honoured for a plan only, and only for a mode a plan can be approved into',
+    hostMod.answer(g.spool, { tool_name: 'Bash', input: {}, tool_use_id: 'toolu_b' }).behavior === 'deny'
+    && hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: {}, tool_use_id: 'toolu_x' }).behavior === 'deny'
+    && hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: {}, tool_use_id: '../mode' }).behavior === 'deny');
+
+  // After the plan: an allowance in the dock is said out loud in the mode the plan was approved into — and only
+  // once the harness itself reports that mode.
+  const allowedWrite = async (reported, id) => {
+    const w = hook({ tool_name: 'Write', tool_use_id: id, permission_mode: reported, tool_input: { file_path: '/x' } }, { CREW_GATE_MODE: 'plan' });
+    await parked(id);
+    perm.decide(sid, id, 'allow');
+    return w;
+  };
+  const afterApproved = await allowedWrite('acceptEdits', 'toolu_w1');
+  const stillPlan = await allowedWrite('plan', 'toolu_w2');
+  check('after a plan is approved, a write allowed in the dock is approved out loud; while the harness still reports plan, it is not',
+    decisionIn(afterApproved)?.permissionDecision === 'allow' && stillPlan.code === 0 && stillPlan.out === '',
+    `harness reports acceptEdits: ${decisionIn(afterApproved)?.permissionDecision}; reports plan: "${stillPlan.out}"`);
+
+  // The answers that belong to the two tools do nothing for any other.
+  run = hook({ tool_name: 'Bash', tool_use_id: 'toolu_b1', permission_mode: 'default', tool_input: { command: 'git commit -m x' } });
+  await parked('toolu_b1');
+  const bashAnswer = perm.decide(sid, 'toolu_b1', 'answer', { answers: {} });
+  const bashPlan = perm.decide(sid, 'toolu_b1', 'plan', { mode: 'default' });
+  fs.writeFileSync(path.join(g.spool, 'ans', 'toolu_b1'), 'output\n{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n');
+  r = await run;
+  check('an ordinary call cannot be given a question\'s or a plan\'s answer: the server refuses to write it, and the hook refuses one written by hand',
+    bashAnswer.ok === false && bashPlan.ok === false && r.code === 2 && r.out === '', `${bashAnswer.reason} | hook rc ${r.code}`);
+  run = hook({ tool_name: 'Bash', tool_use_id: 'toolu_b2', permission_mode: 'default', tool_input: { command: 'ls' } });
+  await parked('toolu_b2');
+  fs.writeFileSync(path.join(g.spool, 'ans', 'toolu_b2'), 'host\n');
+  r = await run;
+  check('and "leave it to the host" is a plan\'s answer alone: written for a command, it is a denial', r.code === 2 && r.out === '');
+  perm.cleanup(sid);
+
+  // The page: what the two requests look like, and what a form hands back.
+  const apw = await import(`../../kit/studio/web/approvals.js?ask=${Date.now()}`);
+  const asQ = apw.askOf({ toolName: 'AskUserQuestion', input: QUESTIONS });
+  check('a question is shown as the model wrote it, a plan as its text, and an ordinary call as neither',
+    asQ.kind === 'questions' && asQ.questions.length === 2 && asQ.questions[1].multiSelect === true && asQ.questions[0].options[1].label === 'Blue'
+    && apw.askOf({ toolName: 'ExitPlanMode', input: { plan: 'Do it' } }).plan === 'Do it'
+    && apw.askOf({ toolName: 'Bash', input: { command: 'ls', questions: [] } }) === null && apw.askOf({ toolName: 'AskUserQuestion', input: {} }) === null);
+  const pick = (o) => new Map(Object.entries(o).map(([k, v]) => [k, new Set(v)]));
+  check('a form\'s answers are the tool\'s own shape: a label, a list for a question that takes several, or the viewer\'s own words',
+    JSON.stringify(apw.answersOf(asQ, pick({ 'Which colour?': ['Blue'], 'Which fruits?': ['Apple', 'Pear'] }), new Map())) === '{"Which colour?":"Blue","Which fruits?":["Apple","Pear"]}'
+    && apw.answersOf(asQ, pick({ 'Which colour?': [], 'Which fruits?': ['Apple'] }), new Map([['Which colour?', ' teal ']]))['Which colour?'] === 'teal'
+    && JSON.stringify(apw.answersOf(asQ, pick({ 'Which colour?': ['Red'], 'Which fruits?': ['Pear'] }), new Map([['Which fruits?', 'Fig']]))['Which fruits?']) === '["Pear","Fig"]');
+  check('there are no answers to send while any question is open',
+    apw.answersOf(asQ, pick({ 'Which colour?': ['Blue'], 'Which fruits?': [] }), new Map()) === null
+    && apw.answersOf(asQ, pick({ 'Which colour?': [], 'Which fruits?': ['Apple'] }), new Map([['Which colour?', '   ']])) === null);
+  check('the answers a form can produce are answers the server takes',
+    perm.cleanAnswers(QUESTIONS.questions, apw.answersOf(asQ, pick({ 'Which colour?': ['Blue'], 'Which fruits?': ['Apple', 'Pear'] }), new Map())) !== null
+    && perm.cleanAnswers(QUESTIONS.questions, apw.answersOf(asQ, pick({ 'Which colour?': [], 'Which fruits?': [] }), new Map([['Which colour?', 'teal'], ['Which fruits?', 'Fig']]))) !== null
+    && perm.cleanAnswers(QUESTIONS.questions, { 'Which colour?': '', 'Which fruits?': ['Apple'] }) === null
+    && perm.cleanAnswers(QUESTIONS.questions, { 'Which colour?': 'x'.repeat(2001), 'Which fruits?': ['Apple'] }) === null
+    && perm.cleanAnswers(null, {}) === null);
+  check('a plan\'s two approvals are the two modes the server takes, and "accept edits" says a call is still shown first',
+    apw.PLAN_CHOICES.map((c) => c.mode).join() === perm.PLAN_MODES.join() && /still shown here first/.test(apw.PLAN_CHOICES[0].title));
+  const queued = apw.queue([{ sessionId: 's', gated: true, gateWaitSeconds: 45, pendingPermissions: [
+    { toolUseId: 'q', toolName: 'AskUserQuestion', input: QUESTIONS, askedAt: 1, waitSeconds: 300 },
+    { toolUseId: 'b', toolName: 'Bash', input: { command: 'ls' }, detail: 'ls', askedAt: 2 }] }]);
+  check('each request counts down on its own clock: five minutes for a question, the gate\'s wait for a command',
+    queued[0].waitSeconds === 300 && queued[0].ask.kind === 'questions' && queued[1].waitSeconds === 45 && queued[1].ask === null);
+  check('an answered question and an approved plan are recorded as allowed, not as "answered elsewhere"',
+    apw.settled([queued[0]], [], new Map([[queued[0].key, 'answer']]), 5)[0].outcome === 'allowed'
+    && apw.settled([queued[0]], [], new Map([[queued[0].key, 'plan']]), 5)[0].outcome === 'allowed');
+
+  const dom2 = installDom();
+  const { AskForms } = await import(`../../kit/studio/web/ask.js?ask=${Date.now()}`);
+  const { Dock } = await import(`../../kit/studio/web/dock.js?ask=${Date.now()}`);
+  const said = [];
+  const forms = new AskForms((item, verdict, extra) => said.push([item.key, verdict, extra]));
+  const qItem = queued[0];
+  const form = forms.get(qItem);
+  const walk = (el, out = []) => { out.push(el); for (const c of el.children ?? []) walk(c, out); return out; };
+  const all = walk(form);
+  const btn = (text) => all.find((e) => e.tagName === 'BUTTON' && e.textContent === text);
+  const sendBtn = btn('Send answers');
+  const off = sendBtn.disabled === true;
+  btn('Blue').emit('click');
+  btn('Red').emit('click');
+  btn('Apple').emit('click');
+  btn('Pear').emit('click');
+  btn('Apple').emit('click');
+  check('in the form one question takes one answer and the other takes several, and Send waits until each has one',
+    off && sendBtn.disabled === false && btn('Red').getAttribute('aria-checked') === 'true' && btn('Blue').getAttribute('aria-checked') === 'false'
+    && btn('Pear').getAttribute('aria-checked') === 'true' && btn('Apple').getAttribute('aria-checked') === 'false');
+  check('the form is kept while its request waits: asked for again, it is the same element with what was chosen',
+    forms.get(qItem) === form && forms.get(queued[1]) === null);
+  sendBtn.emit('click');
+  check('Send hands back the answers; Dismiss, a denial',
+    JSON.stringify(said[0]) === JSON.stringify([qItem.key, 'answer', { answers: { 'Which colour?': 'Red', 'Which fruits?': ['Pear'] } }])
+    && (btn('Dismiss').emit('click'), said[1][1] === 'deny'));
+  forms.setSent(qItem.key, true);
+  check('once sent, the form\'s controls are off until the answer is known to have arrived or failed', sendBtn.disabled === true && btn('Blue').disabled === true
+    && (forms.setSent(qItem.key, false), sendBtn.disabled === false));
+  const pItem = { key: 's/p', sessionId: 's', toolUseId: 'p', toolName: 'ExitPlanMode', ask: { kind: 'plan', plan: 'Step one.' }, askedAt: 1, waitSeconds: 300 };
+  const pAll = walk(forms.get(pItem));
+  pAll.find((e) => e.tagName === 'BUTTON' && /accept edits/.test(e.textContent)).emit('click');
+  pAll.find((e) => e.tagName === 'BUTTON' && e.textContent === 'Keep planning').emit('click');
+  check('a plan is shown with its text and three ways on: two modes, or keep planning',
+    pAll.some((e) => e.tagName === 'PRE' && e.textContent === 'Step one.') && pAll.filter((e) => e.tagName === 'BUTTON').length === 3
+    && JSON.stringify(said.slice(-2).map((x) => [x[1], x[2]])) === '[["plan",{"mode":"acceptEdits"}],["deny",{}]]');
+  forms.keep([pItem.key]);
+  check('a form is forgotten when its request is over', forms.get(qItem) !== form);
+
+  const decided = [];
+  const dk = new Dock(document.createElement('div'), { onDecide: (item, verdict, extra) => decided.push([item.toolName, verdict, extra]), now: () => 2 });
+  dk.render([qItem, queued[1]]);
+  check('the dock shows a question as its form, in place of the command and the three buttons',
+    dk.parts.ask.hidden === false && dk.parts.acts.hidden === true && dk.parts.cmd.hidden === true && dk.root.dataset.ask === 'questions'
+    && dk.parts.tool.textContent === 'asks' && /Refused in/.test(dk.parts.note.textContent));
+  dk.decide('allow');
+  dk.decide('always');
+  check('the keys that allow a command do not answer a question', decided.length === 0);
+  dk.step(1);
+  check('and the next request, a command, has its three buttons back',
+    dk.parts.ask.hidden === true && dk.parts.acts.hidden === false && dk.root.dataset.ask === '' && dk.parts.tool.textContent === 'Bash');
+  dom2();
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the page sends the answer with its verdict, and the List\'s cards carry the same form',
+    /async function decideRequest\(item, verdict, extra = \{\}\)/.test(appSrc) && /body: JSON\.stringify\(\{ verdict, \.\.\.extra \}\)/.test(appSrc)
+    && /const form = this\.forms\.get\(item\);\s*if \(form\) \{ card\.append\(form\); return card; \}/.test(read(path.join(WEB_ROOT, 'list.js')) ?? '')
+    && /decide\(s\.id, toolUseId, body\.verdict, \{ answers: body\.answers, mode: body\.mode \}\)/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
+}
+
 process.stdout.write('\n== §13 quick replies ==\n');
 
 const qr = [

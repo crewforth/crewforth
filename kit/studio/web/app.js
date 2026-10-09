@@ -624,7 +624,7 @@ const list = new List(el.list, {
   dimmed: (n) => canvas.dimmed(n),
   // A row leads to the agent's detail: the inspector, which on a phone is a page of its own.
   onSelect: (n) => { list.select(n.id); canvas.select(n.id); },
-  onDecide: (item, verdict) => decideRequest(item, verdict),
+  onDecide: (item, verdict, extra) => decideRequest(item, verdict, extra),
   onLocate: (item) => { if (item.sessionId !== current) selectSession(item.sessionId); },
   // A section folded or opened by hand changes what Expand all and Fold all have left to do, at once.
   onFold: () => paintFoldButtons(),
@@ -2270,13 +2270,13 @@ function paintApprovals() {
   if (inspectorNode && inspectorTab === 'gates') paintInspector();
 }
 
-async function decideRequest(item, verdict) {
+async function decideRequest(item, verdict, extra = {}) {
   decided.set(item.key, verdict);
   let res;
   try {
     const r = await fetch(
       api(`/api/owned/${encodeURIComponent(item.sessionId)}/permissions/${encodeURIComponent(item.toolUseId)}`),
-      { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ verdict }) },
+      { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ verdict, ...extra }) },
     );
     res = await r.json();
   } catch (e) {

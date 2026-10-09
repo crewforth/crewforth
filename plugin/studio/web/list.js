@@ -6,6 +6,7 @@ import { sections, wants } from './list-plan.js';
 import { Press } from './press.js';
 import { hoverOf, modelOf } from './names.js';
 import { remaining, asker, allowSessionLabel, VERDICTS } from './approvals.js';
+import { AskForms } from './ask.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -34,6 +35,12 @@ export class List {
     this.folded = new Map();
     this.selected = null;
     this.busy = new Set();
+    this.forms = new AskForms((item, verdict, extra) => {
+      if (this.busy.has(item.key)) return;
+      this.busy.add(item.key);
+      this.forms.setSent(item.key, true);
+      this.hooks.onDecide?.(item, verdict, extra);
+    });
     this.now = () => Date.now();
     this.root.classList.add('ls');
   }
@@ -60,7 +67,7 @@ export class List {
   select(id) { this.selected = id; this.render(); }
 
   /** An answer did not reach the server: the buttons come back. */
-  release(key) { this.busy.delete(key); this.render(); }
+  release(key) { this.busy.delete(key); this.forms.setSent(key, false); this.render(); }
 
   /** Once a second: the countdowns and the running times move. */
   tick() { if (!this.root.hidden && (this.queue.length || this.nodes.some((n) => n.status === 'running'))) this.render(); }
@@ -69,6 +76,7 @@ export class List {
     if (this.root.hidden) return;
     if (this.press.defer()) return;
     const now = this.now();
+    this.forms.keep(this.queue.map((r) => r.key));
     const list = sections(this.nodes, { queue: this.queue, current: this.current, folded: this.folded, all: this.all ?? null, now });
     this.lastSections = list;
     if (!list.length) {
@@ -117,7 +125,7 @@ export class List {
     clock.setAttribute('aria-label', r.known ? `Auto-deny in ${r.left} seconds` : 'Time left not measured');
     head.append(who, mk('span', 'row-fill'), clock);
     card.append(head);
-    if (item.detail) card.append(mk('pre', 'ls-cmd', item.detail));
+    if (item.detail && !item.ask) card.append(mk('pre', 'ls-cmd', item.detail));
     // A request from another session says which, and goes there.
     if (item.sessionId !== this.current) {
       const where = mk('button', 'ls-where', `in ${item.sessionName}`);
@@ -125,6 +133,9 @@ export class List {
       where.addEventListener('click', () => this.hooks.onLocate?.(item));
       card.append(where);
     }
+    // A question or a plan carries its own form instead of the three answers.
+    const form = this.forms.get(item);
+    if (form) { card.append(form); return card; }
     const sent = this.busy.has(item.key);
     const acts = mk('div', 'ls-acts');
     for (const [verdict, label, cls] of [

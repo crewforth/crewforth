@@ -455,8 +455,10 @@ async function handle(req, res) {
     const body = await readBody(req);
     if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
     const toolUseId = decodeURIComponent(permMatch[2]);
-    const out = decide(s.id, toolUseId, body.verdict);
+    const out = decide(s.id, toolUseId, body.verdict, { answers: body.answers, mode: body.mode });
     if (out.ok) s.noteDecision(toolUseId, body.verdict);
+    // A plan approved into a mode is the session's mode from here on.
+    if (out.ok && out.mode) s.setMode(out.mode);
     return sendJson(res, out.ok ? 200 : 400, out);
   }
 

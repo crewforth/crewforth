@@ -23,6 +23,54 @@ export class ServerClock {
   now(localNow) { return localNow + this.offset; }
 }
 
+// A plan is approved into one of these; the words are the buttons'.
+export const PLAN_CHOICES = [
+  { mode: 'acceptEdits', label: 'Approve \u00b7 accept edits', title: 'Approve the plan and go on in acceptEdits: file edits in the project are accepted without asking; every call is still shown here first.' },
+  { mode: 'default', label: 'Approve \u00b7 ask each time', title: 'Approve the plan and go on in default: each call is asked about here.' },
+];
+
+/**
+ * What a request asks of the viewer when the answer is not allow-or-deny.
+ *   { kind: 'questions', questions: [{ question, header, options: [{ label, description }], multiSelect }] }
+ *   { kind: 'plan', plan }
+ * Null for an ordinary tool call. Only what the tool's own input holds; nothing is added to it.
+ */
+export function askOf(r) {
+  const input = r?.input && typeof r.input === 'object' ? r.input : {};
+  if (r?.toolName === 'AskUserQuestion' && Array.isArray(input.questions)) {
+    return {
+      kind: 'questions',
+      questions: input.questions.filter((q) => typeof q?.question === 'string').map((q) => ({
+        question: q.question,
+        header: typeof q.header === 'string' ? q.header : '',
+        multiSelect: q.multiSelect === true,
+        options: (Array.isArray(q.options) ? q.options : []).filter((o) => typeof o?.label === 'string')
+          .map((o) => ({ label: o.label, description: typeof o.description === 'string' ? o.description : '' })),
+      })),
+    };
+  }
+  if (r?.toolName === 'ExitPlanMode') return { kind: 'plan', plan: typeof input.plan === 'string' ? input.plan : '' };
+  return null;
+}
+
+/**
+ * The answers a form holds, as the tool takes them: question text -> the chosen label, a list of labels for a
+ * question that takes several, or the viewer's own text. Null while any question has no answer.
+ * @param picked Map question -> Set of labels · @param typed Map question -> free text
+ */
+export function answersOf(ask, picked, typed) {
+  const out = {};
+  for (const q of ask?.questions ?? []) {
+    const own = (typed?.get(q.question) ?? '').trim();
+    const labels = [...(picked?.get(q.question) ?? [])];
+    if (own && !q.multiSelect) out[q.question] = own;
+    else if (q.multiSelect && (labels.length || own)) out[q.question] = own ? [...labels, own] : labels;
+    else if (!q.multiSelect && labels.length) out[q.question] = labels[0];
+    else return null;
+  }
+  return out;
+}
+
 /**
  * Every request waiting in every session started here, oldest first: that is the order they will time out in.
  *
@@ -45,7 +93,10 @@ export function queue(sessions, nameOf = () => null) {
         agentType: r.agentType ?? null,
         askedAt: r.askedAt,
         // Null when the server did not say. The dock then shows no countdown rather than one it made up.
-        waitSeconds: typeof s.gateWaitSeconds === 'number' && s.gateWaitSeconds > 0 ? s.gateWaitSeconds : null,
+        waitSeconds: typeof r.waitSeconds === 'number' && r.waitSeconds > 0 ? r.waitSeconds
+          : (typeof s.gateWaitSeconds === 'number' && s.gateWaitSeconds > 0 ? s.gateWaitSeconds : null),
+        // What a question asks and what a plan says: the two requests that are not answered with allow or deny.
+        ask: askOf(r),
       });
     }
   }
@@ -125,7 +176,7 @@ export function settled(before, after, decided, serverNowMs, slackMs = 2500) {
     const verdict = decided?.get(r.key) ?? null;
     let outcome;
     if (verdict === 'deny') outcome = 'denied';
-    else if (verdict === 'allow') outcome = 'allowed';
+    else if (verdict === 'allow' || verdict === 'answer' || verdict === 'plan') outcome = 'allowed';
     else if (verdict === 'always') outcome = 'allowed-session';
     else if (r.waitSeconds != null && serverNowMs >= r.askedAt + r.waitSeconds * 1000 - slackMs) outcome = 'timed-out';
     else outcome = 'answered-elsewhere';
