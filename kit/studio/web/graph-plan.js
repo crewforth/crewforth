@@ -190,7 +190,7 @@ function itemsOf(nodes, { group, density, seq, stack, aside }) {
         label: roleName(t), count: members.length, real: t, agentType: members[0].agentType ?? null,
       });
       items.push(g);
-      g.aside = Boolean(aside?.(g.id));
+      g.aside = Boolean(aside?.(g));
       for (const m of members) {
         stacked.add(m.id);
         if (!g.aside) { place(m.id, g, m.id, depth + 1); continue; }
@@ -268,6 +268,7 @@ export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ?
  * @param opts.density   one of DENSITIES
  * @param opts.seq       Map id -> arrival number, kept by the caller across calls (see `sequence`)
  * @param opts.open      Map groupId -> boolean, the viewer's own folds; a group not in it takes its default
+ * @param opts.all       true after "Expand all", false after "Fold all": what a group not in `open` is
  * @param opts.pinned    Map itemId -> {x, y}, positions the viewer set by hand
  * @param opts.sessionY  where the session card was put, to keep it there; omitted on a fresh layout
  * @param opts.aside     true when an open type group puts its agents in the next column instead of growing
@@ -283,8 +284,11 @@ export function plan(nodes, opts = {}) {
   const pinned = opts.pinned ?? new Map();
 
   // A type group starts folded: it is the same thing several times. A run or an agent's children start open.
-  const isOpen = (g) => (open.has(g.id) ? open.get(g.id) : g.type !== 'type');
-  const aside = opts.aside ? (id) => open.get(id) === true : null;
+  // A group is as the viewer left it; one they have not touched follows the last "Expand all" or "Fold all"
+  // (`opts.all`), and before either a type group starts folded — it is the same thing several times — while a
+  // run or an agent's children start open.
+  const isOpen = (g) => (open.has(g.id) ? open.get(g.id) : (typeof opts.all === 'boolean' ? opts.all : g.type !== 'type'));
+  const aside = opts.aside ? (g) => isOpen(g) : null;
 
   // What is drawn, and how many agents of it the viewer reads one by one: a card, a row or a chip each.
   const drawFrom = (items) => {

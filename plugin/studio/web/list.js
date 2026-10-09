@@ -38,7 +38,17 @@ export class List {
     this.root.classList.add('ls');
   }
 
-  setSession(id) { if (id !== this.current) { this.current = id; this.nodes = []; this.folded = new Map(); this.selected = null; this.render(); } }
+  setSession(id) { if (id !== this.current) { this.current = id; this.nodes = []; this.folded = new Map(); this.all = null; this.selected = null; this.render(); } }
+
+  /** Open every section; one that appears later appears open. What is folded by hand afterwards stays folded. */
+  expandAll() { this.all = true; this.folded = new Map(); this.render(); this.hooks.onFold?.(); }
+  /** Fold every section that can fold. "Needs you" cannot: it is what the view is for. */
+  foldAll() { this.all = false; this.folded = new Map(); this.render(); this.hooks.onFold?.(); }
+  /** Whether there is anything left for each of the two to do. */
+  foldState() {
+    const can = (this.lastSections ?? []).filter((s) => s.foldable);
+    return { groups: can.length, canExpand: can.some((s) => s.folded), canFold: can.some((s) => !s.folded) };
+  }
   setNodes(nodes) { this.nodes = nodes ?? []; this.render(); }
 
   setQueue(queue) {
@@ -59,7 +69,8 @@ export class List {
     if (this.root.hidden) return;
     if (this.press.defer()) return;
     const now = this.now();
-    const list = sections(this.nodes, { queue: this.queue, current: this.current, folded: this.folded, now });
+    const list = sections(this.nodes, { queue: this.queue, current: this.current, folded: this.folded, all: this.all ?? null, now });
+    this.lastSections = list;
     if (!list.length) {
       const empty = mk('div', 'ls-empty');
       empty.append(mk('strong', null, 'No agents yet'),
@@ -86,7 +97,7 @@ export class List {
       head.dataset.key = `sec:${s.key}`;
       head.setAttribute('aria-expanded', String(!s.folded));
       head.append(mk('span', 'row-fill'), mk('span', 'sub', s.folded ? 'show' : 'hide'));
-      head.addEventListener('click', () => { this.folded.set(s.key, !s.folded); this.render(); });
+      head.addEventListener('click', () => { this.folded.set(s.key, !s.folded); this.render(); this.hooks.onFold?.(); });
     }
     sec.append(head);
     for (const item of s.cards) sec.append(this.#card(item, now));

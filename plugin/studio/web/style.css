@@ -434,6 +434,8 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
   font-size: 13px; color: var(--ink); overflow-wrap: anywhere;
 }
 .toast[hidden] { display: none; }
+/* The one action a toast can carry. The toast takes clicks only where that button is. */
+.toast-act { pointer-events: auto; border: 0; padding: 0; background: none; font: inherit; color: var(--studio-accent); cursor: pointer; text-decoration: underline; }
 
 /* ============================================================== stage === */
 

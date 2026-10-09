@@ -674,6 +674,283 @@ check('prose without a notice yields nothing', none.size === 0);
     && /label: `Only \$\{f\[0\]\.toUpperCase\(\)\}\$\{f\.slice\(1\)\}`/.test(src('app.js')) && /isection\('Model', dl\)/.test(src('app.js')));
 }
 
+/* Expand all and Fold all. The case this was found on: Graph, "Workflow run", Auto density, a live session whose
+   agents of one type stood as one card each — Frontend ×4, Security ×2, Test ×2 — in a window with room, where
+   such a card opens beside itself. Expand all left every one of them folded. */
+{
+  const dom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?all=${Date.now()}`);
+  const S0 = { id: 'session', kind: 'session', status: 'session', turns: 1, cwd: '/x' };
+  const A0 = (id, type, extra = {}) => ({ id, kind: 'agent', agentType: type, status: 'done', parentId: 'session', description: `task of ${id}`, ...extra });
+  const field = () => [S0,
+    A0('p1', 'crew-planner', { order: 1 }),
+    ...[2, 3, 4, 5].map((n) => A0(`f${n}`, 'crew-frontend-expert', { order: n, status: n === 5 ? 'running' : 'done' })),
+    A0('s6', 'crew-security-expert', { order: 6 }), A0('t7', 'crew-test-expert', { order: 7 }),
+    A0('s8', 'crew-security-expert', { order: 8 }), A0('t9', 'crew-test-expert', { order: 9 }),
+    { id: 'wf:audit', kind: 'workflow', workflowId: 'audit', status: 'done', members: 2, parentId: 'session' },
+    A0('w1', 'crew-review-agent', { parentId: 'wf:audit', workflow: 'audit' }), A0('w2', 'crew-review-agent', { parentId: 'wf:audit', workflow: 'audit' })];
+  const made = (aside) => {
+    const c = new Canvas(document.createElement('div'), {});
+    c.setSession(`all-${aside}-${Math.random()}`);
+    c.setAside(aside);
+    c.render({ nodes: field(), edges: [] });
+    return c;
+  };
+  const groupsOf = (c) => c.lastPlan.items.filter((it) => it.kind === 'group');
+  const says = (c) => groupsOf(c).map((it) => `${it.label}${it.count ? ` ×${it.count}` : ''}:${it.open ? 'open' : 'folded'}`).join(', ');
+  const TYPES = ['type:session:crew-frontend-expert', 'type:session:crew-security-expert', 'type:session:crew-test-expert'];
+
+  const c = made(true);
+  const before = says(c);
+  c.expandAll();
+  check('THE CASE: under "Workflow run" at Auto density, Expand all opens the cards that stand for agents of one type',
+    TYPES.every((id) => c.lastPlan.items.find((it) => it.id === id)?.open === true) && c.els.has('f2') && c.els.has('s6') && c.els.has('t9'),
+    `before: ${before} | after Expand all: ${says(c)}`);
+  check('and every other group with them: the run is open as well',
+    groupsOf(c).length === 4 && groupsOf(c).every((it) => it.open) && c.cellEls.has('w1'), says(c));
+  c.foldAll();
+  check('Fold all folds every group, and what a folded group holds goes with it',
+    groupsOf(c).every((it) => !it.open) && groupsOf(c).length === 4 && !c.els.has('f2') && !c.els.has('w1'), says(c));
+
+  c.expandAll();
+  c.toggle('type:session:crew-security-expert');
+  check('a group the viewer closes by hand after Expand all stays closed, and the others stay open',
+    c.lastPlan.items.find((it) => it.id === 'type:session:crew-security-expert').open === false
+    && c.lastPlan.items.find((it) => it.id === 'type:session:crew-frontend-expert').open === true
+    && c.lastPlan.items.find((it) => it.id === 'type:session:crew-test-expert').open === true, says(c));
+  c.render({ nodes: [...field(), A0('d10', 'crew-database-expert', { order: 10 }), A0('d11', 'crew-database-expert', { order: 11 })], edges: [] });
+  check('a group that arrives after Expand all arrives open; the one closed by hand is still closed',
+    c.lastPlan.items.find((it) => it.id === 'type:session:crew-database-expert').open === true && c.els.has('d10')
+    && c.lastPlan.items.find((it) => it.id === 'type:session:crew-security-expert').open === false, says(c));
+  c.foldAll();
+  c.render({ nodes: [...field(), A0('d10', 'crew-database-expert'), A0('d11', 'crew-database-expert'), A0('b12', 'crew-backend-expert'), A0('b13', 'crew-backend-expert')], edges: [] });
+  check('and one that arrives after Fold all arrives folded, the run included',
+    groupsOf(c).every((it) => !it.open) && groupsOf(c).some((it) => it.id === 'type:session:crew-backend-expert'), says(c));
+
+  const st = () => c.state();
+  c.expandAll();
+  const allOpen = st();
+  c.foldAll();
+  const allFolded = st();
+  c.toggle('type:session:crew-frontend-expert');
+  const mixed = st();
+  check('the two controls say what is true: nothing left to open after Expand all, nothing left to fold after Fold all, both when it is mixed',
+    allOpen.canExpand === false && allOpen.canFold === true && allFolded.canExpand === true && allFolded.canFold === false
+    && mixed.canExpand === true && mixed.canFold === true,
+    JSON.stringify({ allOpen: [allOpen.canExpand, allOpen.canFold], allFolded: [allFolded.canExpand, allFolded.canFold], mixed: [mixed.canExpand, mixed.canFold] }));
+
+  const tpl = await import(`../../kit/studio/web/timeline-plan.js?all=${Date.now()}`);
+  const lpl = await import(`../../kit/studio/web/list-plan.js?all=${Date.now()}`);
+  check('the Timeline\'s groups follow the same rule: as left by hand, else the last Expand all or Fold all, else open',
+    [...tpl.foldedSet(['a', 'b', 'c'], new Map([['b', true]]), null)].join() === 'b'
+    && [...tpl.foldedSet(['a', 'b', 'c'], new Map([['b', false]]), false)].join() === 'a,c'
+    && tpl.foldedSet(['a', 'b', 'new'], new Map(), true).size === 0 && tpl.foldedSet(['a', 'new'], new Map(), false).has('new'));
+  const secs = (opts) => lpl.sections(field(), { now: 0, ...opts }).filter((x) => x.foldable).map((x) => `${x.key}:${x.folded ? 'folded' : 'open'}`).join(', ');
+  check('and so do the List\'s sections: Expand all opens the ones that start folded, Fold all folds the ones that start open',
+    /done:folded/.test(secs({})) && !/folded/.test(secs({ all: true })) && !/open/.test(secs({ all: false }))
+    && /done:folded/.test(secs({ all: true, folded: new Map([['done', true]]) })) && /running:open/.test(secs({ all: false, folded: new Map([['running', false]]) })),
+    `default: ${secs({})} | expanded: ${secs({ all: true })} | folded: ${secs({ all: false })}`);
+  const appAll = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the two controls are offered in all three views and act on the one that is open',
+    /id="tb-expand" data-view="graph timeline list"/.test(read(path.join(WEB_ROOT, 'index.html')) ?? '')
+    && /id="tb-fold" data-view="graph timeline list"/.test(read(path.join(WEB_ROOT, 'index.html')) ?? '')
+    && /const foldTarget = \(\) => \(view === 'timeline' \? timeline : view === 'list' \? list : null\);/.test(appAll)
+    && /\(foldTarget\(\) \?\? canvas\)\.expandAll\(\); paintFoldButtons\(\);/.test(appAll)
+    && /el\.tbExpand\.disabled = !s\.canExpand;\s*el\.tbFold\.disabled = !s\.canFold;/.test(appAll));
+
+  const narrow = made(false);
+  narrow.expandAll();
+  check('in a narrow window, where a group opens downward, Expand all opens them too',
+    groupsOf(narrow).every((it) => it.open && it.boxed) && narrow.cellEls.has('f2'), says(narrow));
+  for (const g of ['type', 'parent', 'none', 'order']) {
+    const o = made(true);
+    o.setGroup(g);
+    o.expandAll();
+    const open = groupsOf(o).every((it) => it.open);
+    o.foldAll();
+    check(`Group: ${g} — after Expand all every group is open, after Fold all every one is folded`,
+      open && groupsOf(o).every((it) => !it.open), `${groupsOf(o).length} groups at the top level when folded`);
+  }
+  const filtered = made(true);
+  filtered.setFilter('running');
+  filtered.expandAll();
+  check('with a status filter on, Expand all still opens every group', groupsOf(filtered).every((it) => it.open), says(filtered));
+  const reopened = made(true);
+  reopened.expandAll();
+  reopened.toggle('type:session:crew-security-expert');
+  reopened.toggle('type:session:crew-security-expert');
+  check('after Expand all, opening one group again by hand does not fold the others: all of them were asked for',
+    groupsOf(reopened).every((it) => it.open), says(reopened));
+  // Groups inside groups: two Frontend agents are one card; the first of them called three Explore agents, which
+  // are one card of their own under it; and a run whose member called two more of a kind.
+  const nestedNodes = [S0, A0('f1', 'crew-frontend-expert'), A0('f2', 'crew-frontend-expert'),
+    A0('x1', 'Explore', { parentId: 'f1' }), A0('x2', 'Explore', { parentId: 'f1' }), A0('x3', 'Explore', { parentId: 'f1' }),
+    { id: 'wf:n', kind: 'workflow', workflowId: 'n', status: 'done', members: 1, parentId: 'session' },
+    A0('m1', 'crew-review-agent', { parentId: 'wf:n', workflow: 'n' }), A0('y1', 'Explore', { parentId: 'm1' }), A0('y2', 'Explore', { parentId: 'm1' })];
+  for (const aside of [true, false]) {
+    const n = new Canvas(document.createElement('div'), {});
+    n.setSession(`nested-${aside}`);
+    n.setAside(aside);
+    n.render({ nodes: nestedNodes, edges: [] });
+    const start = says(n);
+    n.expandAll();
+    const ids = groupsOf(n).map((it) => it.id).sort().join(' ');
+    const reached = aside ? n.els.has('x1') && n.els.has('y2') : n.cellEls.has('x1') && n.cellEls.has('y2');
+    check(`nested groups, ${aside ? 'opening beside' : 'opening downward'}: Expand all opens the group inside an opened group too, down to the last agent`,
+      ids === 'type:f1:Explore type:m1:Explore type:session:crew-frontend-expert wf:n' && groupsOf(n).every((it) => it.open) && reached
+      && n.state().canExpand === false,
+      `start: ${start} | after: ${says(n)}`);
+    n.foldAll();
+    check(`nested groups, ${aside ? 'beside' : 'downward'}: Fold all folds the outer ones and takes the inner ones with them`,
+      groupsOf(n).every((it) => !it.open) && groupsOf(n).length === 2 && !n.els.has('x1') && !n.cellEls.has('x1') && n.state().canFold === false, says(n));
+    n.expandAll();
+    n.toggle('type:f1:Explore');
+    check(`nested groups, ${aside ? 'beside' : 'downward'}: an inner group folded by hand stays folded while its holder stays open`,
+      n.lastPlan.items.find((it) => it.id === 'type:f1:Explore').open === false && n.lastPlan.items.find((it) => it.id === 'type:session:crew-frontend-expert').open === true
+      && n.state().canExpand === true && n.state().canFold === true, says(n));
+  }
+
+  const one = made(true);
+  one.toggle('type:session:crew-frontend-expert');
+  one.toggle('type:session:crew-test-expert');
+  check('opened one at a time by hand, an agent group still folds the one opened before it',
+    one.lastPlan.items.find((it) => it.id === 'type:session:crew-test-expert').open === true
+    && one.lastPlan.items.find((it) => it.id === 'type:session:crew-frontend-expert').open === false, says(one));
+  dom();
+}
+
+/* An agent's report. A subagent hands its result back with a tool call, SubagentHandback, whose `message` is the
+   report; it often writes nothing after it. Measured on one machine before this was written: of 406 agents, 61
+   showed "Not reported" and 19 showed a line of narration as their report, with the report sitting in the call. */
+{
+  const gr = await import(`../../kit/studio/server/lib/graph.js?hb=${Date.now()}`);
+  const say = (text) => ({ type: 'assistant', timestamp: '2026-01-01T00:00:00Z', message: { model: 'claude-sonnet-5-5', content: [{ type: 'text', text }] } });
+  const tool = (name, input) => ({ type: 'assistant', timestamp: '2026-01-01T00:00:01Z', message: { model: 'claude-sonnet-5-5', content: [{ type: 'tool_use', id: `t-${name}-${Math.random()}`, name, input }] } });
+  const REPORT = '**Plan.** Three steps.\n\nconfidence: low';
+  check('a handback with nothing written after it is the report',
+    gr.reportIn([tool('SubagentHandback', { message: REPORT })]).text === REPORT && gr.reportIn([tool('SubagentHandback', { message: REPORT })]).from === 'handback');
+  check('what was written before the handback is narration, not the report',
+    gr.reportIn([say('Let me look at the routes first.'), tool('Read', { file_path: '/x' }), tool('SubagentHandback', { message: REPORT })]).text === REPORT);
+  check('text written after the handback is the agent\'s own last word, and wins',
+    gr.reportIn([tool('SubagentHandback', { message: REPORT }), say('Handed back. Nothing further.')]).from === 'closing'
+    && gr.reportIn([tool('SubagentHandback', { message: 'first' }), say('between'), tool('SubagentHandback', { message: 'second' })]).text === 'second');
+  check('with no handback the last text is the report, as it was; with neither there is none',
+    gr.reportIn([say('one'), tool('Bash', { command: 'ls' }), say('two')]).text === 'two' && gr.reportIn([say('two')]).from === 'text'
+    && gr.reportIn([tool('Bash', { command: 'ls' })]).text === null && gr.reportIn([tool('SubagentHandback', { message: '  ' })]).text === null
+    && gr.reportIn([]).from === null);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-handback-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { content: 'go' } }) + '\n');
+  fs.writeFileSync(path.join(sub, 'agent-aplan.meta.json'), JSON.stringify({ agentType: 'crew-planner', description: 'Plan it' }));
+  fs.writeFileSync(path.join(sub, 'agent-aplan.jsonl'), [say('Reading the code.'), tool('Read', { file_path: '/x' }), tool('SubagentHandback', { message: REPORT })].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const session = { sessionId: 'handback-session', file, subagentsDir: sub };
+  const detail = await gr.agentDetail(session, 'aplan');
+  const g = await gr.buildGraph(session);
+  fs.rmSync(dir, { recursive: true, force: true });
+  check('the inspector\'s Report is filled from the handback, and the narration stays narration',
+    detail.report === REPORT && detail.reportFrom === 'handback' && detail.narration.join('|') === 'Reading the code.',
+    `report from ${detail.reportFrom}; narration: ${detail.narration.join(' | ')}`);
+  check('the line a report closes with is read from the handback too: its confidence, and so an escalation after it',
+    g.nodes.find((n) => n.id === 'aplan').confidence === 'low');
+}
+
+/* Reset layout: the cards the viewer moved go back where the layout puts them, and nothing else changes. */
+{
+  const dom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?reset=${Date.now()}`);
+  const S0 = { id: 'session', kind: 'session', status: 'session', turns: 1, cwd: '/x' };
+  const A0 = (id, type, status = 'done') => ({ id, kind: 'agent', agentType: type, status, parentId: 'session', description: `task of ${id}` });
+  const nodes = [S0, A0('a', 'one'), A0('b', 'two', 'running'), A0('c', 'three'), A0('x1', 'four'), A0('x2', 'four')];
+  const c = new Canvas(document.createElement('div'), {});
+  const OTHER = JSON.stringify({ group: 'run', pins: { z: [1, 2] }, open: {} });
+  localStorage.setItem('crewforth-studio-graph:someone-else', OTHER);
+  c.setSession('reset-layout');
+  c.render({ nodes, edges: [] });
+  const where = () => ['a', 'b', 'c', 'type:session:four'].map((id) => `${id}@${c.pos.get(id).x},${c.pos.get(id).y}`).join(' ');
+  const auto = where();
+  check('with no card moved there is nothing to reset, and the control says so', c.state().moved === 0 && c.resetLayout() === null);
+  {
+    // A real drag, as the pointer does it: down on a card, moved past the three pixels that tell a drag from a
+    // click, up. The page hears the state change during the drag, which is what turns the control on.
+    const told = [];
+    const d = new Canvas(document.createElement('div'), { onChange: (st) => told.push(st.moved) });
+    d.setSession('reset-drag');
+    d.render({ nodes, edges: [] });
+    const card = d.els.get('a');
+    const at0 = `${d.pos.get('a').x},${d.pos.get('a').y}`;
+    const before = told.at(-1);
+    card.emit('pointerdown', { clientX: 100, clientY: 100, pointerId: 1 });
+    card.emit('pointermove', { clientX: 102, clientY: 101, pointerId: 1 });
+    const afterNudge = d.state().moved;
+    card.emit('pointermove', { clientX: 180, clientY: 140, pointerId: 1 });
+    const during = told.at(-1);
+    card.emit('pointerup', { clientX: 180, clientY: 140, pointerId: 1 });
+    check('dragging a card turns the control on: the page is told a card has been moved while the drag is still going',
+      before === 0 && afterNudge === 0 && during === 1 && d.state().moved === 1 && `${d.pos.get('a').x},${d.pos.get('a').y}` !== at0
+      && JSON.parse(localStorage.getItem('crewforth-studio-graph:reset-drag')).pins.a.length === 2,
+      `told: ${before} -> ${during}; a moved from ${at0} to ${d.pos.get('a').x},${d.pos.get('a').y}`);
+    const back = d.resetLayout();
+    check('and Reset after that drag puts the card back and turns the control off again',
+      back.pins.size === 1 && `${d.pos.get('a').x},${d.pos.get('a').y}` === at0 && told.at(-1) === 0);
+  }
+  c.pinned.set('a', { x: 900, y: 40 });
+  c.pinned.set('c', { x: 700, y: 500 });
+  c.toggle('type:session:four');
+  c.setFilter('running');
+  c.zoomTo(0.6);
+  c.selected = 'b';
+  c.render({ nodes, edges: [] });
+  const dragged = where();
+  const openBefore = c.lastPlan.items.find((it) => it.id === 'type:session:four').open;
+  const was = c.resetLayout();
+  check('Reset layout puts every moved card back where the layout puts it',
+    dragged !== auto && where() === auto && c.state().moved === 0 && was.pins.size === 2, `dragged: ${dragged} | reset: ${where()}`);
+  check('and keeps what is selected, what is filtered, the zoom and which groups are open',
+    c.selected === 'b' && c.dimmed(nodes[1]) === true && c.dimmed(nodes[2]) === false && Math.abs(c.view.k - 0.6) < 1e-9
+    && c.lastPlan.items.find((it) => it.id === 'type:session:four').open === openBefore && openBefore === true);
+  const saved = JSON.parse(localStorage.getItem('crewforth-studio-graph:reset-layout'));
+  check('the saved layout of this session loses its positions and keeps its folds; another session\'s is not touched',
+    Object.keys(saved.pins).length === 0 && saved.open['type:session:four'] === true
+    && localStorage.getItem('crewforth-studio-graph:someone-else') === OTHER);
+  check('Undo brings the dragged layout back exactly', c.restoreLayout(was) === true && where() === dragged && c.state().moved === 2);
+  c.resetLayout();
+  c.setGroup('none');
+  check('an undo that has outlived its grouping or its session does nothing', c.restoreLayout(was) === false && c.state().moved === 0);
+  dom();
+  const app = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+  check('the toolbar has the control, off until a card is moved; r does the same on the graph; and the toast offers Undo',
+    /id="tb-reset" data-view="graph"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
+    && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
+    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(canvas\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
+  const keys = await import(`../../kit/studio/web/keys.js?k=${Date.now()}`);
+  const press = (key, extra = {}) => keys.shortcutOf({ key, target: { tagName: 'DIV' }, ...extra });
+  check('r is a shortcut only as a bare key outside a field: not while typing, and not as Cmd+R, Ctrl+R or Alt+R',
+    press('r') === 'r'
+    && press('r', { metaKey: true }) === null && press('r', { ctrlKey: true }) === null && press('r', { altKey: true }) === null
+    && press('r', { target: { tagName: 'INPUT' } }) === null && press('r', { target: { tagName: 'TEXTAREA' } }) === null
+    && press('r', { target: { tagName: 'select' } }) === null && press('r', { target: { tagName: 'DIV', isContentEditable: true } }) === null
+    && press('r', { target: null }) === 'r' && keys.shortcutOf(null) === null);
+  check('a symbol typed with Alt is still its shortcut: "[" and "]" on a keyboard where they are Option+8 and Option+9, "/" and "?" the same',
+    press('[', { altKey: true }) === '[' && press(']', { altKey: true }) === ']' && press('/', { altKey: true }) === '/' && press('?', { altKey: true, shiftKey: true }) === '?'
+    && press('[') === '[' && press('[', { altKey: true, target: { tagName: 'INPUT' } }) === null
+    && press('[', { altKey: true, metaKey: true }) === null && press('[', { altKey: true, ctrlKey: true }) === null,
+    'the browser reports the symbol as the key and Alt as held');
+  check('Alt still refuses every letter, a letter outside ASCII among them, and a named key',
+    ['r', 'g', 't', 'l', 'j', 'k', 'f', 'R', 'ş', 'ı', 'ö'].every((k) => press(k, { altKey: true }) === null)
+    && press('ArrowLeft', { altKey: true }) === null && press('Escape', { altKey: true }) === null
+    // What Option+R gives on a Mac is a symbol, and it is no shortcut of this panel: it reaches the handler and matches nothing.
+    && press('®', { altKey: true }) === '®');
+  check('every letter shortcut goes through that one rule, r among them, and r is bound once',
+    /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(app) && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
+    && (app.match(/key === 'r'\)/g) ?? []).length === 1 && !/e\.key === '[gtlrjk]'/.test(app));
+  check('a group folded by hand in the Timeline or the List repaints the two controls at once',
+    /onChange: \(st\) => \{ paintTimelineBar\(st\); paintFoldButtons\(\); \},/.test(app) && /onFold: \(\) => paintFoldButtons\(\),/.test(app));
+}
+
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
    hold the arithmetic and the rules, not the prices' truth. */
 {
@@ -2844,8 +3121,8 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       c.els.has('b2') && !c.els.has('e1') && c.els.get('type:session:Explore').dataset.aside === 'false',
       [...c.els.keys()].join(', '));
     c.expandAll();
-    check('"Expand all" leaves agent groups to their own cards while they open beside themselves',
-      !c.els.has('e1') && c.els.has('b2'));
+    check('"Expand all" opens agent groups too, all of them at once, each beside itself',
+      c.els.has('e1') && c.els.has('b2'));
     c.setAside(false);
     check('when the window narrows the open group is a container again',
       !c.els.has('b2') && c.cellEls.has('b2') && c.els.get('type:session:crew-backend-expert').classList.contains('cv-open'));
@@ -2878,7 +3155,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       new Canvas(document.createElement('div'), {}).legendEl.hidden === true);
     c.showLegend(true);
     check('and comes back when asked for', new Canvas(document.createElement('div'), {}).legendEl.hidden === false
-      && /e\.key === '\?'/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+      && /[^.]key === '\?'/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   }
 
   /* -- 11. what is gone --------------------------------------------------- */
@@ -3665,8 +3942,10 @@ process.stdout.write('\n== §30 the top bar and the navigator ==\n');
     check('the footer line is gone; its reasons moved into the toolbar',
       !/<footer/.test(indexHtml) && /<span id="foot-note" class="toolbar-note" role="status">/.test(indexHtml));
     check('the navigator answers to / [ and ]',
-      /e\.key === '\/'/.test(appJs) && /e\.key === '\['/.test(appJs) && /e\.key === '\]'/.test(appJs)
-      && /tagName === 'INPUT'/.test(appJs), 'and not while something is being typed into');
+      /[^.]key === '\/'/.test(appJs) && /[^.]key === '\['/.test(appJs) && /[^.]key === '\]'/.test(appJs)
+      // "Not while typing" is one rule in keys.js, asked before any of them.
+      && /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(appJs)
+      && /tag === 'INPUT'/.test(read(path.join(WEB_ROOT, 'keys.js')) ?? ''), 'and not while something is being typed into');
     check('a terminal is only opened after its command has been shown',
       /note: plan\.line/.test(appJs) && appJs.indexOf('note: plan.line') < appJs.indexOf("method: 'POST'"),
       'the command is in the menu before the button that runs it');
@@ -4458,10 +4737,36 @@ process.stdout.write('\n== §33 the Timeline ==\n');
       check('clicking a row chooses its agent and opens the drawer', tl.selected === 'b1' && tl.drawer.hidden === false && chosen.join() === 'b1');
       agentRow().emit('click');
       check('clicking it again lets go', tl.selected === null && tl.drawer.hidden === true);
-      tl.folded.add('run:wf-audit');
+      tl.fold.set('run:wf-audit', true);
       tl.select('w7');
       check('choosing an agent from outside opens the group it is folded into and shows every row of it',
-        !tl.folded.has('run:wf-audit') && tl.expanded.has('run:wf-audit') && tl.selected === 'w7');
+        tl.fold.get('run:wf-audit') === false && tl.expanded.has('run:wf-audit') && tl.selected === 'w7');
+      tl.foldAll();
+      const tlFolded = tl.foldState();
+      const rowsFolded = tl.lastRows.filter((r) => r.kind === 'group').every((r) => r.folded) && !tl.lastRows.some((r) => r.kind === 'agent' && r.group === 'run:wf-audit');
+      tl.expandAll();
+      const tlOpen = tl.foldState();
+      check('in the Timeline, Fold all folds every group and Expand all opens every one and shows every row of the long ones',
+        rowsFolded && tlFolded.canFold === false && tlFolded.canExpand === true && tlOpen.canExpand === false && tlOpen.canFold === true
+        && tl.lastRows.filter((r) => r.kind === 'group').every((r) => !r.folded) && !tl.lastRows.some((r) => r.kind === 'more'),
+        `${tl.lastRows.filter((r) => r.kind === 'group').length} groups`);
+      tl.fold.set('run:wf-audit', true);
+      tl.render();
+      check('and a group folded by hand after Expand all stays folded while the rest stay open',
+        tl.lastRows.find((r) => r.id === 'run:wf-audit').folded === true && tl.lastRows.filter((r) => r.kind === 'group' && !r.folded).length >= 1
+        && tl.foldState().canExpand === true && tl.foldState().canFold === true);
+      {
+        // A header clicked by hand: the page hears of it in the same turn, so the two controls are right at once
+        // and not a tick later.
+        const walkTl = (e, out = []) => { out.push(e); for (const c of e.children ?? []) walkTl(c, out); return out; };
+        const head = walkTl(tl.rowsEl).find((e) => e.getAttribute?.('aria-expanded') !== null && e.tagName === 'BUTTON' && e.children.some((c) => c.textContent === tl.lastRows.find((r) => r.kind === 'group').label));
+        const heard = changes.length;
+        const was = tl.lastRows.find((r) => r.kind === 'group').folded;
+        head.emit('click');
+        check('folding one Timeline group by hand tells the page at once, and the controls\' state has already changed',
+          changes.length === heard + 1 && tl.lastRows.find((r) => r.kind === 'group').folded === !was,
+          `${changes.length - heard} change told`);
+      }
       check('the Timeline opens following now, on fifteen minutes', changes.length > 0 && tl.state().follow === true && tl.state().range === '15m');
       tl.pan(-200);
       check('moving the view by hand stops following', tl.follow === false && tl.state().follow === false && tl.end !== null);
@@ -4476,7 +4781,9 @@ process.stdout.write('\n== §33 the Timeline ==\n');
     check('the toolbar switches between the graph and the Timeline, and each view shows only its own controls',
       /id="view-graph"[^>]*role="tab"[^>]*aria-selected="true"/.test(indexHtml) && /id="view-timeline"[^>]*role="tab"/.test(indexHtml)
       && /for \(const c of document\.querySelectorAll\('\.toolbar \[data-view\]'\)\) c\.hidden = !c\.dataset\.view\.split\(' '\)\.includes\(view\);/.test(appJs)
-      && ['tb-density', 'tb-expand', 'tb-fold', 'tb-zoom-out', 'tb-zoom', 'tb-zoom-in', 'tb-fit'].every((i) => new RegExp(`id="${i}" data-view="graph"`).test(indexHtml))
+      && ['tb-density', 'tb-zoom-out', 'tb-zoom', 'tb-zoom-in', 'tb-fit'].every((i) => new RegExp(`id="${i}" data-view="graph"`).test(indexHtml))
+      // Expand all and Fold all belong to all three views: each has groups of its own to open and fold.
+      && ['tb-expand', 'tb-fold'].every((i) => new RegExp(`id="${i}" data-view="graph timeline list"`).test(indexHtml))
       && (indexHtml.match(/data-view="timeline"/g) ?? []).length === 4);
     check('what is selected stays selected across the switch, in both directions',
       /const carried = select \?\? \(was === 'timeline' \? timeline\.selected : was === 'list' \? list\.selected : canvas\.selected\) \?\? null;/.test(appJs)
@@ -4586,8 +4893,8 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
 
   check('there are three views, and g, t and l go to them',
     /id="view-list"[^>]*role="tab"[^>]*aria-label="List view"/.test(indexHtml)
-    && /e\.key === 'g'\) \{\s*setView\('graph'\);/.test(appJs) && /e\.key === 't'\) \{\s*setView\('timeline'\);/.test(appJs)
-    && /e\.key === 'l'\) \{\s*setView\('list'\);/.test(appJs));
+    && /[^.]key === 'g'\) \{\s*setView\('graph'\);/.test(appJs) && /[^.]key === 't'\) \{\s*setView\('timeline'\);/.test(appJs)
+    && /[^.]key === 'l'\) \{\s*setView\('list'\);/.test(appJs));
   check('in the List the requests are cards with their answers, so the dock stands down and the strip is not repeated',
     /dock\.setSuppressed\(view === 'list'\);/.test(appJs) && /list\.setQueue\(next\);/.test(appJs)
     && /\.stage\[data-view="list"\] \.attention \{ display: none; \}/.test(css34));
@@ -4709,7 +5016,8 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     const root = document.createElement('div');
     const sent = [];
     const picked = [];
-    const view = new List(root, { onDecide: (item, verdict) => sent.push(`${item.key}:${verdict}`), onSelect: (n) => picked.push(n.id) });
+    let folds = 0;
+    const view = new List(root, { onDecide: (item, verdict) => sent.push(`${item.key}:${verdict}`), onSelect: (n) => picked.push(n.id), onFold: () => { folds += 1; } });
     view.now = () => T + 8200;
     view.setSession('s-here');
     view.setNodes(nodes);
@@ -4717,6 +5025,23 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     const needs = root.children[0];
     const card = needs.children.find((c) => c.classList.contains('ls-card'));
     const buttons = card.children[card.children.length - 1].children;
+    {
+      const heads = root.children.map((sec) => sec.children[0]).filter((h) => h.tagName === 'BUTTON');
+      const before = view.foldState();
+      const told = folds;
+      heads[heads.length - 1].emit('click');
+      const after = view.foldState();
+      check('folding or opening one List section by hand tells the page at once, and what the two controls can do has already changed',
+        folds === told + 1 && (before.canExpand !== after.canExpand || before.canFold !== after.canFold || heads.length > 1),
+        `before ${JSON.stringify(before)} after ${JSON.stringify(after)}`);
+      view.foldAll();
+      const allFolded = view.foldState();
+      view.expandAll();
+      check('and the List\'s own Expand all and Fold all report through the same hook',
+        folds === told + 3 && allFolded.canFold === false && view.foldState().canExpand === false);
+      view.all = null; view.folded = new Map(); view.render();
+    }
+    const needsAgain = root.children[0];
     check('a request card carries the same three answers the dock does',
       buttons.map((b) => b.textContent).join(' | ') === 'Allow once | Allow Bash this session | Deny');
     {

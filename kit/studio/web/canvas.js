@@ -88,6 +88,7 @@ export class Canvas {
     this.seq = new Map();        // id -> arrival number (see graph-plan.js)
     this.open = new Map();       // group id -> the viewer's own fold
     this.aside = false;          // an agent group opens into the next column, not downward
+    this.all = null;             // true after Expand all, false after Fold all: what an untouched group is
     // Ids that arrived on the last poll. A wire into one of these draws itself; every other wire is left alone,
     // so opening a group of 105 does not set 105 animations running at once.
     this.newborn = new Set();
@@ -398,6 +399,12 @@ export class Canvas {
       drawn: this.drawn,
       focus: this.focusId ? (roleName(this.nodes.get(this.focusId)?.agentType) || this.focusId) : null,
       groups: (this.lastPlan?.items ?? []).filter((it) => it.kind === 'group').length,
+      // Whether there is anything left for each control to do. A group inside a folded one is not drawn, and
+      // opens with its holder: it is not something "Fold all" has left undone.
+      // How many cards the viewer has placed by hand: what "Reset layout" would forget.
+      moved: this.pinned.size,
+      canExpand: (this.lastPlan?.items ?? []).some((it) => it.kind === 'group' && !it.open),
+      canFold: (this.lastPlan?.items ?? []).some((it) => it.kind === 'group' && it.open),
     };
   }
 
@@ -420,6 +427,7 @@ export class Canvas {
     // Positions set by hand and folds chosen for one grouping say nothing about another.
     this.pinned.clear();
     this.open.clear();
+    this.all = null;
     this.sessionY = null;
     this.#crowdFold();
     this.#persist();
@@ -486,24 +494,23 @@ export class Canvas {
     return this.#statusOf(n);
   }
 
-  expandAll() {
-    // Beside itself an agent group opens one at a time, by its own card; "all" is then every other kind of group.
-    const mine = (it) => it.kind === 'group' && !(this.aside && it.type === 'type');
-    for (const it of this.lastPlan?.items ?? []) if (mine(it)) this.open.set(it.id, true);
-    // Opening one level can reveal groups inside it; open those too.
-    for (let i = 0; i < 4; i += 1) {
-      const p = this.#plan();
-      let more = false;
-      for (const it of p.items) if (mine(it) && !it.open) { this.open.set(it.id, true); more = true; }
-      if (!more) break;
-    }
-    this.sessionY = null;
-    this.#persist();
-    this.#redraw({ fit: true });
-  }
+  /**
+   * Open every group, of every kind, at every depth — and keep doing so: a group that arrives later arrives open.
+   * What the viewer then folds by hand stays folded.
+   *
+   * It used to pass over the cards that stand for agents of one type whenever such a card opens beside itself,
+   * on the reasoning that those open one at a time. That left "Expand all" doing nothing in a session whose
+   * only groups were of that kind.
+   */
+  expandAll() { this.#setAll(true); }
 
-  foldAll() {
-    for (const it of this.lastPlan?.items ?? []) if (it.kind === 'group') this.open.set(it.id, false);
+  /** Fold every group, and keep doing so for the ones that arrive later. */
+  foldAll() { this.#setAll(false); }
+
+  #setAll(open) {
+    this.all = open;
+    // Every group follows the one choice; what was opened or folded by hand before it is forgotten.
+    this.open.clear();
     this.sessionY = null;
     this.#persist();
     this.#redraw({ fit: true });
@@ -516,13 +523,32 @@ export class Canvas {
     this.#redraw({ fit: true });
   }
 
-  /** Forget every hand-placed card and lay the graph out again. */
+  /**
+   * Forget every hand-placed card and lay the graph out again. Only the positions go: what is selected, what is
+   * filtered, the zoom, and which groups are open stay as they are. This session's saved layout loses its
+   * positions with it, and no other session's is touched.
+   * @returns what was forgotten, for `restoreLayout` to put back; null when no card had been moved
+   */
   resetLayout() {
+    if (!this.pinned.size) return null;
+    const was = { pins: new Map(this.pinned), sessionY: this.sessionY, session: this.sessionKey, group: this.group };
     this.pinned.clear();
     this.sessionY = null;
-    this.touched = false;
     this.#persist();
-    this.#redraw({ fit: true });
+    this.#redraw();
+    this.onChange?.(this.state());
+    return was;
+  }
+
+  /** Put back the positions `resetLayout` returned. Nothing happens if the session or the grouping has changed. */
+  restoreLayout(was) {
+    if (!was || was.session !== this.sessionKey || was.group !== this.group) return false;
+    this.pinned = new Map(was.pins);
+    this.sessionY = was.sessionY;
+    this.#persist();
+    this.#redraw();
+    this.onChange?.(this.state());
+    return true;
   }
 
   /* ----------------------------------------------------------- layout */
@@ -548,7 +574,7 @@ export class Canvas {
   #plan() {
     return plan(this.#visibleNodes(), {
       group: this.group, density: this.density, seq: this.seq, open: this.open, pinned: this.pinned, sessionY: this.sessionY,
-      aside: this.aside,
+      aside: this.aside, all: this.all,
     });
   }
 
@@ -576,6 +602,7 @@ export class Canvas {
     if (this.sessionKey === sessionId) return;
     this.sessionKey = sessionId;
     this.nodes.clear(); this.pos.clear(); this.pinned.clear(); this.open.clear(); this.seq.clear();
+    this.all = null;
     this.els.clear(); this.cellEls.clear(); this.nodeLayer.replaceChildren(); this.edgeG.replaceChildren();
     this.edgeEls.clear(); this.newborn.clear();
     this.mapRects.clear(); this.mapBoxes.replaceChildren();
@@ -1200,7 +1227,8 @@ export class Canvas {
     if (!it || it.kind !== 'group') return;
     this.open.set(groupId, !it.open);
     // Beside itself, one agent's tasks at a time: a second column of them from two groups reads as one list.
-    if (!it.open && it.type === 'type' && this.aside) {
+    // After "Expand all" that is not the rule: every group is open because the viewer asked for all of them.
+    if (!it.open && it.type === 'type' && this.aside && this.all !== true) {
       for (const other of this.lastPlan.items) if (other.kind === 'group' && other.type === 'type' && other.id !== groupId) this.open.set(other.id, false);
     }
     this.sessionY = null;
@@ -1396,6 +1424,7 @@ export class Canvas {
         group: this.group,
         pins: Object.fromEntries([...this.pinned].map(([id, p]) => [id, [p.x, p.y]])),
         open: Object.fromEntries(this.open),
+        all: this.all,
       }));
     } catch { /* kept for this page view only */ }
   }
@@ -1409,6 +1438,7 @@ export class Canvas {
       if (GROUPINGS.includes(saved.group)) this.group = saved.group;
       for (const [id, [x, y]] of Object.entries(saved.pins ?? {})) this.pinned.set(id, { x, y });
       for (const [id, on] of Object.entries(saved.open ?? {})) this.open.set(id, Boolean(on));
+      this.all = typeof saved.all === 'boolean' ? saved.all : null;
     } catch { /* start from the canvas's own layout */ }
   }
 }

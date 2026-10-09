@@ -108,6 +108,14 @@ export function lanes(bars) {
   return out[1].length ? out : [out[0]];
 }
 
+/**
+ * Which groups are folded. A group is as the viewer left it (`hand`: id -> folded); one they have not touched
+ * follows the last "Expand all" (`all` true) or "Fold all" (`all` false), and before either it is open.
+ */
+export function foldedSet(ids, hand = new Map(), all = null) {
+  return new Set(ids.filter((id) => (hand.has(id) ? hand.get(id) : all === false)));
+}
+
 /** The groups of a session's agents under one grouping, in the order they first started. */
 export function groupsOf(nodes, grouping) {
   const agents = nodes.filter((n) => n.kind === 'agent');

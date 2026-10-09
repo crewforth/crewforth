@@ -48,8 +48,9 @@ function rowOf(n, now) {
  * @param queue    the approval queue (every session started here), as approvals.js orders it
  * @param current  the session being looked at
  * @param folded   Map sectionKey -> boolean, the viewer's own choices; a section not in it takes its default
+ * @param all      true after "Expand all", false after "Fold all": what a section not in `folded` is
  */
-export function sections(nodes, { queue = [], current = null, folded = new Map(), now = 0 } = {}) {
+export function sections(nodes, { queue = [], current = null, folded = new Map(), all = null, now = 0 } = {}) {
   const agents = (nodes ?? []).filter((n) => n.kind === 'agent');
   const out = [];
 
@@ -89,7 +90,9 @@ export function sections(nodes, { queue = [], current = null, folded = new Map()
     if (!s.rows.length) continue;
     out.push({
       key: s.key, title: s.title, count: s.rows.length, tone: s.tone, cards: [], rows: s.rows,
-      folded: folded.has(s.key) ? folded.get(s.key) : s.foldedByDefault, foldable: true,
+      // As the viewer left it; untouched, it follows the last "Expand all" or "Fold all" (`all`), and before
+      // either its own default.
+      folded: folded.has(s.key) ? folded.get(s.key) : (typeof all === 'boolean' ? !all : s.foldedByDefault), foldable: true,
     });
   }
   return out;
