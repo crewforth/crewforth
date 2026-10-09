@@ -664,7 +664,7 @@ check('prose without a notice yields nothing', none.size === 0);
   c.els.get('type:session:crew-test-expert').emit('click');
   c.setAside(true);
   check('opened, each member is its own card with its task, its place, its time, its tokens and its model',
-    c.els.has('atest1') && c.els.get('atest2').parts.model.textContent === 'Opus 5.5' && /^#4 \u00b7 \d\d:\d\d$/.test(c.els.get('atest2').parts.order.textContent)
+    c.els.has('atest1') && c.els.get('atest2').parts.model.textContent === 'Sonnet \u2192 Opus' && c.els.get('atest1').parts.model.textContent === 'Sonnet 5.5' && /^#4 \u00b7 \d\d:\d\d$/.test(c.els.get('atest2').parts.order.textContent)
     && /new/.test(c.els.get('atest2').parts.facts.textContent) && c.els.get('atest2').parts.task.textContent === 'task of atest2');
   dom();
   const src = (f) => read(path.join(WEB_ROOT, f)) ?? '';
@@ -949,6 +949,92 @@ check('prose without a notice yields nothing', none.size === 0);
     && (app.match(/key === 'r'\)/g) ?? []).length === 1 && !/e\.key === '[gtlrjk]'/.test(app));
   check('a group folded by hand in the Timeline or the List repaints the two controls at once',
     /onChange: \(st\) => \{ paintTimelineBar\(st\); paintFoldButtons\(\); \},/.test(app) && /onFold: \(\) => paintFoldButtons\(\),/.test(app));
+}
+
+/* Density Auto. The session this was found on had sixteen agents — Security ×3, Frontend ×5, Test ×3, Review ×2
+   and three on their own — and at Auto its cards became one-line chips: the model shrank to a family name, and
+   the cards that stand for several agents lost the line that says which models they ran on. */
+{
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?auto=${Date.now()}`);
+  const nm = await import(`../../kit/studio/web/names.js?auto=${Date.now()}`);
+  const S0 = { id: 'session', kind: 'session', status: 'session', turns: 1, cwd: '/x' };
+  let order = 0;
+  const A0 = (id, type, model, extra = {}) => ({ id, kind: 'agent', agentType: type, status: 'done', parentId: 'session', description: `task of ${id}`, order: (order += 1), model, modelAsked: null, ...extra });
+  const sixteen = () => {
+    order = 0;
+    return [S0,
+      A0('pl', 'crew-planner', 'claude-opus-5-5'), A0('be', 'crew-backend-expert', 'claude-sonnet-5-5'),
+      ...[1, 2, 3].map((i) => A0(`se${i}`, 'crew-security-expert', 'claude-opus-5-5')),
+      ...[1, 2, 3, 4, 5].map((i) => A0(`fe${i}`, 'crew-frontend-expert', i < 3 ? 'claude-opus-5-5' : 'claude-sonnet-5-5')),
+      ...[1, 2, 3].map((i) => A0(`te${i}`, 'crew-test-expert', 'claude-sonnet-5-5', i === 3 ? { model: 'claude-opus-5-5', escalatedFrom: { id: 'te2', from: 'claude-sonnet-5-5', to: 'opus' } } : {})),
+      ...[1, 2].map((i) => A0(`re${i}`, 'crew-review-agent', 'claude-sonnet-5-5')),
+      A0('pe', 'crew-performance-expert', 'claude-haiku-5-5')];
+  };
+  const agentsIn = sixteen().filter((n) => n.kind === 'agent').length;
+  // Every group opened: the picture at its tallest, which is what does not fit a small pane.
+  const open = new Map(['security', 'frontend', 'test'].map((t) => [`type:session:crew-${t}-expert`, true]).concat([['type:session:crew-review-agent', true]]));
+  {
+    // Chips are shorter than cards and exactly as wide: going to chips cannot help a picture that is too wide, so
+    // Auto does not ask about width. Measured here on four shapes, one column to six.
+    const shape = (n, depth) => { const out = [{ id: 'session', kind: 'session' }]; let prev = ['session'];
+      for (let d = 0; d < depth; d += 1) { const next = []; for (let i = 0; i < n; i += 1) { const id = `w${d}-${i}`; out.push({ id, kind: 'agent', parentId: prev[i % prev.length], agentType: `t${d}-${i}`, status: 'completed', startedAt: 1000 + d * 100 + i }); next.push(id); } prev = next; }
+      return out; };
+    const pairs = [[16, 1], [8, 2], [4, 4], [3, 6]].map(([n, d]) => [gpl.plan(shape(n, d), { group: 'none', density: 'comfortable' }), gpl.plan(shape(n, d), { group: 'none', density: 'compact' })]);
+    check('chips are shorter than cards and no narrower, which is why Auto asks only whether the picture is too tall',
+      pairs.every(([card, chip]) => chip.width === card.width && chip.height < card.height) && new Set(pairs.map(([c]) => c.width)).size === 4,
+      pairs.map(([card, chip]) => `${card.width}x${card.height} -> ${chip.width}x${chip.height}`).join(' | '));
+  }
+  const small = gpl.plan(sixteen(), { open, tallest: gpl.tallestFor(724) });
+  const tall = gpl.plan(sixteen(), { open, tallest: gpl.tallestFor(1400) });
+  const few = gpl.plan(sixteen().slice(0, 4), { tallest: gpl.tallestFor(724) });
+  check('Auto asks whether the picture fits the pane, not how many agents there are: the same sixteen are chips in a short pane and cards in a tall one',
+    agentsIn === 16 && small.density === 'compact' && tall.density === 'comfortable' && small.drawn === tall.drawn && few.density === 'comfortable',
+    `${agentsIn} agents, ${tall.height}px as cards: pane 724px → ${small.density}; pane 1400px → ${tall.density}`);
+  check('what fits is the pane at the smallest zoom a card is read at, and never less than the reference window',
+    // The reference window's 724px pane is where the 900 came from: 676 / 0.75, a pixel either side of it.
+    Math.abs(gpl.tallestFor(724) - gpl.AUTO.tallest) <= 1 && gpl.tallestFor(1400) === Math.floor((1400 - 2 * gpl.ZOOM.pad) / gpl.AUTO.readable)
+    && gpl.tallestFor(200) === gpl.AUTO.tallest && gpl.tallestFor(0) === gpl.AUTO.tallest && gpl.tallestFor(undefined) === gpl.AUTO.tallest
+    && gpl.plan(sixteen(), { open }).density === small.density, `724px → ${gpl.tallestFor(724)}; 1400px → ${gpl.tallestFor(1400)}`);
+  check('Comfortable and Compact are still the viewer\'s word, whatever fits',
+    gpl.plan(sixteen(), { open, density: 'comfortable', tallest: 100 }).density === 'comfortable'
+    && gpl.plan(sixteen().slice(0, 3), { density: 'compact', tallest: 99999 }).density === 'compact');
+  check('a model is said in full on its badge at every density, the step for work repeated one model up, and a mark when another was asked for',
+    nm.modelBadge({ model: 'claude-opus-5-5' }) === 'Opus 5.5' && nm.modelBadge({ model: 'claude-haiku-4-5-20251001' }) === 'Haiku 4.5'
+    && nm.modelBadge({ model: 'claude-opus-5-5', escalatedFrom: { from: 'claude-sonnet-5-5', to: 'opus' } }) === 'Sonnet → Opus'
+    && nm.modelBadge({ model: 'claude-sonnet-5-5', modelAsked: 'haiku' }) === 'Sonnet 5.5 ≠' && nm.modelBadge({}) === '');
+
+  const dom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?auto=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  c.setSession('sixteen');
+  c.setDensity('compact');
+  c.render({ nodes: sixteen(), edges: [] });
+  const chip = c.els.get('pl');
+  const group = c.els.get('type:session:crew-frontend-expert');
+  check('THE CASE: as chips, an agent still says its model in full',
+    chip.classList.contains('cv-chip') && chip.parts.model.textContent === 'Opus 5.5' && c.els.get('pe').parts.model.textContent === 'Haiku 5.5'
+    && chip.parts.model.hidden === false, `${chip.parts.model.textContent}, ${c.els.get('pe').parts.model.textContent}`);
+  check('THE CASE: and a card that stands for several agents still says which models they ran on, beside its bar',
+    group.parts.count.textContent === '3 Sonnet · 2 Opus' && c.els.get('type:session:crew-security-expert').parts.count.textContent === '3 Opus'
+    && /done/.test(group.parts.count.title) && c.lastPlan.items.find((it) => it.id === 'type:session:crew-frontend-expert').h === gpl.SIZE.stack.tight,
+    `Frontend ×5: ${group.parts.count.textContent}; Security ×3: ${c.els.get('type:session:crew-security-expert').parts.count.textContent}`);
+  c.toggle('type:session:crew-test-expert');
+  c.setAside(true);
+  check('work repeated one model up says the step it took, on a chip as on a card', c.els.get('te3').parts.model.textContent === 'Sonnet → Opus');
+  c.setDensity('comfortable');
+  check('at full size the same card has its line of models and its bar says how its members went',
+    c.els.get('type:session:crew-frontend-expert').parts.mix.textContent === '3 Sonnet, 2 Opus'
+    && /done/.test(c.els.get('type:session:crew-frontend-expert').parts.count.textContent));
+  dom();
+  const app = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const css = (read(path.join(WEB_ROOT, 'style.css')) ?? '');
+  check('when Auto has turned cards into chips the Density button says so, and its tooltip says why',
+    /st\.density === 'auto' && st\.drawnAs === 'compact' \? 'Auto \\u00b7 compact'/.test(app) && /fits this pane at \$\{Math\.round\(AUTO\.readable \* 100\)\}%/.test(app));
+  check('the canvas plans again when its pane changes size: a window made taller gets its cards back',
+    /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.fitIfUntouched\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
+    && /tallestFor\(h\) !== tallestFor\(this\.paneHeight \?\? 0\)\) this\.#redraw\(\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+  check('on a chip the model does not shrink; the task beside it does',
+    /\.cv-chip \.cv-model \{ flex: none; \}/.test(css) && /\.cv-chip \.cv-task \{ flex: 1 1 0;/.test(css));
 }
 
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
@@ -2939,7 +3025,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const unnamed = all.filter((el) => !el.getAttribute('aria-label'));
     check('every card names itself for a screen reader, whatever it is drawn as',
       unnamed.length === 0 && all.length > 250
-      && /^Explore, (Running|Done), task of w0-0 \(Claude Code built-in agent\)$/.test(c.cellEls.get('w0-0').getAttribute('aria-label')),
+      && /^Explore, (Running|Done), task of w0-0 \(Claude Code agent\)$/.test(c.cellEls.get('w0-0').getAttribute('aria-label')),
       `${all.length - unnamed.length} of ${all.length} carried an aria-label; one reads ${JSON.stringify(c.cellEls.get('w0-0').getAttribute('aria-label'))}`);
     check('status is never colour alone: every member carries its word beside its dot',
       [...c.cellEls.values()].every((el) => el.parts.word.textContent.length > 2 && el.parts.dot.dataset.tone));
@@ -2952,29 +3038,123 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const tile = (id) => c.els.get(id).parts.tile;
     check('whose agent it is, is said by its mark: Crewforth\'s chevrons, or the one file for everyone else',
       tile('k').dataset.source === 'kit' && /chevron-3/.test(tile('k').innerHTML)
-      && tile('b').dataset.source === 'builtin' && tile('b').innerHTML === '<svg data-file="builtin"></svg>');
-    check('an agent type nobody declared is marked as unrecognised, never quietly drawn as built-in',
-      tile('u').dataset.source === 'unknown' && /does not recognise/.test(tile('u').title)
-      && /does not recognise/.test(c.els.get('u').getAttribute('aria-label'))
-      && cssRules(read(path.join(STUDIO, 'web', 'style.css')) ?? '').some((r) => r.sel === '.cv-tile[data-source="unknown"]::after' && r.decls.get('content') === "'?'"),
-      `source ${tile('u').dataset.source}; title ${JSON.stringify(tile('u').title)}`);
+      && tile('b').dataset.source === 'agent' && tile('b').innerHTML === '<svg data-file="builtin"></svg>' && tile('b').title === 'Claude Code agent');
+    // There used to be a third answer, "unrecognised", for a type on neither of two lists, drawn with a "?" over
+    // its mark. The list of Claude Code's own types went stale the first time Claude Code added one, and its own
+    // agent was labelled as not Claude Code's. There is no such list now, and no third answer.
+    const made2 = made([S(), A('w', 'Workflow Subagent'), A('f', 'FooAgent'), A('p', 'payments-reviewer'), A('c', 'crew-not-in-the-kit')], 'identity-any');
+    made2.setIcons({ builtin: '<svg data-file="builtin"></svg>' });
+    const any = ['w', 'f', 'p', 'c'].map((id) => made2.els.get(id).parts.tile);
+    check('every agent that is not Crewforth\'s is a Claude Code agent: one mark, one tooltip, no badge — a type nobody has heard of included',
+      any.every((t) => t.dataset.source === 'agent' && t.title === 'Claude Code agent' && t.innerHTML === '<svg data-file="builtin"></svg>')
+      && /\(Claude Code agent\)$/.test(made2.els.get('f').getAttribute('aria-label')),
+      `Workflow Subagent, FooAgent, payments-reviewer, crew-not-in-the-kit: ${any.map((t) => t.title).join(' | ')}`);
+    const cssNow = read(path.join(STUDIO, 'web', 'style.css')) ?? '';
+    const palSrc = read(path.join(STUDIO, 'server', 'lib', 'palette.js')) ?? '';
+    const canvasNow = read(path.join(WEB_ROOT, 'canvas.js')) ?? '';
+    const builtinNames = ['general-purpose', 'code-simplifier', 'statusline-setup', 'claude-code-guide'];
+    check('no list of Claude Code\'s agent types is kept anywhere in the panel, and the "?" badge and its words are gone',
+      !/data-source="unknown"/.test(cssNow) && !/does not recognise|built-in agent/.test(canvasNow)
+      && !/BUILTIN/.test(palSrc) && builtinNames.every((n) => !palSrc.includes(`'${n}'`) && !canvasNow.includes(`'${n}'`))
+      && Object.values(pal.map).every((v) => v.source === 'kit') && pal.map.Explore === undefined,
+      `${Object.keys(pal.map).length} types in the palette, all the kit's`);
+    check('twin: a list in the palette would be seen by that claim', /BUILTIN/.test(`${palSrc}\nconst BUILTIN = { Explore: '#26c6e6' };`));
     check('a status nobody recognises keeps its own word and gets no colour',
       c.els.get('z').parts.pill.word.textContent === 'hibernating' && c.els.get('z').parts.pill.dot.dataset.tone === 'none'
       && c.els.get('z').dataset.state === 'unknown' && c.els.get('z').parts.pill.el.classList.contains('cv-unknown'));
-    check('the mark for other agents lives in one file and nowhere in the canvas',
-      fs.existsSync(path.join(WEB_ROOT, 'icons', 'builtin.svg'))
-      && /currentColor/.test(read(path.join(WEB_ROOT, 'icons', 'builtin.svg')) ?? '')
+    // What the file may be: one picture, made of the few elements a picture needs, with nothing that runs, loads,
+    // or rides along. Every reason a file is refused is named, so a planted fault can be told from another.
+    const markProblems = (svg) => {
+      const out = [];
+      if (typeof svg !== 'string' || !/^<svg [^>]*viewBox="0 0 \d+ \d+"[^>]*>/.test(svg) || !/<\/svg>\s*$/.test(svg)) out.push('not one svg picture');
+      const src = String(svg ?? '');
+      if (src.length >= 4096) out.push('4096 bytes or more');
+      if (/<script|\son[a-z]+\s*=|<foreignObject|javascript:/i.test(src)) out.push('something that runs');
+      if (/href\s*=|url\(|<image|<use|data:|@import/i.test(src)) out.push('something that loads');
+      if (/c2pa|<metadata|<rdf|xmp|exif|contentauth/i.test(src)) out.push('metadata or a content signature');
+      if (/<!--|<\?|<!DOCTYPE|<!ENTITY|<!\[CDATA\[/i.test(src)) out.push('a comment, an instruction or an entity');
+      if (/[A-Za-z0-9+/=]{120,}/.test(src)) out.push('an encoded payload');
+      const tags = [...src.matchAll(/<\s*([A-Za-z][A-Za-z0-9:-]*)/g)].map((m) => m[1].toLowerCase());
+      const strange = [...new Set(tags.filter((t) => !['svg', 'g', 'path', 'title'].includes(t)))];
+      if (strange.length) out.push(`an element a mark does not need: ${strange.join(', ')}`);
+      if (/xmlns:[a-z0-9]+\s*=/i.test(src)) out.push('a second namespace');
+      return out;
+    };
+    const markSrc = read(path.join(WEB_ROOT, 'icons', 'builtin.svg')) ?? '';
+    check('the mark for other agents lives in one file and nowhere in the canvas, and the file is the picture alone',
+      fs.existsSync(path.join(WEB_ROOT, 'icons', 'builtin.svg')) && markProblems(markSrc).length === 0
+      && markSrc === (read(path.join(REPO, 'plugin', 'studio', 'web', 'icons', 'builtin.svg')) ?? '')
       && !/builtin:\s*'<(svg|g)/.test(canvasSrc) && /setIcons\(\{ builtin: svg \}\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''),
-      'replacing it is replacing web/icons/builtin.svg');
+      `${markSrc.length} bytes; ${markProblems(markSrc).join('; ') || 'nothing refused'}`);
+    // The twin: the same file with one fault planted, each refused for its own reason. The first is the fault the
+    // supplied file really had: a signed manifest in a metadata block.
+    const plant = (inside) => markSrc.replace(/<path /, `${inside}<path `);
+    const twins = [
+      [plant('<metadata><c2pa:manifest xmlns:c2pa="http://c2pa.org/manifest">AAAA</c2pa:manifest></metadata>'), /metadata or a content signature/],
+      [plant(`<metadata>${'QUJD'.repeat(2000)}</metadata>`), /4096 bytes or more/],
+      [plant(`<desc>${'QUJD'.repeat(40)}</desc>`), /an encoded payload/],
+      [plant('<script>fetch("/api/owned")</script>'), /something that runs/],
+      [markSrc.replace('<svg ', '<svg onload="x()" '), /something that runs/],
+      [plant('<image href="https://example.invalid/p.png"/>'), /something that loads/],
+      [plant('<style>@import "x.css";</style>'), /something that loads/],
+      [plant('<!-- made by a tool, with its settings -->'), /a comment, an instruction or an entity/],
+      [`<?xml version="1.0"?>${markSrc}`, /not one svg picture/],
+      [plant('<text>hi</text>'), /an element a mark does not need: text/],
+      [markSrc.replace('<svg ', '<svg xmlns:x="urn:x" '), /a second namespace/],
+      ['', /not one svg picture/],
+    ];
+    const missed = twins.map(([svg, why], i) => (why.test(markProblems(svg).join('; ')) ? null : `${i}: ${markProblems(svg).join('; ') || 'accepted'}`)).filter(Boolean);
+    check('a mark with a fault planted in it is refused, and for that fault: a signed manifest, a payload, a script, a load, a comment, a stray element',
+      missed.length === 0 && twins.every(([svg]) => svg !== markSrc), missed.join(' | ') || `${twins.length} planted, ${twins.length} refused`);
+
+    {
+      const ao = await import(`../../kit/studio/server/lib/agent-origin.js?o=${Date.now()}`);
+      const nm = await import(`../../kit/studio/web/names.js?o=${Date.now()}`);
+      const odir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-origin-'));
+      const proj = path.join(odir, 'proj'); const user = path.join(odir, 'home-agents');
+      fs.mkdirSync(path.join(proj, '.claude', 'agents'), { recursive: true }); fs.mkdirSync(user);
+      fs.writeFileSync(path.join(proj, '.claude', 'agents', 'pay.md'), '---\r\nname: payments-reviewer\r\ndescription: x\r\n---\r\nname: not-this-one\r\n');
+      fs.writeFileSync(path.join(proj, '.claude', 'agents', 'notes.txt'), '---\nname: not-markdown\n---\n');
+      fs.writeFileSync(path.join(proj, '.claude', 'agents', 'bare.md'), 'no frontmatter here\nname: body-only\n');
+      fs.writeFileSync(path.join(user, 'mine.md'), '---\nname: "my-helper"\n---\n');
+      fs.writeFileSync(path.join(user, 'pay-too.md'), '---\nname: payments-reviewer\n---\n');
+      const o = ao.agentOrigins(proj, user);
+      check('where an agent is defined is read from the files that name it: the project\'s and the user\'s, frontmatter only',
+        JSON.stringify(o.project) === '{"payments-reviewer":"pay.md"}' && o.user['my-helper'] === 'mine.md' && o.user['payments-reviewer'] === 'pay-too.md'
+        && ao.agentsIn(path.join(odir, 'nowhere')) === null && ao.agentOrigins(null, path.join(odir, 'nowhere')).project === null,
+        JSON.stringify(o));
+      check('the place is said in words: the project before the user, a plugin by its name, and "no definition file found" for the rest',
+        nm.originOf('payments-reviewer', o) === 'Defined in this project: .claude/agents/pay.md'
+        && nm.originOf('my-helper', o) === 'Defined in your own agents: ~/.claude/agents/mine.md'
+        && nm.originOf('code-simplifier:code-simplifier', o) === 'Defined in the plugin “code-simplifier”'
+        && /^No definition file found: built in to Claude Code, or defined where Studio does not look$/.test(nm.originOf('Explore', o))
+        && /^No definition file found \(the project agents directory was not read\)/.test(nm.originOf('Explore', { project: null, user: {} }))
+        && /^Where it is defined was not read/.test(nm.originOf('Explore', { project: null, user: null }))
+        && nm.originOf('Explore', null) === null && nm.originOf('constructor', o) !== 'Defined in this project: .claude/agents/undefined',
+        nm.originOf('Explore', o));
+      const oc = made([S(), A('p', 'payments-reviewer'), A('e', 'Explore'), A('k', 'crew-backend-expert')], 'origins');
+      oc.setIcons({ builtin: '<svg data-file="builtin"></svg>' });
+      const before = oc.els.get('p').parts.tile.title;
+      oc.setOrigins(o);
+      check('the mark\'s tooltip says whose the agent is and, under it, where it is defined; Crewforth\'s own says only whose',
+        before === 'Claude Code agent' && oc.els.get('p').parts.tile.title === 'Claude Code agent\nDefined in this project: .claude/agents/pay.md'
+        && /^Claude Code agent\nNo definition file found/.test(oc.els.get('e').parts.tile.title)
+        && oc.els.get('k').parts.tile.title === 'Crewforth agent' && /\(Claude Code agent\)$/.test(oc.els.get('p').getAttribute('aria-label')),
+        oc.els.get('e').parts.tile.title.replace('\n', ' / '));
+      check('the page asks for the places once per session and drops an answer for a session it has left',
+        /canvas\.setSession\(sessionId\);\s*loadOrigins\(sessionId\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
+        && /if \(current === sessionId\) canvas\.setOrigins\(o\?\.measured \? o : null\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+      fs.rmSync(odir, { recursive: true, force: true });
+    }
 
     const unread = new Canvas(document.createElement('div'), {});
     unread.setPalette({ measured: false, reason: 'no agents directory beside the panel', map: {} });
     unread.setSession('unread');
     unread.render({ nodes: [S(), A('k', 'crew-backend-expert'), A('b', 'Explore')], edges: [] });
-    check('a palette that could not be read makes every agent unrecognised, and says why',
-      ['k', 'b'].every((id) => unread.els.get(id).parts.tile.dataset.source === 'unknown'
-        && /not measured — no agents directory beside the panel/.test(unread.els.get(id).parts.tile.title)),
-      unread.els.get('k').parts.tile.title);
+    check('with the kit\'s agents unread, a crew- agent says its identity was not measured and why; any other agent needs no palette to be placed',
+      /not measured — no agents directory beside the panel/.test(unread.els.get('k').parts.tile.title)
+      && unread.els.get('k').parts.tile.dataset.source === 'agent' && unread.els.get('b').parts.tile.title === 'Claude Code agent',
+      `${unread.els.get('k').parts.tile.title} | ${unread.els.get('b').parts.tile.title}`);
   }
 
   /* -- 8. what needs someone stays in view ------------------------------- */
@@ -3432,10 +3612,10 @@ process.stdout.write('\n== §29 design tokens and the frame ==\n');
     return out;
   };
 
-  // There are no exceptions. There were four, all agent-identity colours in canvas.js; they went when colour
-  // stopped carrying identity. The mechanism stays, for the twins below and for whoever needs one next: an
-  // exception is one literal, in one file, once.
-  const ALLOWED = {};
+  // One exception. There were four, all agent-identity colours in canvas.js; they went when colour stopped
+  // carrying identity. The one there is now is not the panel's colour at all: the mark every agent that is not
+  // Crewforth's is drawn with is a file used exactly as it was given, and its colour is its own.
+  const ALLOWED = { 'icons/builtin.svg': { '#D97757': 'the mark\'s own colour: the file is used as it was given, and not edited' } };
 
   const webFiles = walk(WEB_ROOT).map((f) => path.relative(WEB_ROOT, f).split(path.sep).join('/')).sort();
   const scanned = webFiles.filter((f) => f !== 'tokens.css');
@@ -3466,8 +3646,8 @@ process.stdout.write('\n== §29 design tokens and the frame ==\n');
     found.length === 0,
     found.length ? found.join(' · ') : `0 literals in ${scanned.length} files; ${allowedSeen.length} named exceptions`);
   const allowedCount = Object.values(ALLOWED).reduce((n, o) => n + Object.keys(o).length, 0);
-  check('no exception is left open: the four identity colours are gone from canvas.js',
-    allowedCount === 0 && allowedSeen.length === 0
+  check('one exception and no more: the mark\'s own colour in its own file; the four identity colours are gone from canvas.js',
+    allowedCount === 1 && allowedSeen.length === 1
     && literals('canvas.js', read(path.join(WEB_ROOT, 'canvas.js')) ?? '').length === 0,
     `${allowedCount} exceptions listed; ${literals('canvas.js', read(path.join(WEB_ROOT, 'canvas.js')) ?? '').length} literals in canvas.js`);
 

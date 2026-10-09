@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { getFleet, measureSpawnCost } from './lib/fleet.js';
 import { projectDir, listSessions, findSession, listProjects, sessionCwd } from './lib/projects.js';
+import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
 
@@ -308,6 +309,14 @@ async function handle(req, res) {
 
   if (url.pathname === '/api/palette') {
     return sendJson(res, 200, palette());
+  }
+
+  // Where the agents of a session's project are defined: the project's own files and the user's.
+  if (url.pathname === '/api/agents') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = session ? await sessionCwd(session.file, session.bytes) : null;
+    return sendJson(res, 200, { measured: true, ...agentOrigins(cwd) });
   }
 
   if (url.pathname === '/api/sessions') {

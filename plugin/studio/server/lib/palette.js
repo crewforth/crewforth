@@ -4,9 +4,11 @@
 // values below give each of those names one shade, so an agent keeps the same
 // colour in every session the panel draws.
 //
-// An agent type nobody declared gets a neutral grey and a marked flag. Guessing
-// a colour would make an unknown agent look like a known one, which is the
-// visual form of the thing this project refuses to do.
+// The map holds Crewforth's own agents and nothing else: the ones in its own
+// agents directory. There is no list of Claude Code's built-in agent types
+// here. There was one, and it went stale the first time Claude Code added a
+// type: its own "Workflow Subagent" was drawn as "not declared by Claude Code".
+// Whatever is not Crewforth's is a Claude Code agent, whoever defined it.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,18 +48,6 @@ const NAMED = {
   yellow: '#db5f1c',
 };
 
-// Claude Code's built-in agent types are not kit components and declare
-// nothing, so they take the diagram's "core" tones.
-const BUILTIN = {
-  Explore: '#26c6e6',
-  Plan: '#a874f5',
-  'general-purpose': '#c79bff',
-  claude: '#5b8cff',
-  'code-simplifier': '#84e6b0',
-  'statusline-setup': '#94a3c8',
-  'claude-code-guide': '#8659ee',
-};
-
 const UNKNOWN = '#94a3c8';
 
 let cached = null;
@@ -91,9 +81,6 @@ export function palette() {
   const map = {};
   for (const [name, v] of Object.entries(kit ?? {})) {
     map[name] = { hex: v.hex ?? UNKNOWN, declared: v.color, known: Boolean(v.hex), source: 'kit' };
-  }
-  for (const [name, hex] of Object.entries(BUILTIN)) {
-    if (!map[name]) map[name] = { hex, declared: null, known: true, source: 'builtin' };
   }
   cached = {
     map,

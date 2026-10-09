@@ -11,11 +11,11 @@
 //   A status is never colour alone: every dot has its word beside it.
 //   A poll that changed nothing writes nothing. Each element remembers what it last drew.
 import {
-  plan, sequence, crowdFolds, fitZoom, stateOf, ZOOM, GROUPINGS, DENSITIES, INFERRED_NOTE,
+  plan, sequence, crowdFolds, fitZoom, tallestFor, stateOf, ZOOM, GROUPINGS, DENSITIES, INFERRED_NOTE,
 } from './graph-plan.js';
 import { clock } from './timeline-plan.js';
 import { agentStatus } from './nav.js';
-import { roleName, shownType, hoverOf, orderTag, modelOf, modelMix, modelFamily } from './names.js';
+import { roleName, shownType, hoverOf, originOf, orderTag, modelOf, modelMix, modelFamily, modelBadge } from './names.js';
 import { fmtCount, fmtCost, COST_NOTE } from './usage.js';
 
 // How long an arriving wire takes to draw itself toward its new card. Short on purpose: this is a status panel,
@@ -93,6 +93,7 @@ export class Canvas {
     // so opening a group of 105 does not set 105 animations running at once.
     this.newborn = new Set();
     this.palette = { map: {} };
+    this.origins = null;
     this.icons = {};
     this.filter = null;          // statuses the page asked to isolate
     this.modelFilter = null;     // a family of model the page asked to isolate
@@ -268,7 +269,7 @@ export class Canvas {
     const crew = mk('span', 'cv-tile cv-tile-sm');
     crew.innerHTML = MARK.kit;
     const a = mk('span', 'cv-legend-item');
-    a.append(this.legendBuiltin, mk('span', null, 'Claude Code built-in'));
+    a.append(this.legendBuiltin, mk('span', null, 'Claude Code agent'));
     const b = mk('span', 'cv-legend-item');
     b.append(crew, mk('span', null, 'Crewforth'));
     marks.append(a, b);
@@ -411,6 +412,8 @@ export class Canvas {
   /* ---------------------------------------------------------- choices */
 
   setPalette(p) { if (p?.map) { this.palette = p; this.#redraw(); } }
+  /** Where the session's agents are defined (see `originOf`); null while it has not been read. */
+  setOrigins(o) { this.origins = o ?? null; this.#redraw(); }
 
   /** The marks that live in files. `builtin` is the markup of web/icons/builtin.svg. */
   setIcons(icons) {
@@ -555,7 +558,7 @@ export class Canvas {
 
   #crowdFold() {
     const nodes = this.#visibleNodes();
-    for (const id of crowdFolds(nodes, { group: this.group, density: this.density, seq: this.seq })) {
+    for (const id of crowdFolds(nodes, { group: this.group, density: this.density, seq: this.seq, tallest: this.#tallest() })) {
       if (!this.open.has(id)) this.open.set(id, false);
     }
   }
@@ -574,13 +577,22 @@ export class Canvas {
   #plan() {
     return plan(this.#visibleNodes(), {
       group: this.group, density: this.density, seq: this.seq, open: this.open, pinned: this.pinned, sessionY: this.sessionY,
-      aside: this.aside, all: this.all,
+      aside: this.aside, all: this.all, tallest: this.#tallest(),
     });
+  }
+
+  /** How tall a picture may be here before Auto turns cards into chips: what this pane fits, read off the pane. */
+  #tallest() {
+    this.paneHeight = this.root.getBoundingClientRect?.().height ?? 0;
+    return tallestFor(this.paneHeight);
   }
 
   /** Re-fit only while the view is still the canvas's own. Once the viewer has panned, zoomed or placed a card,
    *  moving the view under them is not helpful. */
   fitIfUntouched() {
+    // The pane changed size: what fits in it may have changed with it, and so may Auto's answer.
+    const h = this.root.getBoundingClientRect?.().height ?? 0;
+    if (this.lastPlan && this.density === 'auto' && tallestFor(h) !== tallestFor(this.paneHeight ?? 0)) this.#redraw();
     if (!this.touched && !this.pinned.size) this.fit();
   }
 
@@ -825,28 +837,33 @@ export class Canvas {
   }
 
   /**
-   * Whose agent this is. The palette says where a type was declared; a type it does not know is drawn as unknown
-   * rather than guessed into one camp or the other, and a palette that could not be read makes every agent
-   * unknown, with the reason.
+   * Whose agent this is, and there are two answers. Crewforth's: named `crew-…` and in its agents directory,
+   * which is what the palette's map holds. Everything else is a Claude Code agent — built in, or defined by the
+   * project, the user or a plugin; this panel keeps no list of those, so a type Claude Code adds tomorrow is
+   * drawn like the ones it has today.
+   *
+   * One thing can be unknown: whether a `crew-…` agent is Crewforth's, when its agents could not be read.
+   * It is then drawn with the common mark and says what was not measured. A type that is not `crew-…` needs no
+   * palette to be placed.
    */
   #identity(n) {
-    if (this.palette.measured === false) {
-      return { source: 'unknown', title: `Agent identity not measured — ${this.palette.reason ?? 'no reason given'}` };
+    const type = n?.agentType ?? '';
+    if (this.palette.map?.[type]?.source === 'kit') return { source: 'kit', title: 'Crewforth agent' };
+    if (this.palette.measured === false && type.startsWith('crew-')) {
+      return { source: 'agent', title: `Agent identity not measured — ${this.palette.reason ?? 'no reason given'}` };
     }
-    const source = this.palette.map?.[n.agentType]?.source ?? null;
-    if (source === 'kit') return { source: 'kit', title: 'Crewforth agent' };
-    if (source === 'builtin') return { source: 'builtin', title: 'Claude Code built-in agent' };
-    return { source: 'unknown', title: 'Not declared by Crewforth or by Claude Code — an agent type this panel does not recognise' };
+    return { source: 'agent', title: 'Claude Code agent', where: originOf(type, this.origins) };
   }
 
   #fillTile(tile, n) {
     const who = this.#identity(n);
-    const sig = `${who.source}|${who.title}|${this.icons.builtin ? 1 : 0}`;
+    const sig = `${who.source}|${who.title}|${who.where ?? ''}|${this.icons.builtin ? 1 : 0}`;
     if (tile.sig === sig) return who;
     tile.sig = sig;
     tile.innerHTML = who.source === 'kit' ? MARK.kit : (this.icons.builtin ?? '');
     tile.dataset.source = who.source;
-    tile.title = who.title;
+    // Whose it is, and under that where it is defined, once that has been read.
+    tile.title = who.where ? `${who.title}\n${who.where}` : who.title;
     return who;
   }
 
@@ -887,7 +904,7 @@ export class Canvas {
     const tag = orderTag(n, compact ? null : clock);
     const mdl = modelOf(n);
     const facts = compact ? '' : factsOf(n);
-    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after, mdl.ran, mdl.differs, facts]);
+    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after, modelBadge(n), facts]);
     if (el.sig === sig) return;
     el.sig = sig;
     const p = el.parts;
@@ -904,9 +921,8 @@ export class Canvas {
     p.task.title = task;
     p.order.textContent = tag;
     p.order.hidden = !tag;
-    // The model it ran on, as a badge; marked when the call asked for another. A chip has room for the family.
-    const family = modelFamily(n.model);
-    p.model.textContent = `${compact ? (family ? family[0].toUpperCase() + family.slice(1) : mdl.ran) : mdl.ran}${mdl.differs ? ' \u2260' : ''}`;
+    // The model it ran on, in full at every density: on a chip it is the task that gives way, not the model.
+    p.model.textContent = modelBadge(n);
     p.model.hidden = !mdl.ran;
     p.model.title = mdl.title;
     p.model.dataset.differs = String(mdl.differs);
@@ -964,7 +980,10 @@ export class Canvas {
         return seg;
       }));
       p.bar.title = says;
-      if (!it.boxed) p.count.textContent = says;
+      // Beside the bar: how the members went — or, at compact density where the card has no line for it, the
+      // models they ran on, with how they went left to the bar and its tooltip.
+      const mix = modelMix(it.members).replace(/, /g, ' \u00b7 ');
+      if (!it.boxed) { p.count.textContent = it.compact && mix ? mix : says; p.count.title = it.compact && mix ? `${says}\nThe models its agents ran on` : ''; }
       if (!it.boxed) this.#fillTotals(p, it);
       el.title = it.boxed ? '' : (it.open ? 'Click to fold' : `Click to show ${it.members.length} agents`);
       el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? 'open' : 'folded'}`);

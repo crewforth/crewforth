@@ -1011,15 +1011,6 @@ button.tl-lab { cursor: pointer; }
 }
 .cv-tile svg { width: 64%; height: 64%; display: block; }
 .cv-tile-sm { width: 18px; height: 18px; }
-/* A type nobody declared is marked as one. It is not quietly drawn as built-in. */
-.cv-tile[data-source="unknown"]::after {
-  content: '?';
-  position: absolute; right: -5px; top: -5px;
-  width: 12px; height: 12px; border-radius: var(--radius-pill);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--surface); border: 1px solid var(--line);
-  font-family: var(--font-mono); font-size: 9px; line-height: 1; color: var(--ink-dim);
-}
 
 .cv-pill {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
@@ -1034,6 +1025,8 @@ button.tl-lab { cursor: pointer; }
 .cv-node.cv-chip { flex-direction: row; align-items: center; gap: var(--space-2); padding: 0 10px; border-radius: 8px; }
 .cv-chip .cv-name { flex: 0 1 auto; }
 .cv-chip .cv-task { flex: 1 1 0; font-size: 12px; }
+/* On a chip the model is said in full and does not shrink; the task beside it does. */
+.cv-chip .cv-model { flex: none; }
 
 /* The session: where everything starts. */
 .cv-session { cursor: pointer; }
