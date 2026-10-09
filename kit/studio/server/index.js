@@ -205,7 +205,7 @@ async function handle(req, res) {
       const session = await findSession(id);
       if (!session) continue;                 // a session on another machine: not read here, and not guessed
       const u = await cachedUsage(session);
-      usage[id] = { durationMs: u.durationMs, workedMs: u.workedMs, tokens: u.tokens.total, cost: u.cost, unpriced: u.unpriced };
+      usage[id] = { durationMs: u.durationMs, workedMs: u.workedMs, startedAt: u.startedAt, tokens: u.tokens.fresh, cost: u.cost, unpriced: u.unpriced };
     }
     return sendJson(res, 200, { measured: true, usage });
   }

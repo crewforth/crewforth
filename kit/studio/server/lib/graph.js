@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { readAll, contextFill } from './transcript.js';
 import { agentMetaFiles } from './projects.js';
-import { Usage, timesOf } from './usage.js';
+import { Usage, withTimes } from './usage.js';
 import { detailOf } from './permissions.js';
 
 const SESSION_NODE = 'session';
@@ -205,9 +205,9 @@ export function openCalls(records) {
 }
 
 /** Roll one agent's own transcript into the numbers its node shows. */
-async function scanAgent(file, usage = null) {
+async function scanAgent(file, usage = null, agentId = null) {
   const { records } = await readAll(file);
-  usage?.add(records);
+  usage?.add(records, agentId ?? 'agents:unnamed');
   const stats = {
     tools: {}, toolCount: 0, lastTool: null, errors: 0,
     tokens: null, startedAt: null, endedAt: null, turns: 0,
@@ -274,7 +274,7 @@ async function readAgentDir(subagentsDir, usage = null) {
     // `stats` needs the transcript read; a missing file is a normal state (the
     // agent has not written yet), so absence is a null rather than a throw.
     let stats = null;
-    if (mtime !== null) stats = await scanAgent(jsonl, usage);
+    if (mtime !== null) stats = await scanAgent(jsonl, usage, agentId);
 
     out.push({
       agentId,
@@ -341,7 +341,7 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
     tokens: contextFill(records),
     startedAt: main.startedAt,
     endedAt: main.updatedAt,
-    usage: { ...usage.result(), ...timesOf(records) },
+    usage: withTimes(usage, records),
     // Commands sent to the background that no notice has ended, oldest first. A session that is over has none
     // running whatever this says: the page shows them only while the session is live.
     backgroundCommands: [...main.background]

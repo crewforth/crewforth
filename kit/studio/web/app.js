@@ -1500,7 +1500,7 @@ function sessionRow(project, sn) {
   if (subText) row.append(marked(subText, 'sub srow-sub'));
   // What it spent, once the server has read it: time · tokens · ~cost. Asked for a few rows at a time.
   const spent = usageFor(sn);
-  const line = usageLine(spent);
+  const line = usageLine(spent, { live: sessionStatus(sn.sessionId, fleetData).known && sessionStatus(sn.sessionId, fleetData).key !== 'ended', now: serverNow() });
   if (line) {
     const u = node('span', 'sub srow-usage', line);
     u.title = costNote(spent);
@@ -2278,6 +2278,7 @@ function paintStageNote() {
   stageNote.button.hidden = !off;
   // The fleet can say a session ended, or came back, with no transcript changing.
   if (lastGraph && sessionIsLive() !== lastLive) showGraph();
+  else if (lastLive === true) paintSpend();
   paintTerminalWait();
 }
 
@@ -2285,13 +2286,19 @@ function paintStageNote() {
  * Draw the graph the stream last sent. What the server read from files is settled against what the machine says
  * of the session first, so this is called again when that changes with no file changing.
  */
+/** The summary box, from the session on screen. A live session's time is counted to now, so this runs on the tick. */
+function paintSpend() {
+  const usage = lastNodes?.find((n) => n.kind === 'session')?.usage ?? null;
+  canvas.setSpend(summaryRows(usage, { live: lastLive === true, now: serverNow() }));
+}
+
 function showGraph() {
   if (!lastGraph) return;
   lastLive = sessionIsLive();
   const g = settle(lastGraph, lastLive);
   canvas.render(g);
-  canvas.setSpend(summaryRows(g.nodes.find((n) => n.kind === 'session')?.usage ?? null));
   lastNodes = g.nodes;
+  paintSpend();
   timeline.setNodes(g.nodes);
   list.setNodes(g.nodes);
   paintAttention(g.nodes);

@@ -24,7 +24,7 @@ export const SIZE = {
   colGap: 56,                  // between one depth and the next
   waveGap: 148,                // between one wave and the next: room for the words on an inferred wire
   rowGap: 12,                  // between siblings
-  session: { w: 200, h: 84 },
+  session: { w: 200, h: 84, line: 20 },   // `line`: the extra line a session with background commands has
   card: { w: 248, h: 64 },     // an agent, and a folded group
   chip: { w: 248, h: 36 },     // an agent at compact density
   group: {                     // an open group: a container holding its members
@@ -234,6 +234,9 @@ function groupItem(id, type, members, anchor, via, depth, seq, extra) {
   };
 }
 
+/** A session's card: one line taller while it has commands running in the background, and never wider. */
+export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ? SIZE.session.line : 0);
+
 /* ----------------------------------------------------------------- plan --- */
 
 /**
@@ -284,7 +287,7 @@ export function plan(nodes, opts = {}) {
   /** Size and place everything drawn, at one density. Returns the box the picture needs. */
   const lay = (drawnItems, compact) => {
     for (const it of drawnItems) {
-      if (it.kind === 'session') { it.w = SIZE.session.w; it.h = SIZE.session.h; continue; }
+      if (it.kind === 'session') { it.w = SIZE.session.w; it.h = sessionHeight(it.node); continue; }
       if (it.kind !== 'group') {
         const sz = compact ? SIZE.chip : SIZE.card;
         it.w = sz.w; it.h = sz.h; it.compact = compact;
@@ -446,6 +449,7 @@ export const INFERRED_NOTE = 'Inferred from the order of events: this wave was c
 function planOrder(nodes, asked, opts) {
   const pinned = opts.pinned ?? new Map();
   const session = nodes.find((n) => n.kind === 'session') ?? null;
+  const sessionH = sessionHeight(session);
   const agents = nodes.filter((n) => n.kind === 'agent');
   const called = agents.filter((n) => n.wave != null);
   const waveIds = [...new Set(called.map((n) => n.wave))].sort((a, b) => a - b);
@@ -483,11 +487,11 @@ function planOrder(nodes, asked, opts) {
   if (session) {
     const first = items.filter((it) => it.depth === 1);
     if (sessionY == null) {
-      const bottom = first.length ? Math.max(...first.map((it) => it.y + it.h)) : SIZE.padY + SIZE.session.h;
-      sessionY = Math.max(SIZE.padY, Math.round((SIZE.padY + bottom) / 2 - SIZE.session.h / 2));
+      const bottom = first.length ? Math.max(...first.map((it) => it.y + it.h)) : SIZE.padY + sessionH;
+      sessionY = Math.max(SIZE.padY, Math.round((SIZE.padY + bottom) / 2 - sessionH / 2));
     }
-    items.unshift({ id: session.id, kind: 'session', node: session, parent: null, depth: 0, w: SIZE.session.w, h: SIZE.session.h, x: SIZE.padX, y: sessionY });
-    height = Math.max(height, sessionY + SIZE.session.h + SIZE.padY);
+    items.unshift({ id: session.id, kind: 'session', node: session, parent: null, depth: 0, w: SIZE.session.w, h: sessionH, x: SIZE.padX, y: sessionY });
+    height = Math.max(height, sessionY + sessionH + SIZE.padY);
   }
   for (const it of items) {
     const p = pinned.get(it.id);

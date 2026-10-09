@@ -162,7 +162,7 @@ export class Canvas {
     close.innerHTML = MARK.close;
     close.addEventListener('click', () => this.showSpend(false));
     head.append(close);
-    this.spendRows = mk('dl', 'cv-spend-rows');
+    this.spendRows = mk('div', 'cv-spend-rows');
     box.append(head, this.spendRows);
     this.spendOpen = readFlag('crewforth-studio-spend') !== 'closed';
     box.hidden = true;                       // until there is a session's usage to show
@@ -175,19 +175,61 @@ export class Canvas {
     this.spendEl.hidden = !on || !this.spendCount;
   }
 
-  /** The rows to show: [label, value, note], from usage.js `summaryRows`. An empty list hides the box. */
+  /**
+   * The rows to show, from usage.js `summaryRows`: { label, value, note, detail }. An empty list hides the box.
+   *
+   * A row with a `detail` is a control: a click opens the breakdown under it, and it stays open. Rows are kept and
+   * updated, never rebuilt — a live session's time changes every second, and a row replaced under a press would
+   * lose the click.
+   */
   setSpend(rows) {
-    const sig = JSON.stringify(rows ?? []);
+    const list = rows ?? [];
+    const sig = JSON.stringify(list);
     if (sig === this.spendSig) return;
     this.spendSig = sig;
-    this.spendCount = (rows ?? []).length;
-    this.spendRows.replaceChildren(...(rows ?? []).flatMap(([label, value, note]) => {
-      const dd = mk('dd', null, value ?? '');
-      dd.title = note ?? '';
-      const dt = mk('dt', null, label);
-      dt.title = note ?? '';
-      return [dt, dd];
-    }));
+    this.spendCount = list.length;
+    this.spendParts ??= new Map();
+    this.spendShown ??= new Set();
+    const alive = new Set();
+    for (const r of list) {
+      alive.add(r.label);
+      let p = this.spendParts.get(r.label);
+      if (!p) {
+        p = { row: mk('button', 'cv-spend-row'), label: mk('span', 'cv-spend-label'), value: mk('span', 'cv-spend-value'), detail: mk('dl', 'cv-spend-detail') };
+        p.row.type = 'button';
+        p.row.append(p.label, p.value);
+        p.row.addEventListener('click', () => {
+          if (!p.row.classList.contains('cv-spend-more')) return;
+          if (this.spendShown.has(r.label)) this.spendShown.delete(r.label); else this.spendShown.add(r.label);
+          p.detail.hidden = !this.spendShown.has(r.label);
+          p.row.setAttribute('aria-expanded', String(!p.detail.hidden));
+        });
+        this.spendParts.set(r.label, p);
+      }
+      const more = Boolean(r.detail?.length);
+      p.label.textContent = r.label;
+      p.value.textContent = r.value ?? '';
+      p.row.title = more ? `${r.note ?? ''}\nClick for the breakdown` : (r.note ?? '');
+      p.row.classList.toggle('cv-spend-more', more);
+      if (more) p.row.setAttribute('aria-expanded', String(this.spendShown.has(r.label))); else p.row.removeAttribute?.('aria-expanded');
+      p.detail.hidden = !more || !this.spendShown.has(r.label);
+      const dsig = JSON.stringify(r.detail ?? []);
+      if (p.dsig !== dsig) {
+        p.dsig = dsig;
+        p.detail.replaceChildren(...(r.detail ?? []).flatMap(([k, v]) => [mk('dt', null, k), mk('dd', null, v)]));
+      }
+    }
+    for (const [label, p] of this.spendParts) {
+      if (alive.has(label)) continue;
+      this.spendParts.delete(label);
+    }
+    // Which rows there are changes rarely (a session's first agent, its first timed turn); what they say changes
+    // every second. Only the first puts elements back into the box, and it puts the same elements back.
+    const order = list.map((r) => r.label).join('\u0000');
+    if (order !== this.spendOrder) {
+      this.spendOrder = order;
+      this.spendRows.replaceChildren(...list.flatMap((r) => { const p = this.spendParts.get(r.label); return [p.row, p.detail]; }));
+    }
     this.spendEl.hidden = !this.spendOpen || !this.spendCount;
   }
 
@@ -667,7 +709,11 @@ export class Canvas {
       row.append(p.tile, mk('span', 'cv-title', 'Session'), mk('span', 'cv-fill'), p.pill.el);
       p.name = mk('div', 'cv-name cv-indent');
       p.sub = mk('div', 'cv-sub cv-indent');
-      el.append(row, p.name, p.sub);
+      // What it has running in the background takes a line of its own, when there is any: on the line above it
+      // ran out of the card.
+      p.bg = mk('div', 'cv-sub cv-indent cv-bg');
+      p.bg.hidden = true;
+      el.append(row, p.name, p.sub, p.bg);
     } else if (it.kind === 'group') {
       el.classList.add('cv-group');
       p.tile = mk('span', 'cv-tile');
@@ -769,12 +815,16 @@ export class Canvas {
     p.pill.dot.dataset.tone = st?.tone ?? 'none';
     p.pill.word.textContent = st?.word ?? '';
     p.name.textContent = n.gitBranch || shortPath(n.cwd) || n.sessionId || '';
+    // Cut to the card's width; hovering says it whole.
+    p.name.title = p.name.textContent;
     const bits = [`${n.turns ?? 0} ${n.turns === 1 ? 'turn' : 'turns'}`];
     if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} ctx`);
-    // What the session has running that is not an agent: commands sent to the background.
-    if (bg) bits.push(`${bg} in background`);
     p.sub.textContent = bits.join(' · ');
-    p.sub.title = bg ? n.backgroundNow.map((c) => `In the background: ${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
+    p.sub.title = p.sub.textContent;
+    // What the session has running that is not an agent: commands sent to the background.
+    p.bg.hidden = !bg;
+    p.bg.textContent = bg ? `${bg} in background` : '';
+    p.bg.title = bg ? n.backgroundNow.map((c) => `In the background: ${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
     el.title = 'Click to inspect this session';
     el.setAttribute('aria-label', `Session, ${st?.word ?? 'state not measured'}, ${p.name.textContent}, ${p.sub.textContent}`);
   }

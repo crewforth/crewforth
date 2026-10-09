@@ -961,7 +961,7 @@ button.tl-lab { cursor: pointer; }
 .cv-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .cv-fill { flex: 1; min-width: 0; }
 .cv-indent { padding-left: 32px; }
-.cv-title { font-size: 13px; font-weight: 600; }
+.cv-title { font-size: 13px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-name {
   min-width: 0; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -970,7 +970,12 @@ button.tl-lab { cursor: pointer; }
   min-width: 0; font-size: 13px; line-height: 18px; color: var(--ink-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cv-sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: none; }
+/* Nothing a card says may run out of it. Every piece of text in a card is one line that gives way with an
+   ellipsis; the pieces that must stay whole (the status pill, the tile, the order tag) are short by construction
+   and do not shrink. */
+.cv-sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cv-sub[hidden] { display: none; }
+.cv-node > .cv-row, .cv-node > .cv-under, .cv-node > .cv-name, .cv-node > .cv-sub { max-width: 100%; }
 .cv-word { font-size: 11px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 
 /* The tile says whose agent it is. Crewforth's mark keeps its own colours; the
@@ -1090,10 +1095,27 @@ button.tl-lab { cursor: pointer; }
 }
 .cv-legend[hidden] { display: none; }
 /* The session's summary is the same kind of box, in the opposite corner. */
-.cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 220px; }
-.cv-spend-rows { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3); font-size: 12px; }
-.cv-spend-rows dt { color: var(--ink-dim); }
-.cv-spend-rows dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink); }
+.cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 240px; }
+.cv-spend-rows { display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
+.cv-spend-row {
+  display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; width: 100%;
+  padding: 2px 4px; margin: 0 -4px; border: 0; border-radius: var(--radius-sm);
+  background: none; font: inherit; color: inherit; text-align: left; cursor: default;
+}
+.cv-spend-label { flex: 1 1 auto; min-width: 0; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-spend-value { flex: none; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+/* A row that opens: it looks like something to press, and says so with a mark that turns. */
+.cv-spend-more { cursor: pointer; }
+.cv-spend-more:hover { background: var(--surface-raised); }
+.cv-spend-more .cv-spend-label::before { content: '\203A'; display: inline-block; width: 10px; color: var(--ink-faint); }
+.cv-spend-more[aria-expanded="true"] .cv-spend-label::before { rotate: 90deg; }
+.cv-spend-detail {
+  margin: 0 0 var(--space-1) 10px; padding-left: var(--space-2); border-left: 1px solid var(--line);
+  display: grid; grid-template-columns: 1fr auto; gap: 2px var(--space-3);
+}
+.cv-spend-detail[hidden] { display: none; }
+.cv-spend-detail dt { color: var(--ink-faint); }
+.cv-spend-detail dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-dim); }
 .cv-legend-head { display: flex; align-items: center; justify-content: space-between; }
 .cv-legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1) var(--space-2); }
 .cv-legend-item { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
