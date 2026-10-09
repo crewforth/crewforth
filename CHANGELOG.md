@@ -156,6 +156,13 @@ versioning follows [SemVer](https://semver.org/).
   agent that reported before it was called, with the words `after Planner reported`; that wire is inferred from the
   order of events and is not a call from one agent to another, and the panel says so. Read from the transcript
   alone. Agents a workflow started are not called by the session, so they carry no place.
+- **Studio: which model did which work.** Every agent card carries a badge with the model it ran on, and a third
+  line with its duration, new tokens and estimated cost. Two facts are kept apart: the model the call **asked** for
+  and the model the agent **ran on**; when they differ the badge carries `≠`. The inspector has a **Model** section.
+  When the model gate refused a call and the session made it again, the inspector says so in one line (`first
+  asked: haiku → refused (floor: sonnet) → sonnet`), and a report that closed `confidence: low` is tied to the call
+  that repeated it one model up (`escalated: sonnet → opus`). The summary's `Cost` opens per model, and the Show menu
+  filters by model family. Both traces were tested on synthetic transcripts: no released version writes them yet.
 - **Studio: background work is shown.** A Bash command sent to the background is listed on its session (`1 in
   background` on the card, **In the background** in the inspector) until the notice that ends it arrives.
 - **Studio: a question waiting in a terminal is named.** For a session started in a terminal, a permission question
@@ -169,6 +176,13 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio: agents are named by their role.** `crew-backend-expert` reads Backend, `general-purpose` General Purpose,
   in the graph, the Timeline, the List, the dock, the inspector and the conversation; the declared type is under the
   name in the inspector and on hover. A task cut short on a card is said in full on hover.
+- **Studio: agents of one type are one card under Workflow run.** They folded into one card only when the picture
+  grew too tall and only from three of a type; now two or more of a type under one parent are always one card,
+  wherever they stand in the order (`Privacy × 3`). The card gives the count, the first one's place, total time, new
+  and cached tokens, the estimated cost and the models (`2 Sonnet, 1 Opus`). Under Order nothing is grouped.
+- **Studio: `Tokens` counts what was new.** It counted cache reads too, which were 97% of the total on a long
+  session. `Tokens` is now input, output and cache writes; `From cache` is a row of its own; `Session` and `Agents`
+  are separate rows, and a click on a row opens its breakdown. The cost is computed as before.
 - **Studio: a group of agents opens beside itself.** Several agents of one type are one card; in a window of 1024 px
   and up, clicking it puts its agents in the next column as ordinary cards, and opening another group folds the
   first. Below that width it opens downward as before.
@@ -275,6 +289,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Studio: a card's text stays in the card.** `N in background` could push the session card's line past its edge;
+  it has a line of its own, and every text part of a card is clipped inside it, whole on hover.
+- **Studio: the time moves in a live session.** The summary read the span of the session's own transcript, which
+  stands still while an agent works. A running session now says `Running for` and counts to now; a finished one's
+  span runs to the last record of any of its files, agents' included.
 - **Studio: full screen keeps its panels.** In full screen the navigator, the inspector and the conversation could
   not be opened, so a selected agent showed nothing and a request under "Needs you" could not be answered. A style
   rule hid every panel there; it is gone, and full screen now only takes the browser away.
