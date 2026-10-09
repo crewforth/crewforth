@@ -7904,12 +7904,12 @@ sec "== 12h3) model routing v2: the card, the risk class, verify-then-escalate, 
 # answers "block" keeps the agent working; PostToolUse's additionalContext reaches the session; an Agent call that
 # leaves run_in_background out started in the background.
 _V2G="$HOOKS/guard-agent-model.sh"; _V2O="$HOOKS/agent-outcome.sh"
-if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 19
+if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 21
 elif [ ! -f "$_V2O" ] || [ ! -f "$_V2G" ]; then fail "hooks/agent-outcome.sh or guard-agent-model.sh is missing — nothing verifies an agent's work or holds the model to the risk"
 else
 _v2="$(mktemp -d)"; _v2="$(cd -P "$_v2" && pwd)"; _v2p="$_v2/p"
 _v2new(){ rm -rf "$_v2p" "$_v2/home"; mkdir -p "$_v2/home" "$_v2p/.claude" "$_v2p/src/payments" "$_v2p/src/ui"; ( cd "$_v2p" && git init -q . ) >/dev/null 2>&1; echo x > "$_v2p/src/ui/a.ts"; echo y > "$_v2p/src/payments/p.ts"; }
-_v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CREW_MODEL_CAL_N -u CREW_MODEL_CAL_PCT -u CREW_VERIFY_NO_SETSID -u CREW_VERIFY_TIMEOUT HOME="$_v2/home" CLAUDE_PROJECT_DIR="$_v2p" CREW_GATE_LOG=/dev/null ${_V2ENV:-} "$@"; }
+_v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CREW_MODEL_CAL_N -u CREW_MODEL_CAL_PCT -u CREW_VERIFY_NO_SETSID -u CREW_VERIFY_TIMEOUT -u CLAUDE_CONFIG_DIR -u CREW_MANAGED_SETTINGS HOME="$_v2/home" CLAUDE_PROJECT_DIR="$_v2p" CREW_GATE_LOG=/dev/null ${_V2ENV:-} "$@"; }
 # $1 agent, $2 model, $3 files, $4 change, $5 verify, $6 extra fields -> _v2rc, stderr in $_v2/err
 _v2call(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work.","subagent_type":"%s","model":"%s"%s},"tool_use_id":"tu%s"}' "$3" "$4" "$5" "$1" "$2" "${6:-}" "$RANDOM$RANDOM" > "$_v2/c.json"
   ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >/dev/null 2>"$_v2/err" ); _v2rc=$?; }
@@ -8156,15 +8156,17 @@ VF
 if [ "$_v2n" != 61 ]; then fail "FIXTURE: the verify-command table has $_v2n rows, not 61"
 elif [ -z "$_v2b" ]; then pass "a hook runs a verify command only when it is allowed by name: 56 commands are not run (python3 -c, node -e, npx, find -delete, timeout / command / time / nice, perl; npm / pnpm / yarn / bun run; a runner with an option or an assignment among its arguments, such as go test -exec, make SHELL=, make -f, pytest -p, mocha --require, vitest --config, dotnet -p:, cargo --config, gradle -I; a push, a commit, rm, curl, a write to a gate file; a second command chained by ; && || & \$( ) a backtick or a redirection; a shell, env, an assignment, sudo; a look-alike and a script nobody allowed): result blocked, the agent not kept running, the session told to run it itself; 4 plain checks run and pass, 1 fails"
 else fail "verify-command table:$_v2b"; fi
-# THE MODE. In default, acceptEdits and plan Claude Code asks before it runs a command, so there the built-in list
-# allows nothing: only what the user allowed by name runs. In auto and dontAsk the list holds.
+# THE MODE. The built-in list holds only where Claude Code itself runs a test command the user has not allowed: auto
+# and bypassPermissions. In default, acceptEdits and plan it asks first, and dontAsk refuses whatever was not
+# allowed beforehand (a first version let the list hold there, which loosened that mode; review). In those four
+# only what the user allowed by name runs.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"; printf 'verify test -d\n' > "$_v2p/.claude/crew-model-rules"; _i=0
-for _mw in 'auto|true|pass' 'dontAsk|true|pass' 'default|true|blocked' 'acceptEdits|true|blocked' 'plan|true|blocked' 'bypassPermissions|true|blocked' 'unknown|true|blocked' 'default|test -d src|pass' 'acceptEdits|test -d src/ui|pass' 'plan|test -d src|pass'; do
+for _mw in 'auto|true|pass' 'bypassPermissions|true|pass' 'dontAsk|true|blocked' 'default|true|blocked' 'acceptEdits|true|blocked' 'plan|true|blocked' 'unknown|true|blocked' 'dontAsk|test -d src|pass' 'default|test -d src|pass' 'acceptEdits|test -d src/ui|pass' 'plan|test -d src|pass'; do
   _i=$((_i+1)); _m="${_mw%%|*}"; _r="${_mw##*|}"; _c="${_mw#*|}"; _c="${_c%|*}"
   _v2plant "pm$_i" "$_c"; _V2PM="$_m" _v2stop "pm$_i" >/dev/null
   [ "$(_v2res "pm$_i")" = "$_r" ] || _v2b="$_v2b [mode '$_m', $_c → $(_v2res "pm$_i"), want $_r]"
 done
-[ -z "$_v2b" ] && pass "the built-in runner list holds in auto and dontAsk only: in default, acceptEdits, plan, bypassPermissions and a mode it does not know a listed command is not run, and a command the user's crew-model-rules names runs in every mode (10 readings)" \
+[ -z "$_v2b" ] && pass "the built-in runner list holds in auto and bypassPermissions only: in dontAsk, default, acceptEdits, plan and a mode it does not know a listed command is not run, and a command the user's crew-model-rules names runs in every one of them (11 readings)" \
                || fail "verify and the permission mode:$_v2b"
 # The two ways the user allows a command by name, the rules that take it away again, and what allows nothing.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"
@@ -8190,6 +8192,71 @@ rm -f "$_v2p/.claude/settings.local.json"
 _v2plant w7 './lint.shx'; _v2stop w7 >/dev/null; [ "$(_v2res w7)" = blocked ] || _v2b="$_v2b a-prefix-matched-inside-a-word:$(_v2res w7)"
 [ -z "$_v2b" ] && pass "what the user allows by name runs: a 'verify <command>' line of crew-model-rules, and a Bash(...) rule of permissions.allow in the project's settings.json, in settings.local.json or in the user's settings; a Bash(...) rule of permissions.deny in any of those three, a bare Bash deny, and a permissions.ask rule stop a command an allow rule names; a bare Bash allow and a name that only begins the same allow nothing" \
                || fail "verify permission rules:$_v2b"
+# A runner's arguments. Asked of the function itself, so no runner has to be installed: make, mvn and gradle take
+# no further word (a second target is a second task), dotnet takes a path and nothing else, and no runner takes an
+# option or an assignment. Left: 0 = the hook may run it.
+_v2new; _v2b=""; _v2n=0
+while IFS= read -r _l; do [ -z "$_l" ] && continue
+  _w="${_l%% @@ *}"; _vc="${_l#* @@ }"; _v2n=$((_v2n+1))
+  ( cd "$_v2p" && _v2e bash -c '. "$1"; _am_state; _am_verify_ok "$2" auto' _ "$_V2G" "$_vc" >/dev/null 2>&1 ); _rc=$?
+  [ "$_rc" = "$_w" ] || _v2b="$_v2b [$_vc → $_rc, want $_w]"
+done <<'RA'
+0 @@ make test
+0 @@ make build
+0 @@ mvn verify
+0 @@ ./mvnw test
+0 @@ gradle check
+0 @@ ./gradlew build
+0 @@ dotnet test
+0 @@ dotnet test tests/Api.Tests
+0 @@ dotnet build src/App.csproj
+0 @@ dotnet test App.sln
+0 @@ go test ./...
+0 @@ pytest tests/test_orders.py::test_total
+0 @@ npm test
+0 @@ cargo test orders
+1 @@ make test deploy
+1 @@ make test -j4
+1 @@ make build install
+1 @@ mvn test install
+1 @@ mvn verify deploy
+1 @@ ./mvnw test site
+1 @@ gradle build publish
+1 @@ ./gradlew test integrationTest
+1 @@ ./gradlew check uploadArchives
+1 @@ dotnet test publish
+1 @@ dotnet test --filter Fast
+1 @@ dotnet build -p:X=1
+1 @@ dotnet publish src/App.csproj
+RA
+if [ "$_v2n" != 27 ]; then fail "FIXTURE: the runner-argument table has $_v2n rows, not 27"
+elif [ -z "$_v2b" ]; then pass "a listed runner is run with what a test run needs and no more: make, mvn and gradle with their one target and no further word (make test deploy, gradle build publish and mvn test install are refused), dotnet test and build with a path and nothing else, and none with an option (14 allowed, 13 refused)"
+else fail "runner arguments:$_v2b"; fi
+# What is denied has to be KNOWN. A settings file that is there and does not parse, and a deny or ask rule in a form
+# this reader does not match, stop every verify command: not being able to read a deny is not the same as none.
+# The user's settings are read from CLAUDE_CONFIG_DIR when it is set, and a managed file is read as well.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"; _i=0
+_v2ok(){ _i=$((_i+1)); _v2plant "dz$_i" true; _v2stop "dz$_i" >/dev/null; [ "$(_v2res "dz$_i")" = "$1" ] || _v2b="$_v2b [$2 → $(_v2res "dz$_i"), want $1]"; }
+_v2ok pass 'no settings at all'
+printf '{"permissions":{"deny":["Bash(rm:*)"]}}' > "$_v2p/.claude/settings.json"; _v2ok pass 'a deny rule for another command'
+printf '// ours\n{"permissions":{"deny":["Bash(rm:*)"]}}' > "$_v2p/.claude/settings.local.json"; _v2ok blocked 'a settings file with a comment'
+printf '\357\273\277{"permissions":{"deny":[]}}' > "$_v2p/.claude/settings.local.json"; _v2ok blocked 'a settings file with a byte-order mark'
+printf '{"permissions":{"deny":["Bash(rm:*)"' > "$_v2p/.claude/settings.local.json"; _v2ok blocked 'a settings file cut short'
+printf '{"permissions":{"deny":["Bash(git * --force)"]}}' > "$_v2p/.claude/settings.local.json"; _v2ok blocked 'a deny rule with * in the middle'
+printf '{"permissions":{"ask":["Bash(npm * publish)"]}}' > "$_v2p/.claude/settings.local.json"; _v2ok blocked 'an ask rule with * in the middle'
+printf '{"permissions":{"allow":["Bash(git * --force)"]}}' > "$_v2p/.claude/settings.local.json"; _v2ok pass 'an ALLOW rule with * in the middle (it allows nothing, and stops nothing)'
+rm -f "$_v2p/.claude/settings.local.json"
+mkdir -p "$_v2/ccd" "$_v2/home/.claude"; printf '{"permissions":{"deny":["Bash(true)"]}}' > "$_v2/ccd/settings.json"
+_V2ENV="CLAUDE_CONFIG_DIR=$_v2/ccd" _v2ok blocked 'a deny rule in CLAUDE_CONFIG_DIR/settings.json'
+_v2ok pass 'the same file with CLAUDE_CONFIG_DIR not set'
+printf '{"permissions":{"deny":["Bash(true)"]}}' > "$_v2/home/.claude/settings.json"
+_V2ENV="CLAUDE_CONFIG_DIR=$_v2/empty-ccd" _v2ok pass 'a deny rule in ~/.claude while CLAUDE_CONFIG_DIR points elsewhere'
+rm -f "$_v2/home/.claude/settings.json"
+printf '{"permissions":{"deny":["Bash(true:*)"]}}' > "$_v2/managed.json"
+_V2ENV="CREW_MANAGED_SETTINGS=$_v2/managed.json" _v2ok blocked 'a deny rule in a managed settings file'
+printf 'not json' > "$_v2/managed.json"; _V2ENV="CREW_MANAGED_SETTINGS=$_v2/managed.json" _v2ok blocked 'a managed settings file that does not parse'
+[ -z "$_v2b" ] && pass "what is denied has to be known before a hook runs a command: a settings file with a comment, with a byte-order mark or cut short, and a deny or ask rule with * in the middle, stop every verify command; an allow rule in that form allows nothing and stops nothing; the user's settings are read from CLAUDE_CONFIG_DIR when it is set and from ~/.claude when it is not; a managed settings file's deny rule stops the command, and one that does not parse stops it too (13 readings)" \
+               || fail "deny rules that cannot be read:$_v2b"
 # An agent cannot give itself such a rule: it does not write the settings files or the rules file, with the file
 # tools or by the shell. (The session's own Write of a settings file is left to the permission layer.)
 _v2new; _v2b=""

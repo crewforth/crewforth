@@ -103,8 +103,8 @@ versioning follows [SemVer](https://semver.org/).
     the same or a lower model. Red there too: you are asked. So a model that was too small costs one more run, not
     broken code that looked finished. The verify command is run by a hook, outside any tool call, so it
     runs only when you have allowed it by name: a `verify <command>` line in `.claude/crew-model-rules`, or a
-    `Bash(...)` rule of `permissions.allow`. In `auto` and `dontAsk`, where Claude Code runs a test command without
-    asking, a built-in list of test and build runners is allowed too (`npm test`, `pytest`, `dotnet test`,
+    `Bash(...)` rule of `permissions.allow`. In `auto` and `bypassPermissions`, where Claude Code itself runs a test
+    command you have not allowed, a built-in list of test and build runners is allowed too (`npm test`, `pytest`, `dotnet test`,
     `flutter test`, `go test`, `cargo test`, `make test` …), with paths or test names as arguments and no options.
     It is one command, never a commit or a push, not one a `permissions.deny` or `ask` rule covers, and
     `guard-bash.sh` has to agree. Anything else is not run (`blocked`), and a command that does not finish in nine
@@ -114,7 +114,11 @@ versioning follows [SemVer](https://semver.org/).
     of work whose first try fails too often is held one model up from then on; nothing lowers a floor but you.
   - `guard-agent-model.sh` holds the rules at the tool level and never rewrites a call; `agent-outcome.sh` runs the
     verify command and keeps the record. Which kind of change a task is, is the caller's judgement.
-    `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`. Each agent's report still
+    `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`.
+  - **Known limits.** A test runner runs code the agent wrote (test files, `package.json` scripts, `conftest.py`, a
+    `Makefile`): the list limits the command, not what the tests do. A failed card stays failed until the card
+    changes. The shell rule that protects the routing files goes by their names. The list of critical paths is
+    written at the first session, not at install; the gate reads the patterns, not the list. Each agent's report still
     ends with `confidence: high` or `confidence: low`. `doctor.sh` warns when Claude Code is older than 2.1.293.
 - **`frontend-flutter`: a stack layer for Flutter**, beside `frontend-rn-expo`. It applies only in a project whose
   `pubspec.yaml` depends on the Flutter SDK, and `crew-frontend-expert` adds it on top of `frontend` there. It leaves

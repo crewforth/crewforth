@@ -481,14 +481,19 @@ _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog
 #   1. ONE command: no `;`, `&`, `|`, `<`, `>`, backtick, `$(` or second line.
 #   2. Never a git commit or a git push: an approval the user gave the SESSION is not for a hook.
 #   3. NOT DENIED. A `Bash(...)` rule of permissions.deny or permissions.ask that covers it, in ANY settings file
-#      (the project's two, the user's, a managed one), stops it: a hook cannot ask, and a deny is a deny.
+#      (the project's two, the user's, a managed one), stops it: a hook cannot ask, and a deny is a deny. What
+#      cannot be read stops it too: a settings file that is there and does not parse (a comment, a byte-order
+#      mark), and a deny or ask rule in a form this reader does not match (a `*` that is not at the end, as in
+#      `Bash(git * --force)`). Not knowing what is denied is not the same as nothing being denied.
 #   4. ALLOWED BY NAME, one of:
 #        a. a line `verify <command>` of .claude/crew-model-rules (the user's file);
 #        b. a `Bash(...)` rule of permissions.allow in any of those settings files (a bare `Bash` allows nothing);
-#        c. ONLY in `auto` and `dontAsk`, a test or build runner from the list below, with arguments that are
-#           paths or test names: no argument that begins with `-` or holds `=` (an option can name a program to
-#           run). In `default`, `acceptEdits` and `plan` Claude Code asks before it runs a command, so there the
-#           list allows nothing and only a or b does.
+#        c. ONLY in `auto` and `bypassPermissions`, the two modes in which Claude Code itself runs a test command
+#           without the user having allowed it: a test or build runner from the list below, with arguments that
+#           are paths or test names (no argument that begins with `-` or holds `=`: an option can name a program
+#           to run), and for make, mvn and gradle no argument at all (a second target is a second task). In
+#           `default`, `acceptEdits` and `plan` Claude Code asks first, and `dontAsk` refuses whatever was not
+#           allowed beforehand, so there the list allows nothing and only a or b does.
 #   5. THE SHELL GATE AGREES, asked under a session id that is not the session's: only "nothing to say" or an
 #      explicit allow passes.
 _AM_HERE="${BASH_SOURCE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE}" ] && _AM_HERE=.
@@ -505,8 +510,12 @@ _am_starts(){  # $1 = command, $2 = prefix -> 0 when the command is the prefix o
   case "$1" in "$2"|"$2 "*) return 0 ;; esac; return 1; }
 _am_plain_args(){  # $1 = runner, $2 = what follows it -> 0 when every word is a path or a test name
   local w unglob=0 rc=0
+  # For these a further word is a further TASK: `make test deploy`, `gradle build publish`, `mvn test install`.
+  case "$1" in make\ *|mvn\ *|./mvnw\ *|gradle\ *|./gradlew\ *) [ -z "$2" ]; return ;; esac
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
   for w in $2; do
+    # dotnet takes a project, a solution or a folder and nothing else: a bare word there is a verb or a target.
+    case "$1" in dotnet\ *) case "$w" in */*|*.*) ;; *) rc=1 ;; esac ;; esac
     case "$w" in
       -[A-Za-z]) [ "$1" = test ] || rc=1 ;;                      # `test -f x`: the one runner whose flags are its questions
       -*|*=*) rc=1 ;;
@@ -517,32 +526,45 @@ _am_plain_args(){  # $1 = runner, $2 = what follows it -> 0 when every word is a
   return "$rc"
 }
 _am_settings_files(){  # -> _AMSF: the settings files that exist, one per line: project, local, user, managed
-  local f; _AMSF=""
-  for f in "$_AMP/.claude/settings.json" "$_AMP/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}" \
+  local f u; _AMSF=""
+  # The user's settings are where Claude Code keeps them: CLAUDE_CONFIG_DIR when it is set, ~/.claude otherwise.
+  u="${CLAUDE_CONFIG_DIR:-${HOME:+$HOME/.claude}}"; u="${u//\\//}"
+  for f in "$_AMP/.claude/settings.json" "$_AMP/.claude/settings.local.json" "${u:+$u/settings.json}" \
            "/Library/Application Support/ClaudeCode/managed-settings.json" "/etc/claude-code/managed-settings.json" \
-           "/c/Program Files/ClaudeCode/managed-settings.json" "/c/ProgramData/ClaudeCode/managed-settings.json"; do
+           "/c/Program Files/ClaudeCode/managed-settings.json" "/c/ProgramData/ClaudeCode/managed-settings.json" \
+           "${CREW_MANAGED_SETTINGS:-}"; do          # one more file to read as managed: it can only add rules
     [ -n "$f" ] && [ -f "$f" ] && _AMSF="$_AMSF$f"$'\n'
   done
 }
-_am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 when a Bash(...) rule of that list covers it; _AMPH names it
-  local c="$1" list="$2" sj="$_AM_HERE/../eval/lib/settings-json.awk" f x g
+_am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 a Bash(...) rule of that list covers it (_AMPH names it);
+                 # 1 none does; 2 the list cannot be relied on (_AMPH says why): a file that does not parse, or,
+                 # for deny and ask, a rule in a form this reader does not match
+  local c="$1" list="$2" sj="$_AM_HERE/../eval/lib/settings-json.awk" f x g out
   _AMPH=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
+    if ! awk -v op=validate -f "$sj" "$f" >/dev/null 2>&1; then _AMPH="${f##*/} is there and cannot be read as JSON"; return 2; fi
+    out="$(awk -v op=strings -v path="permissions.$list" -f "$sj" "$f" 2>/dev/null)" || out=""
     while IFS= read -r x; do
-      x="${x%$'\r'}"
+      x="${x%$'\r'}"; [ -n "$x" ] || continue
       if [ "$x" = Bash ]; then [ "$list" = allow ] && continue; _AMPH="$list: Bash (${f##*/})"; return 0; fi
       case "$x" in 'Bash('*')') ;; *) continue ;; esac
       x="${x#Bash(}"; x="${x%)}"; g=""
       case "$x" in
         ''|'*'|':*') [ "$list" = allow ] && continue; _AMPH="$list: Bash($x) (${f##*/})"; return 0 ;;
+      esac
+      # A `*` anywhere but at the end is a form this reader does not match. An allow rule it cannot read allows
+      # nothing; a deny or an ask rule it cannot read may cover the command, so the list cannot be relied on.
+      g="${x%:\*}"; g="${g% \*}"; g="${g%\*}"
+      case "$g" in *'*'*) [ "$list" = allow ] && continue; _AMPH="$list: Bash($x) (${f##*/}) is a form this hook does not match"; return 2 ;; esac
+      case "$x" in
         *':*') g="${x%:\*}"; _am_starts "$c" "$g" || continue ;;
         *' *') g="${x% \*}"; _am_starts "$c" "$g" || continue ;;
         *'*')  g="${x%\*}"; case "$c" in "$g"*) ;; *) continue ;; esac ;;
         *)     [ "$c" = "$x" ] || continue ;;
       esac
       _AMPH="$list: Bash($x) (${f##*/})"; return 0
-    done <<< "$(awk -v op=strings -v path="permissions.$list" -f "$sj" "$f" 2>/dev/null)"
+    done <<< "$out"
   done <<< "$_AMSF"
   return 1
 }
@@ -563,25 +585,29 @@ _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMV
   [ -n "${_AMP:-}" ] || _am_state
   [ -f "$_AM_HERE/../eval/lib/settings-json.awk" ] || { _AMVW="the settings reader is not beside this hook, so the permission rules cannot be read"; return 1; }
   _am_settings_files
-  if _am_perm_hit "$c" deny; then _AMVW="a permission rule denies it ($_AMPH)"; return 1; fi
-  if _am_perm_hit "$c" ask;  then _AMVW="a permission rule says to ask the user first ($_AMPH), and a hook cannot ask"; return 1; fi
+  _am_perm_hit "$c" deny; r=$?
+  if [ "$r" = 0 ]; then _AMVW="a permission rule denies it ($_AMPH)"; return 1; fi
+  if [ "$r" = 2 ]; then _AMVW="what is denied cannot be known ($_AMPH), so nothing is run by the hook"; return 1; fi
+  _am_perm_hit "$c" ask; r=$?
+  if [ "$r" = 0 ]; then _AMVW="a permission rule says to ask the user first ($_AMPH), and a hook cannot ask"; return 1; fi
+  if [ "$r" = 2 ]; then _AMVW="what has to be asked first cannot be known ($_AMPH), so nothing is run by the hook"; return 1; fi
   _am_rules
   for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
     k="${r%%$'\t'*}"; g="${r#*$'\t'}"; [ "$k" = v ] || continue
     _am_starts "$c" "$g" && { _AMVB="crew-model-rules: verify $g"; break; }
   done
-  if [ -z "$_AMVB" ] && _am_perm_hit "$c" allow; then _AMVB="permissions.$_AMPH"; fi
+  if [ -z "$_AMVB" ]; then _am_perm_hit "$c" allow; [ "$?" = 0 ] && _AMVB="permissions.$_AMPH"; fi
   if [ -z "$_AMVB" ]; then
     case "$pm" in
-      auto|dontAsk)
+      auto|bypassPermissions)
         for r in "${_AM_RUNNERS[@]}"; do
           _am_starts "$c" "$r" || continue
           g=""; [ "$c" != "$r" ] && g="${c#"$r "}"
           if _am_plain_args "$r" "$g"; then _AMVB="runner: $r"; break; fi
-          _AMVW="it is a known runner ($r) with an option or an assignment among its arguments; a hook runs a runner with paths or test names only"; return 1
+          _AMVW="it is a known runner ($r) with an argument a hook does not pass on: an option, an assignment, or for make, mvn and gradle anything after the one target"; return 1
         done
         [ -n "$_AMVB" ] || { _AMVW="it is not a test or build command on this hook's list, and no 'verify <command>' line of .claude/crew-model-rules or Bash(...) rule of permissions.allow names it"; return 1; } ;;
-      *) _AMVW="in '${pm:-default}' mode Claude Code asks before it runs a command, so a hook runs only what the user has allowed by name: a 'verify <command>' line of .claude/crew-model-rules, or a Bash(...) rule of permissions.allow"; return 1 ;;
+      *) _AMVW="in '${pm:-default}' mode Claude Code does not run a command the user has not allowed, so neither does a hook: allow it by name with a 'verify <command>' line of .claude/crew-model-rules, or a Bash(...) rule of permissions.allow"; return 1 ;;
     esac
   fi
   [ -f "$_AM_HERE/guard-bash.sh" ] || { _AMVW="the shell gate is not beside this hook, so the command cannot be judged"; return 1; }
