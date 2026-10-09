@@ -96,6 +96,7 @@ _mt() {
       'SessionStart not wired — session rehydration after /compact or /clear is inactive (update Crewforth)') s="SessionStart bağlı değil — /compact ya da /clear sonrasında oturum toparlanmıyor (Crewforth'u güncelleyin)" ;;
       'SessionStart wired (session rehydration active)') s='SessionStart bağlı (oturum toparlama devrede)' ;;
       'settings.json is invalid JSON') s='settings.json geçersiz JSON' ;;
+      "Claude Code %s is older than 2.1.293 — the model alias haiku may not resolve to Haiku 5.5 there, so an agent called with model haiku can run on an older model (update Claude Code)") s="Claude Code %s, 2.1.293'ten eski — orada haiku model takma adı Haiku 5.5'e çözülmeyebilir; model haiku ile çağrılan bir ajan eski bir modelde koşabilir (Claude Code'u güncelleyin)" ;;
       'approval by your own message is wired (auto / dontAsk: /crew-approve commit)') s='kendi mesajınızla onay bağlı (auto / dontAsk: /crew-approve commit)' ;;
       "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
@@ -667,6 +668,21 @@ if [ -x .claude/skills/automode-policy/scripts/check.sh ] || [ -f .claude/skills
   [ "$AMRC" = 2 ] && printf '%s\n' "$AMOUT" | grep 'auto-mode config' 
 else
   warn "auto-mode policy check skipped (install predates the automode-policy skill; run the updater)"
+fi
+# 9b) Model routing names a model on every crew agent call (hooks/guard-agent-model.sh), by alias. An alias is
+#     resolved by Claude Code, so an old one can hand `haiku` an older model than the table means. Advisory: said
+#     only when a claude CLI answers with a version, and never a failure.
+if command -v claude >/dev/null 2>&1; then
+  _ccv="$(claude --version 2>/dev/null | head -1)"; _ccv="${_ccv%%[!0-9.]*}"
+  case "$_ccv" in [0-9]*.[0-9]*.[0-9]*)
+    IFS=. read -r _cc1 _cc2 _cc3 <<EOF_CCV
+$_ccv
+EOF_CCV
+    _cc3="${_cc3%%[!0-9]*}"
+    if [ "$_cc1" -lt 2 ] || { [ "$_cc1" = 2 ] && { [ "$_cc2" -lt 1 ] || { [ "$_cc2" = 1 ] && [ "${_cc3:-0}" -lt 293 ]; }; }; }; then
+      warn "Claude Code %s is older than 2.1.293 — the model alias haiku may not resolve to Haiku 5.5 there, so an agent called with model haiku can run on an older model (update Claude Code)" "$_ccv"
+    fi ;;
+  esac
 fi
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has

@@ -97,6 +97,17 @@
             "timeout": 600
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-agent-model.sh",
+            "timeout": 600
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

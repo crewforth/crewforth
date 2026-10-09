@@ -80,6 +80,11 @@ If the API contract isn't clear or a nonexistent capability is requested, **stop
 - ✅ Screen/component/navigation work
 - ❌ Server API design (goes to crew-backend-expert)
 
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
+
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies: no AI trace and no vendor template name in generated UI code / comments / strings ·
 commit/push only with explicit approval.

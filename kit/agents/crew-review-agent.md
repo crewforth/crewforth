@@ -88,6 +88,11 @@ verification and "it looks right now" is not a passing test — if you cannot na
 instead of restating it. The same applies to severity: a finding you cannot tie to a behaviour is `low`, whatever
 it looks like, and ranking it higher spends the credibility you will need for the next real blocker.
 
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
+
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies. In review, additionally catch: §4.1 AI-authorship traces (co-author trailers,
 auto-generation footers, robot emoji, AI-assistant/tool names, the .claude name — see trace-blocklist.txt)

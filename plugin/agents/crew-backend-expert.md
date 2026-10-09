@@ -90,6 +90,11 @@ Security-critical decision, schema risk, or ambiguous contract → delegate to t
 - ✅ New service/handler, API endpoint, business rule
 - ❌ DB schema/migration (goes to crew-database-expert)
 
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
+
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies: no AI trace · vendor template name must not leak into code · internal docs confidential ·
 commit/push only with explicit approval (staging and branching are free) · destructive operations require an explicit request, no hook bypass.

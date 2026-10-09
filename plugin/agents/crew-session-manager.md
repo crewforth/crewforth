@@ -5,9 +5,8 @@ description: |
   Session/context health auditor for a PHASE BOUNDARY: audits fill, recommends the handover. The per-turn
   status line is the main thread's own, from the hook. Evaluates only; writes no code.
 tools: Read, Grep, Glob, Bash, PowerShell
-# No `model` pin. This used to be `haiku`, which is the right tier for mechanical work — but the handover
-# is a synthesis over an entire session, and it decides what the NEXT session knows. Its failure mode is
-# silent: nobody discovers a thin handover until they are already relying on it.
+# No `model` field: the caller names it per call. Not `haiku`: the handover is a synthesis over an entire
+# session and decides what the NEXT session knows, and a thin one fails silently.
 metadata:
   stage: handoff
   skills: [handoff, token-budget]
@@ -72,6 +71,11 @@ When you notice a topic change / threshold breach, **recommend but don't interru
 ## Example delegation
 - ✅ Session-health line at task completion
 - ❌ Content/code generation (out of scope)
+
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
 
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies. The session line also contains no AI trace / brand.

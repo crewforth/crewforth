@@ -89,6 +89,18 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **The model is chosen per task.** A table in the rulebook says which model a piece of work goes to, by risk and
+  not by size: `haiku` for mechanical work (a text fix, a rename, running the tests and summarising, a commit
+  message), `sonnet` for ordinary work (a feature, tests, a bug whose cause is known, a refactor, a routine review),
+  `opus` where a mistake is expensive (architecture, a cross-cutting change, a bug of unknown cause, security, auth,
+  payment, a migration, planning). Every call to a `crew-*` agent names its model, and an audit does not run below
+  the model that wrote what it audits. A new gate, `guard-agent-model.sh`, holds two things at the tool level: a
+  `crew-*` call with no model is refused, and so is one below an agent's floor (`crew-security-expert` on `opus`;
+  privacy, review, planner and database on `sonnet` or above). It never rewrites a call; the refusal names the model
+  that is needed. Which model fits the task is the caller's judgement and no gate reads it. Each agent's report
+  ends with `confidence: high` or `confidence: low`; a `low` one is repeated once, one model up, and a second `low`
+  goes to you as a question. `fable` needs `CREW_ALLOW_FABLE=1`; `CREW_MODEL_ROUTING=off` turns the gate off.
+  `doctor.sh` warns when Claude Code is older than 2.1.293.
 - **`frontend-flutter`: a stack layer for Flutter**, beside `frontend-rn-expo`. It applies only in a project whose
   `pubspec.yaml` depends on the Flutter SDK, and `crew-frontend-expert` adds it on top of `frontend` there. It leaves
   state management, routing and the lint set to the project, and holds what Flutter itself asks for: the layers and
