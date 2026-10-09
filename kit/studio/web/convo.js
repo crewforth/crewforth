@@ -132,6 +132,13 @@ export function reminderOf(waiting) {
   return `${who} is waiting for approval${more > 0 ? `, and ${more} more ${more === 1 ? 'request is' : 'requests are'}` : ''}`;
 }
 
+// The modes a session started here can be put in: the three it can be started in, and no other.
+export const SESSION_MODES = [
+  { mode: 'plan', label: 'plan', title: 'Explore and plan; nothing is edited until a plan is approved.' },
+  { mode: 'acceptEdits', label: 'acceptEdits', title: 'File edits in the project are accepted; every call is still shown in the dock first.' },
+  { mode: 'default', label: 'default', title: 'Each call is asked about in the dock.' },
+];
+
 /** The strip above a conversation: what kind of session this is, in the order the design has it. */
 export function headerOf(session, { readOnly = false, contextTokens = null } = {}) {
   if (readOnly) return { badge: 'Read only', tone: 'none', parts: [] };
@@ -145,6 +152,8 @@ export function headerOf(session, { readOnly = false, contextTokens = null } = {
     badge: 'Started here',
     tone: 'good',
     parts,
+    // The mode on its own as well: in the strip it is a control, and the rest of `parts` is not.
+    mode: session?.permissionMode ?? null,
     // A session started here without the gate is running unguarded, and that is said in the strip itself.
     ungated: session ? session.gated === false : false,
   };

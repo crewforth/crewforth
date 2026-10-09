@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 
-import { prepare, pending, watch, cleanup, alwaysList, logApprovals } from './permissions.js';
+import { prepare, pending, watch, cleanup, alwaysList, logApprovals, writeMode } from './permissions.js';
 import { getFleet } from './fleet.js';
 
 export const ALLOWED_MODES = ['plan', 'acceptEdits', 'default'];
@@ -171,6 +171,8 @@ class OwnedSession {
       this.gateEvents.push(ev);
       if (this.gateEvents.length > 500) this.gateEvents.shift();
     }
+    // The mode the session is in is what Claude Code says it is in: at the start, and each time it changes.
+    if (rec?.type === 'system' && typeof rec.permissionMode === 'string') this.#seeMode(rec.permissionMode);
     if (rec?.type === 'system' && rec.subtype === 'init') this.state = 'idle';
     else if (rec?.type === 'stream_event' && rec.event?.type === 'message_start') this.state = 'working';
     else if (rec?.type === 'result') {
@@ -192,12 +194,28 @@ class OwnedSession {
   /** The panel recorded an answer to a request. Remembered until the request is seen to have gone. */
   noteDecision(toolUseId, verdict) { this.decisions.set(toolUseId, verdict); }
 
-  /** The viewer approved a plan into another mode: that is the session's mode from here on. Only a mode a session
-   *  may start in is taken, and never a way back into `plan` from here. */
-  setMode(mode) {
-    if (!ALLOWED_MODES.includes(mode) || mode === 'plan' || mode === this.permissionMode) return;
+  /**
+   * Claude Code reported the session's mode. That is the mode: the header shows it, and the gate's hook is told it,
+   * so an allowance in the dock is said out loud in the mode the session is really in and in no other.
+   */
+  #seeMode(mode) {
+    if (mode === this.permissionMode) return;
     this.permissionMode = mode;
+    if (this.gate) writeMode(this.gate.spool, mode);
     this.#emit({ type: 'mode', permissionMode: mode });
+  }
+
+  /**
+   * Ask Claude Code to put the session in another mode: one of the modes a session may be started in, and no
+   * other. It is asked the way the Agent SDK's `setPermissionMode()` asks, as a control request on the session's
+   * input; nothing here is changed until Claude Code reports the new mode on its stream (`#seeMode`).
+   */
+  requestMode(mode) {
+    if (!ALLOWED_MODES.includes(mode)) return { ok: false, reason: `the mode is one of ${ALLOWED_MODES.join(', ')}` };
+    if (this.state === 'exited' || this.state === 'failed') return { ok: false, reason: `session has ${this.state}` };
+    const line = `${JSON.stringify({ type: 'control_request', request_id: randomUUID(), request: { subtype: 'set_permission_mode', mode } })}\n`;
+    try { this.child.stdin.write(line); } catch (e) { return { ok: false, reason: String(e?.message ?? e) }; }
+    return { ok: true, requested: mode };
   }
 
   /** Replay from `after`, then follow. Returns an unsubscribe function. */
@@ -313,6 +331,9 @@ export async function createSession({ cwd, model, permissionMode, resume } = {})
 }
 
 export function getSession(id) { return sessions.get(id) ?? null; }
+
+// For the selfcheck: what a session writes to Claude Code when a mode is asked for, without starting one.
+export const _internals = { OwnedSession };
 
 export function listSessionsOwned() {
   return [...sessions.values()].map((s) => s.summary());

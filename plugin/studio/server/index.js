@@ -457,12 +457,10 @@ async function handle(req, res) {
     const toolUseId = decodeURIComponent(permMatch[2]);
     const out = decide(s.id, toolUseId, body.verdict, { answers: body.answers, mode: body.mode });
     if (out.ok) s.noteDecision(toolUseId, body.verdict);
-    // A plan approved into a mode is the session's mode from here on.
-    if (out.ok && out.mode) s.setMode(out.mode);
     return sendJson(res, out.ok ? 200 : 400, out);
   }
 
-  const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events))?$/);
+  const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events|mode))?$/);
   if (ownedMatch) {
     const s = getSession(decodeURIComponent(ownedMatch[1]));
     if (!s) return sendJson(res, 404, { ok: false, reason: 'no such owned session' });
@@ -477,6 +475,13 @@ async function handle(req, res) {
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, reason: 'POST only' });
 
     if (verb === 'stop') return sendJson(res, 200, { ...s.stop(), session: s.summary() });
+
+    // The viewer chose another mode for the session, from the three a session may be started in.
+    if (verb === 'mode') {
+      const asked = await readBody(req);
+      const out = s.requestMode(asked?.mode);
+      return sendJson(res, out.ok ? 200 : 400, { ...out, session: s.summary() });
+    }
 
     const body = await readBody(req);
     if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });

@@ -93,6 +93,13 @@ ASK=0
 case "$TOOL" in
   AskUserQuestion|ExitPlanMode) ASK=1; WAIT="${CREW_GATE_WAIT_ASK:-$WAIT}" ;;
 esac
+# The hook is wired twice: once for every tool, with the harness's ordinary limit, and once for these two alone,
+# with the longer one they need. Each copy answers its own and leaves the other's at once, in silence: silence is
+# no decision, so the copy that does answer decides. With no role (a settings file from before there were two)
+# this copy answers everything.
+case "${CREW_GATE_ROLE:-}:$ASK" in
+  general:1|ask:0) exit 0 ;;
+esac
 mkdir -p "$REQ" "$ANS" "$ALWAYS" 2>/dev/null || exit 0
 
 # A tool the panel already blanket-approved for this session skips the round trip.

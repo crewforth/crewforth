@@ -769,6 +769,9 @@ button.tl-lab { cursor: pointer; }
 }
 .ask-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 .dock-ask[hidden] { display: none; }
+/* The mode in the conversation's strip is a control: it looks like the text it sits among until it is hovered. */
+.pane-mode { border: 0; padding: 0 4px; margin: 0 -4px; border-radius: var(--radius-sm); background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.pane-mode:hover { background: var(--surface-raised); color: var(--ink); }
 /* With a form in it the dock is as tall as the form needs, and the countdown sits at its top. */
 .dock[data-ask="questions"], .dock[data-ask="plan"] { align-items: start; }
 
