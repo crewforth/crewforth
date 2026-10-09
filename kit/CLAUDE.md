@@ -52,16 +52,18 @@ sequence. Every agent above is installed; "no owner" is an `ls`, not a default.
    proposes, waits for approval (`/crew-ship`); held items close here.
 5. **Hand off** — phase boundary or full context → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
 
-**Model per call — RISK decides, not size.** Every `crew-*` call passes `model`:
+**Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
+`files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
+· `verify:` the command that proves it, or `none`. **crew-planner** writes the card; with no plan, you do.
 
-| `model` | the work |
+| `model` | the card |
 |---|---|
-| `haiku` | text/typo fix, rename, format, run tests + summarise, search, commit message |
-| `sonnet` | ordinary feature, writing tests, known-cause bug, refactor, routine review |
-| `opus` | architecture, cross-cutting change, unknown-cause bug, security/auth/payment, migration, planning |
+| `haiku` | text, test-run, mechanical work — only with a `verify:` command |
+| `sonnet` | feature, fix-known, refactor, test-write, audit, review; anything with `verify: none` |
+| `opus` | **critical**: migration, security, architecture, fix-unknown, or a file on a critical path (auth, payments, migrations…) — its test-write, audit and review too |
 
-**Audit ≥ author:** Opus wrote it → Opus audits it. Reports end `confidence: high|low`: on `low`, repeat ONCE one
-model up; `low` again → AskUserQuestion. `guard-agent-model.sh` refuses no model, or one below a floor.
+The referee follows the RISK, not the author's model. Verify fails → the agent fixes once; again → re-run ONCE one
+model up; again → AskUserQuestion. The same for a report that ends `confidence: low`. `guard-agent-model.sh` holds it.
 
 **Naming an agent in prose is a hope; `@agent-<name>` is a guarantee** — measured here: 0/3 vs 3/3. Use that form
 whenever an agent must run, and tell the user they can too.

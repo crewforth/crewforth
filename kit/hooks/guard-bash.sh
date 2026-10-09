@@ -1897,6 +1897,13 @@ _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names i
   [ "$inw" = 1 ] && _appr_word "$w" && return 0
   return 1
 }
+# What model routing decides from is written by the user and by Crewforth's own hooks (guard-write.sh has the same rule
+# for the file tools): the user's rules, the floors, the list of critical paths, and the records of calls and results.
+# A command that NAMES one is refused, reading included; model-outcomes.tsv, the plain record, may be read.
+_mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$CMD_UQ" in *crew-model-rules*|*crew-model-floors*|*crew-critical-paths*|*state/crew-model/*|*state\\crew-model\\*) rc=0 ;; esac
+  [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
+_mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it)" "4.5" tamper
 _appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper
 
 # §4.5-adjacent: a .env file holds secrets. The settings.json Read-tool deny does NOT cover the Bash tool, so a

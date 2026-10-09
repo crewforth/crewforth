@@ -7,16 +7,17 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 16 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 17 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 16 hook'un tamamı
+## 17 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
 | `prompt-approval.sh` | `auto` ve `dontAsk` modunda sizin yazdığınız `/crew-approve commit` (ya da `push`, `commit+push`) komutunu onay olarak kaydeder; kayıt stage edilene, `HEAD`'e ve oturuma bağlıdır |
 | `guard-schedule.sh` | İstem zamanlayan bir araç çağrısını (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, adı trigger, schedule ya da cron içeren bir MCP aracı), zamanlanan istem bir onaysa reddeder: onay sizin yazdığınızdır, oturumun kendine zamanladığı değil |
-| `guard-agent-model.sh` | Model adı vermeyen ya da ajanın tabanının altında model isteyen `crew-*` ajan çağrısını reddeder (`crew-security-expert`: `opus`; privacy, review, planner ve database: `sonnet`). Çağrıyı yeniden yazmaz; ret metni gereken modeli söyler. `fable` için `CREW_ALLOW_FABLE=1` gerekir; `CREW_MODEL_ROUTING=off` kapıyı kapatır |
+| `guard-agent-model.sh` | Bir `crew-*` ajanının çağrıldığı iş kartını (dosyalar, değişiklik türü, verify komutu) okur ve modeli karta uymayan çağrıyı reddeder: kart ya da model yoksa; kritik iş (migration, güvenlik, mimari, nedeni bilinmeyen hata ya da kritik yoldaki dosya) `opus`'un altındaysa; test yazımı, denetim ve inceleme `sonnet`'in altındaysa; verify komutu olmayan iş `haiku`'daysa; verify'ı düşmüş kart aynı ya da daha düşük modelle tekrar çağrılırsa; kritik ve verify'lı iş arka plandaysa. Çağrıyı yeniden yazmaz. `fable` için `CREW_ALLOW_FABLE=1` gerekir; `CREW_MODEL_ROUTING=off` kapatır |
+| `agent-outcome.sh` | Crew ajanı durduğunda kartındaki verify komutunu koşar: ilk kırmızıda ajan düzeltmesi için çalışır tutulur; ikincide oturuma işi bir üst modelle tekrarlaması söylenir. Her çağrı için `.claude/state/model-outcomes.tsv` dosyasına bir satır yazar, ilk denemesi çok sık düşen sınıfın tabanını yükseltir ve projenin kritik yollarını listeler. Kapı değildir: ajanın yazdığını geri alamaz |
 | `route-hint.sh` | Her isteğin yanına o işin sahibi ajanı yazar; uzmanlar siz istemeden devreye girer |
 | `guard-bash.sh` | Araç seviyesinde komut kapısı: commit/push onayı, commit öncesi inceleme, yıkıcı işlemler, uzaktan kod çalıştırma, hook kurcalama |
 | `guard-write.sh` | Aynı korumanın Write/Edit tarafı. Sessizce silinebilen bir kapı, kapı değildir. Hedef yolu eşleştirmeden önce sadeleştirir, böylece bir kapı dosyasına farklı bir yazımla ulaşılamaz. |

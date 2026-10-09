@@ -80,4 +80,7 @@ performance finding with no number attached is a preference.
 ## Confidence
 The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
 on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
-was given; the caller then repeats it once, one model up.
+was given; the caller then repeats it once, one model up. Your task opens with a card (`files:`, `change:`,
+`verify:`): the `verify` command is run when you stop, and if it fails you are asked once to fix the work. If a
+write is refused because the file is on a critical path, do not reach it another way: stop, and put
+`escalate: <the file>` on the line before `confidence: low`.

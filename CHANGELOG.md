@@ -89,18 +89,29 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
-- **The model is chosen per task.** A table in the rulebook says which model a piece of work goes to, by risk and
-  not by size: `haiku` for mechanical work (a text fix, a rename, running the tests and summarising, a commit
-  message), `sonnet` for ordinary work (a feature, tests, a bug whose cause is known, a refactor, a routine review),
-  `opus` where a mistake is expensive (architecture, a cross-cutting change, a bug of unknown cause, security, auth,
-  payment, a migration, planning). Every call to a `crew-*` agent names its model, and an audit does not run below
-  the model that wrote what it audits. A new gate, `guard-agent-model.sh`, holds two things at the tool level: a
-  `crew-*` call with no model is refused, and so is one below an agent's floor (`crew-security-expert` on `opus`;
-  privacy, review, planner and database on `sonnet` or above). It never rewrites a call; the refusal names the model
-  that is needed. Which model fits the task is the caller's judgement and no gate reads it. Each agent's report
-  ends with `confidence: high` or `confidence: low`; a `low` one is repeated once, one model up, and a second `low`
-  goes to you as a question. `fable` needs `CREW_ALLOW_FABLE=1`; `CREW_MODEL_ROUTING=off` turns the gate off.
-  `doctor.sh` warns when Claude Code is older than 2.1.293.
+- **The model is chosen per task, checked after it, and raised when it was not enough.** A call to a `crew-*`
+  agent opens with a card: the files it touches, the kind of change, and the command that proves the work (or
+  `none`). The card gives the work a risk class. **Critical** work runs on `opus`, whatever the agent: a migration,
+  a security or architecture change, a bug of unknown cause, or anything on a critical path (auth, payments,
+  billing, migrations, security, crypto, secrets, `*.sql`, `schema.prisma`). The paths are found in your project
+  with no configuration and listed in `.claude/state/crew-critical-paths.auto`; `.claude/crew-model-rules` adds or
+  removes one if you want to. Work nothing can verify runs on `sonnet` or above, and `haiku` goes only to work a
+  command checks. The referee is as strong as the risk: tests, audits and reviews of critical work are on `opus`,
+  and in normal work an author on Opus no longer pulls its review up to Opus.
+  - **Verified, not declared.** When the agent stops, its verify command is run. Red once: the agent is kept
+    running to fix it. Red again: the task is repeated once, one model up, and the gate refuses the same card on
+    the same or a lower model. Red there too: you are asked. So a model that was too small costs one more run, not
+    broken code that looked finished. The verify command is one command that only checks, and it is shown to the
+    shell gate before it runs: one that chains a second command, changes or fetches something, or that
+    `guard-bash.sh` would refuse or ask about is not run (`blocked`), and one that does not finish in nine minutes
+    is stopped (`timeout`). Neither is taken as a pass or a fail; you or the session run the command instead.
+  - **At write time.** An agent that is not on `opus` cannot write to a critical path, whatever its card said.
+  - **Recorded.** One line per call goes to `.claude/state/model-outcomes.tsv` (it stays in the project). A class
+    of work whose first try fails too often is held one model up from then on; nothing lowers a floor but you.
+  - `guard-agent-model.sh` holds the rules at the tool level and never rewrites a call; `agent-outcome.sh` runs the
+    verify command and keeps the record. Which kind of change a task is, is the caller's judgement.
+    `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`. Each agent's report still
+    ends with `confidence: high` or `confidence: low`. `doctor.sh` warns when Claude Code is older than 2.1.293.
 - **`frontend-flutter`: a stack layer for Flutter**, beside `frontend-rn-expo`. It applies only in a project whose
   `pubspec.yaml` depends on the Flutter SDK, and `crew-frontend-expert` adds it on top of `frontend` there. It leaves
   state management, routing and the lint set to the project, and holds what Flutter itself asks for: the layers and
