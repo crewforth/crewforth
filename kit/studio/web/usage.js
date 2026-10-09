@@ -54,24 +54,61 @@ export function costNote(u) {
   return `No estimate: the price table has no row for ${u.unpriced.join(', ')}`;
 }
 
-/** The navigator's one line: time · tokens · ~cost. Null when nothing was read. */
-export function usageLine(u) {
-  if (!u) return null;
-  const t = timeOf(u);
-  const tokens = typeof u.tokens === 'number' ? u.tokens : u.tokens?.total;
-  return [t ? fmtSpan(t.ms) : null, tokens ? fmtCount(tokens) : null, tokens ? fmtCost(u.cost) : null].filter(Boolean).join(' · ') || null;
+/** "40s", "4m 40s", "3h 5m": a span that is being counted, so the seconds show while they matter. */
+export function fmtRunning(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return fmtSpan(ms);
 }
 
-/** The summary box's rows: [label, value, note]. */
-export function summaryRows(u) {
-  if (!u) return [];
+/**
+ * The navigator's one line: time · new tokens · ~cost. Null when nothing was read.
+ * @param live  the session is running: its time is counted from its first record to now
+ */
+export function usageLine(u, { live = false, now = null } = {}) {
+  if (!u) return null;
   const t = timeOf(u);
+  const span = live && u.startedAt != null && now != null ? fmtSpan(now - u.startedAt) : (t ? fmtSpan(t.ms) : null);
+  const tokens = typeof u.tokens === 'number' ? u.tokens : u.tokens?.fresh;
+  return [span, tokens ? fmtCount(tokens) : null, tokens ? fmtCost(u.cost) : null].filter(Boolean).join(' · ') || null;
+}
+
+const kinds = (k, cached = true) => [
+  ['Input', fmtCount(k?.input ?? 0)], ['Output', fmtCount(k?.output ?? 0)], ['Cache write', fmtCount(k?.cacheWrite ?? 0)],
+  ...(cached ? [['Cache read', fmtCount(k?.cacheRead ?? 0)]] : []),
+];
+
+/**
+ * The summary box's rows: { label, value, note, detail }. `detail` is what a click on the row opens: the same
+ * number broken down, as [name, value] pairs.
+ *
+ * "Tokens" is what was new: input, output and cache writes. What was read back from the cache is its own row —
+ * it is the same context counted again on every response, and added in it made a session that had just opened
+ * read as millions.
+ *
+ * @param opts.live  the session is running: its time is counted from its first record to `opts.now`
+ */
+export function summaryRows(u, { live = false, now = null } = {}) {
+  if (!u) return [];
   const k = u.tokens ?? {};
   const rows = [];
-  if (t) rows.push([t.kind === 'worked' ? 'Working time' : 'First to last record', fmtSpan(t.ms), t.note]);
-  if (t?.kind === 'worked' && u.durationMs != null) rows.push(['First to last record', fmtSpan(u.durationMs), 'Pauses included']);
-  rows.push(['Tokens', fmtCount(k.total ?? 0),
-    `Agents included, each response counted once\ninput ${fmtCount(k.input ?? 0)} · output ${fmtCount(k.output ?? 0)} · cache write ${fmtCount(k.cacheWrite ?? 0)} · cache read ${fmtCount(k.cacheRead ?? 0)}`]);
-  rows.push(['Cost', k.total ? fmtCost(u.cost) : NO_COST, costNote(u)]);
+  const t = timeOf(u);
+  if (live && u.startedAt != null && now != null) {
+    rows.push({ label: 'Running for', value: fmtRunning(now - u.startedAt), note: 'From the session\'s first record to now' });
+  } else if (t) {
+    rows.push({ label: t.kind === 'worked' ? 'Working time' : 'First to last record', value: fmtSpan(t.ms), note: t.note });
+    if (t.kind === 'worked' && u.durationMs != null) rows.push({ label: 'First to last record', value: fmtSpan(u.durationMs), note: 'Pauses included; the agents\' transcripts too' });
+  }
+  rows.push({ label: 'Tokens', value: fmtCount(k.fresh ?? 0), note: 'New tokens: input, output and cache writes. Agents included, each response counted once', detail: kinds(k, false) });
+  rows.push({ label: 'From cache', value: fmtCount(k.cacheRead ?? 0), note: 'Read back from the prompt cache: the same context, counted on every response that reused it' });
+  const part = (label, p, note) => {
+    if (!p?.tokens?.total) return;
+    rows.push({ label, value: `${fmtCount(p.tokens.fresh)} · ${fmtCost(p.cost)}`, note: `${note}: new tokens and estimated cost\n${costNote(p)}`, detail: kinds(p.tokens) });
+  };
+  part('Session', u.parts?.session, 'The session\'s own transcript');
+  part('Agents', u.parts?.agents, 'Everything its agents did');
+  rows.push({ label: 'Cost', value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u) });
   return rows;
 }

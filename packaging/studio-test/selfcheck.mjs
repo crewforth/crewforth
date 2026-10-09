@@ -386,7 +386,7 @@ check('prose without a notice yields nothing', none.size === 0);
   check('the page settles what the stream sent against the fleet, and again when the fleet changes its mind',
     /const g = settle\(lastGraph, lastLive\);/.test(appSrc) && /if \(lastGraph && sessionIsLive\(\) !== lastLive\) showGraph\(\);/.test(appSrc)
     && /isection\('In the background', \.\.\.rows\)/.test(appSrc)
-    && /bits\.push\(`\$\{bg\} in background`\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+    && /p\.bg\.textContent = bg \? `\$\{bg\} in background` : '';/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -581,6 +581,18 @@ check('prose without a notice yields nothing', none.size === 0);
     su.responses === 3 && su.tokens.total === 3 * 1450 && near(su.cost, 3 * priced.cost)
     && direct.tokens.total === su.tokens.total && near(direct.cost, su.cost),
     `${su.responses} responses, ${su.tokens.total} tokens, $${su.cost}`);
+  check('the total is split by who spent it: the session\'s own transcript, and everything its agents did',
+    su.parts.session.tokens.total === 1450 && su.parts.agents.tokens.total === 2 * 1450
+    && su.parts.session.tokens.fresh === 100 + 50 + 300 && su.tokens.fresh === 3 * 450 && su.tokens.cacheRead === 3000
+    && near(su.parts.session.cost + su.parts.agents.cost, su.cost),
+    `session ${su.parts.session.tokens.total}, agents ${su.parts.agents.tokens.total}: a record the session's transcript marks as an agent's is the agents'`);
+  const later = new us.Usage();
+  later.add([{ ...rec('m1', 'claude-opus-5-5', u1), timestamp: '2026-01-01T00:00:00Z' }]);
+  later.add([{ ...rec('a1', 'claude-opus-5-5', u1), timestamp: '2026-01-01T00:20:00Z' }], 'agent-1');
+  const span = us.withTimes(later, [{ timestamp: '2026-01-01T00:00:00Z' }]);
+  check('the span runs to the last record of any of the session\'s files: an agent can write long after the session last did',
+    span.durationMs === 20 * 60_000 && span.startedAt === Date.parse('2026-01-01T00:00:00Z') && later.of('agent-1').tokens.total === 1450
+    && later.of('nobody') === null, `${span.durationMs / 60_000} minutes`);
   const first = await us.cachedUsage(session);
   fs.appendFileSync(path.join(sub, 'agent-a1.jsonl'), lines([rec('a-later', 'claude-opus-5-5', u1)]));
   const second = await us.cachedUsage(session);
@@ -597,19 +609,54 @@ check('prose without a notice yields nothing', none.size === 0);
     wu.usageLine({ durationMs: 12 * 60_000, workedMs: 0, tokens: 208_000, cost: 0.27, unpriced: [] }) === '12m · 208k · ~$0.27'
     && wu.usageLine({ durationMs: 9e7, workedMs: 5 * 60_000, tokens: 1000, cost: null, unpriced: ['x'] }) === '5m · 1.0k · —'
     && wu.usageLine(null) === null && wu.usageLine({ durationMs: null, workedMs: 0, tokens: 0, cost: 0 }) === null);
-  const rows = wu.summaryRows({ durationMs: 9e7, workedMs: 5 * 60_000, tokens: { total: 1000, input: 1, output: 2, cacheWrite: 3, cacheRead: 994 }, cost: null, unpriced: ['some-other-model'] });
-  check('the summary says which time it is, breaks the tokens down on hover, and names the model it has no price for',
-    rows.map((r) => r[0]).join() === 'Working time,First to last record,Tokens,Cost' && rows[3][1] === '—'
-    && /some-other-model/.test(rows[3][2]) && /cache read 994/.test(rows[2][2])
-    && wu.summaryRows({ durationMs: 60_000, workedMs: 0, tokens: { total: 5 }, cost: 0.5, unpriced: [] })[0][0] === 'First to last record'
+  const tk = (input, output, cacheWrite, cacheRead) => ({ input, output, cacheWrite, cacheRead, fresh: input + output + cacheWrite, total: input + output + cacheWrite + cacheRead });
+  const spent = {
+    durationMs: 9e7, workedMs: 5 * 60_000, startedAt: 1_000_000, tokens: tk(100, 200, 700, 99_000), cost: null, unpriced: ['some-other-model'],
+    parts: { session: { tokens: tk(60, 100, 500, 90_000), cost: 0.5, unpriced: [] }, agents: { tokens: tk(40, 100, 200, 9_000), cost: null, unpriced: ['some-other-model'] } },
+  };
+  const rows = wu.summaryRows(spent);
+  const row = (label, list = rows) => list.find((r) => r.label === label);
+  check('"Tokens" is what was new, and what was read back from the cache is a row of its own',
+    row('Tokens').value === '1.0k' && row('From cache').value === '99.0k'
+    && row('Tokens').detail.map((d) => d.join(' ')).join(', ') === 'Input 100, Output 200, Cache write 700',
+    `Tokens ${row('Tokens').value}, From cache ${row('From cache').value}; with cache reads added in it read ${wu.fmtCount(spent.tokens.total)}`);
+  check('the session and its agents are each a row: new tokens and the estimate, with all four kinds behind a click',
+    row('Session').value === '660 · ~$0.50' && row('Agents').value === '340 · —'
+    && row('Agents').detail.map((d) => d[0]).join() === 'Input,Output,Cache write,Cache read' && row('Agents').detail[3][1] === '9.0k'
+    && /some-other-model/.test(row('Agents').note) && wu.summaryRows({ ...spent, parts: { session: spent.parts.session, agents: { tokens: tk(0, 0, 0, 0), cost: 0, unpriced: [] } } }).filter((r) => r.label === 'Agents').length === 0);
+  check('the summary says which time it is, and names the model it has no price for',
+    rows.map((r) => r.label).join() === 'Working time,First to last record,Tokens,From cache,Session,Agents,Cost' && row('Cost').value === '—'
+    && /some-other-model/.test(row('Cost').note)
+    && wu.summaryRows({ durationMs: 60_000, workedMs: 0, tokens: tk(5, 0, 0, 0), cost: 0.5, unpriced: [] })[0].label === 'First to last record'
     && wu.summaryRows(null).length === 0);
+  const liveRows = wu.summaryRows(spent, { live: true, now: 1_000_000 + 280_000 });
+  check('a session that is running counts from its first record to now, not to its last record',
+    liveRows[0].label === 'Running for' && liveRows[0].value === '4m 40s' && !liveRows.some((r) => r.label === 'First to last record')
+    && wu.summaryRows(spent, { live: true, now: 1_000_000 + 281_000 })[0].value === '4m 41s'
+    && wu.fmtRunning(59_000) === '59s' && wu.fmtRunning(3 * 3_600_000 + 5 * 60_000) === '3h 5m'
+    && wu.usageLine({ ...spent, tokens: 1000, cost: 1 }, { live: true, now: 1_000_000 + 12 * 60_000 }) === '12m · 1.0k · ~$1.00',
+    `${liveRows[0].label} ${liveRows[0].value}`);
 
   const spendDom = installDom();
   const { Canvas } = await import(`../../kit/studio/web/canvas.js?spend=${Date.now()}`);
   const c = new Canvas(document.createElement('div'), {});
   const hiddenEmpty = c.spendEl.hidden;
   c.setSpend(rows);
-  const shown = !c.spendEl.hidden && c.spendRows.children.length === 8;
+  const shown = !c.spendEl.hidden && c.spendRows.children.length === 2 * rows.length;
+  const tokensRow = c.spendParts.get('Tokens');
+  const closedAtFirst = tokensRow.detail.hidden === true && tokensRow.row.classList.contains('cv-spend-more');
+  tokensRow.row.emit('click');
+  const opened = tokensRow.detail.hidden === false && tokensRow.detail.children.length === 6;
+  c.spendParts.get('From cache').row.emit('click');
+  check('a row with a breakdown opens it on a click; a row without one does nothing',
+    closedAtFirst && opened && c.spendParts.get('From cache').detail.hidden === true && !c.spendParts.get('From cache').row.classList.contains('cv-spend-more'));
+  const kept = tokensRow.row;
+  c.setSpend(liveRows);
+  check('a live session\'s box is updated in place: the row under a press is the same element, and what was opened stays open',
+    c.spendParts.get('Tokens').row === kept && c.spendParts.get('Tokens').detail.hidden === false
+    && c.spendParts.get('Running for').value.textContent === '4m 40s' && !c.spendParts.has('Working time')
+    && c.spendRows.children[0] === c.spendParts.get('Running for').row);
+  c.setSpend(rows);
   c.showSpend(false);
   const c2 = new Canvas(document.createElement('div'), {});
   c2.setSpend(rows);
@@ -617,11 +664,48 @@ check('prose without a notice yields nothing', none.size === 0);
     hiddenEmpty && shown && c.spendEl.hidden && localStorage.getItem('crewforth-studio-spend') === 'closed' && c2.spendEl.hidden,
     'and "View options" brings it back');
   c2.showSpend(true);
-  check('asked for again, it is back with what it had', !c2.spendEl.hidden && c2.spendRows.children.length === 8);
+  check('asked for again, it is back with what it had', !c2.spendEl.hidden && c2.spendRows.children.length === 2 * rows.length);
+
+  /* -- a card's text stays in the card ------------------------------------ */
+  const gpf = await import(`../../kit/studio/web/graph-plan.js?fit=${Date.now()}`);
+  const sessionNode = (extra = {}) => ({ id: 'session', kind: 'session', sessionId: 's', gitBranch: 'phase-2-deposit-module-and-a-branch-name-that-does-not-end', turns: 23, tokens: 96_000, ...extra });
+  const bgNow = [{ id: 'b1', toolName: 'Bash', detail: 'npm run migrate' }, { id: 'b2', toolName: 'Bash', detail: 'sleep 5' }];
+  const plain = gpf.plan([sessionNode()], {}).items[0];
+  const withBg = gpf.plan([sessionNode({ backgroundNow: bgNow })], {}).items[0];
+  const inOrder = gpf.plan([sessionNode({ backgroundNow: bgNow })], { group: 'order' }).items[0];
+  check('a session with commands in the background is one line taller and no wider, in every grouping',
+    plain.h === gpf.SIZE.session.h && withBg.h === gpf.SIZE.session.h + gpf.SIZE.session.line && withBg.w === plain.w
+    && inOrder.h === withBg.h && inOrder.w === plain.w, `${plain.w}x${plain.h} -> ${withBg.w}x${withBg.h}`);
+  const fc = new Canvas(document.createElement('div'), {});
+  fc.setSession('fit');
+  fc.render({ nodes: [sessionNode({ backgroundNow: bgNow })], edges: [] });
+  const sp = fc.els.get('session').parts;
+  check('the background count has a line of its own on the session card, and a name that is cut is whole on hover',
+    sp.bg.hidden === false && sp.bg.textContent === '2 in background' && !/background/.test(sp.sub.textContent)
+    && sp.name.title === 'phase-2-deposit-module-and-a-branch-name-that-does-not-end' && /npm run migrate/.test(sp.bg.title),
+    `"${sp.sub.textContent}" / "${sp.bg.textContent}"`);
+  fc.render({ nodes: [sessionNode()], edges: [] });
+  check('and the line goes when nothing is running in the background', fc.els.get('session').parts.bg.hidden === true);
   spendDom();
+  // Overflow is a matter of layout, which this file has no engine for. What it can hold is the rule that makes
+  // overflow impossible: every part of a card that carries text of unknown length is one clipped line that may
+  // shrink, and the parts that may not shrink are short by construction. The measurement in a browser is in the
+  // pull request that added this.
+  const cardCss = (read(path.join(WEB_ROOT, 'style.css')) ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const decl = (sel) => { const m = cardCss.match(new RegExp(`(?:^|\\n)${sel.replace(/[.[\]"=]/g, '\\$&')} \\{([^}]*)\\}`)); return m ? m[1] : ''; };
+  const clips = (sel) => /overflow: hidden/.test(decl(sel)) && /text-overflow: ellipsis/.test(decl(sel)) && /white-space: nowrap/.test(decl(sel)) && /min-width: 0/.test(decl(sel));
+  const flexible = ['.cv-name', '.cv-task', '.cv-sub', '.cv-title'];
+  const canvasSrc = read(path.join(WEB_ROOT, 'canvas.js')) ?? '';
+  const textClasses = [...new Set([...canvasSrc.matchAll(/mk\('(?:span|div)', '(cv-(?:name|task|sub|title|word|order|pill-word|times)[^']*)'/g)].map((m) => `.${m[1].split(' ')[0]}`))];
+  check('every piece of a card\'s text that can be long is a single line that is clipped and may shrink',
+    flexible.every(clips) && !/flex: none/.test(decl('.cv-sub')), flexible.filter((x) => !clips(x)).join(', ') || `${flexible.join(', ')} clip`);
+  check('and every text class a card is built from is either one of those or short by construction',
+    textClasses.length >= 5 && textClasses.every((c) => flexible.includes(c) || ['.cv-word', '.cv-order', '.cv-pill-word'].includes(c)),
+    textClasses.join(', '));
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
-    /canvas\.setSpend\(summaryRows\(g\.nodes\.find\(\(n\) => n\.kind === 'session'\)\?\.usage \?\? null\)\);/.test(appSrc)
+    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\) \}\)\);/.test(appSrc)
+    && /else if \(lastLive === true\) paintSpend\(\);/.test(appSrc)
     && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
 }
