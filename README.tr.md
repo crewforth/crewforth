@@ -84,7 +84,8 @@ Toplam **11 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-pl
 | Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay sizin yazdığınız bir komuttur: `/crew-approve commit`. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
 | Bir commit, tam olarak kendi diff'i için temiz bir inceleme ister | `guard-bash.sh` ve `crew-review-agent`'ın yazdığı kayıt |
 | Yıkıcı komutlar (`reset --hard`, force push, `rm -rf`, `--no-verify`) reddedilir | `guard-bash.sh` |
-| Bir `crew-*` ajanı, riske göre seçilmiş bir modelle (`haiku`, `sonnet`, `opus`) çağrılır ve tabanının altına inmez: güvenlik `opus`; gizlilik, inceleme, planlama ve veritabanı en az `sonnet`. `CREW_MODEL_ROUTING=off` bunu kapatır | `guard-agent-model.sh` |
+| Bir `crew-*` ajanı bir iş kartıyla (dosyalar, değişiklik türü, verify komutu) ve kartın riskine uyan modelle çağrılır: kritik iş (auth, ödeme, migration, güvenlik…) `opus`'ta, hiçbir komutun doğrulayamadığı iş en az `sonnet`'te, `haiku` yalnız bir komutun denetlediği işte. `opus`'ta olmayan ajan kritik yola yazamaz. `CREW_MODEL_ROUTING=off` bunu kapatır | `guard-agent-model.sh`, `guard-write.sh` |
+| Ajanın işi durduğunda doğrulanır: ilk kırmızıda ajan düzeltir; ikincide iş bir üst modelle tekrarlanır ve aynı model reddedilir; orada da kırmızıysa size sorulur | `agent-outcome.sh` ve `guard-agent-model.sh` |
 | Yapay zekâ imzası commit'e girmez | `pre-commit` ve `commit-msg` git hook'ları |
 | API anahtarı, token ya da özel anahtar commit'e girmez | `pre-commit` sır taraması |
 | Bir kapıyı kapatmak için kapı dosyası düzenlenemez ya da silinemez | `guard-write.sh` |

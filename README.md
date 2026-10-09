@@ -87,7 +87,8 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |
 | No API key, token or private key reaches a commit | `pre-commit` secret scan |
 | A gate file cannot be edited or deleted to switch the gate off | `guard-write.sh` |
-| A `crew-*` agent is called with a model, chosen by risk (`haiku`, `sonnet`, `opus`), and not below its floor: security on `opus`; privacy, review, planning and database on `sonnet` or above. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh` |
+| A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, work nothing can verify on `sonnet` or above, `haiku` only where a command checks it. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
+| An agent's work is verified when it stops: red once, the agent fixes it; red again, the task is repeated one model up and the same model is refused; red there too, you are asked | `agent-outcome.sh` and `guard-agent-model.sh` |
 
 Every hook and rule: [crewforth.com/gates](https://crewforth.com/gates). Gates stop accidents, not determined attempts; for a hard boundary, use a devcontainer or a VM.
 

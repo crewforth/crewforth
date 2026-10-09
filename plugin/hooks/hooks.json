@@ -55,6 +55,15 @@
         ]
       }
     ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact|fork",
@@ -65,7 +74,8 @@
       {
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/board-sync.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/board-sync.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 }
         ]
       },
       {

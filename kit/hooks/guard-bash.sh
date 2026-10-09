@@ -1375,7 +1375,7 @@ fi
 # the shell is Turing-complete, so this is defence-in-depth — guard-write.sh covers the Write/Edit tools (the
 # model's natural path to a file), and install-time read-only hook files would be the airtight layer.
 _GP='[/\\]+(\.[/\\]+)*'      # a path separator as the shell and the filesystem take it: `/`, `\`, doubled, with `/./` between
-GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$))'
+GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|settings\.local\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$))'
 # .git/config (with a worktree's and a submodule's own) is on the list because core.hooksPath LIVES there: the rules
 # above stop `git config core.hooksPath …`, and a plain `printf '[core]\n\thooksPath = /dev/null\n' >> .git/config`
 # walked past them — after it a commit from the user's own terminal skips the trace and secret scans (measured, 3.1.0
@@ -1897,6 +1897,13 @@ _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names i
   [ "$inw" = 1 ] && _appr_word "$w" && return 0
   return 1
 }
+# What model routing decides from is written by the user and by Crewforth's own hooks (guard-write.sh has the same rule
+# for the file tools): the user's rules, the floors, the list of critical paths, and the records of calls and results.
+# A command that NAMES one is refused, reading included; model-outcomes.tsv, the plain record, may be read.
+_mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$CMD_UQ" in *crew-model-rules*|*crew-model-floors*|*crew-critical-paths*|*state/crew-model/*|*state\\crew-model\\*) rc=0 ;; esac
+  [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
+_mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it)" "4.5" tamper
 _appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper
 
 # §4.5-adjacent: a .env file holds secrets. The settings.json Read-tool deny does NOT cover the Bash tool, so a

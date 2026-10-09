@@ -7,16 +7,17 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | **Agents** | {{AGENT_COUNT}} | Thin triggers — *who* owns a domain and *when* they fire |
 | **Skills** | {{SKILL_COUNT}} | The method, written once, applied by whoever needs it |
 | **Commands** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hooks** | 16 | The gates, plus session measurement and routing |
+| **Hooks** | 17 | The gates, plus session measurement and routing |
 | **Discipline** | 1 | Principles, workflow, Definition of Done, prohibitions — imported by your `CLAUDE.md` |
 
-## All 16 hooks
+## All 17 hooks
 
 | Hook | Role |
 |:--|:--|
 | `prompt-approval.sh` | In `auto` and `dontAsk`, records the command you type, `/crew-approve commit` (or `push`, `commit+push`), as the approval, tied to what is staged, to `HEAD` and to the session |
 | `guard-schedule.sh` | Refuses a tool call that schedules a prompt (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, an MCP tool named for a trigger, a schedule or a cron) when that prompt is an approval: an approval is what you type, never what a session schedules for itself |
-| `guard-agent-model.sh` | Refuses a call to a `crew-*` agent that names no model, or one below the agent's floor (`crew-security-expert`: `opus`; privacy, review, planner and database: `sonnet`). It never rewrites the call; the refusal names the model that is needed. `fable` needs `CREW_ALLOW_FABLE=1`; `CREW_MODEL_ROUTING=off` turns the gate off |
+| `guard-agent-model.sh` | Reads the task card a `crew-*` agent is called with (files, kind of change, verify command) and refuses a call whose model does not fit: no card or no model; critical work (a migration, security, architecture or unknown-cause change, or a file on a critical path) below `opus`; test-writing, audits and reviews below `sonnet`; work with no verify command on `haiku`; a card whose verify failed, on the same or a lower model; critical work with a verify command in the background. It never rewrites the call. `fable` needs `CREW_ALLOW_FABLE=1`; `CREW_MODEL_ROUTING=off` turns it off |
+| `agent-outcome.sh` | When a crew agent stops, runs its card's verify command: red once, the agent is kept running to fix it; red again, the session is told to repeat the task one model up. Writes one line per call to `.claude/state/model-outcomes.tsv`, raises a class's floor when its first try fails too often, and lists the project's critical paths. Not a gate: it cannot undo what an agent wrote. The verify command runs only when you allowed it by name (a `verify` line in `.claude/crew-model-rules`, a `Bash(...)` rule in `permissions.allow`) or, in `auto` and `bypassPermissions`, when it is a known test or build runner with no options. Known limits: a test runner runs code the agent wrote (test files, `package.json` scripts, `conftest.py`, a `Makefile`), so the list limits the command and not what the tests do; a failed card stays failed until the card changes; the shell rule for the routing files goes by their names; the list of critical paths is written at the first session, not at install |
 | `route-hint.sh` | Names the owning agent alongside every prompt, so specialists run without you asking |
 | `guard-bash.sh` | Tool-level command gate: commit/push approval, review-before-commit, destructive ops, remote-code-exec, hook tampering |
 | `guard-write.sh` | The same protection on the Write/Edit side — a gate you can silently delete is not a gate. It normalises the target path before matching it, so a gate file cannot be reached under a different spelling. |

@@ -67,3 +67,4 @@ git commit argument the shell expands	kabuğun genişlettiği bir git commit arg
 git config --edit (the configuration file opened for writing)	git config --edit (yapılandırma dosyası yazmak için açılır)
 git commit through a command the shell fills in	kabuğun doldurduğu bir komutla git commit
 a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)	bir Claude Code oturumuna istem olarak onay veren bir komut (yalnız kullanıcının kendi mesajı onaylar)
+a model routing record named in a command (the user and Crewforth's hooks write it)	komutta adı geçen bir model yönlendirme kaydı (onu kullanıcı ve Crewforth'un hook'ları yazar)

@@ -44,7 +44,7 @@ chmod +x "$OUT/studio/ensure-node.sh" "$OUT/studio/server/hooks/"*.sh 2>/dev/nul
 # would carry the board's session-start awareness and none of its claim gate — the exact one-channel-is-weaker
 # asymmetry the git hooks below were added to close.
 for h in guard-bash.sh guard-write.sh context-usage.sh session-guard.sh session-rehydrate.sh session-stats.sh \
-         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-schedule.sh guard-agent-model.sh; do
+         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-schedule.sh guard-agent-model.sh agent-outcome.sh; do
   cp "$SRC/hooks/$h" "$OUT/hooks/$h"
   chmod +x "$OUT/hooks/$h"
 done
@@ -152,6 +152,15 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         ]
       }
     ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact|fork",
@@ -162,7 +171,8 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
       {
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/board-sync.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/board-sync.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 }
         ]
       },
       {

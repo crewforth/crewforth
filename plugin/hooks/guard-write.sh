@@ -387,6 +387,7 @@ block(){  # $1 = rule name for the log (must keep the `gate-file edit` prefix �
 WHY_SCRIPT="This file is a gate script — rewriting it would disarm the trace/secret/approval gates."
 WHY_DISC="This file is Crewforth's discipline document — it IS the text of §4.1-§4.5, so editing it empties the rules the gates enforce."
 WHY_LINK="A parent directory of this path is a symlink and it resolves into a gate directory, so the write would land on a gate file."
+WHY_MODEL="This file is what model routing decides from: the user's rules, a class's floor, the critical paths, or the record of a call and its result. Only the user and Crewforth's own hooks write it, so a session cannot lower its own floor or erase its own failure."
 WHY_APPR="This file records the user's own approval for a commit or a push (§4.4). Only the user's message writes it, so a session cannot approve its own commit."
 WHY_GITCFG="This file holds core.hooksPath: writing it can switch the git hooks off without touching one of them. Settings go through git config, which the Bash guard reads."
 WHY_LONG="The path in this payload is longer than any filesystem accepts. It is refused rather than parsed, because parsing it is the slow path an attacker would aim at."
@@ -544,6 +545,13 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
     # Matched by name wherever it is: a linked worktree keeps its git directory elsewhere.
     */[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll]|[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll])
       GATE_RULE="approval-record edit (Write/Edit tools)"; GATE_WHY="$WHY_APPR"; return 0 ;;
+    # What model routing decides from (hooks/guard-agent-model.sh, hooks/agent-outcome.sh): the user's own rules,
+    # the floors raised from the record of outcomes, the list of critical paths, and the records of calls and
+    # results. A session that writes one lowers its own floor or wipes its own failure.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Cc][Rr][Ee][Ww]-[Mm][Oo][Dd][Ee][Ll]-[Rr][Uu][Ll][Ee][Ss]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Cc][Rr][Ee][Ww]-[Mm][Oo][Dd][Ee][Ll]-[Rr][Uu][Ll][Ee][Ss]\
+    |*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-*|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-*\
+    |*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Mm][Oo][Dd][Ee][Ll]-[Oo][Uu][Tt][Cc][Oo][Mm][Ee][Ss].[Tt][Ss][Vv]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Mm][Oo][Dd][Ee][Ll]-[Oo][Uu][Tt][Cc][Oo][Mm][Ee][Ss].[Tt][Ss][Vv])
+      GATE_RULE="gate-file edit (model routing record)"; GATE_WHY="$WHY_MODEL"; return 0 ;;
   esac
   # core.hooksPath lives in git's configuration files: the repository's (.git/config, with a linked worktree's and a
   # submodule's own) and the user's (~/.gitconfig, ~/.config/git/config). Writing one switches the git hooks off without
@@ -601,6 +609,29 @@ while case "$_anc" in */*) true ;; *) false ;; esac; do
     break
   fi
 done
+
+# ---- model routing: an agent that is not on opus does not write to a critical path ------------------------------
+# The card a crew agent is called with can leave a file out, so the files it names are not the last word: the
+# write itself is checked. Asked only of a call that comes from inside an agent (the payload then carries agent_id;
+# measured on Claude Code 2.1.294), so the session's own writes pay one test of the payload's text and nothing else.
+# One definition of "critical path" and of "which model is this agent on": hooks/guard-agent-model.sh, sourced.
+case "$INPUT" in *'"agent_id"'*)
+  if [ "${CREW_MODEL_ROUTING:-}" != off ]; then
+    _gwm="${BASH_SOURCE%/*}"; [ "$_gwm" = "${BASH_SOURCE}" ] && _gwm=.
+    if [ -f "$_gwm/guard-agent-model.sh" ]; then
+      . "$_gwm/guard-agent-model.sh"
+      declare -F _am_write_check >/dev/null 2>&1 && _am_write_check "$INPUT" "$FP"
+      # An agent does not write the settings files either: a Bash(...) rule in permissions.allow is one of the two
+      # ways the USER allows a verify command by name, and an agent that could add one would allow its own.
+      case "${FP//\\//}" in
+        */.claude/settings.json|.claude/settings.json|*/.claude/settings.local.json|.claude/settings.local.json)
+          declare -F _am_log >/dev/null 2>&1 && _am_log "a settings file written from inside an agent"
+          echo "GUARD (agent model): an agent does not write ${FP##*/}: a permission rule there decides which verify command a hook may run, and that is the user's to give. Stop, say what you wanted to change, and end your report with confidence: low" >&2
+          exit 2 ;;
+      esac
+    fi
+  fi ;;
+esac
 
 # ---- team board: you may not start work nobody knows you started -----------------------------------------------
 # The claim lock already makes it impossible for two people to HOLD the same item — a losing claim is refused in

@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# agent-outcome.sh - what became of a crew agent's work: verified, fixed once, recorded, and told to the session.
+#
+# WHY. Whether a model was enough for a piece of work cannot be known before the work; it can be measured after it.
+# The card a crew agent is called with (hooks/guard-agent-model.sh) names a verify command. This hook runs it when
+# the agent stops, so a cheap model that was not enough costs one more run and not broken code, and the record of
+# what happened is what the next choice is made from.
+#
+# FOUR EVENTS, one script (the wiring is in settings.json / hooks.json):
+#   SubagentStart        the call's record, written by the gate when it allowed the call, is matched to the agent
+#                        that has just started: from here on the agent's id names its model, card and class.
+#   SubagentStop         the verify command is run in the project.
+#                          green                    -> pass.
+#                          red, the first time      -> the agent is kept running, once, with the failing command and
+#                                                      the end of its output as its next instruction.
+#                          red, the second time     -> the agent ends; the result is fail, and the card is marked so
+#                                                      the gate refuses it on the same or a lower model.
+#                          not a command a hook may run (it chains, or the shell gate would refuse or ask)
+#                                                   -> blocked: not run, nothing concluded.
+#                          not finished in CREW_VERIFY_TIMEOUT seconds (540)
+#                                                   -> timeout: stopped, nothing concluded.
+#                        Then one line is added to .claude/state/model-outcomes.tsv, and the class is looked at:
+#                        where the first try failed too often, its floor goes one model up (crew-model-floors.auto).
+#                        Only ever up: lowering a floor is the user's decision and nothing here does it.
+#   PostToolUse (Agent)  a foreground call has come back. If its verify failed, or its report closed with
+#                        confidence: low, the session is told to repeat the task once, one model up, and to ask
+#                        the user if that fails too. A background call comes back before its agent has finished,
+#                        so nothing is said then; the record and the gate still hold.
+#   SessionStart, --scan the project's critical paths are listed in .claude/state/crew-critical-paths.auto, when the
+#                        list of files has changed. A generated file: the gate does not read it, it reads the paths.
+#
+# Measured on Claude Code 2.1.294 before this was written: an agent's Edit carries its agent_id, and it is the id
+# SubagentStart was given and the one PostToolUse(Agent) returns as agentId; a SubagentStop that answers "block"
+# keeps the agent working and the agent acts on the reason; PostToolUse's additionalContext reaches the session.
+#
+# THIS IS NOT A GATE. It cannot undo what an agent wrote, and when it fails it fails OPEN: a stop hook that refused
+# on its own error would keep an agent running for ever. What stops broken work is the repeat one model up and the
+# review before a commit. CREW_MODEL_ROUTING=off: nothing here does anything.
+#
+# THE VERIFY COMMAND comes from the card, which the session wrote, and would run here where no PreToolUse gate sees
+# it. So it is one command with nothing chained to it, and it is handed to hooks/guard-bash.sh first, as the Bash
+# call it would be: what that gate refuses, or would ask the user about, is not run (_am_verify_ok, one function,
+# asked by the gate when the agent is called and here again when the command would start).
+set -uo pipefail
+export LC_ALL=C
+[ "${CREW_MODEL_ROUTING:-}" = off ] && exit 0
+_ao_here="${BASH_SOURCE%/*}"; [ "$_ao_here" = "${BASH_SOURCE}" ] && _ao_here=.
+[ -f "$_ao_here/guard-agent-model.sh" ] || exit 0
+. "$_ao_here/guard-agent-model.sh"
+declare -F _am_state >/dev/null 2>&1 || exit 0
+_am_state
+
+# UTC, from `date -u` on every bash. The builtin `printf '%(…)T'` prints LOCAL time: with a `Z` after it the record
+# was three hours off on a machine at +0300 (measured on Windows, bash 5.3; macOS's bash 3.2 took the `date` branch
+# and CI runs in UTC, so neither showed it). One process, on a hook that is not on any hot path.
+_ao_now(){ _AON="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; case "$_AON" in [0-9][0-9][0-9][0-9]-*Z) ;; *) _AON=- ;; esac; }
+_ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
+  _AOJ="$(printf '%s' "$s" | tr -d '\000-\010\013-\037\177')"
+}
+
+_ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never ending inside a UTF-8 character
+  # In bytes, by tools that count bytes whatever the shell makes of the text, and with the arithmetic done here.
+  # Two earlier versions each passed on one macOS and failed on another: a shell substring counts bytes or
+  # characters depending on how the shell was started, and `iconv -c` does not drop a character cut at the end of
+  # its input on every macOS. So: `head -c` cuts; `od` shows the last four bytes; a character begun and not
+  # finished there (a lead byte with too few continuation bytes after it) is cut off as well.
+  local n="$2" hx b k=0 need=0 drop=0 total
+  total="$(printf '%s' "$1" | wc -c | tr -d ' ')"; case "$total" in ''|*[!0-9]*) total=0 ;; esac
+  if [ "$total" -le "$n" ]; then _AOC="$1"; return 0; fi
+  hx="$(printf '%s' "$1" | head -c "$n" | tail -c 4 | od -An -tx1 | tr -d ' \n')"
+  while [ -n "$hx" ]; do
+    b="${hx: -2}"; hx="${hx%??}"
+    case "$b" in
+      [89ab][0-9a-f]) k=$((k+1)); [ "$k" -ge 4 ] && { drop=$k; break; } ;;      # a continuation byte
+      [cd][0-9a-f]) need=1; [ "$k" -lt "$need" ] && drop=$((k+1)); break ;;
+      e[0-9a-f])    need=2; [ "$k" -lt "$need" ] && drop=$((k+1)); break ;;
+      f[0-9a-f])    need=3; [ "$k" -lt "$need" ] && drop=$((k+1)); break ;;
+      *) break ;;                                                                # ASCII: nothing is open
+    esac
+  done
+  _AOC="$(printf '%s' "$1" | head -c "$((n - drop))")"
+}
+
+# ---- the list of critical paths (SessionStart, or `--scan` from the installers) ----------------------------------
+_ao_scan(){
+  local out="$_AMS/crew-critical-paths.auto" stamp="$_AMS/crew-critical-paths.stamp" list sum old="" f rest seg pre n=0
+  [ -d "$_AMP/.claude" ] || return 0
+  if git -C "$_AMP" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    list="$(git -C "$_AMP" ls-files -co --exclude-standard 2>/dev/null)" || return 0
+  else
+    list="$(cd "$_AMP" 2>/dev/null && find . \( -name .git -o -name node_modules -o -name .claude \) -prune -o -type f -print 2>/dev/null | sed 's|^\./||')" || return 0
+  fi
+  sum="$(printf '%s\n' "$list" | cat - "$_AMP/.claude/crew-model-rules" 2>/dev/null | cksum)"; sum="${sum%% *}"
+  [ -f "$stamp" ] && IFS= read -r old < "$stamp"
+  [ "$1" != force ] && [ "$old" = "$sum" ] && [ -f "$out" ] && return 0
+  mkdir -p "$_AMS" 2>/dev/null || return 0
+  {
+    echo "# Generated by Crewforth (hooks/agent-outcome.sh). Do not edit: it is written again when the files change."
+    echo "# The paths of this project that are critical for model routing: work that touches one runs on opus."
+    echo "# To add or remove a path, write .claude/crew-model-rules ('+ <glob>' adds, '- <glob>' removes)."
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      case "$f" in .claude/*|.git/*) continue ;; esac          # Crewforth's own files and git's are not the project's work
+      n=$((n+1)); [ "$n" -le 20000 ] || { echo "# stopped after 20000 files: the rest was not read"; break; }
+      _am_crit_path "$f" || continue
+      # The shortest leading part of the path that is critical by itself: a folder is listed once, not per file.
+      pre=""; rest="$f"
+      while :; do
+        seg="${rest%%/*}"; pre="${pre:+$pre/}$seg"
+        [ "$seg" = "$rest" ] && break
+        rest="${rest#*/}"
+        if _am_crit_path "$pre"; then pre="$pre/"; break; fi
+      done
+      printf '%s\n' "$pre"
+    done <<< "$list" | sort -u
+  } > "$out.tmp" 2>/dev/null && mv "$out.tmp" "$out" 2>/dev/null && printf '%s\n' "$sum" > "$stamp" 2>/dev/null
+  return 0
+}
+case "${1:-}" in --scan) _ao_scan force; exit 0 ;; esac
+
+IFS= read -r -d '' INPUT || true
+_json_slice "$INPUT" hook_event_name >/dev/null; EV="$_JS"
+
+# ---- the class's floor, after a result (tightening only) --------------------------------------------------------
+# A class is agent x change x risk. Where at least CREW_MODEL_CAL_N (5) of its calls on one model had a verify
+# command, and more than CREW_MODEL_CAL_PCT (20) percent of them did not pass on the first try, the class is held
+# one model up. Both numbers are a starting point that has not been measured.
+_ao_calibrate(){  # $1 agent, $2 change, $3 risk
+  local tsv="$_AMS/model-outcomes.tsv" fl="$_AMS/crew-model-floors.auto" want cur="" a b c t rest keep=""
+  [ -f "$tsv" ] || return 0
+  want="$(awk -F'\t' -v A="$1" -v C="$2" -v R="$3" -v N="${CREW_MODEL_CAL_N:-5}" -v P="${CREW_MODEL_CAL_PCT:-20}" '
+    NR > 1 && $3 == A && $4 == C && $5 == R && ($8 == "pass" || $8 == "fail") { n[$7]++; if ($8 == "fail" || $9 + 0 > 0) bad[$7]++ }
+    END { r["haiku"] = 1; r["sonnet"] = 2; r["opus"] = 3; nm[2] = "sonnet"; nm[3] = "opus"; best = 0
+          for (m in n) if (r[m] > 0 && r[m] < 3 && n[m] >= N && bad[m] * 100 > P * n[m] && r[m] + 1 > best) { best = r[m] + 1; bn = n[m]; bb = bad[m] + 0 }
+          if (best) printf "%s\t%d\t%d", nm[best], bn, bb }' "$tsv" 2>/dev/null)" || return 0
+  [ -n "$want" ] || return 0
+  if [ -f "$fl" ]; then
+    while IFS=$'\t' read -r a b c t rest || [ -n "$a" ]; do
+      case "$a" in ''|'#'*) continue ;; esac
+      if [ "$a" = "$1" ] && [ "$b" = "$2" ] && [ "$c" = "$3" ]; then cur="$t"; else keep="$keep$a"$'\t'"$b"$'\t'"$c"$'\t'"$t"$'\t'"$rest"$'\n'; fi
+    done < "$fl"
+  fi
+  _am_rank "$cur"; a="$_AMR"; _am_rank "${want%%$'\t'*}"
+  [ "$_AMR" -gt "$a" ] || return 0
+  _ao_now
+  { echo "# Generated by Crewforth (hooks/agent-outcome.sh) from model-outcomes.tsv. A class held above its usual model"
+    echo "# because its first try failed too often one model down. agent, change, risk, model, calls, not-first-try, when."
+    echo "# Nothing lowers a line here but the user."
+    printf '%s' "$keep"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$want" "$_AON"; } > "$fl.tmp" 2>/dev/null && mv "$fl.tmp" "$fl" 2>/dev/null
+  return 0
+}
+
+case "$EV" in
+  SessionStart) _ao_scan auto; exit 0 ;;
+
+  SubagentStart)
+    _json_slice "$INPUT" agent_id >/dev/null; AID="$_JS"
+    _json_slice "$INPUT" agent_type >/dev/null; AT="${_JS##*:}"
+    case "$AID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+    case "$AT" in crew-*) ;; *) exit 0 ;; esac
+    [ -d "$_AMD/pending" ] || exit 0
+    # The oldest call of this agent type that no agent has taken yet. Two calls of one type made together can start
+    # in either order; where they ask for different models the agent is recorded on the LOWER one, so the check at
+    # write time errs towards refusing.
+    # A call the gate allowed and nothing started (another hook refused it, the user did) leaves its record behind.
+    # An agent starts within moments of its call, so a record older than five minutes is nobody's and is dropped.
+    low=9; cands=""; if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOWS '%(%s)T' -1; else NOWS="$(date +%s)"; fi
+    for f in "$_AMD/pending"/*; do
+      [ -f "$f" ] || continue
+      t="${f##*/}"; t="${t%%-*}"; case "$t" in ''|*[!0-9]*) ;; *) if [ $((NOWS - t)) -gt 300 ]; then rm -f "$f" 2>/dev/null; continue; fi ;; esac
+      _am_rec_get "$f" agent || continue; [ "$_AMV" = "$AT" ] || continue
+      cands="$cands$f"$'\n'
+      _am_rec_get "$f" tier && { _am_rank "$_AMV"; [ "$_AMR" -lt "$low" ] && low="$_AMR"; }
+    done
+    [ -n "$cands" ] || exit 0
+    mkdir -p "$_AMD/agents" 2>/dev/null || exit 0
+    # TAKEN BY RENAME. Two agents of one type start at the same moment, each in its own hook process, and both see
+    # the same oldest record. A rename either happens or fails, so exactly one of them gets it; the other goes on
+    # to the next record. (Reading it and deleting it afterwards gave both agents the same record.)
+    claim="$_AMD/agents/$AID.claim"; got=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if mv "$f" "$claim" 2>/dev/null; then got=1; break; fi
+    done <<< "$cands"
+    [ "$got" = 1 ] || exit 0
+    _am_rec_get "$claim" tier; _am_rank "$_AMV"
+    if [ "$low" -lt "$_AMR" ]; then _am_name "$low"
+      { grep -v '^tier=' "$claim"; printf 'asked=%s\ntier=%s\nambiguous=1\n' "$_AMV" "$_AMN"; } > "$_AMD/agents/$AID" 2>/dev/null
+    else { cat "$claim"; printf 'asked=%s\n' "$_AMV"; } > "$_AMD/agents/$AID" 2>/dev/null; fi
+    rm -f "$claim" 2>/dev/null
+    exit 0 ;;
+
+  SubagentStop)
+    _json_slice "$INPUT" agent_id >/dev/null; AID="$_JS"
+    case "$AID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+    REC="$_AMD/agents/$AID"
+    [ -f "$REC" ] || exit 0
+    [ -f "$_AMD/results/$AID" ] && exit 0            # an agent that is resumed stops again: its work was judged once
+    # WHOSE RECORD IS THIS? The record was matched to the agent by type and order, which two calls made together
+    # can get wrong. The card itself is in the agent's own transcript: the task it was given opens with it. So the
+    # card is read from there, and the record that is used is the one whose card it is: this agent's, or, where the
+    # two were swapped, the one filed under the other agent (left in place for that agent to find its own the same
+    # way). No transcript to read: the record is used as it was matched. A card no record carries: nothing is
+    # judged, because the command that would run is not one the gate saw for this agent.
+    _json_slice "$INPUT" agent_transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; ATP="${_JU//\\//}"
+    if [ -f "$ATP" ]; then
+      L1=""; IFS= read -r L1 < "$ATP" || true
+      # The task is the first record's content: a string (measured, Claude Code 2.1.294), or, where it is a list of
+      # blocks, the first block's text.
+      _json_slice "$L1" content >/dev/null; TXT="$_JS"
+      [ -n "$TXT" ] || { _json_slice "$L1" text >/dev/null; TXT="$_JS"; }
+      TXT="${TXT:0:6000}"; CARDOK=0
+      if [ -n "$TXT" ]; then _json_unescape "$TXT" >/dev/null; _am_card "$_JU" && CARDOK=1; fi
+      if [ "$CARDOK" = 0 ]; then
+        # Nothing to check the record against. Said in the gate log, and the record is used as it was matched.
+        _am_log "note: the card could not be read from the agent's transcript; its record was used as matched"
+      else
+        _am_digest
+        _am_rec_get "$REC" card
+        if [ "$_AMV" != "$CARD_ID" ]; then
+          _am_rec_get "$REC" agent; MYT="$_AMV"; FOUND=""
+          # First a call nobody has taken yet, then the newest record that has not judged anyone. (A record is
+          # used up by the agent it judges, which is not always the agent it is filed under: that is the swap.)
+          for f in "$_AMD/pending"/*; do
+            [ -f "$f" ] || continue
+            _am_rec_get "$f" card && [ "$_AMV" = "$CARD_ID" ] || continue
+            _am_rec_get "$f" agent && [ "$_AMV" = "$MYT" ] || continue
+            FOUND="$f"; break
+          done
+          if [ -z "$FOUND" ]; then
+            while IFS= read -r f; do
+              [ -n "$f" ] && [ -f "$f" ] || continue; case "$f" in *.claim|*.out|*.used) continue ;; esac
+              [ -f "$f.used" ] && continue                 # that record has already judged an agent
+              _am_rec_get "$f" card && [ "$_AMV" = "$CARD_ID" ] || continue
+              _am_rec_get "$f" agent && [ "$_AMV" = "$MYT" ] || continue
+              FOUND="$f"; break
+            done <<< "$(ls -t "$_AMD/agents"/* 2>/dev/null)"
+          fi
+          if [ -z "$FOUND" ]; then _am_log "note: no record carries the card in the agent's transcript; the agent was not judged"; exit 0; fi
+          REC="$FOUND"
+        fi
+      fi
+    fi
+    _am_rec_get "$REC" verify; VCMD="$_AMV"
+    _am_rec_get "$REC" agent; AG="$_AMV"; _am_rec_get "$REC" change; CH="$_AMV"; _am_rec_get "$REC" risk; RK="$_AMV"
+    _am_rec_get "$REC" card; CID="$_AMV"; _am_rec_get "$REC" esc; ESC="${_AMV:--}"
+    _am_rec_get "$REC" asked || _am_rec_get "$REC" tier; ASK="$_AMV"
+    mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
+    TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
+    SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
+    RES=none; WHYNOT=""
+    if [ -n "$VCMD" ] && [ "$VCMD" != none ]; then
+      _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
+      if ! _am_verify_ok "$VCMD" "$PM"; then
+        # Judged again here, at the moment it would run: the gate judged it when the agent was called, and this
+        # is the place the command actually starts. Not run; nothing is concluded about the work.
+        RES=blocked; WHYNOT="$_AMVW"; VRC=0
+      else
+        # A time limit of its own, below the hook's: a hook killed at its timeout records nothing, and a verify
+        # that hangs must not read as a pass or as a fail.
+        # The limit stays under the hook's own 600 s whatever is asked for.
+        LIM="${CREW_VERIFY_TIMEOUT:-540}"; case "$LIM" in ''|*[!0-9]*) LIM=540 ;; esac; [ "$LIM" -le 560 ] || LIM=560
+        VF="$_AMD/tries/$AID.out"
+        # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
+        # server a test left behind. `setsid` where there is one (CREW_VERIFY_NO_SETSID=1 skips it); otherwise job
+        # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
+        # is ended by its Windows process id.
+        if [ -z "${CREW_VERIFY_NO_SETSID:-}" ] && command -v setsid >/dev/null 2>&1; then
+          ( cd "$_AMP" 2>/dev/null && exec setsid bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          VPID=$!
+        else
+          set -m
+          ( cd "$_AMP" 2>/dev/null && exec bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          VPID=$!
+          set +m
+        fi
+        WAITED=0; VRC=""
+        while kill -0 "$VPID" 2>/dev/null; do
+          if [ "$WAITED" -ge "$LIM" ]; then
+            case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*)
+              WP=""; [ -r "/proc/$VPID/winpid" ] && IFS= read -r WP < "/proc/$VPID/winpid"
+              case "$WP" in ''|*[!0-9]*) ;; *) taskkill //T //F //PID "$WP" >/dev/null 2>&1 ;; esac ;;
+            esac
+            kill -TERM -- "-$VPID" 2>/dev/null; kill -TERM "$VPID" 2>/dev/null
+            W2=0; while kill -0 "$VPID" 2>/dev/null && [ "$W2" -lt 3 ]; do sleep 1; W2=$((W2+1)); done
+            kill -KILL -- "-$VPID" 2>/dev/null; kill -KILL "$VPID" 2>/dev/null
+            VRC=timeout; break
+          fi
+          sleep 1; WAITED=$((WAITED+1))
+        done
+        if [ "$VRC" = timeout ]; then wait "$VPID" 2>/dev/null; RES=timeout; WHYNOT="it did not finish in ${LIM}s"; VRC=0
+        else wait "$VPID" 2>/dev/null; VRC=$?; fi
+        VOUT="$(tail -n 15 "$VF" 2>/dev/null)"; rm -f "$VF" 2>/dev/null
+      fi
+      if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
+      elif [ "$VRC" = 0 ]; then RES=pass
+      elif [ "$TRIES" = 0 ] && [ "$SHA" = 0 ] && { printf '1\n' > "$_AMD/tries/$AID"; } 2>/dev/null; then
+        # Asked ONCE, and only where that can be counted: Claude Code says when a stop hook has already kept this
+        # agent running (stop_hook_active), and the counter has to be on disk before the answer goes out. Either
+        # one missing, the agent is not kept: a stop hook that blocks without counting blocks for ever.
+        TAILV="$(printf '%s\n' "$VOUT" | tail -n 15)"; _ao_cut "$TAILV" 1500; TAILV="$_AOC"
+        _ao_json "The verify command of your task failed (exit $VRC): $VCMD"$'\n'"The end of its output:"$'\n'"$TAILV"$'\n'"Fix the work so that the command passes, then finish. This is asked once: if it fails again your report is taken as it is."
+        printf '{"decision":"block","reason":"%s"}\n' "$_AOJ"
+        exit 0
+      else RES=fail; fi
+    fi
+    # The report's last line, and the model the agent's own transcript names.
+    _json_slice "$INPUT" last_assistant_message >/dev/null; LAST="$_JS"; [ "${#LAST}" -gt 400 ] && LAST="${LAST:${#LAST}-400}"
+    _json_unescape "$LAST" >/dev/null; LAST="$_JU"
+    while :; do case "$LAST" in *[$' \t\n\r']) LAST="${LAST%?}" ;; *) break ;; esac; done
+    ESCL=0; case $'\n'"$LAST" in *$'\n'"escalate:"*) ESCL=1 ;; esac      # a write to a critical path was refused
+    LAST="${LAST##*$'\n'}"
+    case "$LAST" in "confidence: high") CONF=high ;; "confidence: low") CONF=low ;; *) CONF=- ;; esac
+    RAN=-; if [ -f "$ATP" ]; then RAN="$(grep -m1 -o '"model":"[^"]*"' "$ATP" 2>/dev/null)" || RAN=""; RAN="${RAN#\"model\":\"}"; RAN="${RAN%\"}"; case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac; fi
+    [ "$RES" = fail ] && printf '%s\n' "$ASK" >> "$_AMD/fails/$CID" 2>/dev/null
+    printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
+    case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
+    TSV="$_AMS/model-outcomes.tsv"
+    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\n' > "$TSV" 2>/dev/null
+    _ao_now
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" >> "$TSV" 2>/dev/null
+    case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
+    exit 0 ;;
+
+  PostToolUse)
+    _json_slice "$INPUT" tool_name >/dev/null; case "$_JS" in Agent|Task) ;; *) exit 0 ;; esac
+    _json_slice "$INPUT" agentId >/dev/null; AID="$_JS"
+    case "$AID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+    R="$_AMD/results/$AID"; [ -f "$R" ] || exit 0
+    _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
+    _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"
+    case "$RES" in fail|blocked|timeout) ;; *) [ "$CONF" = low ] || exit 0 ;; esac
+    if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
+      # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
+      _am_rec_get "$R" whynot; WN="$_AMV"
+      _ao_json "Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this."
+      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+      exit 0
+    fi
+    _am_rank "$TI"; _am_name $((_AMR+1)); UP="$_AMN"
+    _am_rec_get "$R" escalate; ESCL="$_AMV"
+    if [ "$RES" = fail ]; then MSG="verify failed after one in-agent fix ($VCMD)."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
+    else MSG="the agent closed its report with confidence: low."; TAILM="What the agent left is in the tree; read its report for what it could not do."; fi
+    # A write refused on a critical path is not helped by one model up: that file takes opus.
+    if [ "$ESCL" = 1 ] && [ "$TI" != opus ] && [ "$TI" != fable ]; then UP=opus; MSG="$MSG It was refused a write to a critical path, which only an agent on opus may make; name that file in the card."; fi
+    if [ "$ESC" != - ] && [ -n "$ESC" ]; then MSG="$MSG This was already the repeat one model up (first run: $ESC). Do not run it a third time: ask the user what to do (AskUserQuestion), with what failed and on which models."
+    elif [ -z "$UP" ] || [ "$UP" = fable ]; then MSG="$MSG It ran on $TI and there is no model above it to repeat on: ask the user what to do (AskUserQuestion)."
+    else MSG="$MSG Re-run this task once with $UP: the same card, the same agent, model $UP. If that also fails, ask the user."; fi
+    _ao_json "Crewforth: $MSG $TAILM"
+    printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+    exit 0 ;;
+esac
+exit 0
