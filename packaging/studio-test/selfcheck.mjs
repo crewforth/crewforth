@@ -3078,6 +3078,18 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       const strange = [...new Set(tags.filter((t) => !['svg', 'g', 'path', 'title'].includes(t)))];
       if (strange.length) out.push(`an element a mark does not need: ${strange.join(', ')}`);
       if (/xmlns:[a-z0-9]+\s*=/i.test(src)) out.push('a second namespace');
+      // Who made the file, and the words a content credential is written in: read over the whole text, the
+      // words inside <title> and <desc> among them. A bare "claude" is not looked for: the mark's own
+      // aria-label says "Claude Code agent".
+      const named = src.match(/anthropic|claude\s+provided|content\s+credential|jumbf|rdf:/i);
+      if (named) out.push(`a provenance word: ${named[0].toLowerCase().replace(/\s+/g, ' ')}`);
+      // And the picture is this one: one path, in the mark's colour, on the mark's own square.
+      const paths = (src.match(/<path[\s>/]/g) ?? []).length;
+      if (paths !== 1) out.push(`${paths} paths, not 1`);
+      const head = src.match(/^<svg [^>]*>/)?.[0] ?? '';
+      if (!/\sviewBox="0 0 100 100"/.test(head)) out.push('not the 0 0 100 100 square');
+      const fills = [...src.matchAll(/fill\s*=\s*"([^"]*)"/g)].map((m) => m[1]);
+      if (fills.length !== 1 || fills[0] !== '#D97757' || !/\sfill="#D97757"/.test(head)) out.push('not the one fill #D97757');
       return out;
     };
     const markSrc = read(path.join(WEB_ROOT, 'icons', 'builtin.svg')) ?? '';
@@ -3102,9 +3114,25 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       [plant('<text>hi</text>'), /an element a mark does not need: text/],
       [markSrc.replace('<svg ', '<svg xmlns:x="urn:x" '), /a second namespace/],
       ['', /not one svg picture/],
+      [plant('<title>Claude provided</title>'), /a provenance word: claude provided/],
+      [plant('<title>Made by  Anthropic</title>'), /a provenance word: anthropic/],
+      [plant('<desc>Content Credential attached</desc>'), /a provenance word: content credential/],
+      [plant('<title>jumbf box</title>'), /a provenance word: jumbf/],
+      [markSrc.replace('<path ', '<path rdf:about="" '), /a provenance word: rdf:/],
+      [plant('<path d="M0 0h1v1z"/>'), /2 paths, not 1/],
+      [markSrc.replace(/<path [^>]*\/>/, ''), /0 paths, not 1/],
+      [markSrc.replace('viewBox="0 0 100 100"', 'viewBox="0 0 24 24"'), /not the 0 0 100 100 square/],
+      [markSrc.replace('fill="#D97757"', 'fill="#d97757"'), /not the one fill #D97757/],
+      [markSrc.replace('fill="#D97757"', 'fill="currentColor"'), /not the one fill #D97757/],
+      [markSrc.replace('<path ', '<path fill="#000000" '), /not the one fill #D97757/],
     ];
+    // What must not be refused: the mark's own label names Claude Code, and that is not a provenance word.
+    check('the mark\'s own label, "Claude Code agent", is not taken for a provenance word, and a title that only names the agent is not either',
+      /aria-label="Claude Code agent"/.test(markSrc) && markProblems(markSrc).length === 0
+      && markProblems(plant('<title>Claude Code agent</title>')).length === 0,
+      markProblems(plant('<title>Claude Code agent</title>')).join('; ') || 'accepted');
     const missed = twins.map(([svg, why], i) => (why.test(markProblems(svg).join('; ')) ? null : `${i}: ${markProblems(svg).join('; ') || 'accepted'}`)).filter(Boolean);
-    check('a mark with a fault planted in it is refused, and for that fault: a signed manifest, a payload, a script, a load, a comment, a stray element',
+    check('a mark with a fault planted in it is refused, and for that fault: a signed manifest, a payload, a script, a load, a comment, a stray element, a provenance word, another path, square or fill',
       missed.length === 0 && twins.every(([svg]) => svg !== markSrc), missed.join(' | ') || `${twins.length} planted, ${twins.length} refused`);
 
     {
