@@ -67,6 +67,7 @@ const el = {
   tbZoom: document.getElementById('tb-zoom'),
   tbZoomIn: document.getElementById('tb-zoom-in'),
   tbFit: document.getElementById('tb-fit'),
+  tbReset: document.getElementById('tb-reset'),
   canvasEl: document.getElementById('canvas'),
   timeline: document.getElementById('timeline'),
   viewGraph: document.getElementById('view-graph'),
@@ -447,8 +448,27 @@ function paintToolbar(st) {
   const pct = `${Math.round(st.zoom * 100)}%`;
   el.tbZoom.textContent = pct;
   el.tbZoom.setAttribute('aria-label', `Zoom ${pct}. Back to 100%`);
-  el.tbExpand.disabled = st.groups === 0;
-  el.tbFold.disabled = st.groups === 0;
+  // Enabled only while a card has been moved: with none there is nothing to reset.
+  if (el.tbReset) el.tbReset.disabled = !(st?.moved > 0);
+  paintFoldButtons();
+}
+
+/* Expand all and Fold all act on the view that is open: the graph's groups, the Timeline's, the List's sections.
+   Each is enabled only while it has something left to do there, so the pair always says what is true. */
+const foldTarget = () => (view === 'timeline' ? timeline : view === 'list' ? list : null);
+function foldState() {
+  const t = foldTarget();
+  if (t) return t.foldState();
+  const st = canvas.state();
+  return { groups: st.groups, canExpand: st.canExpand, canFold: st.canFold };
+}
+function paintFoldButtons() {
+  // The canvas reports its state while it is being built, before the view and the other two views exist; a
+  // `let` or `const` that has not been reached yet throws on any read, `typeof` included.
+  let s;
+  try { s = foldState(); } catch { return; }
+  el.tbExpand.disabled = !s.canExpand;
+  el.tbFold.disabled = !s.canFold;
 }
 
 // Made before the canvas: the canvas reports its state while it is being built, and the toolbar passes the
@@ -480,7 +500,7 @@ const canvas = new Canvas(document.getElementById('canvas'), {
         : { label: 'Focus on this branch', run: () => canvas.setFocus(n.id) });
       items.push({ label: 'Copy agent id', run: () => copyText(n.id, 'Copied the agent id') });
     }
-    if (at.pinned) items.push({ label: 'Reset layout', run: () => canvas.resetLayout() });
+    if (at.pinned) items.push({ label: 'Reset layout', run: () => resetLayout() });
     if (!items.length) return;
     openMenu({ getBoundingClientRect: () => ({ left: at.x, bottom: at.y }) }, items);
   },
@@ -574,12 +594,20 @@ el.tbOptions.addEventListener('click', (e) => {
   }
   openMenu(el.tbOptions, items);
 });
-el.tbExpand.addEventListener('click', () => canvas.expandAll());
-el.tbFold.addEventListener('click', () => canvas.foldAll());
+el.tbExpand.addEventListener('click', () => { (foldTarget() ?? canvas).expandAll(); paintFoldButtons(); });
+el.tbFold.addEventListener('click', () => { (foldTarget() ?? canvas).foldAll(); paintFoldButtons(); });
 el.tbZoomOut.addEventListener('click', () => canvas.zoomBy(1 / 1.2));
 el.tbZoomIn.addEventListener('click', () => canvas.zoomBy(1.2));
 el.tbZoom.addEventListener('click', () => canvas.zoomTo(1));
 el.tbFit.addEventListener('click', () => canvas.fit());
+
+/* Reset layout: the cards moved by hand go back where the layout puts them, and for a moment that can be undone. */
+function resetLayout() {
+  const was = canvas.resetLayout();
+  if (!was) return;
+  toast('Layout reset', { label: 'Undo', run: () => { if (canvas.restoreLayout(was)) toast('Layout restored'); } });
+}
+el.tbReset.addEventListener('click', resetLayout);
 
 /* --------------------------------------------------------------- views
    The same session two ways: where its agents are, and when they were. The choice of what is selected, how it is
@@ -635,6 +663,7 @@ function setView(next, select = null, remember = true) {
   for (const c of document.querySelectorAll('.toolbar [data-view]')) c.hidden = !c.dataset.view.split(' ').includes(view);
   queueFit();
   el.stage.dataset.view = view;
+  paintFoldButtons();
   // The List's cards carry the answers; the dock would be the same requests a second time.
   dock.setSuppressed(view === 'list');
   measureDock();
@@ -1270,11 +1299,20 @@ function marked(text, cls) {
 /* A short line that says something happened and goes away. Not a dialog: it
    takes no focus and needs no answer. */
 let toastTimer = null;
-function toast(text) {
-  el.toast.textContent = text;
+function toast(text, action = null) {
+  el.toast.replaceChildren(document.createTextNode(text));
+  // One thing that can be done about what just happened, while the line is up: "Undo".
+  if (action) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-act';
+    b.textContent = action.label;
+    b.addEventListener('click', () => { el.toast.hidden = true; action.run(); });
+    el.toast.append(' \u00b7 ', b);
+  }
   el.toast.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.toast.hidden = true; }, 3200);
+  toastTimer = setTimeout(() => { el.toast.hidden = true; }, action ? 6000 : 3200);
 }
 
 async function copyText(text, said) {
@@ -2124,6 +2162,8 @@ document.addEventListener('keydown', (e) => {
     setView('timeline');
   } else if (e.key === 'l') {
     setView('list');
+  } else if (e.key === 'r') {
+    if (view === 'graph') resetLayout();
   } else if (e.key === 'j') {
     stepAttention(1);
   } else if (e.key === 'k') {
@@ -2315,6 +2355,7 @@ function paintStageNote() {
   // The fleet can say a session ended, or came back, with no transcript changing.
   if (lastGraph && sessionIsLive() !== lastLive) showGraph();
   else if (lastLive === true) paintSpend();
+  paintFoldButtons();
   paintTerminalWait();
 }
 

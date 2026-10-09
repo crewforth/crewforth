@@ -3,7 +3,7 @@
 // Which rows there are, where a bar starts and ends and what it says is decided in timeline-plan.js. This file
 // draws that, and hands back what the viewer did: a row chosen, a group folded, the view moved.
 import {
-  rows, groupsOf, extent, windowOf, place, ticks, clock, stepRange, waitNote, factsOf, xOf, RANGES, DEFAULT_RANGE,
+  rows, groupsOf, foldedSet, extent, windowOf, place, ticks, clock, stepRange, waitNote, factsOf, xOf, RANGES, DEFAULT_RANGE,
 } from './timeline-plan.js';
 import { Press } from './press.js';
 import { shownType, hoverOf, modelOf, modelFamily } from './names.js';
@@ -39,7 +39,8 @@ export class Timeline {
     this.range = DEFAULT_RANGE;
     this.follow = true;
     this.end = null;               // where the view ends when it is not following
-    this.folded = new Set();
+    this.fold = new Map();       // group id -> folded, the viewer's own choices
+    this.all = null;             // true after Expand all, false after Fold all: what an untouched group is
     this.expanded = new Set();
     this.waiting = new Set();
     this.filter = null;            // Set of statuses, or null
@@ -103,7 +104,8 @@ export class Timeline {
     if (id === this.session) return;
     this.session = id;
     this.nodes = [];
-    this.folded = new Set();
+    this.fold = new Map();       // group id -> folded, the viewer's own choices
+    this.all = null;             // true after Expand all, false after Fold all: what an untouched group is
     this.expanded = new Set();
     this.selected = null;
     this.follow = true;
@@ -113,7 +115,21 @@ export class Timeline {
   }
 
   setNodes(nodes) { this.nodes = nodes ?? []; this.render(); }
-  setGroup(g) { if (g === this.group) return; this.group = g; this.folded = new Set(); this.expanded = new Set(); this.render(); }
+  setGroup(g) { if (g === this.group) return; this.group = g; this.fold = new Map(); this.all = null; this.expanded = new Set(); this.render(); }
+
+  /** Open every group and show every row of the long ones; a group that arrives later arrives open. */
+  expandAll() { this.all = true; this.fold = new Map(); this.render(); this.#changed(); }
+  /** Fold every group; one that arrives later arrives folded. */
+  foldAll() { this.all = false; this.fold = new Map(); this.expanded = new Set(); this.render(); this.#changed(); }
+  /** Whether there is anything left for each of the two to do. */
+  foldState() {
+    const heads = (this.lastRows ?? []).filter((r) => r.kind === 'group');
+    return {
+      groups: heads.length,
+      canExpand: heads.some((r) => r.folded) || (this.lastRows ?? []).some((r) => r.kind === 'more'),
+      canFold: heads.some((r) => !r.folded),
+    };
+  }
   setWaiting(ids) { this.waiting = new Set(ids ?? []); this.render(); }
   setFilter(statuses, { keepWaiting = false } = {}) { this.filter = statuses ? new Set(statuses) : null; this.keepWaiting = keepWaiting; this.render(); }
   setModelFilter(family) { this.modelFilter = family ?? null; this.render(); }
@@ -151,7 +167,7 @@ export class Timeline {
     if (id) {
       for (const g of groupsOf(this.nodes, this.group)) {
         if (!g.members.some((m) => m.id === id)) continue;
-        this.folded.delete(g.id);
+        this.fold.set(g.id, false);
         this.expanded.add(g.id);
       }
     }
@@ -212,10 +228,12 @@ export class Timeline {
     // The rows are drawn again from the data each time; a keyboard reader's place among them is kept.
     const focused = this.rowsEl.contains?.(document.activeElement) ? document.activeElement.dataset?.key ?? null : null;
     const top = this.body.scrollTop;
+    const ids = groupsOf(this.nodes, this.group).map((g) => g.id);
     const list = rows(this.nodes, {
-      group: this.group, folded: this.folded, expanded: this.expanded, waiting: this.waiting,
+      group: this.group, folded: foldedSet(ids, this.fold, this.all), expanded: this.all === true ? new Set(ids) : this.expanded, waiting: this.waiting,
       approvals: this.owned?.approvals ?? null, now,
     });
+    this.lastRows = list;
     this.rowsEl.replaceChildren(...list.map((r) => this.#row(r, win, width)));
     this.body.scrollTop = top;
     if (focused) [...this.rowsEl.querySelectorAll('[data-key]')].find((el) => el.dataset.key === focused)?.focus();
@@ -305,8 +323,9 @@ export class Timeline {
       chev.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
       lab.append(chev, mk('span', 'tl-name', r.label), mk('span', 'row-fill'), mk('span', 'sub', r.sub));
       lab.addEventListener('click', () => {
-        if (this.folded.has(r.id)) this.folded.delete(r.id); else this.folded.add(r.id);
+        this.fold.set(r.id, !r.folded);
         this.render();
+        this.#changed();
       });
       this.#bars(track, r.lanes, win, width);
     } else if (r.kind === 'merged') {

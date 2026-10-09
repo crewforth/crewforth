@@ -85,6 +85,41 @@ export function modelRank(model) {
   return i === -1 ? null : i;
 }
 
+// The tool a subagent hands its result back with. The report is the call's `message`; the agent often says
+// nothing after it, so a transcript with a handback and no closing text still holds a report.
+const HANDBACK = 'SubagentHandback';
+
+/**
+ * What an agent reported, from its own transcript, and where that was read from.
+ *
+ *   `closing`  — text the agent wrote after its last handback: its own last word, and it wins;
+ *   `handback` — the message of its last handback call, when nothing was written after it;
+ *   `text`     — with no handback at all, the last text it wrote (what came before is narration).
+ *
+ * Text written BEFORE a handback is narration on the way to it and is never the report.
+ * @returns { text, from } — text is null when the transcript holds none of the three
+ */
+export function reportIn(records) {
+  let lastText = null;       // the last text block of all
+  let afterHandback = null;  // the last text block since the last handback
+  let handback = null;
+  for (const r of records ?? []) {
+    if (r?.type !== 'assistant' || !Array.isArray(r.message?.content)) continue;
+    for (const c of r.message.content) {
+      if (c?.type === 'text' && typeof c.text === 'string' && c.text.trim()) {
+        lastText = c.text;
+        if (handback !== null) afterHandback = c.text;
+      } else if (c?.type === 'tool_use' && c.name === HANDBACK && typeof c.input?.message === 'string' && c.input.message.trim()) {
+        handback = c.input.message;
+        afterHandback = null;
+      }
+    }
+  }
+  if (afterHandback !== null) return { text: afterHandback, from: 'closing' };
+  if (handback !== null) return { text: handback, from: 'handback' };
+  return { text: lastText, from: lastText === null ? null : 'text' };
+}
+
 /** How a report says it ended: the `confidence: high|low` line a crew agent closes with, or null. */
 export function confidenceOf(text) {
   const m = typeof text === 'string' ? text.trimEnd().match(/(?:^|\n)\W*confidence:\s*(high|low)\W*$/i) : null;
@@ -287,7 +322,7 @@ async function scanAgent(file, usage = null, agentId = null) {
   const stats = {
     tools: {}, toolCount: 0, lastTool: null, errors: 0,
     model: null,      // the model its own transcript names: what it actually ran on
-    lastText: null,   // the end of the last thing it said, for the line a report closes with
+    lastText: null,   // the end of its report, for the line a report closes with
     tokens: null, startedAt: null, endedAt: null, turns: 0,
     owns: [], // tool_use ids this agent emitted — how nesting is resolved
   };
@@ -304,8 +339,6 @@ async function scanAgent(file, usage = null, agentId = null) {
       stats.turns += 1;
       const mdl = r.message?.model;
       if (typeof mdl === 'string' && mdl && mdl !== '<synthetic>') stats.model = mdl;
-      const said = textOf(r.message?.content);
-      if (said.trim()) stats.lastText = said.slice(-400);
       const u = r.message?.usage;
       if (u && u.cache_read_input_tokens != null) {
         stats.tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
@@ -333,6 +366,8 @@ async function scanAgent(file, usage = null, agentId = null) {
   stats.durationMs = stats.startedAt !== null && stats.endedAt !== null
     ? stats.endedAt - stats.startedAt
     : null;
+  // The report, wherever the agent put it: the confidence line is its last line, handback included.
+  stats.lastText = reportIn(records).text?.slice(-400) ?? null;
   stats.midTurn = midTurn(records);
   stats.open = openCalls(records);
   return stats;
@@ -692,9 +727,10 @@ export async function agentDetail(session, agentId) {
     }
   }
 
-  // The report is the last text block the agent produced. Earlier blocks are
-  // narration between tool calls, which is progress rather than conclusion.
-  const report = texts.length ? texts[texts.length - 1].text : null;
+  // The report: what the agent wrote last, or what it handed back when it wrote nothing after that. Earlier
+  // blocks are narration between tool calls, which is progress rather than conclusion.
+  const reported = reportIn(records);
+  const report = reported.text;
 
   return {
     agentId,
@@ -705,9 +741,11 @@ export async function agentDetail(session, agentId) {
     spawnDepth: meta.spawnDepth ?? null,
     prompt,
     report,
+    // Where the report was read from: 'closing', 'handback' or 'text' (see reportIn); null when there is none.
+    reportFrom: reported.from,
     // Kept apart so the UI can show progress for an agent that has not
     // reported yet, without pretending the narration is a conclusion.
-    narration: texts.slice(0, -1).map((t) => t.text),
+    narration: texts.filter((t) => t.text !== report).map((t) => t.text),
     thinking: lastThinking,
     timeline,
     lastError,
