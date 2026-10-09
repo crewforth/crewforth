@@ -25,6 +25,7 @@ import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
+import { shortcutOf } from './keys.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
 const FLEET_POLL_MS = 2000;
@@ -481,7 +482,8 @@ const timeline = new Timeline(el.timeline, {
   onSelect: (n) => { if (n?.kind === 'agent') loadDetail(n.id, n.status); },
   onShowOnGraph: (n) => { setView('graph', n.id); },
   onOpenConversation: () => { if (current) openConversation(current); },
-  onChange: paintTimelineBar,
+  // A group folded or opened by hand changes what Expand all and Fold all have left to do, at once.
+  onChange: (st) => { paintTimelineBar(st); paintFoldButtons(); },
   fmt: { duration: fmtDuration, tokens: fmtTokens },
 });
 // Bars are placed on the server's clock: the timestamps they are drawn from are that machine's.
@@ -624,6 +626,8 @@ const list = new List(el.list, {
   onSelect: (n) => { list.select(n.id); canvas.select(n.id); },
   onDecide: (item, verdict) => decideRequest(item, verdict),
   onLocate: (item) => { if (item.sessionId !== current) selectSession(item.sessionId); },
+  // A section folded or opened by hand changes what Expand all and Fold all have left to do, at once.
+  onFold: () => paintFoldButtons(),
 });
 list.now = () => serverNow();
 
@@ -2145,30 +2149,31 @@ document.addEventListener('keydown', (e) => {
     if (!el.inspector.hidden) { canvas.clearSelection(); showInspector(null); }
     return;
   }
-  if (e.metaKey || e.ctrlKey) return;
-  const t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-  if (e.key === '/') {
+  // A letter is a shortcut only when it is not being typed into a field and no modifier is held: Cmd+R is the
+  // browser's reload, not "reset layout".
+  const key = shortcutOf(e);
+  if (key === null) return;
+  if (key === '/') {
     e.preventDefault();
     setSideHidden(false);
     el.filter.focus();
-  } else if (e.key === '[') {
+  } else if (key === '[') {
     setSideHidden(true);
-  } else if (e.key === ']') {
+  } else if (key === ']') {
     setSideHidden(false);
-  } else if (e.key === 'g') {
+  } else if (key === 'g') {
     setView('graph');
-  } else if (e.key === 't') {
+  } else if (key === 't') {
     setView('timeline');
-  } else if (e.key === 'l') {
+  } else if (key === 'l') {
     setView('list');
-  } else if (e.key === 'r') {
+  } else if (key === 'r') {
     if (view === 'graph') resetLayout();
-  } else if (e.key === 'j') {
+  } else if (key === 'j') {
     stepAttention(1);
-  } else if (e.key === 'k') {
+  } else if (key === 'k') {
     stepAttention(-1);
-  } else if (e.key === '?') {
+  } else if (key === '?') {
     canvas.showLegend(true);
   }
 });

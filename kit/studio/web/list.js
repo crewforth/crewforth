@@ -41,9 +41,9 @@ export class List {
   setSession(id) { if (id !== this.current) { this.current = id; this.nodes = []; this.folded = new Map(); this.all = null; this.selected = null; this.render(); } }
 
   /** Open every section; one that appears later appears open. What is folded by hand afterwards stays folded. */
-  expandAll() { this.all = true; this.folded = new Map(); this.render(); }
+  expandAll() { this.all = true; this.folded = new Map(); this.render(); this.hooks.onFold?.(); }
   /** Fold every section that can fold. "Needs you" cannot: it is what the view is for. */
-  foldAll() { this.all = false; this.folded = new Map(); this.render(); }
+  foldAll() { this.all = false; this.folded = new Map(); this.render(); this.hooks.onFold?.(); }
   /** Whether there is anything left for each of the two to do. */
   foldState() {
     const can = (this.lastSections ?? []).filter((s) => s.foldable);
@@ -97,7 +97,7 @@ export class List {
       head.dataset.key = `sec:${s.key}`;
       head.setAttribute('aria-expanded', String(!s.folded));
       head.append(mk('span', 'row-fill'), mk('span', 'sub', s.folded ? 'show' : 'hide'));
-      head.addEventListener('click', () => { this.folded.set(s.key, !s.folded); this.render(); });
+      head.addEventListener('click', () => { this.folded.set(s.key, !s.folded); this.render(); this.hooks.onFold?.(); });
     }
     sec.append(head);
     for (const item of s.cards) sec.append(this.#card(item, now));
