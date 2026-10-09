@@ -197,6 +197,14 @@ for (const [p, want] of [
   ['/../../../etc/passwd', false],
   ['/a/b/../../../../secrets', false],
 ]) {
+  {
+    const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+    check('a pane is sent the session\'s summary again when the mode changes, not at the next beat',
+      /export const STATE_AFTER = new Set\(\[[^\]]*'mode'[^\]]*\]\);/.test(idx) && /'result'/.test(idx.match(/STATE_AFTER = new Set\(([^)]*)\)/)?.[1] ?? '')
+      && /'exit'/.test(idx.match(/STATE_AFTER = new Set\(([^)]*)\)/)?.[1] ?? '')
+      && /if \(STATE_AFTER\.has\(ev\.rec\?\.type\)\) write\('state', session\.summary\(\)\);/.test(idx),
+      'measured with a stand-in CLI: 13.5 s to the strip before (the 15 s beat), 2-3 ms after');
+  }
   check(`guard ${want ? 'allows' : 'blocks'} ${p}`, guard(p) === want, null);
 }
 

@@ -140,6 +140,9 @@ export function writeAllowed(req) {
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
+/** The session events after which a subscriber is sent the session's summary again. */
+export const STATE_AFTER = new Set(['result', 'exit', 'mode']);
+
 function readBody(req) {
   return new Promise((resolve) => {
     let size = 0;
@@ -735,7 +738,9 @@ function ownedStream(req, res, url, session) {
 
   const unsubscribe = session.subscribe((ev) => {
     write('event', ev);
-    if (ev.rec?.type === 'result' || ev.rec?.type === 'exit') write('state', session.summary());
+    // The summary is what a pane paints its strip from. It follows what changes it: a turn ending, the session
+    // going, and the mode Claude Code reports. Without the last, the strip waited for the beat below.
+    if (STATE_AFTER.has(ev.rec?.type)) write('state', session.summary());
   }, after);
 
   const beat = setInterval(() => write('state', session.summary()), 15000);
