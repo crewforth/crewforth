@@ -57,6 +57,16 @@ _ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
   _AOJ="$(printf '%s' "$s" | tr -d '\000-\010\013-\037\177')"
 }
 
+_ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never ending inside a UTF-8 character
+  local t="$1" n="$2" b
+  _AOC="$t"; [ "${#t}" -le "$n" ] && return 0
+  t="${t:0:n}"
+  # Bytes 0x80-0xBF continue a character; drop them from the end, then the byte that began the character.
+  while [ -n "$t" ]; do b="${t: -1}"; case "$b" in [$'\200'-$'\277']) t="${t%?}" ;; *) break ;; esac; done
+  if [ -n "$t" ]; then b="${t: -1}"; case "$b" in [$'\300'-$'\377']) t="${t%?}" ;; esac; fi
+  _AOC="$t"
+}
+
 # ---- the list of critical paths (SessionStart, or `--scan` from the installers) ----------------------------------
 _ao_scan(){
   local out="$_AMS/crew-critical-paths.auto" stamp="$_AMS/crew-critical-paths.stamp" list sum old="" f rest seg pre n=0
@@ -141,21 +151,30 @@ case "$EV" in
     # write time errs towards refusing.
     # A call the gate allowed and nothing started (another hook refused it, the user did) leaves its record behind.
     # An agent starts within moments of its call, so a record older than five minutes is nobody's and is dropped.
-    pick=""; low=9; if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOWS '%(%s)T' -1; else NOWS="$(date +%s)"; fi
+    low=9; cands=""; if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOWS '%(%s)T' -1; else NOWS="$(date +%s)"; fi
     for f in "$_AMD/pending"/*; do
       [ -f "$f" ] || continue
       t="${f##*/}"; t="${t%%-*}"; case "$t" in ''|*[!0-9]*) ;; *) if [ $((NOWS - t)) -gt 300 ]; then rm -f "$f" 2>/dev/null; continue; fi ;; esac
       _am_rec_get "$f" agent || continue; [ "$_AMV" = "$AT" ] || continue
-      [ -n "$pick" ] || pick="$f"
+      cands="$cands$f"$'\n'
       _am_rec_get "$f" tier && { _am_rank "$_AMV"; [ "$_AMR" -lt "$low" ] && low="$_AMR"; }
     done
-    [ -n "$pick" ] || exit 0
+    [ -n "$cands" ] || exit 0
     mkdir -p "$_AMD/agents" 2>/dev/null || exit 0
-    _am_rec_get "$pick" tier; _am_rank "$_AMV"
+    # TAKEN BY RENAME. Two agents of one type start at the same moment, each in its own hook process, and both see
+    # the same oldest record. A rename either happens or fails, so exactly one of them gets it; the other goes on
+    # to the next record. (Reading it and deleting it afterwards gave both agents the same record.)
+    claim="$_AMD/agents/$AID.claim"; got=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if mv "$f" "$claim" 2>/dev/null; then got=1; break; fi
+    done <<< "$cands"
+    [ "$got" = 1 ] || exit 0
+    _am_rec_get "$claim" tier; _am_rank "$_AMV"
     if [ "$low" -lt "$_AMR" ]; then _am_name "$low"
-      { grep -v '^tier=' "$pick"; printf 'asked=%s\ntier=%s\nambiguous=1\n' "$_AMV" "$_AMN"; } > "$_AMD/agents/$AID" 2>/dev/null
-    else { cat "$pick"; printf 'asked=%s\n' "$_AMV"; } > "$_AMD/agents/$AID" 2>/dev/null; fi
-    rm -f "$pick" 2>/dev/null
+      { grep -v '^tier=' "$claim"; printf 'asked=%s\ntier=%s\nambiguous=1\n' "$_AMV" "$_AMN"; } > "$_AMD/agents/$AID" 2>/dev/null
+    else { cat "$claim"; printf 'asked=%s\n' "$_AMV"; } > "$_AMD/agents/$AID" 2>/dev/null; fi
+    rm -f "$claim" 2>/dev/null
     exit 0 ;;
 
   SubagentStop)
@@ -164,27 +183,79 @@ case "$EV" in
     REC="$_AMD/agents/$AID"
     [ -f "$REC" ] || exit 0
     [ -f "$_AMD/results/$AID" ] && exit 0            # an agent that is resumed stops again: its work was judged once
+    # WHOSE RECORD IS THIS? The record was matched to the agent by type and order, which two calls made together
+    # can get wrong. The card itself is in the agent's own transcript: the task it was given opens with it. So the
+    # card is read from there, and the record that is used is the one whose card it is: this agent's, or, where the
+    # two were swapped, the one filed under the other agent (left in place for that agent to find its own the same
+    # way). No transcript to read: the record is used as it was matched. A card no record carries: nothing is
+    # judged, because the command that would run is not one the gate saw for this agent.
+    _json_slice "$INPUT" agent_transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; ATP="${_JU//\\//}"
+    if [ -f "$ATP" ]; then
+      L1=""; IFS= read -r L1 < "$ATP" || true
+      _json_slice "$L1" content >/dev/null; TXT="${_JS:0:6000}"
+      if [ -n "$TXT" ]; then
+        _json_unescape "$TXT" >/dev/null
+        if _am_card "$_JU"; then
+          _am_digest
+          _am_rec_get "$REC" card
+          if [ "$_AMV" != "$CARD_ID" ]; then
+            _am_rec_get "$REC" agent; MYT="$_AMV"; FOUND=""
+            for f in "$_AMD/agents"/* "$_AMD/pending"/*; do
+              [ -f "$f" ] || continue; case "$f" in *.claim|*.out) continue ;; esac
+              _am_rec_get "$f" card && [ "$_AMV" = "$CARD_ID" ] || continue
+              _am_rec_get "$f" agent && [ "$_AMV" = "$MYT" ] || continue
+              FOUND="$f"; break
+            done
+            [ -n "$FOUND" ] || exit 0
+            REC="$FOUND"
+          fi
+        fi
+      fi
+    fi
     _am_rec_get "$REC" verify; VCMD="$_AMV"
     _am_rec_get "$REC" agent; AG="$_AMV"; _am_rec_get "$REC" change; CH="$_AMV"; _am_rec_get "$REC" risk; RK="$_AMV"
-    _am_rec_get "$REC" card; CID="$_AMV"; _am_rec_get "$REC" asked; ASK="$_AMV"; _am_rec_get "$REC" esc; ESC="${_AMV:--}"
+    _am_rec_get "$REC" card; CID="$_AMV"; _am_rec_get "$REC" esc; ESC="${_AMV:--}"
+    _am_rec_get "$REC" asked || _am_rec_get "$REC" tier; ASK="$_AMV"
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
+    SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
     RES=none; WHYNOT=""
     if [ -n "$VCMD" ] && [ "$VCMD" != none ]; then
-      _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"; _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
-      if ! _am_verify_ok "$VCMD" "$PM" "$SID"; then
+      _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
+      if ! _am_verify_ok "$VCMD" "$PM"; then
         # Judged again here, at the moment it would run: the gate judged it when the agent was called, and this
         # is the place the command actually starts. Not run; nothing is concluded about the work.
         RES=blocked; WHYNOT="$_AMVW"; VRC=0
       else
         # A time limit of its own, below the hook's: a hook killed at its timeout records nothing, and a verify
         # that hangs must not read as a pass or as a fail.
-        LIM="${CREW_VERIFY_TIMEOUT:-540}"; case "$LIM" in ''|*[!0-9]*) LIM=540 ;; esac
+        # The limit stays under the hook's own 600 s whatever is asked for.
+        LIM="${CREW_VERIFY_TIMEOUT:-540}"; case "$LIM" in ''|*[!0-9]*) LIM=540 ;; esac; [ "$LIM" -le 560 ] || LIM=560
         VF="$_AMD/tries/$AID.out"
-        ( cd "$_AMP" 2>/dev/null && exec bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
-        VPID=$!; WAITED=0; VRC=""
+        # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
+        # server a test left behind. `setsid` where there is one; otherwise job control, which gives a background
+        # job its own group in bash. On Windows the tree is ended by its Windows process id.
+        if command -v setsid >/dev/null 2>&1; then
+          ( cd "$_AMP" 2>/dev/null && exec setsid bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          VPID=$!
+        else
+          set -m
+          ( cd "$_AMP" 2>/dev/null && exec bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          VPID=$!
+          set +m
+        fi
+        WAITED=0; VRC=""
         while kill -0 "$VPID" 2>/dev/null; do
-          if [ "$WAITED" -ge "$LIM" ]; then pkill -P "$VPID" 2>/dev/null; kill "$VPID" 2>/dev/null; VRC=timeout; break; fi
+          if [ "$WAITED" -ge "$LIM" ]; then
+            case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*)
+              WP=""; [ -r "/proc/$VPID/winpid" ] && IFS= read -r WP < "/proc/$VPID/winpid"
+              case "$WP" in ''|*[!0-9]*) ;; *) taskkill //T //F //PID "$WP" >/dev/null 2>&1 ;; esac ;;
+            esac
+            kill -TERM -- "-$VPID" 2>/dev/null; kill -TERM "$VPID" 2>/dev/null
+            W2=0; while kill -0 "$VPID" 2>/dev/null && [ "$W2" -lt 3 ]; do sleep 1; W2=$((W2+1)); done
+            kill -KILL -- "-$VPID" 2>/dev/null; kill -KILL "$VPID" 2>/dev/null
+            VRC=timeout; break
+          fi
           sleep 1; WAITED=$((WAITED+1))
         done
         if [ "$VRC" = timeout ]; then wait "$VPID" 2>/dev/null; RES=timeout; WHYNOT="it did not finish in ${LIM}s"; VRC=0
@@ -193,9 +264,11 @@ case "$EV" in
       fi
       if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
       elif [ "$VRC" = 0 ]; then RES=pass
-      elif [ "$TRIES" = 0 ]; then
-        printf '1\n' > "$_AMD/tries/$AID" 2>/dev/null
-        TAILV="$(printf '%s\n' "$VOUT" | tail -n 15)"; TAILV="${TAILV:0:1500}"
+      elif [ "$TRIES" = 0 ] && [ "$SHA" = 0 ] && { printf '1\n' > "$_AMD/tries/$AID"; } 2>/dev/null; then
+        # Asked ONCE, and only where that can be counted: Claude Code says when a stop hook has already kept this
+        # agent running (stop_hook_active), and the counter has to be on disk before the answer goes out. Either
+        # one missing, the agent is not kept: a stop hook that blocks without counting blocks for ever.
+        TAILV="$(printf '%s\n' "$VOUT" | tail -n 15)"; _ao_cut "$TAILV" 1500; TAILV="$_AOC"
         _ao_json "The verify command of your task failed (exit $VRC): $VCMD"$'\n'"The end of its output:"$'\n'"$TAILV"$'\n'"Fix the work so that the command passes, then finish. This is asked once: if it fails again your report is taken as it is."
         printf '{"decision":"block","reason":"%s"}\n' "$_AOJ"
         exit 0
@@ -208,7 +281,6 @@ case "$EV" in
     ESCL=0; case $'\n'"$LAST" in *$'\n'"escalate:"*) ESCL=1 ;; esac      # a write to a critical path was refused
     LAST="${LAST##*$'\n'}"
     case "$LAST" in "confidence: high") CONF=high ;; "confidence: low") CONF=low ;; *) CONF=- ;; esac
-    _json_slice "$INPUT" agent_transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; ATP="${_JU//\\//}"
     RAN=-; if [ -f "$ATP" ]; then RAN="$(grep -m1 -o '"model":"[^"]*"' "$ATP" 2>/dev/null)" || RAN=""; RAN="${RAN#\"model\":\"}"; RAN="${RAN%\"}"; case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac; fi
     [ "$RES" = fail ] && printf '%s\n' "$ASK" >> "$_AMD/fails/$CID" 2>/dev/null
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null

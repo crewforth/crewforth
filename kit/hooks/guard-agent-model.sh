@@ -363,7 +363,7 @@ _AM_RE_L="(^|[^A-Za-z])($_AM_W_L)([^a-z]|\$)"
 _AM_RE_C="(^|[^A-Z])($_AM_W_C)([^a-z]|\$)"
 _AM_RE_U="(^|[^A-Za-z])($_AM_W_U)([^A-Za-z]|\$)"
 _AM_RULES_READ=0; _AM_RULES=()
-_am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", "-<TAB>glob", "f<TAB>agent change risk tier"
+_am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", "-<TAB>glob", "f<TAB>agent change risk tier", "v<TAB>command"
   local l a b c d
   [ "$_AM_RULES_READ" = 1 ] && return 0
   _AM_RULES_READ=1; _AM_RULES=()
@@ -376,6 +376,8 @@ _am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", 
     case "$l" in
       "+ "*|"+"$'\t'*) l="${l:1}"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done; _AM_RULES+=("+"$'\t'"$l") ;;
       "- "*|"-"$'\t'*) l="${l:1}"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done; _AM_RULES+=("-"$'\t'"$l") ;;
+      "verify "*) l="${l#verify }"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
+                  [ -n "$l" ] && case "$l" in *[\;\&\|\<\>\`\$]*) ;; *) _AM_RULES+=("v"$'\t'"$l") ;; esac ;;
       "floor "*) IFS=$' \t' read -r a b c d _ <<< "${l#floor }"; _am_tier "${d:-}"
                  [ -n "$_AMT" ] && [ -n "${c:-}" ] && _AM_RULES+=("f"$'\t'"$a $b $c $_AMT") ;;
     esac
@@ -457,18 +459,73 @@ _am_rec_get(){  # $1 = a record file, $2 = key -> _AMV (lines are key=value)
   return 1
 }
 
+# ---- the gate log: a refusal of this gate is recorded like any other gate's -------------------------------------
+_am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog; the call's text is never recorded.
+  local gl="${CREW_GATE_LOG:-}"
+  if [ -z "$gl" ]; then
+    [ -d ".claude" ] || return 0
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null || return 0; fi
+    gl=".claude/gate-log.tsv"
+  fi
+  printf 'BLOCK\t§model\t%s\t\n' "$1" >> "$gl" 2>/dev/null || true
+}
+
 # ---- IS THIS VERIFY COMMAND ONE A HOOK MAY RUN? ------------------------------------------------------------------
 # The command comes from the card, which the session wrote, and hooks/agent-outcome.sh runs it when the agent stops:
-# outside the tool call, where no PreToolUse gate sees it. So it is judged here first, by two rules, and both the
-# gate (when the agent is called) and that hook (just before it would run the command) ask this one function:
-#   1. ONE command that only checks. No `;`, `&`, `|`, `<`, `>`, backtick, `$(` or second line, and not one that
-#      starts with a tool that changes, fetches or starts a shell (rm, mv, cp, curl, sh, sudo …).
-#   2. THE SHELL GATE'S OWN VERDICT. The command is handed to hooks/guard-bash.sh as the Bash call it would be, in
-#      the session's permission mode. Refused there, or answered with "ask" (a hook cannot ask anyone), it is not
-#      run. Not a copy of that gate's rules: the gate itself.
+# outside any tool call, so past the permission rules, the auto-mode classifier and every PreToolUse gate. A list of
+# what must NOT run cannot close that (the shell gate is such a list, and `python3 -c`, `node -e`, `npx`,
+# `find -delete` and a wrapper like `timeout` or `command` all pass it; found in review). So the rule is a list of
+# what MAY run, and everything else is not run. Asked by the gate when the agent is called and by that hook again
+# at the moment the command would start: one function, four rules, in this order.
+#   1. ONE command: no `;`, `&`, `|`, `<`, `>`, backtick, `$(` or second line.
+#   2. Never a git commit or a git push, whatever else is true: an approval the user gave the SESSION is not for a hook.
+#   3. ALLOWED BY NAME. It begins with a test or build runner from the list below, or with a line `verify <command>`
+#      of .claude/crew-model-rules (the user's file), or it matches a `Bash(...)` rule of permissions.allow in the
+#      project's settings.json or settings.local.json. A bare `Bash` rule allows nothing here.
+#   4. THE SHELL GATE AGREES. The command is handed to hooks/guard-bash.sh as the Bash call it would be, under a
+#      session id that is not the session's (so nothing recorded for the session applies). Only "nothing to say"
+#      or an explicit allow passes: a refusal, an ask, a deny, or anything else it prints, does not.
 _AM_HERE="${BASH_SOURCE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE}" ] && _AM_HERE=.
-_am_verify_ok(){  # $1 = the command, $2 = permission mode, $3 = session id -> 0 it may run; 1 and _AMVW says why not
-  local c="$1" pm="${2:-default}" sid="${3:-s}" f r rc
+# CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
+_AM_RUNNERS=('npm test' 'npm t' 'npm run' 'pnpm test' 'pnpm run' 'yarn test' 'yarn run' 'bun test' 'bun run' 'deno test'
+  'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
+  'cargo test' 'cargo build' 'cargo check' 'cargo clippy' 'pytest' 'python -m pytest' 'python3 -m pytest'
+  'python -m unittest' 'python3 -m unittest' 'mvn test' 'mvn verify' './mvnw test' './mvnw verify' 'gradle test'
+  'gradle check' 'gradle build' './gradlew test' './gradlew check' './gradlew build' 'make test' 'make check'
+  'make lint' 'make build' 'tsc' 'eslint' 'ruff check' 'mypy' 'phpunit' 'rspec' 'bundle exec rspec' 'swift test'
+  'swift build' 'ctest' 'jest' 'vitest' 'mocha' 'mix test' 'composer test' 'test' 'true')
+# /CREW-NOT-A-RUNG
+_am_starts(){  # $1 = command, $2 = prefix -> 0 when the command is the prefix or the prefix and more words
+  case "$1" in "$2"|"$2 "*) return 0 ;; esac; return 1; }
+_am_verify_allowed(){  # $1 = the command, blanks already single -> 0 allowed by name; _AMVB says by what
+  local c="$1" r k g f sj x
+  _AMVB=""
+  for r in "${_AM_RUNNERS[@]}"; do _am_starts "$c" "$r" && { _AMVB="runner: $r"; return 0; }; done
+  _am_rules
+  for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
+    k="${r%%$'\t'*}"; g="${r#*$'\t'}"; [ "$k" = v ] || continue
+    _am_starts "$c" "$g" && { _AMVB="crew-model-rules: verify $g"; return 0; }
+  done
+  sj="$_AM_HERE/../eval/lib/settings-json.awk"
+  [ -f "$sj" ] || return 1
+  for f in "$_AMP/.claude/settings.json" "$_AMP/.claude/settings.local.json"; do
+    [ -f "$f" ] || continue
+    while IFS= read -r x; do
+      x="${x%$'\r'}"; case "$x" in 'Bash('*')') ;; *) continue ;; esac
+      x="${x#Bash(}"; x="${x%)}"
+      case "$x" in
+        ''|'*'|':*') continue ;;
+        *':*') g="${x%:\*}"; _am_starts "$c" "$g" && { _AMVB="permissions.allow: Bash($x)"; return 0; } ;;
+        *' *') g="${x% \*}"; _am_starts "$c" "$g" && { _AMVB="permissions.allow: Bash($x)"; return 0; } ;;
+        *'*')  g="${x%\*}"; [ -n "$g" ] && case "$c" in "$g"*) _AMVB="permissions.allow: Bash($x)"; return 0 ;; esac ;;
+        *)     [ "$c" = "$x" ] && { _AMVB="permissions.allow: Bash($x)"; return 0; } ;;
+      esac
+    done <<< "$(awk -v op=strings -v path=permissions.allow -f "$sj" "$f" 2>/dev/null)"
+  done
+  return 1
+}
+_am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run; 1 and _AMVW says why not
+  local c="$1" pm="${2:-default}" f r rc
   _AMVW=""
   case "$c" in ''|none) return 0 ;; esac
   case "$c" in
@@ -476,21 +533,27 @@ _am_verify_ok(){  # $1 = the command, $2 = permission mode, $3 = session id -> 0
     *';'*|*'&'*|*'|'*|*'<'*|*'>'*|*'`'*|*'$('*) _AMVW="it chains, pipes, redirects or substitutes (; & | < > \` \$( ): a verify command is one test or build command"; return 1 ;;
     *[$'\001'-$'\010'$'\013'-$'\037']*) _AMVW="it holds a control character"; return 1 ;;
   esac
-  # A verify command checks; it does not change, fetch or start a shell. The shell gate lets a session delete a
-  # build folder or copy a file, with the user looking on; nobody is looking on here, so the first word decides.
-  f="${c#"${c%%[!$' \t']*}"}"; f="${f%%[$' \t']*}"; f="${f##*/}"
-  case "$f" in
-    rm|rmdir|mv|cp|dd|chmod|chown|ln|truncate|tee|install|kill|pkill|sudo|su|doas|eval|exec|source|.|sh|bash|zsh|dash|ksh|fish|pwsh|powershell|cmd|curl|wget|ssh|scp|rsync|nc|env|xargs|nohup)
-      _AMVW="it starts with $f: a verify command only checks (run the tests, a build, a linter)"; return 1 ;;
-    *=*) _AMVW="it starts with an assignment: name the command itself"; return 1 ;;
-  esac
+  c="${c//$'\t'/ }"; while :; do case "$c" in *'  '*) c="${c//  / }" ;; *) break ;; esac; done
+  c="${c# }"; c="${c% }"
+  if [[ " $c " =~ [[:space:]/]git([[:space:]]+[^[:space:]]+)*[[:space:]]+(commit|push)[[:space:]] ]]; then
+    _AMVW="a verify command never commits or pushes: the user's approval is for the session's own call, not for a hook"; return 1
+  fi
+  [ -n "${_AMP:-}" ] || _am_state
+  if ! _am_verify_allowed "$c"; then
+    _AMVW="it is not a test or build command this gate knows (npm test, pytest, dotnet test, flutter test, go test, cargo test, make test …), nor one the project allows: a 'verify <command>' line in .claude/crew-model-rules, or a Bash(...) rule in permissions.allow, both the user's to write"; return 1
+  fi
   [ -f "$_AM_HERE/guard-bash.sh" ] || { _AMVW="the shell gate is not beside this hook, so the command cannot be judged"; return 1; }
-  case "$pm" in *[!A-Za-z]*|'') pm=default ;; esac; case "$sid" in *[!A-Za-z0-9._-]*|'') sid=s ;; esac
-  f="${c//\\/\\\\}"; f="${f//\"/\\\"}"; f="${f//$'\t'/ }"
-  r="$(printf '{"session_id":"%s","permission_mode":"%s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"}}' "$sid" "$pm" "$f" | CREW_GATE_LOG=/dev/null bash "$_AM_HERE/guard-bash.sh" 2>/dev/null)"; rc=$?
+  case "$pm" in *[!A-Za-z]*|'') pm=default ;; esac
+  f="${c//\\/\\\\}"; f="${f//\"/\\\"}"
+  r="$(printf '{"session_id":"crew-verify-not-a-session","permission_mode":"%s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"}}' "$pm" "$f" | CREW_GATE_LOG=/dev/null bash "$_AM_HERE/guard-bash.sh" 2>/dev/null)"; rc=$?
   if [ "$rc" != 0 ]; then _AMVW="the shell gate refuses it"; return 1; fi
-  case "$r" in *'"permissionDecision":"ask"'*|*'"permissionDecision": "ask"'*) _AMVW="the shell gate would ask the user about it, and a hook cannot ask"; return 1 ;; esac
-  return 0
+  case "$r" in
+    '') return 0 ;;
+    *'"permissionDecision"'*'"ask"'*)  _AMVW="the shell gate would ask the user about it, and a hook cannot ask"; return 1 ;;
+    *'"permissionDecision"'*'"deny"'*) _AMVW="the shell gate denies it"; return 1 ;;
+    *'"permissionDecision":"allow"'*|*'"permissionDecision": "allow"'*) return 0 ;;
+    *) _AMVW="the shell gate answered something that is not an allow"; return 1 ;;
+  esac
 }
 
 # ---- AT WRITE TIME (called by guard-write.sh) -------------------------------------------------------------------
@@ -502,10 +565,15 @@ _am_write_check(){  # $1 = the payload, $2 = the file about to be written -> ret
   local in="$1" fp="$2" aid tp tier="" f m
   [ "${CREW_MODEL_ROUTING:-}" = off ] && return 0
   case "$in" in *'"agent_id"'*) ;; *) return 0 ;; esac
-  _json_slice "$in" agent_id >/dev/null; aid="$_JS"
-  case "$aid" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
   _am_state
   _am_crit_path "$fp" || return 0
+  _json_keycount "$in" agent_id; _json_slice "$in" agent_id >/dev/null; aid="$_JS"
+  if [ "$_KC" != 1 ] || [ -z "$aid" ] || [ "${aid//[A-Za-z0-9._-]/}" != "" ]; then
+    # The call says it comes from inside an agent and does not say which one. Not known is not opus.
+    _am_log "critical path: write by an agent whose id could not be read"
+    echo "GUARD (agent model): $_AMRP is on a critical path ($_AMW) and this call comes from an agent whose id could not be read; only an agent on opus writes there. Stop, and end your report with the two lines: escalate: $_AMRP / confidence: low" >&2
+    exit 2
+  fi
   if _am_rec_get "$_AMD/agents/$aid" tier; then tier="$_AMV"; fi
   if [ -z "$tier" ]; then
     _json_slice "$in" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; tp="${_JU//\\//}"
@@ -513,6 +581,7 @@ _am_write_check(){  # $1 = the payload, $2 = the file about to be written -> ret
     if [ -f "$f" ]; then m="$(grep -m1 -o '"model":"[^"]*"' "$f" 2>/dev/null)" || m=""; _am_tier "$m"; tier="$_AMT"; fi
   fi
   case "$tier" in opus|fable) return 0 ;; esac
+  _am_log "critical path: write by an agent not on opus"
   echo "GUARD (agent model): $_AMRP is on a critical path ($_AMW) and this agent runs on ${tier:-a model that could not be read}; only an agent on opus writes there. Do not reach the file another way. Stop, and end your report with the two lines: escalate: $_AMRP / confidence: low" >&2
   exit 2
 }
@@ -548,13 +617,13 @@ _json_find "$INPUT" '"tool_input"'
 [ "$_JF" -ge 0 ] || exit 0
 ti="${INPUT:_JF}"
 _json_keycount "$ti" subagent_type
-if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names subagent_type more than once, so which agent it starts cannot be read and the call is refused. Send one." >&2; exit 2; fi
+if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names subagent_type more than once, so which agent it starts cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" subagent_type >/dev/null; _json_unescape "$_JS" >/dev/null; st="$_JU"
 st="${st##*:}"                                  # a plugin names its agents <plugin>:crew-…
 case "$st" in crew-*) ;; *) exit 0 ;; esac
-case "$st" in *[!A-Za-z0-9_-]*) echo "GUARD (agent model): the agent's name holds a character this gate does not read, so the call is refused." >&2; exit 2 ;; esac
+case "$st" in *[!A-Za-z0-9_-]*) echo "GUARD (agent model): the agent's name holds a character this gate does not read, so the call is refused." >&2; _am_log "an agent name it cannot read"; exit 2 ;; esac
 _json_keycount "$ti" model
-if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names model more than once, so which model it asks for cannot be read and the call is refused. Send one." >&2; exit 2; fi
+if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names model more than once, so which model it asks for cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" model >/dev/null; _json_unescape "$_JS" >/dev/null; m="$_JU"
 if [ -z "$m" ]; then rank=0; else _am_tier "$m"; if [ -n "$_AMT" ]; then m="$_AMT"; _am_rank "$m"; rank="$_AMR"; else rank=-1; fi; fi
 # The agent's own floor, whatever the card says.
@@ -565,23 +634,23 @@ esac
 _am_name "$floor"; fname="$_AMN"
 if [ "$rank" = 0 ]; then
   echo "GUARD (agent model): a call to $st has to name its model. Choose haiku, sonnet or opus by the table in CLAUDE.md (risk decides, not size) and repeat the same call with model set.${fname:+ $st runs on $fname or above.}" >&2
-  exit 2
+  _am_log "no model"; exit 2
 fi
 if [ "$rank" = -1 ]; then
   echo "GUARD (agent model): '${m:0:40}' is not a model this gate knows. Repeat the call to $st with model haiku, sonnet or opus.${fname:+ $st runs on $fname or above.}" >&2
-  exit 2
+  _am_log "unknown model"; exit 2
 fi
 if [ "$rank" = 4 ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ]; then
   echo "GUARD (agent model): fable is not used for a crew agent unless the user has set CREW_ALLOW_FABLE=1 for the session.${fname:+ $st runs on $fname or above.} Repeat the call to $st with haiku, sonnet or opus, by the table in CLAUDE.md." >&2
-  exit 2
+  _am_log "fable not allowed"; exit 2
 fi
 # ---- the card ----
 _json_keycount "$ti" prompt
-if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names prompt more than once, so its task card cannot be read and the call is refused. Send one." >&2; exit 2; fi
+if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names prompt more than once, so its task card cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" prompt >/dev/null; prompt="${_JS:0:6000}"; _json_unescape "$prompt" >/dev/null; prompt="$_JU"
 if ! _am_card "$prompt"; then
   echo "GUARD (agent model): a call to $st opens with its task card and this one does not ($CARD_WHY). Begin the task with three lines, then the task itself: files: <files or globs> / change: <text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit> / verify: <the command that proves it, or none>.${fname:+ $st runs on $fname or above.}" >&2
-  exit 2
+  _am_log "no card"; exit 2
 fi
 _am_state; _am_risk; _am_digest
 # ---- the floor of THIS card: the highest of what applies, and the reason that set it ----
@@ -610,35 +679,37 @@ if [ -f "$_AMD/fails/$CARD_ID" ]; then
 fi
 if [ "$nf" -ge 2 ]; then
   echo "GUARD (agent model): this card's verify command has failed twice, the second time one model up, so it is not run a third time. Ask the user what to do (AskUserQuestion): what failed, on which models, and the choices. A changed task is a new card." >&2
-  exit 2
+  _am_log "a third run of a failed card"; exit 2
 fi
 if [ "$nf" = 1 ]; then
   _am_rank "$p"; d=$((_AMR+1))
   if [ "$d" -gt 3 ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ]; then
     echo "GUARD (agent model): this card's verify command failed on $p and there is no model above it to repeat on. Ask the user what to do (AskUserQuestion). A changed task is a new card." >&2
-    exit 2
+    _am_log "a failed card with no model above"; exit 2
   fi
   if [ "$d" -gt "$floor" ]; then floor="$d"; why="its verify command failed on $p, so the repeat goes one model up"; fi
 fi
 _am_name "$floor"; fname="$_AMN"
 if [ "$rank" -lt "$floor" ]; then
   echo "GUARD (agent model): $st runs on $fname or above for this card ($why), and this call asks for $m. Repeat the same call with model $fname." >&2
-  exit 2
+  _am_log "below the floor of the card"; exit 2
 fi
 # ---- where it runs, and what its verify command is ----
+_json_keycount "$ti" run_in_background
+if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names run_in_background more than once, so where it runs cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_find "$ti" '"run_in_background"'; bg=unset
-if [ "$_JF" -ge 0 ]; then f="${ti:_JF+19:12}"; f="${f//[$' \t\n\r']/}"; case "$f" in :false*) bg=false ;; :true*) bg=true ;; esac; fi
+if [ "$_KC" = 1 ] && [ "$_JF" -ge 0 ]; then f="${ti:_JF+19:12}"; f="${f//[$' \t\n\r']/}"; case "$f" in :false*) bg=false ;; :true*) bg=true ;; esac; fi
 if [ "$CARD_RISK" = critical ] && [ "$CARD_VERIFY" != none ] && [ "$bg" != false ]; then
   echo "GUARD (agent model): critical work with a verify command runs in the foreground, where its result comes back to you: repeat the same call with run_in_background set to false (left out, an agent starts in the background)." >&2
-  exit 2
+  _am_log "critical work not in the foreground"; exit 2
 fi
 # The verify command will be run by a hook when the agent stops. A card whose command that hook would not run is
 # refused now, while the caller can still write a better one.
 if [ "$CARD_VERIFY" != none ]; then
-  _json_slice "$INPUT" permission_mode >/dev/null; pm="$_JS"; _json_slice "$INPUT" session_id >/dev/null; d="$_JS"
-  if ! _am_verify_ok "$CARD_VERIFY" "$pm" "$d"; then
-    echo "GUARD (agent model): the verify command will not be run by the hook (${CARD_VERIFY:0:80}): $_AMVW. Name one command that only checks the work: the tests, a build, a linter." >&2
-    exit 2
+  _json_slice "$INPUT" permission_mode >/dev/null; pm="$_JS"
+  if ! _am_verify_ok "$CARD_VERIFY" "$pm"; then
+    echo "GUARD (agent model): the verify command will not be run by the hook (${CARD_VERIFY:0:80}): $_AMVW." >&2
+    _am_log "verify command not runnable"; exit 2
   fi
 fi
 # ---- the record of this call, for the agent it starts ----
