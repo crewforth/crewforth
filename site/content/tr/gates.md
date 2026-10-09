@@ -7,15 +7,16 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 15 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 16 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 15 hook'un tamamı
+## 16 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
 | `prompt-approval.sh` | `auto` ve `dontAsk` modunda sizin yazdığınız `/crew-approve commit` (ya da `push`, `commit+push`) komutunu onay olarak kaydeder; kayıt stage edilene, `HEAD`'e ve oturuma bağlıdır |
 | `guard-schedule.sh` | İstem zamanlayan bir araç çağrısını (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, adı trigger, schedule ya da cron içeren bir MCP aracı), zamanlanan istem bir onaysa reddeder: onay sizin yazdığınızdır, oturumun kendine zamanladığı değil |
+| `guard-agent-model.sh` | Model adı vermeyen ya da ajanın tabanının altında model isteyen `crew-*` ajan çağrısını reddeder (`crew-security-expert`: `opus`; privacy, review, planner ve database: `sonnet`). Çağrıyı yeniden yazmaz; ret metni gereken modeli söyler. `fable` için `CREW_ALLOW_FABLE=1` gerekir; `CREW_MODEL_ROUTING=off` kapıyı kapatır |
 | `route-hint.sh` | Her isteğin yanına o işin sahibi ajanı yazar; uzmanlar siz istemeden devreye girer |
 | `guard-bash.sh` | Araç seviyesinde komut kapısı: commit/push onayı, commit öncesi inceleme, yıkıcı işlemler, uzaktan kod çalıştırma, hook kurcalama |
 | `guard-write.sh` | Aynı korumanın Write/Edit tarafı. Sessizce silinebilen bir kapı, kapı değildir. Hedef yolu eşleştirmeden önce sadeleştirir, böylece bir kapı dosyasına farklı bir yazımla ulaşılamaz. |

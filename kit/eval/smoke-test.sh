@@ -2253,7 +2253,7 @@ sec "== 6f) always-on token budget =="
 # for that cost, and a gate rather than a reminder — a verbose new description fails the suite instead of
 # quietly taxing every future session. Budgets sit just above the current sizes: raising one is allowed, but
 # only as a deliberate edit here.
-BUDGET_DISC=13986    # 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
+BUDGET_DISC=14620    # 3.1.0: 13986 → 14620 (+634): the model table (which work goes to haiku, sonnet, opus), "audit ≥ author" and the confidence rule. The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
                      # answer, the orphaned background-warning line removed). Before that: 3.0 rename (suffix → crew- prefix): +23 B (23 occurrences), not content — measured 13696 → 13719.
                      # DISCIPLINE.md (the discipline half of CLAUDE.md); before 3.0 the ceiling was 13700, currently 13601. (2026-09-18, a second
                      # +100 B on top of the raise below, and the whole of it went into ONE sentence of §4.6: a commit
@@ -6609,8 +6609,8 @@ rm -rf "$_hsd"
 # A gate's timeout is not a comfort setting: a PreToolUse hook that reaches it does not block (Claude Code's hooks
 # reference: "doesn't block the tool call … don't count on a stalled hook to act as a gate"), and a field session on
 # 3.0.0 showed nine of them in one day — the commands ran with no gate. Crewforth had set 60 s where Claude Code's
-# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The six PreToolUse
-# gates (the four bash gates, the no-bash gate of 12e and guard-schedule.sh) carry 600 now; every other hook keeps 60 — when one of those times out, nothing is left unguarded.
+# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The seven PreToolUse
+# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh and guard-agent-model.sh) carry 600 now; every other hook keeps 60 — when one of those times out, nothing is left unguarded.
 # Read per entry, in both editions; the twin lowers one gate back to 60 and must be seen.
 gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++; t = 0
       if (match($3, /"timeout"[ \t]*:[ \t]*[0-9]+/)) { t = substr($3, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", t) }
@@ -6619,13 +6619,13 @@ gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++
 _gtd="$(mktemp -d)"
 tr -d '\n' < "$ROOT/settings.json" | sed 's/guard-bash\.sh\([^}]*\)"timeout": 600/guard-bash.sh\1"timeout": 60/' > "$_gtd/twin.json"
 _gtw="$(gate_timeouts "$_gtd/twin.json")"
-if [ "$_gtw" != "6 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '6 1' — the pin sees nothing"
+if [ "$_gtw" != "7 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '7 1' — the pin sees nothing"
 else for _gf in $_gpw_f; do
   [ -f "$_gf" ] || continue
   set -- $(gate_timeouts "$_gf")
-  if [ "${1:-0}" != 6 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 6 — the pin did not read the file as written"
-  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 6 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
-  else fail "${_gf##*/}: $2 of 6 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
+  if [ "${1:-0}" != 7 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 7 — the pin did not read the file as written"
+  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 7 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
+  else fail "${_gf##*/}: $2 of 7 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
 done; fi
 rm -rf "$_gtd"
 
@@ -7733,6 +7733,167 @@ done
 rm -rf "$_PA"
 
 _cfloc=""
+sec "== 12h2) the model of a crew agent call: named on every call, and not below the agent's floor =="
+# The model is chosen per call by risk (the table in CLAUDE.md). guard-agent-model.sh holds what a gate can hold: a
+# crew-* call names a model, and five agents have a floor. It refuses with the model that is needed and never
+# rewrites the call. Measured on Claude Code 2.1.294 before it was written: a call refused this way was repeated by
+# the session with the model named, and model "haiku" ran the agent on Haiku.
+# Left: the exit status wanted. Then the environment (- = none), the tool, and the fields of tool_input as JSON text.
+_AMG="$HOOKS/guard-agent-model.sh"; _amd="$(mktemp -d)"; _ambad=""; _amn=0
+if [ "$UNITS" != 1 ]; then skip scope "agent model gate: the unit cases run in the source checkout (scope=install)" 2
+elif [ ! -f "$_AMG" ]; then fail "hooks/guard-agent-model.sh is missing — a crew agent can be called with no model, or an audit below its floor"
+else
+while IFS= read -r _al; do [ -z "$_al" ] && continue
+  _aw="${_al%% @@ *}"; _ar="${_al#* @@ }"; _ae="${_ar%% @@ *}"; _ar="${_ar#* @@ }"; _at="${_ar%% @@ *}"; _af="${_ar#* @@ }"; _amn=$((_amn+1))
+  printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"description":"d","prompt":"do the work"%s},"tool_use_id":"t"}' "$_at" "$_af" > "$_amd/p.json"
+  if [ -n "$JSONQ" ]; then json_ok < "$_amd/p.json" || _ambad="$_ambad [not JSON: $_af]"; fi
+  case "$_ae" in -) _aev="" ;; *) _aev="$_ae" ;; esac
+  env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE $_aev bash "$_AMG" < "$_amd/p.json" >/dev/null 2>"$_amd/err"; _arc=$?
+  [ "$_arc" = "$_aw" ] || _ambad="$_ambad [$_ae $_at $_af → $_arc, want $_aw]"
+  [ "$_arc" = 2 ] && ! grep -q '^GUARD (agent model): ' "$_amd/err" && _ambad="$_ambad [$_af refused without a reason]"
+done <<'AM'
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-commit-agent"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":""
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"gpt-9"
+2 @@ - @@ Task @@ ,"subagent_type":"crew-test-expert"
+2 @@ - @@ Agent @@ ,"subagent_type":"crewforth:crew-frontend-expert"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"sonnet"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"haiku"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-privacy-agent","model":"haiku"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-review-agent","model":"haiku"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-planner","model":"haiku"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-database-expert","model":"haiku"
+2 @@ - @@ Agent @@ ,"model":"haiku","subagent_type":"crewforth:crew-planner"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"claude-sonnet-5-5"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"fable"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"fable"
+2 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"haiku","model":"opus"
+2 @@ - @@ Agent @@ ,"prompt2":"say \"model\":\"opus\" in the report","subagent_type":"crew-security-expert"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"haiku"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"sonnet"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"opus"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-commit-agent","model":"haiku"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"opus"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"claude-opus-5-5"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-privacy-agent","model":"sonnet"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-review-agent","model":"sonnet"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-review-agent","model":"opus"
+0 @@ - @@ Agent @@ ,"subagent_type":"crew-planner","model":"opus"
+0 @@ - @@ Agent @@ ,"model":"SONNET","subagent_type":"crew-database-expert"
+0 @@ CREW_ALLOW_FABLE=1 @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"fable"
+0 @@ CREW_ALLOW_FABLE=1 @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"fable"
+2 @@ CREW_ALLOW_FABLE=1 @@ Agent @@ ,"subagent_type":"crew-security-expert","model":"sonnet"
+0 @@ CREW_MODEL_ROUTING=off @@ Agent @@ ,"subagent_type":"crew-security-expert"
+0 @@ CREW_MODEL_ROUTING=off @@ Agent @@ ,"subagent_type":"crew-review-agent","model":"haiku"
+0 @@ CREW_MODEL_ROUTING=off @@ Agent @@ ,"subagent_type":"crew-backend-expert","model":"fable"
+2 @@ CREW_MODEL_ROUTING=on @@ Agent @@ ,"subagent_type":"crew-security-expert"
+0 @@ - @@ Agent @@ ,"subagent_type":"Explore"
+0 @@ - @@ Agent @@ ,"subagent_type":"general-purpose"
+0 @@ - @@ Agent @@ ,"subagent_type":"general-purpose","model":"haiku"
+0 @@ - @@ Agent @@ ,"subagent_type":"my-crew-helper"
+0 @@ - @@ Agent @@ ,"run_in_background":false
+0 @@ - @@ Bash @@ ,"command":"echo crew-security-expert","subagent_type":"crew-security-expert"
+0 @@ - @@ Skill @@ ,"skill":"crew-review"
+AM
+if [ "$_amn" != 44 ]; then fail "FIXTURE: the agent-model table has $_amn rows, not 44"
+elif [ -z "$_ambad" ]; then pass "a crew agent call: no model is refused (7 rows, an empty and an unknown one among them), below the floor is refused (8), fable without CREW_ALLOW_FABLE is refused (2), an ambiguous call is refused (2); the floor and above pass (11), fable passes when allowed and the floor still holds (3), routing off passes everything (3) and any other value does not (1); an agent that is not crew-* and another tool are not touched (7)"
+else fail "agent-model table:$_ambad"; fi
+# The refusal names the model that is needed, so the session can repeat the call instead of guessing.
+printf '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"prompt":"p","subagent_type":"crew-security-expert","model":"sonnet"}}' > "$_amd/p.json"
+env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE bash "$_AMG" < "$_amd/p.json" >/dev/null 2>"$_amd/e1"
+printf '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"prompt":"p","subagent_type":"crew-test-expert"}}' > "$_amd/p.json"
+env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE bash "$_AMG" < "$_amd/p.json" >/dev/null 2>"$_amd/e2"
+if grep -q 'Repeat the same call with model opus' "$_amd/e1" && grep -q 'haiku, sonnet or opus by the table in CLAUDE.md' "$_amd/e2"; then
+  pass "the refusal says what to send: the floor's model by name, or the three to choose from with the table that decides"
+else fail "the agent-model refusal does not name the model to use: [$(head -1 "$_amd/e1")] [$(head -1 "$_amd/e2")]"; fi
+# THREE FORMS ANOTHER PROGRAM READS. The Studio panel shows a refused call and an agent's confidence by reading
+# text: the refusal's first words, the floor's wording, and the report's last line. Each is pinned as it is
+# written, so a change of wording here is a decision and not an accident:
+#   1. a refusal begins `GUARD (agent model):`
+#   2. a floor is said as ` runs on <model> or above`, <model> being haiku, sonnet or opus
+#   3. a report's last line is exactly `confidence: high` or `confidence: low`
+_fmb=""; _fmn=0
+while IFS= read -r _fl; do [ -z "$_fl" ] && continue
+  _fw="${_fl%% @@ *}"; _ff="${_fl#* @@ }"; _fmn=$((_fmn+1))
+  printf '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"prompt":"p"%s}}' "$_ff" > "$_amd/p.json"
+  env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE bash "$_AMG" < "$_amd/p.json" >/dev/null 2>"$_amd/ef"; _frc=$?
+  [ "$_frc" = 2 ] || { _fmb="$_fmb [$_ff: rc $_frc, want a refusal]"; continue; }
+  IFS= read -r _f1 < "$_amd/ef" || true
+  case "$_f1" in "GUARD (agent model): "*) ;; *) _fmb="$_fmb [$_ff: the refusal does not begin with 'GUARD (agent model): ']" ;; esac
+  [ "$(wc -l < "$_amd/ef" | tr -d ' ')" = 1 ] || _fmb="$_fmb [$_ff: the refusal is not one line]"
+  case "$_fw" in -) case "$_f1" in *" or above"*) _fmb="$_fmb [$_ff: names a floor for an agent that has none]" ;; esac ;;
+    *) case "$_f1" in *" runs on $_fw or above"*) ;; *) _fmb="$_fmb [$_ff: no ' runs on $_fw or above']" ;; esac ;; esac
+done <<'FM'
+opus @@ ,"subagent_type":"crew-security-expert"
+opus @@ ,"subagent_type":"crew-security-expert","model":"sonnet"
+opus @@ ,"subagent_type":"crew-security-expert","model":"gpt-9"
+opus @@ ,"subagent_type":"crew-security-expert","model":"fable"
+sonnet @@ ,"subagent_type":"crew-privacy-agent"
+sonnet @@ ,"subagent_type":"crew-privacy-agent","model":"haiku"
+sonnet @@ ,"subagent_type":"crew-review-agent","model":"haiku"
+sonnet @@ ,"subagent_type":"crew-planner","model":"haiku"
+sonnet @@ ,"subagent_type":"crew-database-expert","model":"haiku"
+sonnet @@ ,"subagent_type":"crewforth:crew-review-agent","model":"fable"
+- @@ ,"subagent_type":"crew-backend-expert"
+- @@ ,"subagent_type":"crew-commit-agent","model":"fable"
+- @@ ,"subagent_type":"crew-test-expert","model":"gpt-9"
+FM
+if [ "$_fmn" != 13 ]; then fail "FIXTURE: the refusal-form table has $_fmn rows, not 13"
+elif [ -z "$_fmb" ]; then pass "every refusal of the agent-model gate is one line that begins 'GUARD (agent model): ', and a floor is said as ' runs on <model> or above' with opus or sonnet (10 refusals of the five agents that have one); an agent with no floor is given none (3)"
+else fail "agent-model refusal form:$_fmb"; fi
+fi
+rm -rf "$_amd"
+# The report's last line. Each agent and the template spell both values exactly, on a line the agent is told to
+# end with, and nowhere offer a third value or another spelling.
+_cfb=""; _cfn=0
+for _cf in "$ROOT/AGENT_TEMPLATE.md" "$ROOT"/agents/crew-*.md; do [ -f "$_cf" ] || continue; _cfn=$((_cfn+1))
+  grep -qF '`confidence: high`' "$_cf" && grep -qF '`confidence: low`' "$_cf" || _cfb="$_cfb ${_cf##*/}:not-both-spelled"
+  grep -oE 'confidence: [A-Za-z|]+' "$_cf" | grep -vxE 'confidence: (high|low)' | grep -q . && _cfb="$_cfb ${_cf##*/}:another-value"
+  grep -qiE '^(Confidence|CONFIDENCE) ?[:=]|confidence=(high|low)|confidence : ' "$_cf" && _cfb="$_cfb ${_cf##*/}:another-spelling"
+done
+if [ "$_cfn" -lt 11 ]; then fail "FIXTURE: only $_cfn file(s) read for the confidence line"
+elif [ -z "$_cfb" ]; then pass "the report's last line has one spelling, 'confidence: high' or 'confidence: low', in the template and all $((_cfn-1)) crew agents; no file offers a third value or another form"
+else fail "the confidence line is not spelled one way:$_cfb"; fi
+# The two halves the gate cannot hold are text, and each is pinned where the model reads it: the table and the two
+# rules in the rulebook, the confidence line in the template and in every agent.
+_amrb="$ROOT/CLAUDE.md"; [ -f "$_amrb" ] || _amrb="$ROOT/DISCIPLINE.md"      # an installed project carries the rulebook under that name
+_amt=0; for _aw in '| `haiku` |' '| `sonnet` |' '| `opus` |' 'RISK decides, not size' 'Audit ≥ author' 'confidence: high|low' 'guard-agent-model.sh'; do
+  grep -qF -- "$_aw" "$_amrb" 2>/dev/null && _amt=$((_amt+1)); done
+_amc=0; _amm=""; _ama=0
+for _af in "$ROOT"/agents/crew-*.md; do [ -f "$_af" ] || continue; _ama=$((_ama+1))
+  if grep -q '^## Confidence$' "$_af" && grep -qF 'confidence: high' "$_af" && grep -qF 'confidence: low' "$_af"; then _amc=$((_amc+1)); else _amm="$_amm ${_af##*/}"; fi
+done
+if [ "$_ama" -lt 10 ]; then fail "FIXTURE: only $_ama crew agent file(s) read — the list broke"
+elif [ "$_amt" = 7 ] && [ "$_amc" = "$_ama" ] && grep -qF 'confidence: high' "$ROOT/AGENT_TEMPLATE.md"; then
+  pass "the rulebook carries the model table, 'risk decides', 'audit ≥ author' and the confidence rule; the template and all $_ama crew agents end their report with a confidence line"
+else fail "model routing text: $_amt of 7 pieces in ${_amrb##*/}, $_amc of $_ama agents with the confidence section (missing:${_amm:- none})"; fi
+# No agent file's frontmatter disagrees with its floor.
+_amf=""
+for _af in "$ROOT"/agents/crew-*.md; do
+  _afm="$(awk '/^---$/{n++; next} n==1 && /^model:/{print $2}' "$_af")"; _afn="${_af##*/}"; _afn="${_afn%.md}"
+  case "$_afn:$_afm" in crew-security-expert:haiku|crew-security-expert:sonnet|crew-privacy-agent:haiku|crew-review-agent:haiku|crew-planner:haiku|crew-database-expert:haiku) _amf="$_amf $_afn=$_afm" ;; esac
+done
+[ -z "$_amf" ] && pass "no crew agent's frontmatter pins a model below the floor the gate holds for it" \
+               || fail "an agent file pins a model below its floor:$_amf"
+# doctor names a Claude Code too old for the aliases the table uses. Driven with a `claude` that only answers
+# --version, first on PATH: old, at the boundary, new, and one that answers nothing.
+_dcv="$(mktemp -d)"; mkdir -p "$_dcv/p/.claude" "$_dcv/bin"
+for d in eval hooks; do [ -d "$ROOT/$d" ] && cp -R "$ROOT/$d" "$_dcv/p/.claude/$d"; done
+cp "$ROOT/settings.json" "$_dcv/p/.claude/settings.json" 2>/dev/null
+_dcr(){ printf '#!/bin/sh\necho "%s"\n' "$1" > "$_dcv/bin/claude"; chmod +x "$_dcv/bin/claude"; ( cd "$_dcv/p" && PATH="$_dcv/bin:$PATH" CREW_LANG="${2:-en}" bash .claude/eval/doctor.sh 2>/dev/null ); }
+_dc1="$(_dcr '2.1.284 (Claude Code)')"; _dc2="$(_dcr '2.1.293 (Claude Code)')"; _dc3="$(_dcr '2.2.0 (Claude Code)')"; _dc4="$(_dcr '')"; _dc5="$(_dcr '2.1.284 (Claude Code)' tr)"; _dc6="$(_dcr '1.9.400 (Claude Code)')"
+_dcb=""
+case "$_dc1" in *"Claude Code 2.1.284 is older than 2.1.293"*) ;; *) _dcb="$_dcb 2.1.284-not-named" ;; esac
+case "$_dc6" in *"Claude Code 1.9.400 is older than 2.1.293"*) ;; *) _dcb="$_dcb 1.9.400-not-named" ;; esac
+case "$_dc2$_dc3$_dc4" in *"is older than 2.1.293"*) _dcb="$_dcb warned-at-or-above-the-boundary-or-with-no-version" ;; esac
+case "$_dc5" in *"2.1.284, 2.1.293'ten eski"*) ;; *) _dcb="$_dcb no-Turkish-line" ;; esac
+case "$_dc2" in *"install doctor"*) ;; *) _dcb="$_dcb FIXTURE:doctor-did-not-run" ;; esac
+[ -z "$_dcb" ] && pass "doctor warns when Claude Code is older than 2.1.293 (2.1.284 and 1.9.400 named, in Turkish too) and says nothing at 2.1.293, at 2.2.0 or when no version is answered" \
+               || fail "doctor's Claude Code version warning:$_dcb"
+rm -rf "$_dcv"
+
 sec "== 12g) a git commit is read the way the shell and git read it: the forms that walked past §4.5 and §4.6 =="
 # A review of the approval route (12f) measured commit forms that reached the §4.4 prompt — or, with CLAUDE_GIT_OK,
 # ran with nobody asked — although each one skips the hooks, rewrites a commit, commits the working tree, or commits

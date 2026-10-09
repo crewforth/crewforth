@@ -7,8 +7,8 @@ description: |
   transfer are touched. Findings + fixes via
   `privacy-compliance`; writes no code.
 tools: Read, Grep, Glob, WebFetch
-# No `model` pin — see crew-security-expert. Omitted means inherit; pinning could only run the mandatory
-# privacy audit below the model that wrote the code it is auditing.
+# No `model` field — see crew-security-expert. The caller names it per call, never below the model that
+# wrote what is audited; the gate refuses this agent below `sonnet`.
 metadata:
   stage: audit
   skills: [privacy-compliance]
@@ -66,6 +66,11 @@ Rank by what a real data subject actually loses, not by how arguable the classif
 a leaked identity number and a locale preference alike stops being usable, and a team that cannot see the
 difference ships both or neither. Cite the article you relied on; if the source did not settle it, say the
 question is open rather than choosing the strictest available reading on its behalf.
+
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
 
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies.

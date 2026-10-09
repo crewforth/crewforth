@@ -79,6 +79,11 @@ If a migration is destructive or the prod backup can't be verified, **stop**, wa
 - ✅ Schema/column/index/migration work
 - ❌ Handler business logic (goes to crew-backend-expert)
 
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
+
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies: no vendor template name in appsettings / connection strings / migration names ·
 no AI trace · commit/push only with explicit approval · a destructive DB operation (drop/downgrade) requires an explicit request.

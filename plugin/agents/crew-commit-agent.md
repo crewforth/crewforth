@@ -80,6 +80,11 @@ On a mixed/non-atomic diff, **propose a split**; do not commit before approval (
 - ✅ Proposing a commit message from the staged diff
 - ❌ Push/commit without approval (prohibited, §4.4)
 
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up.
+
 ## Prohibitions (absolute)
 - **Approval gate:** no `git commit` / `git push` unless the user says "commit" / "push".
   Staging (`git add`) and creating a branch are free, in every mode — do them without asking. "Done / we can
