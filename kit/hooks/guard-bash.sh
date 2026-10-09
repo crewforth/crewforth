@@ -1375,7 +1375,7 @@ fi
 # the shell is Turing-complete, so this is defence-in-depth — guard-write.sh covers the Write/Edit tools (the
 # model's natural path to a file), and install-time read-only hook files would be the airtight layer.
 _GP='[/\\]+(\.[/\\]+)*'      # a path separator as the shell and the filesystem take it: `/`, `\`, doubled, with `/./` between
-GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$))'
+GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|settings\.local\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$))'
 # .git/config (with a worktree's and a submodule's own) is on the list because core.hooksPath LIVES there: the rules
 # above stop `git config core.hooksPath …`, and a plain `printf '[core]\n\thooksPath = /dev/null\n' >> .git/config`
 # walked past them — after it a commit from the user's own terminal skips the trace and secret scans (measured, 3.1.0

@@ -102,11 +102,13 @@ versioning follows [SemVer](https://semver.org/).
     running to fix it. Red again: the task is repeated once, one model up, and the gate refuses the same card on
     the same or a lower model. Red there too: you are asked. So a model that was too small costs one more run, not
     broken code that looked finished. The verify command is run by a hook, outside any tool call, so it
-    runs only when it is allowed by name: a known test or build runner (`npm test`, `pytest`, `dotnet test`,
-    `flutter test`, `go test`, `cargo test`, `make test` …), a `verify <command>` line in `.claude/crew-model-rules`,
-    or a `Bash(...)` rule of `permissions.allow`; one command, never a commit or a push, and `guard-bash.sh` has to
-    agree. Anything else is not run (`blocked`), and one that does not finish in nine minutes is stopped with what
-    it started (`timeout`). Neither is taken as a pass or a fail; you or the session run the command instead.
+    runs only when you have allowed it by name: a `verify <command>` line in `.claude/crew-model-rules`, or a
+    `Bash(...)` rule of `permissions.allow`. In `auto` and `dontAsk`, where Claude Code runs a test command without
+    asking, a built-in list of test and build runners is allowed too (`npm test`, `pytest`, `dotnet test`,
+    `flutter test`, `go test`, `cargo test`, `make test` …), with paths or test names as arguments and no options.
+    It is one command, never a commit or a push, not one a `permissions.deny` or `ask` rule covers, and
+    `guard-bash.sh` has to agree. Anything else is not run (`blocked`), and a command that does not finish in nine
+    minutes is stopped with what it started (`timeout`). Neither is taken as a pass or a fail; you or the session run the command instead.
   - **At write time.** An agent that is not on `opus` cannot write to a critical path, whatever its card said.
   - **Recorded.** One line per call goes to `.claude/state/model-outcomes.tsv` (it stays in the project). A class
     of work whose first try fails too often is held one model up from then on; nothing lowers a floor but you.

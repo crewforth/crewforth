@@ -21,7 +21,6 @@
 #   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh).
 #   * a card whose verify failed is not run again on the same or a lower model, and not a third time at all.
 #   * critical work with a verify command runs in the foreground, where its result reaches the session.
-#   * the verify command is one the shell gate would let the session run.
 # THE WORDING IS READ BY ANOTHER PROGRAM (the Studio panel): a refusal is one line that begins
 # `GUARD (agent model):`, and a floor is said as ` runs on <model> or above`. The suite pins both.
 #
@@ -461,33 +460,40 @@ _am_rec_get(){  # $1 = a record file, $2 = key -> _AMV (lines are key=value)
 
 # ---- the gate log: a refusal of this gate is recorded like any other gate's -------------------------------------
 _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog; the call's text is never recorded.
-  local gl="${CREW_GATE_LOG:-}"
+  local gl="${CREW_GATE_LOG:-}" v=BLOCK
+  case "$1" in "note: "*) v=NOTE ;; esac          # something worth knowing that refused nothing
   if [ -z "$gl" ]; then
     [ -d ".claude" ] || return 0
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null || return 0; fi
     gl=".claude/gate-log.tsv"
   fi
-  printf 'BLOCK\t§model\t%s\t\n' "$1" >> "$gl" 2>/dev/null || true
+  printf '%s\t§model\t%s\t\n' "$v" "$1" >> "$gl" 2>/dev/null || true
 }
 
 # ---- IS THIS VERIFY COMMAND ONE A HOOK MAY RUN? ------------------------------------------------------------------
-# The command comes from the card, which the session wrote, and hooks/agent-outcome.sh runs it when the agent stops:
-# outside any tool call, so past the permission rules, the auto-mode classifier and every PreToolUse gate. A list of
-# what must NOT run cannot close that (the shell gate is such a list, and `python3 -c`, `node -e`, `npx`,
-# `find -delete` and a wrapper like `timeout` or `command` all pass it; found in review). So the rule is a list of
-# what MAY run, and everything else is not run. Asked by the gate when the agent is called and by that hook again
-# at the moment the command would start: one function, four rules, in this order.
+# The command comes from the card, which the session wrote, and hooks/agent-outcome.sh would run it when the agent
+# stops: outside any tool call, so past the permission rules, the auto-mode classifier and every PreToolUse gate.
+# A list of what must NOT run cannot close that (the shell gate is such a list, and `python3 -c`, `node -e`, `npx`,
+# `find -delete`, a wrapper like `timeout`, and a runner's own options such as `go test -exec` or `make SHELL=…`
+# all pass it; found in review). So the rule is what MAY run, and everything else is left for the session to run
+# itself, with the Bash tool, where the permission layer sees it. One function, asked at the moment the command
+# would start; the rules, in this order:
 #   1. ONE command: no `;`, `&`, `|`, `<`, `>`, backtick, `$(` or second line.
-#   2. Never a git commit or a git push, whatever else is true: an approval the user gave the SESSION is not for a hook.
-#   3. ALLOWED BY NAME. It begins with a test or build runner from the list below, or with a line `verify <command>`
-#      of .claude/crew-model-rules (the user's file), or it matches a `Bash(...)` rule of permissions.allow in the
-#      project's settings.json or settings.local.json. A bare `Bash` rule allows nothing here.
-#   4. THE SHELL GATE AGREES. The command is handed to hooks/guard-bash.sh as the Bash call it would be, under a
-#      session id that is not the session's (so nothing recorded for the session applies). Only "nothing to say"
-#      or an explicit allow passes: a refusal, an ask, a deny, or anything else it prints, does not.
+#   2. Never a git commit or a git push: an approval the user gave the SESSION is not for a hook.
+#   3. NOT DENIED. A `Bash(...)` rule of permissions.deny or permissions.ask that covers it, in ANY settings file
+#      (the project's two, the user's, a managed one), stops it: a hook cannot ask, and a deny is a deny.
+#   4. ALLOWED BY NAME, one of:
+#        a. a line `verify <command>` of .claude/crew-model-rules (the user's file);
+#        b. a `Bash(...)` rule of permissions.allow in any of those settings files (a bare `Bash` allows nothing);
+#        c. ONLY in `auto` and `dontAsk`, a test or build runner from the list below, with arguments that are
+#           paths or test names: no argument that begins with `-` or holds `=` (an option can name a program to
+#           run). In `default`, `acceptEdits` and `plan` Claude Code asks before it runs a command, so there the
+#           list allows nothing and only a or b does.
+#   5. THE SHELL GATE AGREES, asked under a session id that is not the session's: only "nothing to say" or an
+#      explicit allow passes.
 _AM_HERE="${BASH_SOURCE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE}" ] && _AM_HERE=.
 # CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
-_AM_RUNNERS=('npm test' 'npm t' 'npm run' 'pnpm test' 'pnpm run' 'yarn test' 'yarn run' 'bun test' 'bun run' 'deno test'
+_AM_RUNNERS=('npm test' 'npm t' 'pnpm test' 'yarn test' 'bun test' 'deno test'
   'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
   'cargo test' 'cargo build' 'cargo check' 'cargo clippy' 'pytest' 'python -m pytest' 'python3 -m pytest'
   'python -m unittest' 'python3 -m unittest' 'mvn test' 'mvn verify' './mvnw test' './mvnw verify' 'gradle test'
@@ -497,50 +503,86 @@ _AM_RUNNERS=('npm test' 'npm t' 'npm run' 'pnpm test' 'pnpm run' 'yarn test' 'ya
 # /CREW-NOT-A-RUNG
 _am_starts(){  # $1 = command, $2 = prefix -> 0 when the command is the prefix or the prefix and more words
   case "$1" in "$2"|"$2 "*) return 0 ;; esac; return 1; }
-_am_verify_allowed(){  # $1 = the command, blanks already single -> 0 allowed by name; _AMVB says by what
-  local c="$1" r k g f sj x
-  _AMVB=""
-  for r in "${_AM_RUNNERS[@]}"; do _am_starts "$c" "$r" && { _AMVB="runner: $r"; return 0; }; done
-  _am_rules
-  for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
-    k="${r%%$'\t'*}"; g="${r#*$'\t'}"; [ "$k" = v ] || continue
-    _am_starts "$c" "$g" && { _AMVB="crew-model-rules: verify $g"; return 0; }
+_am_plain_args(){  # $1 = runner, $2 = what follows it -> 0 when every word is a path or a test name
+  local w unglob=0 rc=0
+  case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+  for w in $2; do
+    case "$w" in
+      -[A-Za-z]) [ "$1" = test ] || rc=1 ;;                      # `test -f x`: the one runner whose flags are its questions
+      -*|*=*) rc=1 ;;
+      *[!A-Za-z0-9_./:@,+%^~\#\[\]\*\?-]*) rc=1 ;;
+    esac
   done
-  sj="$_AM_HERE/../eval/lib/settings-json.awk"
-  [ -f "$sj" ] || return 1
-  for f in "$_AMP/.claude/settings.json" "$_AMP/.claude/settings.local.json"; do
-    [ -f "$f" ] || continue
+  [ "$unglob" = 1 ] && set +f
+  return "$rc"
+}
+_am_settings_files(){  # -> _AMSF: the settings files that exist, one per line: project, local, user, managed
+  local f; _AMSF=""
+  for f in "$_AMP/.claude/settings.json" "$_AMP/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}" \
+           "/Library/Application Support/ClaudeCode/managed-settings.json" "/etc/claude-code/managed-settings.json" \
+           "/c/Program Files/ClaudeCode/managed-settings.json" "/c/ProgramData/ClaudeCode/managed-settings.json"; do
+    [ -n "$f" ] && [ -f "$f" ] && _AMSF="$_AMSF$f"$'\n'
+  done
+}
+_am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 when a Bash(...) rule of that list covers it; _AMPH names it
+  local c="$1" list="$2" sj="$_AM_HERE/../eval/lib/settings-json.awk" f x g
+  _AMPH=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     while IFS= read -r x; do
-      x="${x%$'\r'}"; case "$x" in 'Bash('*')') ;; *) continue ;; esac
-      x="${x#Bash(}"; x="${x%)}"
+      x="${x%$'\r'}"
+      if [ "$x" = Bash ]; then [ "$list" = allow ] && continue; _AMPH="$list: Bash (${f##*/})"; return 0; fi
+      case "$x" in 'Bash('*')') ;; *) continue ;; esac
+      x="${x#Bash(}"; x="${x%)}"; g=""
       case "$x" in
-        ''|'*'|':*') continue ;;
-        *':*') g="${x%:\*}"; _am_starts "$c" "$g" && { _AMVB="permissions.allow: Bash($x)"; return 0; } ;;
-        *' *') g="${x% \*}"; _am_starts "$c" "$g" && { _AMVB="permissions.allow: Bash($x)"; return 0; } ;;
-        *'*')  g="${x%\*}"; [ -n "$g" ] && case "$c" in "$g"*) _AMVB="permissions.allow: Bash($x)"; return 0 ;; esac ;;
-        *)     [ "$c" = "$x" ] && { _AMVB="permissions.allow: Bash($x)"; return 0; } ;;
+        ''|'*'|':*') [ "$list" = allow ] && continue; _AMPH="$list: Bash($x) (${f##*/})"; return 0 ;;
+        *':*') g="${x%:\*}"; _am_starts "$c" "$g" || continue ;;
+        *' *') g="${x% \*}"; _am_starts "$c" "$g" || continue ;;
+        *'*')  g="${x%\*}"; case "$c" in "$g"*) ;; *) continue ;; esac ;;
+        *)     [ "$c" = "$x" ] || continue ;;
       esac
-    done <<< "$(awk -v op=strings -v path=permissions.allow -f "$sj" "$f" 2>/dev/null)"
-  done
+      _AMPH="$list: Bash($x) (${f##*/})"; return 0
+    done <<< "$(awk -v op=strings -v path="permissions.$list" -f "$sj" "$f" 2>/dev/null)"
+  done <<< "$_AMSF"
   return 1
 }
-_am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run; 1 and _AMVW says why not
-  local c="$1" pm="${2:-default}" f r rc
-  _AMVW=""
+_am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMVB says by what); 1 and _AMVW says why not
+  local c="$1" pm="${2:-default}" f r rc k g
+  _AMVW=""; _AMVB=""
   case "$c" in ''|none) return 0 ;; esac
   case "$c" in
     *$'\n'*|*$'\r'*) _AMVW="it is more than one line"; return 1 ;;
-    *';'*|*'&'*|*'|'*|*'<'*|*'>'*|*'`'*|*'$('*) _AMVW="it chains, pipes, redirects or substitutes (; & | < > \` \$( ): a verify command is one test or build command"; return 1 ;;
+    *';'*|*'&'*|*'|'*|*'<'*|*'>'*|*'`'*|*'$('*) _AMVW="it chains, pipes, redirects or substitutes (; & | < > \` \$( )"; return 1 ;;
     *[$'\001'-$'\010'$'\013'-$'\037']*) _AMVW="it holds a control character"; return 1 ;;
   esac
   c="${c//$'\t'/ }"; while :; do case "$c" in *'  '*) c="${c//  / }" ;; *) break ;; esac; done
   c="${c# }"; c="${c% }"
   if [[ " $c " =~ [[:space:]/]git([[:space:]]+[^[:space:]]+)*[[:space:]]+(commit|push)[[:space:]] ]]; then
-    _AMVW="a verify command never commits or pushes: the user's approval is for the session's own call, not for a hook"; return 1
+    _AMVW="a hook never commits or pushes: the user's approval is for the session's own call"; return 1
   fi
   [ -n "${_AMP:-}" ] || _am_state
-  if ! _am_verify_allowed "$c"; then
-    _AMVW="it is not a test or build command this gate knows (npm test, pytest, dotnet test, flutter test, go test, cargo test, make test …), nor one the project allows: a 'verify <command>' line in .claude/crew-model-rules, or a Bash(...) rule in permissions.allow, both the user's to write"; return 1
+  [ -f "$_AM_HERE/../eval/lib/settings-json.awk" ] || { _AMVW="the settings reader is not beside this hook, so the permission rules cannot be read"; return 1; }
+  _am_settings_files
+  if _am_perm_hit "$c" deny; then _AMVW="a permission rule denies it ($_AMPH)"; return 1; fi
+  if _am_perm_hit "$c" ask;  then _AMVW="a permission rule says to ask the user first ($_AMPH), and a hook cannot ask"; return 1; fi
+  _am_rules
+  for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
+    k="${r%%$'\t'*}"; g="${r#*$'\t'}"; [ "$k" = v ] || continue
+    _am_starts "$c" "$g" && { _AMVB="crew-model-rules: verify $g"; break; }
+  done
+  if [ -z "$_AMVB" ] && _am_perm_hit "$c" allow; then _AMVB="permissions.$_AMPH"; fi
+  if [ -z "$_AMVB" ]; then
+    case "$pm" in
+      auto|dontAsk)
+        for r in "${_AM_RUNNERS[@]}"; do
+          _am_starts "$c" "$r" || continue
+          g=""; [ "$c" != "$r" ] && g="${c#"$r "}"
+          if _am_plain_args "$r" "$g"; then _AMVB="runner: $r"; break; fi
+          _AMVW="it is a known runner ($r) with an option or an assignment among its arguments; a hook runs a runner with paths or test names only"; return 1
+        done
+        [ -n "$_AMVB" ] || { _AMVW="it is not a test or build command on this hook's list, and no 'verify <command>' line of .claude/crew-model-rules or Bash(...) rule of permissions.allow names it"; return 1; } ;;
+      *) _AMVW="in '${pm:-default}' mode Claude Code asks before it runs a command, so a hook runs only what the user has allowed by name: a 'verify <command>' line of .claude/crew-model-rules, or a Bash(...) rule of permissions.allow"; return 1 ;;
+    esac
   fi
   [ -f "$_AM_HERE/guard-bash.sh" ] || { _AMVW="the shell gate is not beside this hook, so the command cannot be judged"; return 1; }
   case "$pm" in *[!A-Za-z]*|'') pm=default ;; esac
@@ -703,15 +745,10 @@ if [ "$CARD_RISK" = critical ] && [ "$CARD_VERIFY" != none ] && [ "$bg" != false
   echo "GUARD (agent model): critical work with a verify command runs in the foreground, where its result comes back to you: repeat the same call with run_in_background set to false (left out, an agent starts in the background)." >&2
   _am_log "critical work not in the foreground"; exit 2
 fi
-# The verify command will be run by a hook when the agent stops. A card whose command that hook would not run is
-# refused now, while the caller can still write a better one.
-if [ "$CARD_VERIFY" != none ]; then
-  _json_slice "$INPUT" permission_mode >/dev/null; pm="$_JS"
-  if ! _am_verify_ok "$CARD_VERIFY" "$pm"; then
-    echo "GUARD (agent model): the verify command will not be run by the hook (${CARD_VERIFY:0:80}): $_AMVW." >&2
-    _am_log "verify command not runnable"; exit 2
-  fi
-fi
+# The verify command is NOT judged here. Whether the hook runs it is decided when it would start (_am_verify_ok, in
+# hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is told to run it
+# itself with the Bash tool, where the permission layer and the shell gate see it. Refusing the call for it would
+# leave no way to use a verify command in a mode where nothing is allowed by name.
 # ---- the record of this call, for the agent it starts ----
 _json_slice "$INPUT" tool_use_id >/dev/null; tid="$_JS"; case "$tid" in ''|*[!A-Za-z0-9._-]*) tid="x$RANDOM" ;; esac
 if mkdir -p "$_AMD/pending" 2>/dev/null; then

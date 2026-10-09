@@ -621,6 +621,14 @@ case "$INPUT" in *'"agent_id"'*)
     if [ -f "$_gwm/guard-agent-model.sh" ]; then
       . "$_gwm/guard-agent-model.sh"
       declare -F _am_write_check >/dev/null 2>&1 && _am_write_check "$INPUT" "$FP"
+      # An agent does not write the settings files either: a Bash(...) rule in permissions.allow is one of the two
+      # ways the USER allows a verify command by name, and an agent that could add one would allow its own.
+      case "${FP//\\//}" in
+        */.claude/settings.json|.claude/settings.json|*/.claude/settings.local.json|.claude/settings.local.json)
+          declare -F _am_log >/dev/null 2>&1 && _am_log "a settings file written from inside an agent"
+          echo "GUARD (agent model): an agent does not write ${FP##*/}: a permission rule there decides which verify command a hook may run, and that is the user's to give. Stop, say what you wanted to change, and end your report with confidence: low" >&2
+          exit 2 ;;
+      esac
     fi
   fi ;;
 esac

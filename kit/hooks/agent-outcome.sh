@@ -50,7 +50,10 @@ _ao_here="${BASH_SOURCE%/*}"; [ "$_ao_here" = "${BASH_SOURCE}" ] && _ao_here=.
 declare -F _am_state >/dev/null 2>&1 || exit 0
 _am_state
 
-_ao_now(){ if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _AON '%(%Y-%m-%dT%H:%M:%SZ)T' -1; else _AON="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi; }
+# UTC, from `date -u` on every bash. The builtin `printf '%(…)T'` prints LOCAL time: with a `Z` after it the record
+# was three hours off on a machine at +0300 (measured on Windows, bash 5.3; macOS's bash 3.2 took the `date` branch
+# and CI runs in UTC, so neither showed it). One process, on a hook that is not on any hot path.
+_ao_now(){ _AON="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; case "$_AON" in [0-9][0-9][0-9][0-9]-*Z) ;; *) _AON=- ;; esac; }
 _ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
   local s="$1"
   s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
@@ -58,13 +61,15 @@ _ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
 }
 
 _ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never ending inside a UTF-8 character
-  local t="$1" n="$2" b
-  _AOC="$t"; [ "${#t}" -le "$n" ] && return 0
-  t="${t:0:n}"
-  # Bytes 0x80-0xBF continue a character; drop them from the end, then the byte that began the character.
-  while [ -n "$t" ]; do b="${t: -1}"; case "$b" in [$'\200'-$'\277']) t="${t%?}" ;; *) break ;; esac; done
-  if [ -n "$t" ]; then b="${t: -1}"; case "$b" in [$'\300'-$'\377']) t="${t%?}" ;; esac; fi
-  _AOC="$t"
+  # Cut and repaired by tools, in bytes, whatever the shell makes of the text. A first version cut with ${t:0:n}
+  # and matched byte ranges: whether that counts bytes or characters depends on how the shell was started, and it
+  # passed on one macOS and left half a character on another (the CI runner). `head -c` cuts bytes; iconv -c drops
+  # a sequence that is not whole; where there is no iconv, or its answer is still not UTF-8, the text is reduced
+  # to ASCII, which cannot be cut wrong.
+  local n="$2" r
+  r="$(printf '%s' "$1" | head -c "$n" 2>/dev/null | iconv -c -f UTF-8 -t UTF-8 2>/dev/null)" || true     # iconv -c exits 1 when it dropped something: that is the repair, not a failure
+  if [ -n "$r" ] && printf '%s' "$r" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then _AOC="$r"; return 0; fi
+  _AOC="$(printf '%s' "$1" | head -c "$n" 2>/dev/null | tr -c '\11\12\40-\176' '?')"
 }
 
 # ---- the list of critical paths (SessionStart, or `--scan` from the installers) ----------------------------------
@@ -192,23 +197,39 @@ case "$EV" in
     _json_slice "$INPUT" agent_transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; ATP="${_JU//\\//}"
     if [ -f "$ATP" ]; then
       L1=""; IFS= read -r L1 < "$ATP" || true
-      _json_slice "$L1" content >/dev/null; TXT="${_JS:0:6000}"
-      if [ -n "$TXT" ]; then
-        _json_unescape "$TXT" >/dev/null
-        if _am_card "$_JU"; then
-          _am_digest
-          _am_rec_get "$REC" card
-          if [ "$_AMV" != "$CARD_ID" ]; then
-            _am_rec_get "$REC" agent; MYT="$_AMV"; FOUND=""
-            for f in "$_AMD/agents"/* "$_AMD/pending"/*; do
-              [ -f "$f" ] || continue; case "$f" in *.claim|*.out) continue ;; esac
+      # The task is the first record's content: a string (measured, Claude Code 2.1.294), or, where it is a list of
+      # blocks, the first block's text.
+      _json_slice "$L1" content >/dev/null; TXT="$_JS"
+      [ -n "$TXT" ] || { _json_slice "$L1" text >/dev/null; TXT="$_JS"; }
+      TXT="${TXT:0:6000}"; CARDOK=0
+      if [ -n "$TXT" ]; then _json_unescape "$TXT" >/dev/null; _am_card "$_JU" && CARDOK=1; fi
+      if [ "$CARDOK" = 0 ]; then
+        # Nothing to check the record against. Said in the gate log, and the record is used as it was matched.
+        _am_log "note: the card could not be read from the agent's transcript; its record was used as matched"
+      else
+        _am_digest
+        _am_rec_get "$REC" card
+        if [ "$_AMV" != "$CARD_ID" ]; then
+          _am_rec_get "$REC" agent; MYT="$_AMV"; FOUND=""
+          # First a call nobody has taken yet, then the newest record that has not judged anyone. (A record is
+          # used up by the agent it judges, which is not always the agent it is filed under: that is the swap.)
+          for f in "$_AMD/pending"/*; do
+            [ -f "$f" ] || continue
+            _am_rec_get "$f" card && [ "$_AMV" = "$CARD_ID" ] || continue
+            _am_rec_get "$f" agent && [ "$_AMV" = "$MYT" ] || continue
+            FOUND="$f"; break
+          done
+          if [ -z "$FOUND" ]; then
+            while IFS= read -r f; do
+              [ -n "$f" ] && [ -f "$f" ] || continue; case "$f" in *.claim|*.out|*.used) continue ;; esac
+              [ -f "$f.used" ] && continue                 # that record has already judged an agent
               _am_rec_get "$f" card && [ "$_AMV" = "$CARD_ID" ] || continue
               _am_rec_get "$f" agent && [ "$_AMV" = "$MYT" ] || continue
               FOUND="$f"; break
-            done
-            [ -n "$FOUND" ] || exit 0
-            REC="$FOUND"
+            done <<< "$(ls -t "$_AMD/agents"/* 2>/dev/null)"
           fi
+          if [ -z "$FOUND" ]; then _am_log "note: no record carries the card in the agent's transcript; the agent was not judged"; exit 0; fi
+          REC="$FOUND"
         fi
       fi
     fi
@@ -233,9 +254,10 @@ case "$EV" in
         LIM="${CREW_VERIFY_TIMEOUT:-540}"; case "$LIM" in ''|*[!0-9]*) LIM=540 ;; esac; [ "$LIM" -le 560 ] || LIM=560
         VF="$_AMD/tries/$AID.out"
         # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
-        # server a test left behind. `setsid` where there is one; otherwise job control, which gives a background
-        # job its own group in bash. On Windows the tree is ended by its Windows process id.
-        if command -v setsid >/dev/null 2>&1; then
+        # server a test left behind. `setsid` where there is one (CREW_VERIFY_NO_SETSID=1 skips it); otherwise job
+        # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
+        # is ended by its Windows process id.
+        if [ -z "${CREW_VERIFY_NO_SETSID:-}" ] && command -v setsid >/dev/null 2>&1; then
           ( cd "$_AMP" 2>/dev/null && exec setsid bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
         else
@@ -284,6 +306,7 @@ case "$EV" in
     RAN=-; if [ -f "$ATP" ]; then RAN="$(grep -m1 -o '"model":"[^"]*"' "$ATP" 2>/dev/null)" || RAN=""; RAN="${RAN#\"model\":\"}"; RAN="${RAN%\"}"; case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac; fi
     [ "$RES" = fail ] && printf '%s\n' "$ASK" >> "$_AMD/fails/$CID" 2>/dev/null
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
+    case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
     [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\n' > "$TSV" 2>/dev/null
     _ao_now
