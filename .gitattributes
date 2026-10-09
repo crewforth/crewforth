@@ -59,6 +59,7 @@ LICENSE text eol=lf
 # published SHA. Nothing parses these files line by line, so this is about bytes, like the *.md pin: the tarball must
 # not depend on the machine that builds it. smoke-test §14 keeps every text file in a shipped path pinned.
 *.js text eol=lf
+*.mjs text eol=lf
 *.py text eol=lf
 *.html text eol=lf
 *.css text eol=lf
