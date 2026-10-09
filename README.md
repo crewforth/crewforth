@@ -92,7 +92,7 @@ Every hook and rule: [crewforth.com/gates](https://crewforth.com/gates). Gates s
 
 ## Studio
 
-Studio is a local panel that draws a delegation as it happens, in three views: a graph of who started whom, a timeline of the same agents against the clock, and a list sorted by what needs you. Selecting an agent opens what it is doing, what it has spent and what it reported. Each session shows its time, its tokens and an estimate of their cost at API list price. A session started from the panel asks before every tool call, in an approval dock; an unanswered request is denied. A session started in a terminal answers there, and the panel says which call it is waiting on. It reads every Claude Code session on the machine, opens with `/crew-studio` or `npx crewforth studio`, and binds to `127.0.0.1` only. More: [crewforth.com/studio](https://crewforth.com/studio).
+Studio is a local panel that draws a delegation as it happens, in three views: a graph of who started whom, a timeline of the same agents against the clock, and a list sorted by what needs you. Selecting an agent opens what it is doing, what it has spent and what it reported. Each session shows its time, its tokens and an estimate of their cost at API list price, and every agent says the model it ran on. A session started from the panel asks before every tool call, in an approval dock; an unanswered request is denied. A session started in a terminal answers there, and the panel says which call it is waiting on. It reads every Claude Code session on the machine, opens with `/crew-studio` or `npx crewforth studio`, and binds to `127.0.0.1` only. More: [crewforth.com/studio](https://crewforth.com/studio).
 
 ## Install and update
 

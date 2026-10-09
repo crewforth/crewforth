@@ -3,7 +3,7 @@
 // Functions of the server's data, with no page in them: the four tiles, what the agent is doing right now, which
 // skills it applied, who delegated to it. The rule they share is the panel's own: a value that was not read is
 // written "Not measured", with why — never as 0 and never as an empty list.
-import { roleName } from './names.js';
+import { roleName, modelName, modelFamily, modelOf } from './names.js';
 
 const NOT_MEASURED = 'Not measured';
 
@@ -98,6 +98,38 @@ export function backgroundLines(session, now) {
     what: `${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`,
     age: c.startedAt != null && now >= c.startedAt ? fmtDuration(now - c.startedAt) : null,
   }));
+}
+
+/**
+ * What the inspector says about an agent's model, as lines: { label, text, goto }.
+ *
+ * Two facts are kept apart: what the call ASKED for (its own `model` field; none means the agent's default) and
+ * what the agent RAN on (the model its own transcript names). Then, when the transcript shows them: the call the
+ * model gate refused first, and the same work repeated one model up after a report that closed `confidence: low`.
+ * `goto` is the id of the other agent a line is about, for a line that leads somewhere.
+ */
+export function modelLines(n, nodes) {
+  if (n?.kind !== 'agent') return [];
+  const m = modelOf(n);
+  const lines = [
+    { label: 'Ran on', text: n.model ? `${m.ran} \u00b7 ${n.model}` : 'not recorded' },
+    { label: 'Asked for', text: n.modelAsked ? `${n.modelAsked}${m.differs ? ' \u2014 differs from what ran' : ''}` : 'no model named (the agent\'s default)' },
+  ];
+  // The family is the word the choice is made in (haiku, sonnet, opus); a model with none keeps its own name.
+  const short = (model) => (model ? (modelFamily(model) ?? modelName(model).toLowerCase()) : 'no model');
+  if (n.firstTry) {
+    lines.push({
+      label: 'Model gate',
+      text: `first asked: ${short(n.firstTry.asked)} \u2192 refused${n.firstTry.floor ? ` (floor: ${n.firstTry.floor})` : ''} \u2192 ${short(n.modelAsked ?? n.model)}`,
+      note: n.firstTry.text,
+    });
+  }
+  const tagOf = (id) => { const o = (nodes ?? []).find((x) => x.id === id); return o?.order != null ? ` (#${o.order})` : ''; };
+  if (n.escalatedFrom) {
+    lines.push({ label: 'Escalated', text: `escalated: ${short(n.escalatedFrom.from)} \u2192 ${short(n.escalatedFrom.to)}, after${tagOf(n.escalatedFrom.id)} closed "confidence: low"`, goto: n.escalatedFrom.id });
+  }
+  if (n.escalatedTo) lines.push({ label: 'Escalated', text: `closed "confidence: low"; repeated one model up${tagOf(n.escalatedTo)}`, goto: n.escalatedTo });
+  return lines;
 }
 
 /** Who handed this agent its work: the node it hangs from. */

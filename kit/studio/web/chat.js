@@ -370,7 +370,7 @@ class Pane {
 
   paintCard({ block, node }) {
     const card = delegationCard(block, this.hooks.agentsOf?.(this.id));
-    const sig = `${card.type}|${card.task}|${card.agentId}|${card.status}`;
+    const sig = `${card.type}|${card.task}|${card.agentId}|${card.status}|${card.model.ran}|${card.model.asked}`;
     if (node.sig === sig) return;
     node.sig = sig;
     const text = el('span', 'deleg-text');
@@ -380,6 +380,13 @@ class Pane {
     const tile = card.agentId ? this.hooks.tileOf?.(this.id, card.agentId) : null;
     if (tile) parts.push(tile);
     parts.push(text);
+    // The model: what it ran on, or what the call asks for while the agent has not been seen yet.
+    const mword = card.model.ran || card.model.asked;
+    if (mword) {
+      const badge = el('span', 'deleg-model', `${mword}${card.model.differs ? ' \u2260' : ''}`);
+      badge.title = card.model.title;
+      parts.push(badge);
+    }
     // The agent's state is the graph's. Before the graph has seen the agent there is none to show.
     const st = card.agentId ? this.hooks.statusOf?.(this.id, card.agentId) : null;
     if (st?.word) {

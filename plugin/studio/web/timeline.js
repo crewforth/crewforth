@@ -6,7 +6,7 @@ import {
   rows, groupsOf, extent, windowOf, place, ticks, clock, stepRange, waitNote, factsOf, xOf, RANGES, DEFAULT_RANGE,
 } from './timeline-plan.js';
 import { Press } from './press.js';
-import { shownType, hoverOf } from './names.js';
+import { shownType, hoverOf, modelOf, modelFamily } from './names.js';
 
 
 function mk(tag, cls, text) {
@@ -116,6 +116,7 @@ export class Timeline {
   setGroup(g) { if (g === this.group) return; this.group = g; this.folded = new Set(); this.expanded = new Set(); this.render(); }
   setWaiting(ids) { this.waiting = new Set(ids ?? []); this.render(); }
   setFilter(statuses, { keepWaiting = false } = {}) { this.filter = statuses ? new Set(statuses) : null; this.keepWaiting = keepWaiting; this.render(); }
+  setModelFilter(family) { this.modelFilter = family ?? null; this.render(); }
   setOwned(summary) { this.owned = summary ?? null; this.render(); }
   setLive(live) { if (live === this.live) return; this.live = live; this.render(); this.#changed(); }
 
@@ -159,6 +160,7 @@ export class Timeline {
   }
 
   dimmed(n) {
+    if (this.modelFilter && modelFamily(n.model) !== this.modelFilter) return true;
     if (!this.filter) return false;
     if (this.keepWaiting && this.waiting.has(n.id)) return false;
     return !this.filter.has(n.status);
@@ -320,8 +322,13 @@ export class Timeline {
       if (tile) lab.append(tile);
       const sub = mk('span', 'sub', r.sub);
       if (r.tone) sub.dataset.tone = r.tone;
-      lab.append(mk('span', 'tl-name', r.label), mk('span', 'row-fill'), sub);
-      lab.title = hoverOf(r.node);
+      // The model the row's agent ran on, before its state.
+      const mdl = modelOf(r.node);
+      const badge = mk('span', 'tl-model', `${mdl.ran}${mdl.differs ? ' \u2260' : ''}`);
+      badge.hidden = !mdl.ran;
+      badge.title = mdl.title;
+      lab.append(mk('span', 'tl-name', r.label), mk('span', 'row-fill'), badge, sub);
+      lab.title = [hoverOf(r.node), mdl.ran ? mdl.title : null].filter(Boolean).join('\n');
       // One listener, on the row: the label is a button inside it, and its click arrives here too. Two
       // listeners chose the agent and un-chose it in the same click.
       row.addEventListener('click', () => this.#choose(r.id));

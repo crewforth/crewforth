@@ -24,8 +24,8 @@ import { Timeline } from './timeline.js';
 import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
-import { roleName, shownType } from './names.js';
-import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
+import { roleName, shownType, modelFamily } from './names.js';
+import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
 const FLEET_POLL_MS = 2000;
 const SESSION_POLL_MS = 5000;
@@ -506,7 +506,25 @@ pickFrom(el.tbGroup, GROUP_WORD, () => canvas.state().group, (g) => canvas.setGr
 canvas.setAside(!railBand.matches);
 railBand.addEventListener('change', () => canvas.setAside(!railBand.matches));
 pickFrom(el.tbDensity, DENSITY_WORD, () => canvas.state().density, (d) => canvas.setDensity(d));
-pickFrom(el.tbShow, SHOW, () => show, (key) => setShow(key));
+// Show: by state, and by the model the work ran on. The two are separate choices and both hold at once.
+let showModel = null;
+function setShowModel(family) {
+  showModel = family;
+  canvas.setModelFilter(family);
+  timeline.setModelFilter(family);
+  list.render?.();
+  tbValue.show.textContent = [SHOW[show].word, family ? `${family[0].toUpperCase()}${family.slice(1)}` : null].filter(Boolean).join(' \u00b7 ');
+}
+el.tbShow.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const items = Object.entries(SHOW).map(([key, w]) => ({ label: w.word, checked: show === key, run: () => { setShow(key); setShowModel(showModel); } }));
+  const families = [...new Set((lastNodes ?? []).filter((n) => n.kind === 'agent').map((n) => modelFamily(n.model)).filter(Boolean))].sort();
+  if (families.length) {
+    items.push({ note: 'Model' }, { label: 'Every model', checked: showModel === null, run: () => setShowModel(null) },
+      ...families.map((f) => ({ label: `Only ${f[0].toUpperCase()}${f.slice(1)}`, checked: showModel === f, run: () => setShowModel(f) })));
+  }
+  openMenu(el.tbShow, items);
+});
 // The toolbar is measured, not assumed: it gives up a step at a time until what it shows fits (toolbar-fit.js).
 // Every step is tried from the first, so a toolbar that has room again takes its words back.
 function fitToolbar() {
@@ -848,6 +866,24 @@ function paintAgentOverview(body, n, detail) {
     grid.append(tile);
   }
   body.append(grid);
+
+  // What it ran on and what its call asked for, and what the model gate or a low-confidence report did to it.
+  const models = modelLines(n, lastNodes);
+  if (models.length) {
+    const dl = node('dl', 'imodel');
+    for (const m of models) {
+      const dd = node('dd', null, m.text);
+      if (m.note) dd.title = m.note;
+      if (m.goto) {
+        const go = node('button', 'ilink', 'show');
+        go.type = 'button';
+        go.addEventListener('click', () => goTo(m.goto));
+        dd.append(' ', go);
+      }
+      dl.append(node('dt', null, m.label), dd);
+    }
+    body.append(isection('Model', dl));
+  }
 
   const gap = n.kind === 'agent' ? detailGap(n, detail) : null;
   const read = n.kind === 'agent' && !gap ? detail : null;

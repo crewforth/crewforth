@@ -15,7 +15,8 @@ import {
 } from './graph-plan.js';
 import { clock } from './timeline-plan.js';
 import { agentStatus } from './nav.js';
-import { roleName, shownType, hoverOf, orderTag } from './names.js';
+import { roleName, shownType, hoverOf, orderTag, modelOf, modelMix, modelFamily } from './names.js';
+import { fmtCount, fmtCost, COST_NOTE } from './usage.js';
 
 // How long an arriving wire takes to draw itself toward its new card. Short on purpose: this is a status panel,
 // and anything a viewer has to wait through is a cost they pay on every spawn.
@@ -93,6 +94,7 @@ export class Canvas {
     this.palette = { map: {} };
     this.icons = {};
     this.filter = null;          // statuses the page asked to isolate
+    this.modelFilter = null;     // a family of model the page asked to isolate
     this.waiting = new Set();    // agents parked on an approval
     this.sessionState = null;    // { word, tone } for the session card's pill
     this.focusId = null;         // show only this branch
@@ -443,7 +445,17 @@ export class Canvas {
     this.#redraw();
   }
 
+  /** Show only the agents that ran on one family of model (`'opus'`), stepping the rest back. `null` shows all. */
+  setModelFilter(family) {
+    if ((family ?? null) === this.modelFilter) return;
+    this.modelFilter = family ?? null;
+    for (const el of this.els.values()) el.sig = null;
+    for (const el of this.cellEls.values()) el.sig = null;
+    if (this.lastPlan) this.#redraw();
+  }
+
   dimmed(n) {
+    if (n?.kind === 'agent' && this.modelFilter && modelFamily(n.model) !== this.modelFilter) return true;
     if (!this.filter || n?.kind !== 'agent') return false;
     if (this.filterKeepsWaiting && this.waiting.has(n.id)) return false;
     return !this.filter.has(n.status);
@@ -731,7 +743,10 @@ export class Canvas {
       } else {
         const row = mk('div', 'cv-row cv-indent');
         row.append(p.bar, p.count);
-        el.append(p.head, row);
+        // What its members add up to, and what they ran on. At compact density the card has no room for them.
+        p.totals = mk('div', 'cv-sub cv-indent cv-totals');
+        p.mix = mk('div', 'cv-sub cv-indent cv-mix');
+        el.append(p.head, row, p.totals, p.mix);
       }
       p.fold.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(it.id); });
     } else if (it.compact) {
@@ -740,8 +755,9 @@ export class Canvas {
       p.order = mk('span', 'cv-order');
       p.name = mk('span', 'cv-name');
       p.task = mk('span', 'cv-task');
+      p.model = mk('span', 'cv-model');
       p.word = mk('span', 'cv-word');
-      el.append(p.dot, p.order, p.name, p.task, p.word);
+      el.append(p.dot, p.order, p.name, p.task, p.model, p.word);
     } else {
       p.tile = mk('span', 'cv-tile');
       p.name = mk('span', 'cv-name');
@@ -754,7 +770,12 @@ export class Canvas {
       p.task = mk('span', 'cv-task');
       const under = mk('div', 'cv-under cv-indent');
       under.append(p.task, p.order);
-      el.append(row, under);
+      // The third line: what it ran on, how long it took and what it spent.
+      p.model = mk('span', 'cv-model');
+      p.facts = mk('span', 'cv-facts');
+      const facts = mk('div', 'cv-under cv-indent cv-third');
+      facts.append(p.model, p.facts);
+      el.append(row, under, facts);
     }
     el.parts = p;
   }
@@ -837,7 +858,9 @@ export class Canvas {
     const dim = this.dimmed(n);
     // Its place in the order the session called its agents, and when: "#3 · 09:14". A chip has room for the number.
     const tag = orderTag(n, compact ? null : clock);
-    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after]);
+    const mdl = modelOf(n);
+    const facts = compact ? '' : factsOf(n);
+    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after, mdl.ran, mdl.differs, facts]);
     if (el.sig === sig) return;
     el.sig = sig;
     const p = el.parts;
@@ -854,6 +877,13 @@ export class Canvas {
     p.task.title = task;
     p.order.textContent = tag;
     p.order.hidden = !tag;
+    // The model it ran on, as a badge; marked when the call asked for another. A chip has room for the family.
+    const family = modelFamily(n.model);
+    p.model.textContent = `${compact ? (family ? family[0].toUpperCase() + family.slice(1) : mdl.ran) : mdl.ran}${mdl.differs ? ' \u2260' : ''}`;
+    p.model.hidden = !mdl.ran;
+    p.model.title = mdl.title;
+    p.model.dataset.differs = String(mdl.differs);
+    if (!compact) { p.facts.textContent = facts; p.facts.title = factsTitle(n); }
     p.order.title = tag ? `Called ${orderTag(n, clock)} by the session` : '';
     // In the Order view: what had reported before this wave was called. A reading of the order of events.
     el.title = after?.length ? `Called after ${after.join(', ')} reported.\n${INFERRED_NOTE}` : '';
@@ -874,7 +904,7 @@ export class Canvas {
     const p = el.parts;
     const counts = it.counts;
     const says = Object.entries(counts).map(([s, c]) => `${c} ${agentStatus(s).word}`).join(' · ');
-    const sig = JSON.stringify([it.label, says, it.open, it.boxed, it.type, it.status, it.first?.order ?? null]);
+    const sig = JSON.stringify([it.label, says, it.open, it.boxed, it.type, it.status, it.first?.order ?? null, it.compact, it.sum, modelMix(it.members)]);
     if (el.sig !== sig) {
       el.sig = sig;
       el.dataset.state = stateOf(it.status);
@@ -908,6 +938,7 @@ export class Canvas {
       }));
       p.bar.title = says;
       if (!it.boxed) p.count.textContent = says;
+      if (!it.boxed) this.#fillTotals(p, it);
       el.title = it.boxed ? '' : (it.open ? 'Click to fold' : `Click to show ${it.members.length} agents`);
       el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? 'open' : 'folded'}`);
     }
@@ -961,11 +992,28 @@ export class Canvas {
       c.parts.name.textContent = text;
       c.parts.order.textContent = ctag;
       c.parts.order.hidden = !ctag;
-      c.title = hoverOf(n);
+      c.title = [hoverOf(n), [modelOf(n).ran, factsOf(n)].filter(Boolean).join(' \u00b7 ')].filter(Boolean).join('\n');
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
     }
+  }
+
+  /** A group as one card: the time, the tokens and the estimate its members add up to, and the models they ran on. */
+  #fillTotals(p, it) {
+    const s = it.sum ?? {};
+    p.totals.hidden = Boolean(it.compact);
+    p.mix.hidden = Boolean(it.compact);
+    if (it.compact) return;
+    p.totals.textContent = [
+      s.timed ? fmtDuration(s.durationMs) : null,
+      s.counted ? `${fmtCount(s.fresh)} new` : null,
+      s.counted ? `${fmtCount(s.cacheRead)} cache` : null,
+      s.counted ? fmtCost(s.cost) : null,
+    ].filter(Boolean).join(' \u00b7 ');
+    p.totals.title = `${it.members.length} calls. Time, new tokens, tokens read from the cache, and cost: ${COST_NOTE}`;
+    p.mix.textContent = modelMix(it.members);
+    p.mix.title = 'The models its agents ran on';
   }
 
   /** What an inferred wire says: on hover that it is an inference, and once per reporter, in words beside it. */
@@ -1378,6 +1426,20 @@ function writeFlag(key, value) {
 function readPref(key, allowed, fallback) {
   const v = readFlag(key);
   return allowed.includes(v) ? v : fallback;
+}
+
+/** An agent's third line: how long it took and what it spent. */
+function factsOf(n) {
+  return [
+    n.durationMs != null ? fmtDuration(n.durationMs) : null,
+    n.usage ? `${fmtCount(n.usage.tokens.fresh)} new` : null,
+    n.usage ? fmtCost(n.usage.cost) : null,
+  ].filter(Boolean).join(' \u00b7 ');
+}
+function factsTitle(n) {
+  if (!n.usage) return '';
+  const t = n.usage.tokens;
+  return `New tokens ${fmtCount(t.fresh)} (input ${fmtCount(t.input)}, output ${fmtCount(t.output)}, cache write ${fmtCount(t.cacheWrite)}); read from cache ${fmtCount(t.cacheRead)}\n${COST_NOTE}`;
 }
 
 function fmtTokens(t) {

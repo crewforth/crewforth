@@ -5,6 +5,8 @@
 // "~", and a note that says what it is. A session with tokens from a model the price table does not have gets
 // a dash, not a smaller number.
 
+import { modelName } from './names.js';
+
 export const COST_NOTE = 'Estimated at API list price; on a subscription it is not what you are billed';
 export const NO_COST = '—';
 
@@ -109,6 +111,8 @@ export function summaryRows(u, { live = false, now = null } = {}) {
   };
   part('Session', u.parts?.session, 'The session\'s own transcript');
   part('Agents', u.parts?.agents, 'Everything its agents did');
-  rows.push({ label: 'Cost', value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u) });
+  // Behind the cost: each model's new tokens and what they come to. A model with no price says so with a dash.
+  const perModel = Object.entries(u.byModel ?? {}).map(([model, t]) => [modelName(model), `${fmtCount(t.tokens.fresh)} \u00b7 ${fmtCost(t.cost)}`]);
+  rows.push({ label: 'Cost', value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u), detail: perModel.length ? perModel : undefined });
   return rows;
 }

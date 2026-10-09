@@ -60,6 +60,74 @@ function harvestCompletions(text, into, at = null) {
   }
 }
 
+// The line the model gate (kit/hooks/guard-agent-model.sh) refuses a call with starts with this, whatever follows.
+const MODEL_GATE = 'GUARD (agent model):';
+
+/**
+ * What the model gate said when it refused a call, or null when the text is not its refusal.
+ * `floor` is the model it says the agent runs on "or above", when it says one; nothing is read into a sentence
+ * that does not say it.
+ */
+export function refusalOf(text) {
+  const at = typeof text === 'string' ? text.indexOf(MODEL_GATE) : -1;
+  if (at === -1) return null;
+  const line = text.slice(at).split('\n')[0].trim();
+  const floor = line.match(/ runs on ([a-z0-9.-]+) or above/);
+  return { text: line.slice(0, 400), floor: floor ? floor[1] : null };
+}
+
+// Which of two models is the larger, for the two questions asked of it: was a call repeated on a higher model,
+// and which is "one model up". A name this does not know has no rank, and nothing is concluded from it.
+const FAMILY = ['haiku', 'sonnet', 'opus', 'fable'];
+export function modelRank(model) {
+  if (typeof model !== 'string') return null;
+  const i = FAMILY.findIndex((f) => model === f || model.includes(`-${f}-`) || model.startsWith(`${f}-`) || model.endsWith(`-${f}`));
+  return i === -1 ? null : i;
+}
+
+/** How a report says it ended: the `confidence: high|low` line a crew agent closes with, or null. */
+export function confidenceOf(text) {
+  const m = typeof text === 'string' ? text.trimEnd().match(/(?:^|\n)\W*confidence:\s*(high|low)\W*$/i) : null;
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Tie each agent call to what came before it, where the transcript says so.
+ *
+ * `firstTry` — the gate refused a call and the session made the same call again (same agent, same task): the
+ * call that ran carries what was asked first and why it was refused.
+ * Returns nothing; it writes onto the calls.
+ */
+export function linkRetries(calls) {
+  const list = [...calls.values()].sort((a, b) => a.order - b.order);
+  list.forEach((c, i) => {
+    if (!c.refused) return;
+    const again = list.slice(i + 1).find((n) => n.subagentType === c.subagentType && n.description === c.description);
+    if (!again) return;
+    // A call refused twice keeps the first thing that was asked.
+    again.firstTry = c.firstTry ?? { asked: c.model, floor: c.refused.floor, text: c.refused.text };
+  });
+}
+
+/**
+ * `escalatedFrom` / `escalatedTo` — an agent's report closed with `confidence: low`, and the next call to the same
+ * agent after it reported asked for a higher model: the same work, done again one model up. Read from the order
+ * of the calls, the two reports and the two models; where any of the three is missing nothing is linked.
+ */
+export function linkEscalations(nodes) {
+  const agents = nodes.filter((n) => n.kind === 'agent' && n.order != null).sort((a, b) => a.order - b.order);
+  agents.forEach((low, i) => {
+    if (low.confidence !== 'low' || low.reportedAt == null) return;
+    const from = modelRank(low.model ?? low.modelAsked);
+    if (from === null) return;
+    const again = agents.slice(i + 1).find((n) => n.agentType === low.agentType && n.calledAt != null && n.calledAt >= low.reportedAt);
+    const to = again ? modelRank(again.modelAsked ?? again.model) : null;
+    if (to === null || to <= from || again.escalatedFrom) return;
+    again.escalatedFrom = { id: low.id, from: low.model ?? low.modelAsked, to: again.modelAsked ?? again.model };
+    low.escalatedTo = again.id;
+  });
+}
+
 function scanMain(records) {
   const out = {
     cwd: null, gitBranch: null, version: null, model: null,
@@ -110,6 +178,8 @@ function scanMain(records) {
                 order: out.agentCalls.size + 1,
                 wave: out.waves.get(mid),
                 calledAt: at,
+                // The model the call asked for: its own `model` field. Absent, the agent runs on its default.
+                model: typeof c.input?.model === 'string' ? c.input.model : null,
               });
             }
           }
@@ -119,6 +189,12 @@ function scanMain(records) {
     }
 
     if (r?.type === 'user') {
+      // A call the model gate refused: the answer is an error that carries the gate's own line. No agent started.
+      for (const c of Array.isArray(r.message?.content) ? r.message.content : []) {
+        if (c?.type !== 'tool_result' || c.is_error !== true || !out.agentCalls.has(c.tool_use_id)) continue;
+        const said = refusalOf(textOf(typeof c.content === 'string' ? [{ type: 'text', text: c.content }] : c.content));
+        if (said) out.agentCalls.get(c.tool_use_id).refused = said;
+      }
       out.userTurns += 1;
       harvestCompletions(textOf(r.message?.content), out.completions, at);
     }
@@ -210,6 +286,8 @@ async function scanAgent(file, usage = null, agentId = null) {
   usage?.add(records, agentId ?? 'agents:unnamed');
   const stats = {
     tools: {}, toolCount: 0, lastTool: null, errors: 0,
+    model: null,      // the model its own transcript names: what it actually ran on
+    lastText: null,   // the end of the last thing it said, for the line a report closes with
     tokens: null, startedAt: null, endedAt: null, turns: 0,
     owns: [], // tool_use ids this agent emitted — how nesting is resolved
   };
@@ -224,6 +302,10 @@ async function scanAgent(file, usage = null, agentId = null) {
     }
     if (r?.type === 'assistant') {
       stats.turns += 1;
+      const mdl = r.message?.model;
+      if (typeof mdl === 'string' && mdl && mdl !== '<synthetic>') stats.model = mdl;
+      const said = textOf(r.message?.content);
+      if (said.trim()) stats.lastText = said.slice(-400);
       const u = r.message?.usage;
       if (u && u.cache_read_input_tokens != null) {
         stats.tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
@@ -310,6 +392,7 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
   const { records, malformed } = await readAll(session.file);
   const main = scanMain(records);
   // What the session spent, its agents' tokens included and each response counted once.
+  linkRetries(main.agentCalls);
   const usage = new Usage().add(records);
   const agents = await readAgentDir(session.subagentsDir, usage);
   const now = Date.now();
@@ -394,7 +477,16 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       spawnDepth: a.spawnDepth,
       workflow: a.workflow,
       toolUseId: a.toolUseId,
-      model: link?.model ?? null,
+      // The model it ran on: what its own transcript names, and failing that what the launch answer resolved.
+      model: a.stats?.model ?? link?.model ?? null,
+      // The model the call asked for; null when the call named none and the agent ran on its default.
+      modelAsked: call?.model ?? null,
+      // Set when the model gate refused this call the first time it was made: what was asked then, and why not.
+      firstTry: call?.firstTry ?? null,
+      // `confidence: high|low`, the line a crew agent's report closes with; null when it has none.
+      confidence: confidenceOf(a.stats?.lastText ?? null),
+      // Its own share of the session's tokens, and what they cost at list price.
+      usage: usage.of(a.agentId),
       launchStatus: link?.status ?? null,
       // Started in the background, and its transcript stops in the middle of a turn. Such an agent can be quiet
       // for a long time inside one tool call; whether it is still working is the live session's to say, so the
@@ -425,6 +517,8 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
 
     edges.push({ id: `${parentId}->${a.agentId}`, source: parentId, target: a.agentId, kind: 'spawn' });
   }
+
+  linkEscalations(nodes);
 
   // A workflow run is a real container, not a rendering trick: its agents were
   // spawned by one orchestration script, not by the session directly. Hanging
