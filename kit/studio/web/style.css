@@ -846,6 +846,27 @@ button.tl-lab { cursor: pointer; }
 .cv-edge-label { font-size: 10px; fill: var(--ink-faint); pointer-events: none; }
 /* "#3 · 09:14": where a card stands in the order the session called its agents. */
 .cv-under { display: flex; align-items: baseline; min-width: 0; }
+/* The model a card ran on: a small badge, whole. What follows it gives way. */
+.cv-model {
+  flex: none; padding: 0 5px; border-radius: var(--radius-sm); background: var(--surface-raised);
+  font-size: 10px; line-height: 16px; color: var(--ink-dim); white-space: nowrap;
+}
+.cv-model[hidden] { display: none; }
+.cv-model[data-differs="true"] { color: var(--status-waiting); }
+.cv-third { gap: 6px; }
+.cv-facts { flex: 1 1 auto; min-width: 0; font-size: 11px; line-height: 16px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cv-totals { font-variant-numeric: tabular-nums; }
+/* The same badge outside the graph: a Timeline row, a List row, a delegation card. */
+.tl-model, .ls-model, .deleg-model {
+  flex: none; padding: 0 5px; margin-right: 6px; border-radius: var(--radius-sm); background: var(--surface-raised);
+  font-size: 10px; line-height: 16px; color: var(--ink-dim); white-space: nowrap;
+}
+.tl-model[hidden] { display: none; }
+.imodel { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
+.imodel dt { color: var(--ink-faint); }
+.imodel dd { margin: 0; word-break: break-word; }
+.ilink { border: 0; padding: 0; background: none; font: inherit; color: var(--studio-accent); cursor: pointer; text-decoration: underline; }
+.cv-mix { color: var(--ink-faint); }
 .cv-under .cv-task { flex: 1 1 auto; min-width: 0; }
 .cv-order { flex: none; margin-left: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cv-order[hidden] { display: none; }

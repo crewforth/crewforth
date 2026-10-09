@@ -504,6 +504,176 @@ check('prose without a notice yields nothing', none.size === 0);
     && /order: 'Order'/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
 }
 
+/* Which model each piece of work ran on, and what its call asked for. Two facts, kept apart: the call's own
+   `model` field, and the model the agent's transcript names. */
+{
+  const gr = await import(`../../kit/studio/server/lib/graph.js?mdl=${Date.now()}`);
+  const nm = await import(`../../kit/studio/web/names.js?mdl=${Date.now()}`);
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?mdl=${Date.now()}`);
+  const ins = await import(`../../kit/studio/web/inspect.js?mdl=${Date.now()}`);
+  const wu = await import(`../../kit/studio/web/usage.js?mdl=${Date.now()}`);
+  const cvo = await import(`../../kit/studio/web/convo.js?mdl=${Date.now()}`);
+
+  check('a model is said as a badge says it, from an id, a dated snapshot or the word a call asks with',
+    nm.modelName('claude-haiku-5-5') === 'Haiku 5.5' && nm.modelName('claude-sonnet-5-5') === 'Sonnet 5.5' && nm.modelName('claude-opus-5') === 'Opus 5'
+    && nm.modelName('claude-haiku-4-5-20251001') === 'Haiku 4.5' && nm.modelName('sonnet') === 'Sonnet' && nm.modelName('<synthetic>') === '<synthetic>'
+    && nm.modelName(null) === '' && nm.modelFamily('claude-opus-5-5') === 'opus' && nm.modelFamily('haiku') === 'haiku' && nm.modelFamily('gpt-x') === null);
+  const same = nm.modelOf({ model: 'claude-sonnet-5-5', modelAsked: 'sonnet' });
+  const other = nm.modelOf({ model: 'claude-sonnet-5-5', modelAsked: 'haiku' });
+  const unasked = nm.modelOf({ model: 'claude-opus-5-5', modelAsked: null });
+  check('what was asked and what ran are two facts, and a difference between them is marked',
+    same.differs === false && other.differs === true && unasked.differs === false && other.ran === 'Sonnet 5.5' && other.asked === 'Haiku'
+    && /Ran on: claude-sonnet-5-5\nAsked for: haiku\nThe two differ\./.test(other.title) && /the agent's default/.test(unasked.title)
+    && nm.modelOf({ model: 'claude-opus-5', modelAsked: 'claude-opus-5-5' }).differs === true && nm.modelOf({}).ran === '');
+
+  const GATE = 'PreToolUse:Agent hook error: [bash .claude/hooks/guard-agent-model.sh]: GUARD (agent model): crew-review-agent runs on sonnet or above, and this call asks for haiku. Repeat the same call with model sonnet.';
+  check('the model gate\'s refusal is read by the words it opens with, and its floor only where it says one',
+    gr.refusalOf(GATE).floor === 'sonnet' && /^GUARD \(agent model\): crew-review-agent runs on sonnet/.test(gr.refusalOf(GATE).text)
+    && gr.refusalOf('x: GUARD (agent model): a call to crew-test-expert has to name its model.').floor === null
+    && gr.refusalOf('GUARD (§4.5): something else') === null && gr.refusalOf(null) === null
+    && fs.existsSync(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) === /GUARD \(agent model\):/.test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''),
+    'where the gate is in this checkout, its own text carries the same opening words');
+  check('a report says how it closed, and a line that is not the last line says nothing',
+    gr.confidenceOf('Done.\n\nconfidence: low') === 'low' && gr.confidenceOf('ok\n**confidence: high**\n') === 'high'
+    && gr.confidenceOf('confidence: low\nand then more') === null && gr.confidenceOf('') === null && gr.confidenceOf(null) === null);
+  check('models are ranked only where the family is known',
+    gr.modelRank('haiku') < gr.modelRank('claude-sonnet-5-5') && gr.modelRank('claude-sonnet-5-5') < gr.modelRank('opus')
+    && gr.modelRank('claude-haiku-4-5-20251001') === 0 && gr.modelRank('something') === null && gr.modelRank(null) === null);
+
+  // A session, through the real builder: a call the gate refused and the session repeated; work repeated one
+  // model up after a report that closed "confidence: low"; a call that asked for one model and ran on another.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-models-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const T0 = Date.parse('2026-01-01T09:00:00Z');
+  const iso = (min) => new Date(T0 + min * 60_000).toISOString();
+  const usage = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 300 };
+  const call = (mid, tu, type, model, desc, min) => ({ type: 'assistant', timestamp: iso(min), message: { id: mid, model: 'claude-opus-5-5', usage, content: [{ type: 'tool_use', id: tu, name: 'Agent', input: { subagent_type: type, description: desc, ...(model ? { model } : {}) } }] } });
+  const answer = (tu, id, min) => ({ type: 'user', timestamp: iso(min), message: { content: [{ type: 'tool_result', tool_use_id: tu, content: 'report' }] }, toolUseResult: { agentId: id, status: 'completed' } });
+  const refuse = (tu, min, text) => ({ type: 'user', timestamp: iso(min), message: { content: [{ type: 'tool_result', tool_use_id: tu, is_error: true, content: text }] } });
+  const main = [
+    call('M1', 'tu-r1', 'crew-review-agent', 'haiku', 'Review the diff', 1), refuse('tu-r1', 1, GATE),
+    call('M2', 'tu-r2', 'crew-review-agent', 'sonnet', 'Review the diff', 2), answer('tu-r2', 'arev', 4),
+    call('M3', 'tu-t1', 'crew-test-expert', 'sonnet', 'Prove the migration', 5), answer('tu-t1', 'atest1', 8),
+    call('M4', 'tu-t2', 'crew-test-expert', 'opus', 'Prove the migration, again', 9), answer('tu-t2', 'atest2', 12),
+    call('M5', 'tu-d', 'crew-devops-expert', 'haiku', 'Rename the runner', 13), answer('tu-d', 'adev', 14),
+    call('M6', 'tu-x', 'Explore', null, 'Look around', 15), answer('tu-x', 'aexp', 16),
+    call('M7', 'tu-n', 'crew-test-expert', null, 'Unnamed', 17), refuse('tu-n', 17, 'hook: GUARD (agent model): a call to crew-test-expert has to name its model.'),
+  ];
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, main.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const agent = (id, tu, type, model, text, min) => {
+    fs.writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ agentType: type, description: `task of ${id}`, toolUseId: tu }));
+    fs.writeFileSync(path.join(sub, `agent-${id}.jsonl`), [
+      { type: 'assistant', timestamp: iso(min), message: { id: `m-${id}-1`, model, usage, content: [{ type: 'tool_use', id: `c-${id}`, name: 'Bash', input: { command: 'make' } }] } },
+      { type: 'user', timestamp: iso(min + 0.5), message: { content: [{ type: 'tool_result', tool_use_id: `c-${id}`, content: 'ok' }] } },
+      { type: 'assistant', timestamp: iso(min + 1), message: { id: `m-${id}-2`, model, usage, content: [{ type: 'text', text }] } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  };
+  agent('arev', 'tu-r2', 'crew-review-agent', 'claude-sonnet-5-5', 'Reviewed.\n\nconfidence: high', 2);
+  agent('atest1', 'tu-t1', 'crew-test-expert', 'claude-sonnet-5-5', 'Could not reproduce it.\n\nconfidence: low', 5);
+  agent('atest2', 'tu-t2', 'crew-test-expert', 'claude-opus-5-5', 'Reproduced.\n\nconfidence: high', 9);
+  agent('adev', 'tu-d', 'crew-devops-expert', 'claude-sonnet-5-5', 'Renamed.', 13);
+  agent('aexp', 'tu-x', 'Explore', 'claude-haiku-5-5', 'Looked.', 15);
+  const g = await gr.buildGraph({ sessionId: 'models-session', file, subagentsDir: sub });
+  fs.rmSync(dir, { recursive: true, force: true });
+  const N = (id) => g.nodes.find((n) => n.id === id);
+
+  check('an agent\'s node says the model its own transcript names, and the one its call asked for',
+    N('arev').model === 'claude-sonnet-5-5' && N('arev').modelAsked === 'sonnet' && N('aexp').model === 'claude-haiku-5-5'
+    && N('aexp').modelAsked === null && N('adev').modelAsked === 'haiku' && N('adev').model === 'claude-sonnet-5-5');
+  check('a call the gate refused and the session made again carries what was asked first, and the floor it was refused on',
+    N('arev').firstTry.asked === 'haiku' && N('arev').firstTry.floor === 'sonnet' && N('atest1').firstTry === null
+    && g.nodes.filter((n) => n.kind === 'agent').length === 5, 'a refused call starts no agent, and none is drawn for it');
+  check('a refusal nothing repeated is tied to nothing', g.nodes.every((n) => n.firstTry == null || n.id === 'arev'));
+  const calls = new Map([
+    ['c1', { order: 1, subagentType: 'crew-review-agent', description: 'Review the diff', model: 'haiku', refused: { text: 'GUARD (agent model): x', floor: 'sonnet' } }],
+    ['c2', { order: 2, subagentType: 'crew-review-agent', description: 'Review something else', model: 'sonnet' }],
+    ['c3', { order: 3, subagentType: 'crew-review-agent', description: 'Review the diff', model: null, refused: { text: 'GUARD (agent model): y', floor: 'sonnet' } }],
+    ['c4', { order: 4, subagentType: 'crew-review-agent', description: 'Review the diff', model: 'sonnet' }],
+  ]);
+  gr.linkRetries(calls);
+  check('the repeat of a refused call is the same agent on the same task: another task of that agent is not it, and a call refused twice keeps what was asked first',
+    calls.get('c2').firstTry === undefined && calls.get('c4').firstTry.asked === 'haiku' && calls.get('c3').firstTry.asked === 'haiku');
+  const esc = (list) => { const nodes = list.map(([id, model, confidence, calledAt, reportedAt], i) => ({ id, kind: 'agent', agentType: 'crew-test-expert', order: i + 1, model, modelAsked: null, confidence, calledAt, reportedAt })); gr.linkEscalations(nodes); return nodes; };
+  check('an escalation is a HIGHER model after a low-confidence report: the same model again, a lower one, or a call made before the report, is not one',
+    esc([['a', 'claude-opus-5-5', 'low', 1, 5], ['b', 'claude-sonnet-5-5', 'high', 6, 9]])[1].escalatedFrom === undefined
+    && esc([['a', 'claude-sonnet-5-5', 'low', 1, 5], ['b', 'claude-sonnet-5-5', 'high', 6, 9]])[1].escalatedFrom === undefined
+    && esc([['a', 'claude-sonnet-5-5', 'low', 1, 5], ['b', 'claude-opus-5-5', 'high', 3, 9]])[1].escalatedFrom === undefined
+    && esc([['a', 'claude-sonnet-5-5', 'high', 1, 5], ['b', 'claude-opus-5-5', 'high', 6, 9]])[1].escalatedFrom === undefined
+    && esc([['a', 'claude-sonnet-5-5', 'low', 1, 5], ['b', 'claude-opus-5-5', 'high', 6, 9]])[1].escalatedFrom.id === 'a');
+  check('work repeated one model up after a report that closed "confidence: low" is tied both ways',
+    N('atest1').confidence === 'low' && N('atest2').escalatedFrom.id === 'atest1' && N('atest1').escalatedTo === 'atest2'
+    && N('atest2').escalatedFrom.to === 'opus' && N('arev').escalatedFrom === undefined && N('adev').confidence === null);
+  check('each agent carries its own share of the tokens and its own estimate',
+    N('arev').usage.tokens.fresh === 2 * 450 && N('arev').usage.tokens.cacheRead === 2000 && N('arev').usage.cost > 0
+    && g.nodes[0].usage.parts.agents.tokens.total === 5 * 2 * 1450);
+
+  const lines = (id) => ins.modelLines(N(id), g.nodes).map((l) => `${l.label}: ${l.text}`);
+  check('the inspector says both models, and in one line what the gate did',
+    lines('arev')[0] === 'Ran on: Sonnet 5.5 \u00b7 claude-sonnet-5-5' && lines('arev')[1] === 'Asked for: sonnet'
+    && lines('arev')[2] === 'Model gate: first asked: haiku \u2192 refused (floor: sonnet) \u2192 sonnet'
+    && lines('aexp')[1] === 'Asked for: no model named (the agent\'s default)' && /differs from what ran/.test(lines('adev')[1]),
+    lines('arev').join(' | '));
+  check('and ties the two calls of an escalation to each other, each leading to the other',
+    lines('atest2')[2] === 'Escalated: escalated: sonnet \u2192 opus, after (#3) closed "confidence: low"'
+    && ins.modelLines(N('atest2'), g.nodes)[2].goto === 'atest1' && ins.modelLines(N('atest1'), g.nodes)[2].goto === 'atest2'
+    && ins.modelLines(g.nodes[0], g.nodes).length === 0, lines('atest2')[2]);
+
+  const p = gpl.plan(g.nodes, { density: 'comfortable' });
+  const tests = p.items.find((it) => it.id === 'type:session:crew-test-expert');
+  check('a group\'s card adds up its members: calls, time, new tokens, tokens from the cache and the estimate; and says their models',
+    tests.count === 2 && tests.first.id === 'atest1' && tests.sum.fresh === 2 * 900 && tests.sum.cacheRead === 4000
+    && Math.abs(tests.sum.cost - (N('atest1').usage.cost + N('atest2').usage.cost)) < 1e-12 && tests.sum.durationMs === 2 * 60_000
+    && nm.modelMix(tests.members) === '1 Opus, 1 Sonnet' && tests.h === gpl.SIZE.stack.h,
+    `${tests.count} calls, ${tests.sum.durationMs / 1000}s, ${tests.sum.fresh} new, ${nm.modelMix(tests.members)}`);
+  check('a member with no price makes the group\'s estimate unknown, and one with no usage adds nothing',
+    gpl.sumOf([{ usage: { tokens: { fresh: 5, cacheRead: 1 }, cost: 1 } }, { usage: { tokens: { fresh: 5, cacheRead: 1 }, cost: null } }]).cost === null
+    && gpl.sumOf([{ durationMs: 10 }, {}]).counted === 0 && gpl.sumOf([]).cost === 0 && nm.modelMix([{ model: null }]) === '');
+  check('at compact density the group\'s card gives up its two lines of totals rather than its height',
+    gpl.plan(g.nodes, { density: 'compact' }).items.find((it) => it.id === 'type:session:crew-test-expert').h === gpl.SIZE.stack.tight);
+
+  const withModels = wu.summaryRows(g.nodes[0].usage).find((r) => r.label === 'Cost');
+  check('behind the summary\'s cost is each model\'s new tokens and estimate, the most used first',
+    withModels.detail[0][0] === 'Opus 5.5' && withModels.detail.map((d) => d[0]).sort().join() === 'Haiku 5.5,Opus 5.5,Sonnet 5.5'
+    && /^\d.*\u00b7 [~<]\$/.test(withModels.detail[0][1]), withModels.detail.map((d) => d.join(' ')).join(' | '));
+  const cardOf = (block, nodes) => cvo.delegationCard(block, nodes).model;
+  check('a delegation card in the conversation says the model: what the call asks for, then what the agent ran on',
+    cardOf(cvo.toolBlock({ id: 'zz', name: 'Agent', input: { subagent_type: 'crew-test-expert', model: 'opus' } }), []).asked === 'Opus'
+    && cardOf(cvo.toolBlock({ id: 'tu-d', name: 'Agent', input: { subagent_type: 'crew-devops-expert', model: 'haiku' } }), g.nodes.map((n) => ({ ...n, toolUseId: n.id === 'adev' ? 'tu-d' : n.toolUseId }))).differs === true);
+
+  const dom = installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?mdl=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  c.setSession('models');
+  c.setDensity('comfortable');
+  c.render({ nodes: g.nodes, edges: [] });
+  const dev = c.els.get('adev').parts;
+  const grp = c.els.get('type:session:crew-test-expert').parts;
+  check('a card carries the model as a badge, marked when the call asked for another, with its time and tokens beside it',
+    dev.model.textContent === 'Sonnet 5.5 \u2260' && dev.model.dataset.differs === 'true' && /Asked for: haiku/.test(dev.model.title)
+    && c.els.get('arev').parts.model.textContent === 'Sonnet 5.5' && /^1m 0s \u00b7 900 new \u00b7 [~<]\$/.test(c.els.get('arev').parts.facts.textContent),
+    `${dev.model.textContent} | ${c.els.get('arev').parts.facts.textContent}`);
+  check('a group\'s card says how many, where the first stood, what they add up to and what they ran on',
+    grp.sub.textContent === '#3 \u00b7 \u00d7 2' && /^2m 0s \u00b7 1\.8k new \u00b7 4\.0k cache \u00b7 [~<]\$/.test(grp.totals.textContent) && grp.mix.textContent === '1 Opus, 1 Sonnet',
+    `${grp.sub.textContent} | ${grp.totals.textContent} | ${grp.mix.textContent}`);
+  c.setModelFilter('opus');
+  check('Show can keep one family of model lit: the rest step back, and "every model" brings them forward',
+    c.els.get('arev').classList.contains('cv-dim') && c.els.get('aexp').classList.contains('cv-dim') && !c.els.get('session').classList.contains('cv-dim')
+    && (c.setModelFilter(null), !c.els.get('arev').classList.contains('cv-dim')));
+  c.els.get('type:session:crew-test-expert').emit('click');
+  c.setAside(true);
+  check('opened, each member is its own card with its task, its place, its time, its tokens and its model',
+    c.els.has('atest1') && c.els.get('atest2').parts.model.textContent === 'Opus 5.5' && /^#4 \u00b7 \d\d:\d\d$/.test(c.els.get('atest2').parts.order.textContent)
+    && /new/.test(c.els.get('atest2').parts.facts.textContent) && c.els.get('atest2').parts.task.textContent === 'task of atest2');
+  dom();
+  const src = (f) => read(path.join(WEB_ROOT, f)) ?? '';
+  check('the Timeline\'s and the List\'s rows carry the same badge, and the model filter reaches both',
+    /mk\('span', 'tl-model',/.test(src('timeline.js')) && /mk\('span', 'sub ls-model',/.test(src('list.js'))
+    && /timeline\.setModelFilter\(family\);/.test(src('app.js')) && /canvas\.setModelFilter\(family\);/.test(src('app.js'))
+    && /label: `Only \$\{f\[0\]\.toUpperCase\(\)\}\$\{f\.slice\(1\)\}`/.test(src('app.js')) && /isection\('Model', dl\)/.test(src('app.js')));
+}
+
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
    hold the arithmetic and the rules, not the prices' truth. */
 {
@@ -1713,7 +1883,9 @@ function computed(rules, el, ancestors, media = []) {
     },
   };
 
-  const kid = (id, status, type = 'Explore', parentId = 'session') =>
+  // Each of its own type unless a type is given: agents of one type under one parent are drawn as one card, and
+  // these fixtures are about single cards and single wires.
+  const kid = (id, status, type = `kind-${id}`, parentId = 'session') =>
     ({ id, kind: 'agent', agentType: type, status, spawnDepth: 1, parentId, tools: {}, toolCount: 0 });
   const root = (turns = 1) => ({ id: 'session', kind: 'session', status: 'session', turns, cwd: '/x' });
   // A canvas that draws every node as its own card, so a claim about one wire is about that wire.
@@ -2282,8 +2454,8 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       Math.abs(e.from.y - (run.y + cell.y + cell.h / 2)) < 1 && e.source === 'w3',
       `wire leaves at y ${e.from.y}; the row's centre is ${run.y + cell.y + cell.h / 2}`);
   }
-  check('the measures are the design\'s: session 200x84, card 248x64, 56 between columns, 12 between siblings',
-    at(one, 'session').w === 200 && at(one, 'session').h === 84 && at(one, 'b').w === 248 && at(one, 'b').h === 64
+  check('the measures: session 200x84, card 248x84 (a third line for model, time and tokens), 56 between columns, 12 between siblings',
+    at(one, 'session').w === 200 && at(one, 'session').h === 84 && at(one, 'b').w === 248 && at(one, 'b').h === 84
     && at(one, 'b').x - (at(one, 'session').x + 200) === 56 && col(one, 1)[1].y - (col(one, 1)[0].y + col(one, 1)[0].h) === 12);
 
   /* -- 2. arrival appends ------------------------------------------------ */
@@ -2314,7 +2486,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       && at(after2, 'late').y > at(after, 'late').y,
       `run ${at(after, 'wf:audit').h} -> ${at(after2, 'wf:audit').h} tall; ${above.length} boxes above it held`);
     check('twin: without the remembered order, the same arrival would have been sorted in by its timestamp',
-      gp.plan(more, { seq: gp.sequence(more), density: 'comfortable' }).items.filter((it) => it.depth === 1)[0].id === 'late',
+      gp.plan(more, { seq: gp.sequence(more), density: 'comfortable' }).items.filter((it) => it.depth === 1).sort((a, b) => a.y - b.y)[0].id === 'late',
       'so it is the sequence, not luck, that kept the column still');
   }
 
@@ -2348,8 +2520,9 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const type = gp.plan(nodes, { group: 'type', density: 'comfortable' });
     const parent = gp.plan([...nodes, A('k3', 'Explore', { parentId: 'b', startedAt: 30 })], { group: 'parent', density: 'comfortable' });
     const none = gp.plan(nodes, { group: 'none', density: 'comfortable' });
-    check('by workflow run: a run is one group holding its agents',
-      kinds(run) === 'run:audit' && at(run, 'wf:audit').members.length === 4 && at(run, 'wf:audit').open === true, kinds(run));
+    check('by workflow run: a run is one group holding its agents, and agents of one type under one parent are one card',
+      kinds(run) === 'type:Explore | run:audit' && at(run, 'wf:audit').members.length === 4 && at(run, 'wf:audit').open === true
+      && at(run, 'type:session:Explore').count === 2 && at(run, 'type:session:Explore').open === false, kinds(run));
     check('by agent type: siblings of one type are a group too, folded until asked for',
       kinds(type) === 'type:Explore | run:audit' && at(type, 'type:session:Explore').count === 2
       && at(type, 'type:session:Explore').open === false, kinds(type));
@@ -2358,7 +2531,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     check('with no grouping a run is an ordinary card and its agents come after it',
       kinds(none) === '' && at(none, 'wf:audit').kind === 'run-card' && at(none, 'w0').x > at(none, 'wf:audit').x, kinds(none) || 'no groups');
     check('a folded group is one card; open, it holds its members where the card was',
-      at(type, 'type:session:Explore').h === 64 && at(run, 'wf:audit').cells.length === 4
+      at(type, 'type:session:Explore').h === gp.SIZE.stack.h && at(run, 'wf:audit').cells.length === 4
       && at(run, 'wf:audit').x === at(run, 'b').x);
     const folded = gp.plan(nodes, { group: 'run', density: 'comfortable', open: new Map([['wf:audit', false]]) });
     check('folding a group takes what its members spawned with it',
@@ -2378,8 +2551,8 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
   {
     const many = (n, type = (i) => `type-${i}`) => [S(), ...Array.from({ length: n }, (_, i) => A(`a${i}`, type(i), { startedAt: i }))];
     const s1 = gp.plan(screenOne(), {});
-    check('the design\'s own first screen stays cards: thirteen agents, nothing folded, nothing shrunk',
-      s1.density === 'comfortable' && s1.stacked === false && s1.drawn === agentsOf(screenOne()) - 0
+    check('the design\'s own first screen stays cards: nothing is shrunk, and its two agents of one type are one card',
+      s1.density === 'comfortable' && s1.stacked === false && s1.drawn === agentsOf(screenOne()) - 1
       && s1.height <= gp.AUTO.tallest, `${s1.density}, ${s1.drawn} drawn, ${s1.height}px tall (limit ${gp.AUTO.tallest})`);
     // The limit is not a number someone liked. It is the reference canvas, less the fit margin, at the smallest
     // zoom a card's 12px name still reads at.
@@ -2394,20 +2567,31 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       gp.plan(many(last), {}).height <= gp.AUTO.tallest && gp.plan(many(last + 1), { density: 'comfortable' }).height > gp.AUTO.tallest
       && gp.plan(many(last + 1), {}).density === 'compact' && last >= 9 && last <= 13,
       `${last} distinct agents are cards (${gp.plan(many(last), {}).height}px); ${last + 1} are chips`);
-    // Nine agents of ONE type fit as cards, so they are shown as nine cards: folding them would hide the tasks
-    // of a session that had room for every one.
-    const nineAlike = gp.plan(many(9, () => 'Explore'), {});
-    check('nothing is folded away while the open picture is short enough to read',
+    // Under "Workflow run" agents of one type are one card, however few they are and wherever they stand in the
+    // order: three of a kind called fifth, eighth and ninth are the same thing three times, and were drawn as
+    // three cards among the others until the picture grew too tall.
+    const apart = gp.plan([S(), ...['a', 'b', 'c', 'd'].map((t, i) => A(`o${i}`, `solo-${t}`, { startedAt: i, order: i + 1 })),
+      A('p5', 'crew-privacy-agent', { startedAt: 5, order: 5 }), A('o6', 'solo-e', { startedAt: 6, order: 6 }), A('o7', 'solo-f', { startedAt: 7, order: 7 }),
+      A('p8', 'crew-privacy-agent', { startedAt: 8, order: 8 }), A('p9', 'crew-privacy-agent', { startedAt: 9, order: 9 })], {});
+    const privacy = apart.items.find((it) => it.kind === 'group');
+    check('under "Workflow run" agents of one type are always one card, wherever they stand in the order',
+      apart.items.filter((it) => it.kind === 'group').length === 1 && privacy.label === 'Privacy' && privacy.count === 3
+      && privacy.first.id === 'p5' && privacy.open === false && !apart.items.some((it) => ['p5', 'p8', 'p9'].includes(it.id)),
+      `${privacy.label} × ${privacy.count}, first called #${privacy.first.order}`);
+    const nineAlike = gp.plan(many(9, () => 'Explore'), { group: 'parent' });
+    check('under "Parent" nothing is folded away while the open picture is short enough to read',
       nineAlike.stacked === false && nineAlike.drawn === 9 && nineAlike.items.every((it) => it.kind !== 'group'),
       `9 Explore agents: ${nineAlike.drawn} drawn, stacked ${nineAlike.stacked}`);
+    check('and under "Order" nothing is grouped at all: each agent stands in its wave',
+      gp.plan(many(9, () => 'Explore').map((n, i) => (n.kind === 'agent' ? { ...n, order: i, wave: i } : n)), { group: 'order' }).items.every((it) => it.kind !== 'group'));
     const crowd = many(24, (i) => (i < 20 ? ['Explore', 'general-purpose'][i % 2] : `solo-${i}`));
-    const stacked = gp.plan(crowd, {});
-    check('too tall, and agents of one type fold together first: cards survive if that is enough',
+    const stacked = gp.plan(crowd, { group: 'parent' });
+    check('under "Parent", too tall, and agents of one type fold together first: cards survive if that is enough',
       stacked.stacked === true && stacked.density === 'comfortable'
       && stacked.items.filter((it) => it.kind === 'group' && it.type === 'type').length === 2 && stacked.height <= gp.AUTO.tallest,
       `${stacked.drawn} drawn in ${stacked.items.length - 1} boxes, ${stacked.height}px, ${stacked.density}`);
     check(`a pair is not a crowd: folding starts at ${gp.AUTO.stackAt} of a type`,
-      gp.AUTO.stackAt === 3 && !gp.plan(many(30, (i) => (i < 2 ? 'Explore' : `solo-${i}`)), {}).items.some((it) => it.kind === 'group'));
+      gp.AUTO.stackAt === 3 && !gp.plan(many(30, (i) => (i < 2 ? 'Explore' : `solo-${i}`)), { group: 'parent' }).items.some((it) => it.kind === 'group'));
     check('still too tall, and cards become chips', gp.plan(many(16), {}).density === 'compact'
       && gp.plan(many(16), {}).items.find((it) => it.id === 'a0').h === 36);
     check('Comfortable and Compact are the viewer\'s word and are never overridden',
@@ -2486,7 +2670,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
 
   {
     const c = made([S(), A('k', 'crew-backend-expert', { status: 'running' }), A('b', 'Explore'), A('u', 'someone-elses-agent'),
-      A('z', 'Explore', { status: 'hibernating' })], 'identity');
+      A('z', 'general-purpose', { status: 'hibernating' })], 'identity');
     c.setIcons({ builtin: '<svg data-file="builtin"></svg>' });
     const tile = (id) => c.els.get(id).parts.tile;
     check('whose agent it is, is said by its mark: Crewforth\'s chevrons, or the one file for everyone else',
@@ -2625,7 +2809,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       g.label === 'Explore' && g.count === 3 && at(side, 'type:session:crew-backend-expert').label === 'Backend'
       && at(side, 'type:session:crew-backend-expert').real === 'crew-backend-expert');
     check('in a window with room an agent group opens beside itself: it stays a card, and its agents are the next column',
-      g.open === true && g.boxed === false && g.h === gp.SIZE.card.h && g.cells === null && members.length === 3
+      g.open === true && g.boxed === false && g.h === gp.SIZE.stack.h && g.cells === null && members.length === 3
       && members.every((m) => m.kind === 'agent' && m.depth === g.depth + 1 && m.x > g.x + g.w)
       && side.edges.filter((e) => e.source === g.id).length === 3,
       `${members.length} agents beside the card, at x ${members.map((m) => m.x).join(', ')} against the card's ${g.x}`);
@@ -3447,6 +3631,7 @@ process.stdout.write('\n== §30 the top bar and the navigator ==\n');
       const c = new Canvas(document.createElement('div'), {});
       c.setPalette({ map: { Explore: { hex: '#26c6e6', source: 'builtin' } }, unknown: '#94a3c8' });
       c.setSession('s-filter');
+      c.setGroup('none');   // three agents of one type, and this is about each one's own card
       const agent = (id, status) => ({ id, kind: 'agent', agentType: 'Explore', status, spawnDepth: 1, parentId: 'session', tools: {}, toolCount: 0 });
       c.render({
         nodes: [{ id: 'session', kind: 'session', status: 'session', turns: 1, cwd: '/x' }, agent('r', 'running'), agent('d', 'done'), agent('f', 'failed')],

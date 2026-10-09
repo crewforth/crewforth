@@ -25,7 +25,9 @@ export const SIZE = {
   waveGap: 148,                // between one wave and the next: room for the words on an inferred wire
   rowGap: 12,                  // between siblings
   session: { w: 200, h: 84, line: 20 },   // `line`: the extra line a session with background commands has
-  card: { w: 248, h: 64 },     // an agent, and a folded group
+  card: { w: 248, h: 84 },     // an agent: its name, its task, and a line of facts (model, time, tokens)
+  stack: { w: 248, h: 116, tight: 64 },   // a group drawn as one card: its name, its bar, its totals, its models;
+                                          // `tight` at compact density, where the two lines of totals go
   chip: { w: 248, h: 36 },     // an agent at compact density
   group: {                     // an open group: a container holding its members
     padX: 8, top: 10, head: 20, gap: 6, bar: 4, bottom: 8,
@@ -153,7 +155,10 @@ function itemsOf(nodes, { group, density, seq, stack, aside }) {
   const session = nodes.find((n) => n.kind === 'session');
   if (session) items.push({ id: session.id, kind: 'session', node: session, parent: null, depth: 0 });
 
-  const stackAt = group === 'type' ? 2 : (density === 'auto' && group !== 'none' && stack ? AUTO.stackAt : Infinity);
+  // Agents of one type under one parent are one card under `type` and under `run`, from two and wherever they
+  // stand in the order: three Privacy agents called fifth, eighth and ninth are the same thing three times.
+  // Under `parent` they fold only when the picture is too tall; under `none`, never.
+  const stackAt = group === 'type' || group === 'run' ? 2 : (density === 'auto' && group !== 'none' && stack ? AUTO.stackAt : Infinity);
 
   // `anchor` is the item a node's wire comes out of; `via` is the member row inside it, when the parent is one.
   const place = (parentId, anchor, via, depth) => {
@@ -216,6 +221,23 @@ function itemsOf(nodes, { group, density, seq, stack, aside }) {
   return items;
 }
 
+/**
+ * What a group's members add up to: time, new tokens, tokens read from the cache, and the estimate. A member with
+ * no usage read adds nothing; the cost is null when any member's is, so a sum never passes for the whole.
+ */
+export function sumOf(members) {
+  const sum = { durationMs: 0, fresh: 0, cacheRead: 0, cost: 0, timed: 0, counted: 0 };
+  for (const m of members ?? []) {
+    if (m.durationMs != null) { sum.durationMs += m.durationMs; sum.timed += 1; }
+    if (!m.usage) continue;
+    sum.counted += 1;
+    sum.fresh += m.usage.tokens?.fresh ?? 0;
+    sum.cacheRead += m.usage.tokens?.cacheRead ?? 0;
+    sum.cost = sum.cost === null || m.usage.cost == null ? null : sum.cost + m.usage.cost;
+  }
+  return sum;
+}
+
 function groupItem(id, type, members, anchor, via, depth, seq, extra) {
   return {
     id,
@@ -230,6 +252,7 @@ function groupItem(id, type, members, anchor, via, depth, seq, extra) {
     seq: Math.min(...members.map((m) => seq.get(m.id) ?? 0), Infinity),
     // The group stands where its first member does in the order the session called its agents.
     first: members.filter((m) => m.order != null).sort((a, b) => a.order - b.order)[0] ?? null,
+    sum: sumOf(members),
     ...extra,
   };
 }
@@ -296,7 +319,8 @@ export function plan(nodes, opts = {}) {
       it.open = isOpen(it);
       // `boxed` is the group drawn as a container with its members inside. Open beside itself it stays a card.
       it.boxed = it.open && !it.aside;
-      if (!it.boxed) { it.w = SIZE.card.w; it.h = SIZE.card.h; it.cells = null; continue; }
+      it.compact = compact;
+      if (!it.boxed) { it.w = SIZE.stack.w; it.h = compact ? SIZE.stack.tight : SIZE.stack.h; it.cells = null; continue; }
       const n = it.members.length;
       const grid = compact || n > G.rowsMax;
       const cols = grid ? Math.min(G.colsMax, Math.max(1, Math.ceil(n / G.rowsMax))) : 1;
