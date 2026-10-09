@@ -61,15 +61,26 @@ _ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
 }
 
 _ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never ending inside a UTF-8 character
-  # Cut and repaired by tools, in bytes, whatever the shell makes of the text. A first version cut with ${t:0:n}
-  # and matched byte ranges: whether that counts bytes or characters depends on how the shell was started, and it
-  # passed on one macOS and left half a character on another (the CI runner). `head -c` cuts bytes; iconv -c drops
-  # a sequence that is not whole; where there is no iconv, or its answer is still not UTF-8, the text is reduced
-  # to ASCII, which cannot be cut wrong.
-  local n="$2" r
-  r="$(printf '%s' "$1" | head -c "$n" 2>/dev/null | iconv -c -f UTF-8 -t UTF-8 2>/dev/null)" || true     # iconv -c exits 1 when it dropped something: that is the repair, not a failure
-  if [ -n "$r" ] && printf '%s' "$r" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then _AOC="$r"; return 0; fi
-  _AOC="$(printf '%s' "$1" | head -c "$n" 2>/dev/null | tr -c '\11\12\40-\176' '?')"
+  # In bytes, by tools that count bytes whatever the shell makes of the text, and with the arithmetic done here.
+  # Two earlier versions each passed on one macOS and failed on another: a shell substring counts bytes or
+  # characters depending on how the shell was started, and `iconv -c` does not drop a character cut at the end of
+  # its input on every macOS. So: `head -c` cuts; `od` shows the last four bytes; a character begun and not
+  # finished there (a lead byte with too few continuation bytes after it) is cut off as well.
+  local n="$2" hx b k=0 need=0 drop=0 total
+  total="$(printf '%s' "$1" | wc -c | tr -d ' ')"; case "$total" in ''|*[!0-9]*) total=0 ;; esac
+  if [ "$total" -le "$n" ]; then _AOC="$1"; return 0; fi
+  hx="$(printf '%s' "$1" | head -c "$n" | tail -c 4 | od -An -tx1 | tr -d ' \n')"
+  while [ -n "$hx" ]; do
+    b="${hx: -2}"; hx="${hx%??}"
+    case "$b" in
+      [89ab][0-9a-f]) k=$((k+1)); [ "$k" -ge 4 ] && { drop=$k; break; } ;;      # a continuation byte
+      [cd][0-9a-f]) need=1; [ "$k" -lt "$need" ] && drop=$((k+1)); break ;;
+      e[0-9a-f])    need=2; [ "$k" -lt "$need" ] && drop=$((k+1)); break ;;
+      f[0-9a-f])    need=3; [ "$k" -lt "$need" ] && drop=$((k+1)); break ;;
+      *) break ;;                                                                # ASCII: nothing is open
+    esac
+  done
+  _AOC="$(printf '%s' "$1" | head -c "$((n - drop))")"
 }
 
 # ---- the list of critical paths (SessionStart, or `--scan` from the installers) ----------------------------------
