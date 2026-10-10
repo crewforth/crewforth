@@ -47,6 +47,9 @@ export const AUTO = {
   // fitting leaves 676 after its margin; a card's 12px name reads down to 9px, which is a zoom of 0.75.
   // 676 / 0.75 = 901.
   tallest: 900,
+  // The smallest zoom a card is still read at: its 12px name is 9px there. Auto asks one thing of a picture —
+  // does it fit the pane at this zoom or larger — and only goes to chips when the answer is no.
+  readable: 0.75,
   // Same-type siblings fold into one card from this many, once the picture is too tall.
   stackAt: 3,
 };
@@ -257,6 +260,16 @@ function groupItem(id, type, members, anchor, via, depth, seq, extra) {
   };
 }
 
+/**
+ * How tall a picture may be before Auto gives up cards for chips: what fits `paneHeight` at the smallest readable
+ * zoom, and never less than the reference window's. The count of agents is not asked; a tall window keeps cards
+ * for a session a short one turns to chips.
+ */
+export function tallestFor(paneHeight) {
+  const fits = typeof paneHeight === 'number' && paneHeight > 0 ? Math.floor((paneHeight - 2 * ZOOM.pad) / AUTO.readable) : 0;
+  return Math.max(AUTO.tallest, fits);
+}
+
 /** A session's card: one line taller while it has commands running in the background, and never wider. */
 export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ? SIZE.session.line : 0);
 
@@ -271,6 +284,8 @@ export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ?
  * @param opts.all       true after "Expand all", false after "Fold all": what a group not in `open` is
  * @param opts.pinned    Map itemId -> {x, y}, positions the viewer set by hand
  * @param opts.sessionY  where the session card was put, to keep it there; omitted on a fresh layout
+ * @param opts.tallest   how tall the picture may be before Auto turns cards into chips (see `tallestFor`);
+ *                       the reference window's when it is not given
  * @param opts.aside     true when an open type group puts its agents in the next column instead of growing
  *                       downward; a narrow window leaves it off
  * @returns { items, edges, width, height, drawn, density, sessionY }
@@ -278,7 +293,8 @@ export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ?
 export function plan(nodes, opts = {}) {
   const group = GROUPINGS.includes(opts.group) ? opts.group : 'run';
   const asked = DENSITIES.includes(opts.density) ? opts.density : 'auto';
-  if (group === 'order') return planOrder(nodes, asked, opts);
+  const tallest = Math.max(AUTO.tallest, opts.tallest ?? 0);
+  if (group === 'order') return planOrder(nodes, asked, opts, tallest);
   const seq = opts.seq ?? sequence(nodes);
   const open = opts.open ?? new Map();
   const pinned = opts.pinned ?? new Map();
@@ -406,12 +422,12 @@ export function plan(nodes, opts = {}) {
   let compact = asked === 'compact';
   let stacked = false;
   let box = lay(pass.shown, compact);
-  if (asked === 'auto' && box.height > AUTO.tallest) {
+  if (asked === 'auto' && box.height > tallest) {
     if (group !== 'none' && group !== 'type') {
       const folded = drawFrom(itemsOf(nodes, { group, density: asked, seq, stack: true, aside }));
       if (folded.shown.some((it) => it.kind === 'group' && it.type === 'type')) { pass = folded; stacked = true; box = lay(pass.shown, false); }
     }
-    if (box.height > AUTO.tallest) { compact = true; box = lay(pass.shown, true); }
+    if (box.height > tallest) { compact = true; box = lay(pass.shown, true); }
   }
   const drawnItems = pass.shown;
   const drawn = pass.count;
@@ -474,7 +490,7 @@ export const INFERRED_NOTE = 'Inferred from the order of events: this wave was c
  * each agent that reported after the wave before it was called and before this one was — an inference from the
  * order of events, drawn as one and labelled as one. A wave nothing reported before has no wire.
  */
-function planOrder(nodes, asked, opts) {
+function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
   const pinned = opts.pinned ?? new Map();
   const session = nodes.find((n) => n.kind === 'session') ?? null;
   const sessionH = sessionHeight(session);
@@ -507,7 +523,7 @@ function planOrder(nodes, asked, opts) {
   };
   let compact = asked === 'compact';
   let box = lay(compact);
-  if (asked === 'auto' && box.height > AUTO.tallest) { compact = true; box = lay(true); }
+  if (asked === 'auto' && box.height > tallest) { compact = true; box = lay(true); }
   const { items } = box;
   let { height } = box;
 
@@ -570,7 +586,7 @@ export function crowdFolds(nodes, opts = {}) {
   const folds = [];
   for (let guard = 0; guard < 64; guard += 1) {
     const p = plan(nodes, { ...opts, open, pinned: new Map(), sessionY: null });
-    if (p.height <= AUTO.tallest) break;
+    if (p.height <= Math.max(AUTO.tallest, opts.tallest ?? 0)) break;
     const next = p.items.filter((it) => it.kind === 'group' && it.open && it.members.length > 1)
       .sort((a, b) => b.members.length - a.members.length || String(a.id).localeCompare(String(b.id)))[0];
     if (!next) break;

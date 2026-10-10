@@ -440,11 +440,12 @@ function paintToolbar(st) {
   tbValue.group.textContent = GROUP_WORD[st.group] ?? st.group;
   // The grouping is one choice for both views: the Timeline's rows follow the graph's.
   timeline.setGroup(st.group);
-  tbValue.density.textContent = DENSITY_WORD[st.density] ?? st.density;
+  // When Auto has turned the cards into chips the button says so: the picture did not fit this pane as cards.
+  tbValue.density.textContent = st.density === 'auto' && st.drawnAs === 'compact' ? 'Auto \u00b7 compact' : (DENSITY_WORD[st.density] ?? st.density);
   // Auto is a choice the canvas makes; say which one it made, and why.
   el.tbDensity.title = st.density === 'auto' && st.drawnAs
     ? `Auto: ${st.drawnAs}${st.stacked ? ', agents of one type folded together' : ''}. `
-      + `Cards stay cards while the picture is no taller than ${AUTO.tallest}px.`
+      + `Cards stay cards while the picture fits this pane at ${Math.round(AUTO.readable * 100)}% or larger; choose Comfortable to keep them anyway.`
     : '';
   const pct = `${Math.round(st.zoom * 100)}%`;
   el.tbZoom.textContent = pct;
@@ -704,19 +705,20 @@ el.tbFollow.addEventListener('click', () => timeline.setFollow(el.tbFollow.getAt
 el.tbRangeOut.addEventListener('click', () => timeline.zoom(1));
 el.tbRangeIn.addEventListener('click', () => timeline.zoom(-1));
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => timeline.render())).observe(el.timeline);
+// The canvas's pane changing size changes what fits in it, and with that what Auto density draws.
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => canvas.fitIfUntouched())).observe(el.canvasEl);
 
 getJson('/api/palette')
   .then((p) => {
     canvas.setPalette(p);
-    // An unread palette makes every agent "unrecognised", and twelve of those
-    // read like twelve strangers. Which one it is has to be said out loud, or
-    // the panel is drawing "not measured" as a fact about the agents.
+    // With Crewforth's agents unread, a `crew-…` agent cannot be told from one that only carries the name. That has
+    // to be said out loud, or the panel is drawing "not measured" as a fact about the agents.
     if (p && p.measured === false) {
       document.body.dataset.paletteMeasured = 'false';
       el.foot.textContent = `agent identity Not measured — ${p.reason}`;
     }
   })
-  .catch(() => { /* every agent is drawn as unrecognised, which is what is known */ });
+  .catch(() => { /* every agent is drawn with the common mark, which is what is known */ });
 
 let inspectorTab = 'overview';
 let inspectorNode = null;
@@ -2029,10 +2031,19 @@ function stepAttention(by) {
 // reading panel appear on every click there made choosing expensive. The
 // conversation is opened from the session node on the canvas, which is the
 // thing that represents it.
+// Where this session's agents are defined. Asked once per session; an answer for a session no longer shown is dropped.
+async function loadOrigins(sessionId) {
+  canvas.setOrigins(null);
+  let o = null;
+  try { o = await getJson(`/api/agents?session=${encodeURIComponent(sessionId)}`); } catch { /* the mark says whose it is without it */ }
+  if (current === sessionId) canvas.setOrigins(o?.measured ? o : null);
+}
+
 function selectSession(sessionId) {
   if (current === sessionId) return;
   current = sessionId;
   canvas.setSession(sessionId);
+  loadOrigins(sessionId);
   timeline.setSession(sessionId);
   list.setSession(sessionId);
   timeline.setFilter(null);

@@ -30,6 +30,23 @@ export function roleName(type) {
 export const shownType = (n) => roleName(typeOf(n));
 
 /** What hovering an agent says: the type as it is declared, and its task in full, since both are cut on screen. */
+/**
+ * Where a Claude Code agent is defined, in words, or null while that has not been read.
+ * `origins` is the server's answer: { project, user }, each a map of agent name to file name, or null where the
+ * directory was not read. A plugin's agent is told by its name. An agent in none of these is said to be in none:
+ * it is built in to Claude Code, or defined somewhere this panel does not look, and which is not known.
+ */
+export function originOf(type, origins) {
+  if (!origins || typeof type !== 'string' || !type) return null;
+  const at = type.indexOf(':');
+  if (at > 0 && at < type.length - 1) return `Defined in the plugin \u201c${type.slice(0, at)}\u201d`;
+  if (origins.project && Object.hasOwn(origins.project, type)) return `Defined in this project: .claude/agents/${origins.project[type]}`;
+  if (origins.user && Object.hasOwn(origins.user, type)) return `Defined in your own agents: ~/.claude/agents/${origins.user[type]}`;
+  const unread = [origins.project ? null : 'the project', origins.user ? null : 'your own'].filter(Boolean);
+  return unread.length === 2 ? 'Where it is defined was not read: no agents directory in the project or your own'
+    : `No definition file found${unread.length ? ` (${unread[0]} agents directory was not read)` : ''}: built in to Claude Code, or defined where Studio does not look`;
+}
+
 export const hoverOf = (n) => [n?.agentType ?? null, n?.description ?? null].filter(Boolean).join('\n');
 
 /**
@@ -95,4 +112,17 @@ export function modelMix(members) {
     if (word) counts.set(word, (counts.get(word) ?? 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([w, c]) => `${c} ${w}`).join(', ');
+}
+
+/**
+ * The badge a card carries for its model: the model in full ("Opus 5.5"), at every density. For work that was
+ * repeated one model up, the step that was taken ("Sonnet \u2192 Opus"); and a mark when the call asked for another
+ * model than the one that ran.
+ */
+export function modelBadge(n) {
+  const m = modelOf(n);
+  if (!m.ran) return '';
+  const word = (model) => { const f = modelFamily(model); return f ? f[0].toUpperCase() + f.slice(1) : modelName(model); };
+  const text = n?.escalatedFrom?.from ? `${word(n.escalatedFrom.from)} \u2192 ${word(n.model)}` : m.ran;
+  return `${text}${m.differs ? ' \u2260' : ''}`;
 }
