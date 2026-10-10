@@ -567,6 +567,8 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 .mv-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 700; white-space: nowrap; background: var(--surface-raised); color: var(--ink-dim); }
 .mv-tag[data-risk="critical"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
 .mv-tag[data-kind="raised"] { margin-left: 6px; color: var(--status-waiting); background: color-mix(in srgb, var(--status-waiting) 14%, transparent); }
+.mv-tag[data-kind="lowered"] { margin-left: 6px; color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
+.mv-raised .mv-tag[data-kind="lowered"] { margin-left: 0; }
 .mv-tag[data-tone="pass"] { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 .mv-tag[data-tone="fail"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
 .mv-tag[data-kind="escalated"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }

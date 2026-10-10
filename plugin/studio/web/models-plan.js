@@ -64,6 +64,22 @@ export function workSteps(row) {
 }
 
 /**
+ * What is said about a class's floor. Raised and standing: the tag `raised` and what raised it. Raised and then
+ * lowered by the user: the tag `lowered`, and both facts, because the raise is still on record and the floor that
+ * holds is the lowered one. `floorTag` is the tag's word, or null when the class has no floor on record.
+ */
+export function floorWords(floor) {
+  if (!floor) return { floorTag: null, raised: null, raisedWhy: '' };
+  const why = `Raised to ${tierWord(floor.model)} automatically: ${floor.notFirstTry} of ${floor.calls ?? '?'} calls one model down did not pass first time`;
+  if (!floor.lowered) return { floorTag: 'raised', raised: tierWord(floor.model), raisedWhy: why };
+  return {
+    floorTag: 'lowered',
+    raised: null,
+    raisedWhy: `${why}. You lowered it to ${tierWord(floor.lowered.to)} on ${String(floor.lowered.ts).slice(0, 10)}; its outcomes are counted afresh from then.`,
+  };
+}
+
+/**
  * The cost cell of a class. `cost` is { cost, costed, runs } for it, or null while costs have not been read.
  * Every call priced: the estimate. Some priced: a floor, marked as one, with how many it is the sum of
  * ("\u2265$0.75 \u00b7 2/7"), because a sum of two calls must not be read as the cost of seven. None: a dash.
@@ -97,8 +113,7 @@ export function classRow(c, cost = null) {
     models,
     ranOn: Object.keys(c.ranOn ?? {}).map(modelName).join(', '),
     // Held one model up by the record of outcomes: said beside the model, with the count that did it.
-    raised: c.floor ? tierWord(c.floor.model) : null,
-    raisedWhy: c.floor ? `Raised to ${tierWord(c.floor.model)} automatically: ${c.floor.notFirstTry} of ${c.floor.calls ?? '?'} calls one model down did not pass first time` : '',
+    ...floorWords(c.floor),
     tasks: String(c.runs),
     // The rate and what it is a rate of: "83%" of five calls is not "83%" of five hundred.
     firstTry: c.firstTryRate === null ? '\u2014' : pct(c.firstTryRate),
