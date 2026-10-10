@@ -21,6 +21,7 @@ import { projectDir, listSessions, findSession, listProjects, sessionCwd } from 
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
+import { readModels } from './lib/model-outcomes.js';
 
 const USAGE_BATCH = 12;
 import { palette } from './lib/palette.js';
@@ -138,6 +139,29 @@ export function writeAllowed(req) {
   }
   return { ok: true };
 }
+
+/**
+ * The record of outcomes for a project, with each agent's cost where it can be read. Only the sessions written
+ * since the record began are opened, and each is read once and kept until it grows (usage.js).
+ */
+async function modelsFor(cwd) {
+  const plain = readModels(cwd);
+  if (!plain.measured) return plain;
+  const costs = new Map();
+  const dir = await projectDir(cwd);
+  let read = 0;
+  if (dir) {
+    const since = (plain.firstAt ?? 0) - 3600_000;
+    for (const s of (await listSessions(dir)).filter((x) => x.modifiedAt >= since).slice(0, MODELS_SESSIONS_MAX)) {
+      const u = await cachedUsage(s);
+      read += 1;
+      for (const [id, a] of Object.entries(u.agents ?? {})) costs.set(id, a.cost);
+    }
+  }
+  const priced = readModels(cwd, { costOf: (id) => (costs.has(id) ? costs.get(id) : null) });
+  return { ...priced, sessionsRead: read };
+}
+const MODELS_SESSIONS_MAX = 60;
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -298,6 +322,16 @@ async function handle(req, res) {
   }
 
   // What Crewforth already measures about itself, reported as Crewforth reports it.
+  // Which model did which class of work in this project, and how it went: Crewforth's own record of outcomes,
+  // with what each agent's tokens come to where its transcript is on this machine.
+  if (url.pathname === '/api/models') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], byAgent: {} });
+    return sendJson(res, 200, await modelsFor(cwd));
+  }
+
   if (url.pathname === '/api/kit') {
     const cwd = url.searchParams.get('cwd') || process.cwd();
     const sid = url.searchParams.get('session');

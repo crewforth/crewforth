@@ -107,7 +107,7 @@ export function wants(item) {
 
 /** Which view a window opens on when the viewer has not chosen one: the List on a phone, the graph elsewhere. */
 export function defaultView(stored, phone) {
-  if (stored === 'graph' || stored === 'timeline' || stored === 'list') return stored;
+  if (stored === 'graph' || stored === 'timeline' || stored === 'list' || stored === 'models') return stored;
   return phone ? 'list' : 'graph';
 }
 

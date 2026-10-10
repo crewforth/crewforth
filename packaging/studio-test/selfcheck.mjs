@@ -1195,6 +1195,148 @@ check('prose without a notice yields nothing', none.size === 0);
   fs.rmSync(base, { recursive: true, force: true });
 }
 
+/* Which model did which class of work: Crewforth's record of outcomes, read and never added to. The record below
+   is written here, line by line, in the kit's column order; no project's own file is read. */
+{
+  const mo = await import(`../../kit/studio/server/lib/model-outcomes.js?u=${Date.now()}`);
+  const mp = await import(`../../kit/studio/web/models-plan.js?u=${Date.now()}`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-outcomes-'));
+  const state = path.join(dir, '.claude', 'state');
+  fs.mkdirSync(state, { recursive: true });
+  const line = (n, agent, change, risk, model, verify, fixes, from = '-') =>
+    [`2026-01-01T00:00:${String(n).padStart(2, '0')}Z`, `a${n}`, agent, change, risk, `card${n}`, model, verify, fixes, from, `claude-${model}-9`, '-'].join('\t');
+  const rows = [
+    mo.COLUMNS.join('\t'),
+    line(1, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'pass', 0),
+    line(2, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'pass', 2),
+    line(3, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'fail', 1),
+    line(4, 'crew-backend-expert', 'logic', 'normal', 'opus', 'pass', 0, 'sonnet'),
+    line(5, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'blocked', 0),
+    line(6, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'timeout', 0),
+    line(7, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'none', 0),
+    line(8, 'crew-docs-agent', 'text', 'low', 'haiku', 'none', 0),
+    'a short line\twith two fields',
+  ];
+  for (let n = 20; n < 30; n += 1) rows.push(line(n, 'crew-test-expert', 'tests', 'normal', 'sonnet', 'pass', 0));
+  fs.writeFileSync(path.join(state, 'model-outcomes.tsv'), `${rows.join('\r\n')}\r\n`);
+  fs.writeFileSync(path.join(state, 'crew-model-floors.auto'),
+    '# held one model up\ncrew-test-expert\ttests\tnormal\tsonnet\t6\t3\t2025-12-31T00:00:00Z\ncrew-backend-expert\tlogic\tnormal\topus\t4\t2\t2025-12-31T00:00:00Z\n');
+
+  const m = mo.readModels(dir, { costOf: (id) => (id === 'a1' ? 0.5 : id === 'a2' ? 0.25 : null) });
+  const be = m.classes.find((c) => c.agent === 'crew-backend-expert');
+  const docs = m.classes.find((c) => c.agent === 'crew-docs-agent');
+  check('the record is read in the kit\'s column order, CRLF or not, and a line that is not a row is counted, not guessed at',
+    m.measured === true && m.rows === 18 && m.dropped === 1 && m.classes.length === 3 && m.byAgent.a4.escalatedFrom === 'sonnet' && m.byAgent.a4.model === 'opus',
+    `rows ${m.rows}, dropped ${m.dropped}, classes ${m.classes.length}`);
+  check('first try is verify passed with no fix, out of the calls that got a verdict',
+    be.runs === 7 && be.verified === 4 && be.firstTry === 2 && be.firstTryRate === 0.5 && be.fixed === 2 && be.failed === 1 && be.escalated === 1,
+    JSON.stringify({ runs: be.runs, verified: be.verified, firstTry: be.firstTry, fixed: be.fixed, failed: be.failed }));
+  check('a command that was not allowed, ran out of time or was not there is no verdict: shown apart, in no rate',
+    be.notVerified.blocked === 1 && be.notVerified.timeout === 1 && be.notVerified.none === 1
+    && /1 with no verify command · 1 not run · 1 timed out/.test(mp.classRow(be).notVerified)
+    && mp.classRow(be).firstTry === '50%' && mp.classRow(be).firstTryOf === '2 of 4 verified calls passed the first time' && mp.classRow(be).tasks === '7' && mp.classRow(be).escalated === '1');
+  check('a class with no verified call has no rate, and is not written as zero',
+    docs.firstTryRate === null && mp.classRow(docs).firstTry === '\u2014' && mp.classRow(docs).rate === null && /No call of this class got a verdict/.test(mp.classRow(docs).firstTryOf));
+  check('cost is what was priced and says how many calls that was; a class with none priced shows no number',
+    Math.abs(be.cost - 0.75) < 1e-9 && be.costed === 2 && /2 of 7 calls priced/.test(mp.classRow(be).costNote) && docs.cost === null && mp.classRow(docs).cost === '—');
+  check('a hold is offered for lowering only when its latest ten verified calls on that model all passed first time',
+    m.suggestions.length === 1 && m.suggestions[0].agent === 'crew-test-expert' && m.suggestions[0].from === 'sonnet' && m.suggestions[0].to === 'haiku'
+    && mo.suggestionsOf(mo.parseOutcomes(rows.slice(0, -1).join('\n')).rows, m.floors, []).length === 0,
+    'nine such calls offer nothing; the held backend class, with one call on opus, offers nothing');
+  check('a project with no record is not measured, and says so instead of showing an empty table',
+    mo.readModels(path.join(dir, 'nowhere')).measured === false && /^Not measured/.test(mp.emptyNote(mo.readModels(path.join(dir, 'nowhere')))));
+
+  const card = mp.cardOf('files: src/a.js, src/b.js\nchange: logic\nverify: npm test -- a\n\nDo the thing.');
+  check('the task card is the three lines the task text starts with, and a text without them has no card',
+    card.files === 'src/a.js, src/b.js' && card.change === 'logic' && card.verify === 'npm test -- a' && mp.cardOf('Do the thing.') === null);
+  check('the card is listed as its three lines, as they were written; what Crewforth recorded as the kind of change stands over the card\'s word',
+    mp.cardLines(card, null).map((l) => `${l.label}=${l.text}`).join('|') === 'files=src/a.js, src/b.js|change=logic|verify=npm test -- a'
+    && mp.cardLines({ files: null, change: 'tidy', verify: null }, { change: 'logic' })[0].text === 'logic' && mp.cardLines(null, null).length === 0);
+  const steps = (id) => mp.workSteps(m.byAgent[id]);
+  const said = (id) => steps(id).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
+  check('how the work went is said as steps: what it ran on, what its verify command said as a tag, and a fix inside the agent',
+    /^Ran on .+ \[pass\]$/.test(said('a1')) && /^Ran on .+ · fixed 2 times inside the agent \[pass\]$/.test(said('a2'))
+    && /^Ran on .+ · fixed once inside the agent \[fail\]$/.test(said('a3')) && steps('a3').steps[0].tone === 'fail' && steps('a1').risk === 'normal',
+    `${said('a2')} || ${said('a3')}`);
+  check('a call with no verdict is said in words and carries no tag: not allowed, out of time, no command',
+    /verify not run: the command was not allowed$/.test(said('a5')) && /verify not finished: the command ran out of time$/.test(said('a6')) && /no verify command$/.test(said('a7'))
+    && ['a5', 'a6', 'a7'].every((id) => steps(id).steps[0].verify === null && steps(id).steps[0].tone === null), said('a5'));
+  check('a card repeated one model up shows its trail: the call that failed, then the re-run, and the rule about re-runs',
+    /^An earlier call on Sonnet did not pass; its line is not in the record > Re-run on .+ \[pass\] \[escalated\]$/.test(said('a4'))
+    && steps('a4').note === 'A re-run with the same or a lower model is refused by the gate.' && steps('a1').note === null
+    && mp.workSteps(null).steps.length === 0 && /^Not recorded yet/.test(mp.workSteps(null).note), said('a4'));
+  {
+    // The same card given twice: its first call failed on sonnet, the second ran on opus. The second's line carries the first.
+    const two = [mo.COLUMNS.join('\t'),
+      ['2026-01-01T00:00:01Z', 't1', 'crew-backend-expert', 'logic', 'normal', 'cardX', 'sonnet', 'fail', '1', '-', 'claude-sonnet-9', '-'].join('\t'),
+      ['2026-01-01T00:00:09Z', 't2', 'crew-backend-expert', 'logic', 'normal', 'cardX', 'opus', 'pass', '0', 'sonnet', 'claude-opus-9', '-'].join('\t'),
+      ['2026-01-01T00:00:05Z', 't3', 'crew-test-expert', 'tests', 'normal', 'cardX', 'haiku', 'pass', '0', '-', '-', '-'].join('\t')];
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-trail-'));
+    fs.mkdirSync(path.join(d2, '.claude', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(d2, '.claude', 'state', 'model-outcomes.tsv'), `${two.join('\n')}\n`);
+    const m2 = mo.readModels(d2);
+    const trail = mp.workSteps(m2.byAgent.t2).steps;
+    check('the earlier call of the same card, by the same agent type, is the first step of the later one; another agent\'s card of the same name is not',
+      m2.byAgent.t2.before.length === 1 && m2.byAgent.t2.before[0].agentId === 't1' && m2.byAgent.t1.before.length === 0 && m2.byAgent.t3.before.length === 0
+      && trail.length === 2 && /fixed once inside the agent$/.test(trail[0].text) && trail[0].verify === 'fail' && trail[0].escalated === false
+      && /^Re-run on /.test(trail[1].text) && trail[1].verify === 'pass' && trail[1].escalated === true,
+      trail.map((x) => `${x.text} [${x.verify}]`).join(' > '));
+    fs.rmSync(d2, { recursive: true, force: true });
+  }
+  check('Models is a fourth view with its own tab, and the record is read for the session on screen',
+    /<button id="view-models"[^>]*aria-controls="models"/.test(read(path.join(WEB_ROOT, 'index.html')) ?? '')
+    && /\['graph', 'timeline', 'list', 'models'\]\.includes\(next\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
+    && /\/api\/models\?session=\$\{encodeURIComponent\(asked\)\}/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+  check('the command a suggestion offers is the class in three words, with no model in it, and none is offered for a word it could not take',
+    mp.lowerCommand(m.suggestions[0]) === '/crew-loosen crew-test-expert tests normal'
+    && mp.lowerCommand({ agent: 'a b', change: 'tests', risk: 'normal' }) === null && mp.lowerCommand({ agent: 'x; rm', change: 't', risk: 'n' }) === null
+    && mp.lowerCommand({ agent: 'x', change: 't' }) === null);
+  {
+    const dom = installDom();
+    try {
+      const { Models } = await import(`../../kit/studio/web/models.js?v=${Date.now()}`);
+      const root = document.createElement('div');
+      const copied = [];
+      const view = new Models(root, { onCopy: (t) => copied.push(t) });
+      const all = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); all(c, pred, out); } return out; };
+      view.setData(null);
+      const waiting = root.children[0]?.textContent;
+      view.setData(m);
+      const ths = all(root, (e) => e.tagName === 'TH').map((e) => e.textContent);
+      const rowsOn = all(root, (e) => e.tagName === 'TR').length;
+      const meters = all(root, (e) => e.className === 'mv-meter-fill');
+      const buttons = all(root, (e) => e.tagName === 'BUTTON');
+      buttons[0]?.emit?.('click', {});
+      check('the view is the table of the design: agent and change, risk, model, tasks, first try with its bar, escalated, cost',
+        waiting === 'Reading the record…' && ths.join('|') === 'Agent · change|Risk|Model|Tasks|First try|Escalated|Cost' && rowsOn === 1 + m.classes.length
+        && meters.length === m.classes.filter((c) => c.firstTryRate !== null).length && meters.some((f) => f.style.width === '50%' && f.dataset.tone === 'waiting')
+        && meters.some((f) => f.style.width === '100%' && f.dataset.tone === 'good'),
+        `${ths.join('|')} · ${rowsOn} rows · ${meters.map((f) => f.style.width).join(',')}`);
+      check('the suggestion sits under the table with one button, and pressing it hands over the command and nothing else',
+        buttons.length === 1 && buttons[0].textContent === 'Copy command' && copied.join() === '/crew-loosen crew-test-expert tests normal'
+        && all(root, (e) => e.className === 'mv-suggest-h')[0]?.textContent === 'Suggestion · needs your approval'
+        && all(root, (e) => e.className === 'mv-raised').length === 2 && all(root, (e) => e.dataset?.kind === 'raised').length === 4,
+        `${buttons.length} button(s); copied: ${copied.join()}`);
+    } finally { dom(); }
+  }
+  check('the view\'s classes are its own: none of them is one the Markdown renderer styles',
+    !/'md[- ']|"md[- "]|\bmd-[a-z]/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '') && /this\.root\.classList\.add\('mv'\);/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '')
+    && /^\.mv \{/m.test(read(path.join(WEB_ROOT, 'style.css')) ?? '') && /^\.md \{ font-size: 13px;/m.test(read(path.join(WEB_ROOT, 'style.css')) ?? ''),
+    'the first draft used .md, .md-h and .md-table, which are the conversation\'s');
+  const serverJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  const outcomesJs = read(path.join(STUDIO, 'server', 'lib', 'model-outcomes.js')) ?? '';
+  const before = fs.readdirSync(state).sort().join(',');
+  mo.readModels(dir);
+  check('Studio lowers no hold: no route takes one, the reader writes no file, and the view\'s one button only copies the command',
+    !/loosen/i.test(serverJs) && !/writeFileSync|appendFileSync|renameSync|createWriteStream/.test(outcomesJs)
+    && fs.readdirSync(state).sort().join(',') === before
+    && !/fetch\(|XMLHttpRequest/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '') && /Studio does not write it/.test(mp.suggestionText(m.suggestions[0]).how)
+    && mp.LOWER_RULE === 'Lowering a floor is never automatic. Raising it is.'
+    && /onCopy: \(text\) => navigator\.clipboard\.writeText\(text\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''),
+    'a request from the panel can be sent by any process of the same user, so it cannot stand for the user');
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
    hold the arithmetic and the rules, not the prices' truth. */
 {
@@ -4765,7 +4907,7 @@ process.stdout.write('\n== §30 the top bar and the navigator ==\n');
       && /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(appJs)
       && /tag === 'INPUT'/.test(read(path.join(WEB_ROOT, 'keys.js')) ?? ''), 'and not while something is being typed into');
     check('a terminal is only opened after its command has been shown',
-      /note: plan\.line/.test(appJs) && appJs.indexOf('note: plan.line') < appJs.indexOf("method: 'POST'"),
+      /note: plan\.line/.test(appJs) && appJs.indexOf('note: plan.line') < appJs.indexOf("/terminal`), {") && appJs.indexOf("/terminal`), {") > 0,
       'the command is in the menu before the button that runs it');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -4975,7 +5117,7 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
 
   check('the dock is not a dialog and takes no focus',
     !/showModal|role="dialog"|aria-modal|\.focus\(/.test(dockJs)
-    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
+    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="models"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
     'a region under the canvas, inside the stage: the graph stays usable above it');
   check('the dock is the one place requests are drawn: the conversation pane no longer draws its own',
     !/perm-queue|paintPermissions/.test(chatJs) && !/\.perm-/.test(cssSrc31) && /this\.onPermissions\(this, rec\)/.test(chatJs));
