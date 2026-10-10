@@ -56,7 +56,7 @@ Hiçbir şey yazılmadan önce bir özeti onaylarsınız; `add` tam kurulum yapm
 | Teslim et | `/crew-ship` | `crew-review-agent` temiz incelemeyi kaydeder; `crew-commit-agent` commit'i önerir ve onayınızı bekler |
 | Devret | `/crew-handoff` | `handoff` durumu bir sonraki oturum için yazar |
 
-Toplam **11 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`.
+Toplam **12 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`.
 
 ## Ajanlar
 

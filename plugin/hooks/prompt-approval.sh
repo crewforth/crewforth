@@ -358,20 +358,24 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 
 # ---- WHICH TEXT IS AN APPROVAL: one function, asked here of the user's prompt and by guard-schedule.sh of a
 # prompt a tool is about to schedule ---------------------------------------------------------------------------
-_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push, or "" when the text is not an approval
-  local P="$1" _k _v LC_ALL=C
-  OP=""
+_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | loosen, or "" when the text is neither
+  # `loosen` is the other thing only the user's own message does: `/crew-loosen <agent> <change> <risk>` lowers a
+  # floor that model routing raised (3.1.0). It is matched HERE so that everything that refuses to hand a session
+  # an approval (a scheduled prompt, a `claude -p` call) refuses to hand it this as well: one question, one answer.
+  local P="$1" _k _v _vr LC_ALL=C
+  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""
   P="${P//$'\r'/}"
   while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
   while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
-  [ "${#P}" -le 40 ] || return 0
+  [ "${#P}" -le 90 ] || return 0
+  _vr=""
   case "$P" in
     *$'\n'*) return 0 ;;
     # THE COMMAND: `/crew-approve <what>`, or `/<plugin>:crew-approve <what>` as a plugin names its commands. Measured
     # on Claude Code 2.1.284: a command the user types reaches UserPromptSubmit with `prompt` as typed, and a skill
     # the model starts with the Skill tool raises PreToolUse and PostToolUse only, never that event.
     /*) _k="${P%%[$' \t']*}"; [ "$_k" != "$P" ] || return 0
-        _v="${P:${#_k}}"; _k="${_k#/}"; _k="@${_k##*:}" ;;      # `@`: a command, so `crew-approve: commit` as text is not one
+        _v="${P:${#_k}}"; _vr="$_v"; _k="${_k#/}"; _k="@${_k##*:}" ;;      # `@`: a command, so `crew-approve: commit` as text is not one
     # The text form of 3.1.0's release candidates, kept: `approve: <what>` and `onay: <what>`.
     *:*) _k="${P%%:*}"; _v="${P#*:}" ;;
     *) return 0 ;;
@@ -384,6 +388,15 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push, or 
       case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; esac ;;
   esac
   shopt -u nocasematch
+  # The second command is read as it is written, lower case, with exactly three words after it.
+  if [ "$_k" = "@crew-loosen" ]; then
+    local a b c d
+    IFS=$' \t' read -r a b c d <<< "$_vr"
+    [ -n "${c:-}" ] && [ -z "${d:-}" ] || return 0
+    case "$a" in crew-*) ;; *) return 0 ;; esac; case "$a$b" in *[!a-z0-9-]*) return 0 ;; esac
+    case "$c" in critical|normal) ;; *) return 0 ;; esac
+    OP=loosen; LO_AGENT="$a"; LO_CHANGE="$b"; LO_RISK="$c"
+  fi
 }
 
 [ "$_PA_LIB" = 1 ] && return 0
@@ -432,6 +445,43 @@ say(){  # $1 = for the user, $2 = for the model. Both are built from fixed text 
   exit 0
 }
 no(){ say "Crewforth: approval NOT recorded - $1" "The user's message is an approval for $OP, but Crewforth could not record it: $1 Tell the user exactly that; the commit/push gate stays closed until they approve again."; }
+
+# ---- /crew-loosen: a floor model routing raised is lowered by the user, and by nobody else ----------------------
+# hooks/agent-outcome.sh raises a class's floor when its first try fails too often, and nothing lowers it again but
+# this. The same proof as for an approval that a person is typing into their own session: the turn is not a
+# notice or another session's message (above), the session is not a headless one, and it has a transcript already,
+# so this is not the prompt a command or a schedule started a session with. In every permission mode: this is not
+# a commit. ONE model down, ONCE for each time the floor was raised; the record of outcomes is counted afresh for
+# that class from here, so the old failures do not raise it straight back.
+if [ "$OP" = loosen ]; then
+  nol(){ say "Crewforth: floor NOT lowered - $1" "The user sent the command only the user can type /crew-loosen, for $LO_AGENT $LO_CHANGE $LO_RISK, and Crewforth did not lower anything: $1 Tell the user exactly that."; }
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+  { [ -n "$TP" ] && [ -s "$TP" ]; } || nol "this is the first message of this session, or the session keeps no transcript."
+  _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
+  [ -f "$_lh/guard-agent-model.sh" ] || nol "model routing is not installed beside this hook."
+  [ "${CREW_MODEL_ROUTING:-}" = off ] && nol "model routing is switched off (CREW_MODEL_ROUTING=off), so no floor is in force."
+  CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"; . "$_lh/guard-agent-model.sh"
+  declare -F _am_floor_now >/dev/null 2>&1 || nol "model routing beside this hook is an older one."
+  _am_state
+  _am_floor_now "$LO_AGENT" "$LO_CHANGE" "$LO_RISK"
+  [ -n "$_AMF_TIER" ] || nol "no raised floor is on record for $LO_AGENT / $LO_CHANGE / $LO_RISK (.claude/state/crew-model-floors.auto has no line for it)."
+  [ "$_AMF_LOOSE" = 0 ] || nol "that floor was already lowered once ($_AMF_TIER to $_AMF_TO, $_AMF_LTS). It is lowered once for each time it is raised."
+  _am_rank "$_AMF_TIER"; [ "$_AMR" -ge 2 ] || nol "the floor on record is $_AMF_TIER, and there is no model below it."
+  _am_name $((_AMR-1)); LTO="$_AMN"
+  LTS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; case "$LTS" in [0-9][0-9][0-9][0-9]-*Z) ;; *) nol "the clock could not be read." ;; esac
+  LF="$_AMS/crew-model-loosened.tsv"
+  mkdir -p "$_AMS" 2>/dev/null || nol "the state folder could not be made."
+  [ -s "$LF" ] || { printf 'ts\tagent\tchange\trisk\tfrom\tto\n' > "$LF"; } 2>/dev/null || nol "the record could not be written."
+  LFROM="$_AMF_TIER"
+  { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$LTS" "$LO_AGENT" "$LO_CHANGE" "$LO_RISK" "$LFROM" "$LTO" >> "$LF"; } 2>/dev/null || nol "the record could not be written."
+  # Said only when it is TRUE: the floor is read back the way the gate will read it. A line that was written and
+  # does not count (a clock that went backwards, a floors file that changed underneath) is not a lowering.
+  _am_floor_now "$LO_AGENT" "$LO_CHANGE" "$LO_RISK"
+  { [ "$_AMF_LOOSE" = 1 ] && [ "$_AMF_EFF" = "$LTO" ]; } || nol "the line was written but the floor read back is still ${_AMF_EFF:-$LFROM}, so it is not in force (is the clock behind the time the floor was raised, $_AMF_WHEN?)."
+  say "Crewforth: floor lowered - $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO. Its outcomes are counted afresh from now." \
+      "The user lowered the calibration floor of $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO with their own command. The card's own rules still hold (critical work on opus, no verify command on sonnet or above, the agent's floor). If the class fails its first try too often again, the floor rises again."
+fi
 
 _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
 case "$PM" in

@@ -1899,9 +1899,27 @@ _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names i
 }
 # What model routing decides from is written by the user and by Crewforth's own hooks (guard-write.sh has the same rule
 # for the file tools): the user's rules, the floors, the list of critical paths, and the records of calls and results.
-# A command that NAMES one is refused, reading included; model-outcomes.tsv, the plain record, may be read.
+# A command that NAMES one is refused, reading included; model-outcomes.tsv, the plain record, may be read. The
+# name is `crew-model…` for all of them (the rules, the floors, the user's lowerings, the records of calls).
+# HONEST SCOPE: this stops an accident and a plain attempt, not a determined one. A command that builds the name
+# from pieces (`f=crew-mo; … ${f}del-loosened.tsv`), writes through an interpreter (`python3 -c`), or moves a
+# folder above it (`cd .claude && mv state x`) spells none of what is matched here and is past this rule.
 _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
-  case "$CMD_UQ" in *crew-model-rules*|*crew-model-floors*|*crew-critical-paths*|*state/crew-model/*|*state\\crew-model\\*) rc=0 ;; esac
+  case "$CMD_UQ" in *crew-model*|*crew-critical-paths*) rc=0 ;; esac
+  # ...and by a glob that could reach one, or the folder itself in a command that moves, copies or removes: a word
+  # that holds `.claude/state` and a wildcard, or that IS that folder beside rm, mv, cp, rmdir, rsync, tar or ln.
+  if [ "$rc" = 1 ]; then
+    local w unglob=0 verb=0
+    case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+    for w in $CMD_UQ; do case "$w" in rm|mv|cp|rmdir|rsync|tar|ln|*/rm|*/mv|*/cp) verb=1 ;; esac; done
+    for w in $CMD_UQ; do
+      case "$w" in
+        *.claude[/\\]state[/\\]*[\*\?\[]*|*.claude[/\\]state[\*\?\[]*) rc=0 ;;
+        *.claude[/\\]state|*.claude[/\\]state[/\\]) [ "$verb" = 1 ] && rc=0 ;;
+      esac
+    done
+    [ "$unglob" = 1 ] && set +f
+  fi
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
 _mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it)" "4.5" tamper
 _appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper

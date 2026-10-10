@@ -112,13 +112,22 @@ versioning follows [SemVer](https://semver.org/).
   - **At write time.** An agent that is not on `opus` cannot write to a critical path, whatever its card said.
   - **Recorded.** One line per call goes to `.claude/state/model-outcomes.tsv` (it stays in the project). A class
     of work whose first try fails too often is held one model up from then on; nothing lowers a floor but you.
+  - **`/crew-loosen <agent> <change> <risk>`** lowers such a floor again: one model, once for each time it was
+    raised, and the class is counted afresh from then, so the old failures do not raise it straight back and new
+    ones do. Only a command you type does it, as with `/crew-approve`: a session cannot write the file, schedule
+    the command or hand it to another session, and it is not taken as a session's first message or in a headless
+    one. The card's own rules are not lowered by it: critical work stays on `opus`. Known limit: the shell rule
+    can be passed by a name built from pieces, an interpreter or a parent-folder move; such a write can add a
+    lowering, not only remove one.
   - `guard-agent-model.sh` holds the rules at the tool level and never rewrites a call; `agent-outcome.sh` runs the
     verify command and keeps the record. Which kind of change a task is, is the caller's judgement.
     `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`.
   - **Known limits.** A test runner runs code the agent wrote (test files, `package.json` scripts, `conftest.py`, a
     `Makefile`): the list limits the command, not what the tests do. A failed card stays failed until the card
     changes. The shell rule that protects the routing files goes by their names. The list of critical paths is
-    written at the first session, not at install; the gate reads the patterns, not the list. Each agent's report still
+    written at the first session, not at install; the gate reads the patterns, not the list. Managed policy is
+    read from the managed settings file only: a policy delivered by macOS MDM, by the Windows registry or from
+    the server is not read, so a deny rule that exists only there does not stop a verify command. Each agent's report still
     ends with `confidence: high` or `confidence: low`. `doctor.sh` warns when Claude Code is older than 2.1.293.
 - **`frontend-flutter`: a stack layer for Flutter**, beside `frontend-rn-expo`. It applies only in a project whose
   `pubspec.yaml` depends on the Flutter SDK, and `crew-frontend-expert` adds it on top of `frontend` there. It leaves
