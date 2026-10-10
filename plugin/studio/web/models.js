@@ -65,12 +65,12 @@ export class Models {
       const ran = mk('span', null, r.models);
       ran.title = r.ranOn ? `Ran on: ${r.ranOn}` : '';
       model.append(ran);
-      if (r.raised) {
-        const raised = mk('span', 'mv-tag', 'raised');
-        raised.dataset.kind = 'raised';
+      if (r.floorTag) {
+        const raised = mk('span', 'mv-tag', r.floorTag);
+        raised.dataset.kind = r.floorTag;
         raised.title = r.raisedWhy;
         model.append(raised);
-        raisedNotes.push(`${r.who} · ${r.change}: ${r.raisedWhy}`);
+        raisedNotes.push({ tag: r.floorTag, text: `${r.who} · ${r.change}: ${r.raisedWhy}` });
       }
       const first = mk('td', 'mv-num');
       first.title = [r.firstTryOf, r.after, r.notVerified ? `Not verified: ${r.notVerified}` : null].filter(Boolean).join('\n');
@@ -115,11 +115,11 @@ export class Models {
       }
       pane.append(box);
     }
-    for (const text of raisedNotes) {
+    for (const note of raisedNotes) {
       const row = mk('div', 'mv-raised');
-      const tag = mk('span', 'mv-tag', 'raised');
-      tag.dataset.kind = 'raised';
-      row.append(tag, mk('span', 'sub', text));
+      const tag = mk('span', 'mv-tag', note.tag);
+      tag.dataset.kind = note.tag;
+      row.append(tag, mk('span', 'sub', note.text));
       pane.append(row);
     }
     this.root.replaceChildren(pane);

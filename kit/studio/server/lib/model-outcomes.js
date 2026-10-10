@@ -105,8 +105,26 @@ export function parseLoosened(text) {
 const keyOf = (r) => `${r.agent}\t${r.change}\t${r.risk}`;
 const firstTry = (r) => r.verify === 'pass' && r.fixes === 0;
 
+/**
+ * The lowering that stands for a raised floor, or null. The rule is hooks/guard-agent-model.sh's (`_am_floor_now`),
+ * word for word: a lowering counts when it is not older than the raise it answers (the times are UTC text and are
+ * compared as text, as the hook does), is from the model the floor was raised to, and goes one model down. Raised
+ * again afterwards, the floor is the raised one. The last line that counts is the one in force.
+ */
+export function loweringOf(floor, loosened = []) {
+  let hit = null;
+  for (const l of loosened) {
+    if (keyOf(l) !== keyOf(floor)) continue;
+    if (String(l.ts) < String(floor.when ?? '')) continue;
+    if (l.from !== floor.model) continue;
+    if (TIERS.indexOf(l.to) < 0 || TIERS.indexOf(l.to) !== TIERS.indexOf(l.from) - 1) continue;
+    hit = { to: l.to, ts: l.ts };
+  }
+  return hit;
+}
+
 /** One line per class, the busiest first. What the class cost is asked apart (`classCosts`): it is read from elsewhere. */
-export function classesOf(rows, floors = []) {
+export function classesOf(rows, floors = [], loosened = []) {
   const by = new Map();
   for (const r of rows) {
     const k = keyOf(r);
@@ -130,7 +148,8 @@ export function classesOf(rows, floors = []) {
     if (r.escalatedFrom) c.escalated += 1;
     if (r.at !== null && (c.lastAt === null || r.at > c.lastAt)) c.lastAt = r.at;
   }
-  for (const f of floors) { const c = by.get(keyOf(f)); if (c) c.floor = f; }
+  // A floor the user lowered is still on record as raised; what holds now is the lowered one, and both are said.
+  for (const f of floors) { const c = by.get(keyOf(f)); if (c) c.floor = { ...f, lowered: loweringOf(f, loosened) }; }
   return [...by.values()]
     // A rate with nothing under it is not zero: with no verified call there is none.
     .map((c) => ({ ...c, firstTryRate: c.verified ? c.firstTry / c.verified : null }))
@@ -165,10 +184,9 @@ export function suggestionsOf(rows, floors = [], loosened = [], need = LOOSEN_AF
     const tier = TIERS.indexOf(f.model);
     if (tier <= 0) continue;
     const k = keyOf(f);
-    const last = loosened.filter((l) => keyOf(l) === k).sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0] ?? null;
-    const heldAt = Date.parse(f.when ?? '') || null;
-    if (last && (heldAt === null || (last.at ?? 0) >= heldAt)) continue;
-    const since = last?.at ?? 0;
+    // Once for each raise: a floor whose lowering stands is not offered again (the same rule the gate reads it by).
+    if (loweringOf(f, loosened)) continue;
+    const since = Date.parse(f.when ?? '') || 0;
     const recent = rows.filter((r) => keyOf(r) === k && r.model === f.model && VERIFIED.has(r.verify) && (r.at ?? 0) >= since)
       .sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, need);
     if (recent.length < need || !recent.every(firstTry)) continue;
@@ -237,7 +255,7 @@ function parseRecord(dir, cwd) {
     droppedWhy: parsed.why,
     truncated: record.truncated,
     firstAt: parsed.rows.reduce((m, r) => (m === null || r.at < m ? r.at : m), null),
-    classes: classesOf(parsed.rows, floors),
+    classes: classesOf(parsed.rows, floors, loosened),
     floors,
     suggestions: suggestionsOf(parsed.rows, floors, loosened),
     loosened,

@@ -1369,6 +1369,40 @@ check('prose without a notice yields nothing', none.size === 0);
     !/'md[- ']|"md[- "]|\bmd-[a-z]/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '') && /this\.root\.classList\.add\('mv'\);/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '')
     && /^\.mv \{/m.test(read(path.join(WEB_ROOT, 'style.css')) ?? '') && /^\.md \{ font-size: 13px;/m.test(read(path.join(WEB_ROOT, 'style.css')) ?? ''),
     'the first draft used .md, .md-h and .md-table, which are the conversation\'s');
+  /* A floor the user lowered. Found with the real hooks: after /crew-loosen was recorded, the class still read
+     "raised", though the floor that held was the lowered one. The rule for "does this lowering stand" is the
+     gate's own (hooks/guard-agent-model.sh, _am_floor_now). */
+  {
+    const floor = { agent: 'crew-docs-agent', change: 'text', risk: 'normal', model: 'sonnet', calls: 5, notFirstTry: 2, when: '2026-01-02T00:00:00Z' };
+    const low = (ts, from = 'sonnet', to = 'haiku', agent = 'crew-docs-agent') => ({ ts, agent, change: 'text', risk: 'normal', from, to });
+    check('a lowering stands when it is not older than the raise, from the raised model, one model down; the same second counts',
+      mo.loweringOf(floor, [low('2026-01-02T00:00:01Z')])?.to === 'haiku' && mo.loweringOf(floor, [low('2026-01-02T00:00:00Z')])?.to === 'haiku'
+      && mo.loweringOf(floor, []) === null);
+    check('a lowering does not stand when it is older than the raise, from another model, two models down, upward, or another class\'s',
+      mo.loweringOf(floor, [low('2026-01-01T23:59:59Z')]) === null && mo.loweringOf(floor, [low('2026-01-03T00:00:00Z', 'opus', 'sonnet')]) === null
+      && mo.loweringOf({ ...floor, model: 'opus' }, [low('2026-01-03T00:00:00Z', 'opus', 'haiku')]) === null
+      && mo.loweringOf(floor, [low('2026-01-03T00:00:00Z', 'sonnet', 'opus')]) === null
+      && mo.loweringOf(floor, [low('2026-01-03T00:00:00Z', 'sonnet', 'haiku', 'crew-test-expert')]) === null
+      && mo.loweringOf(floor, [low('2026-01-03T00:00:00Z', 'sonnet', 'gpt')]) === null);
+    const gateSrc2 = read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? '';
+    check('that rule is the gate\'s, line for line: not older than the raise, from its model, one down',
+      /\[\[ "\$ts" < "\$_AMF_WHEN" \]\] && continue/.test(gateSrc2) && /\[ "\$lf" = "\$_AMF_TIER" \] \|\| continue/.test(gateSrc2)
+      && /\[ "\$_AMR" = \$\(\(n-1\)\) \] \|\| continue/.test(gateSrc2), 'compared with _am_floor_now in hooks/guard-agent-model.sh');
+    const one = [{ agentId: 'x1', agent: 'crew-docs-agent', change: 'text', risk: 'normal', model: 'sonnet', verify: 'pass', fixes: 0, at: Date.parse('2026-01-02T01:00:00Z'), line: 1 }];
+    const held = mp.classRow(mo.classesOf(one, [floor], [])[0]);
+    const lowered = mp.classRow(mo.classesOf(one, [floor], [low('2026-01-05T10:00:00Z')])[0]);
+    check('a class whose floor the user lowered says "lowered", with what raised it and when it was lowered; one still held says "raised"',
+      held.floorTag === 'raised' && /^Raised to Sonnet automatically: 2 of 5 calls/.test(held.raisedWhy) && !/lowered/.test(held.raisedWhy)
+      && lowered.floorTag === 'lowered' && /^Raised to Sonnet automatically: 2 of 5 calls.*You lowered it to Haiku on 2026-01-05; its outcomes are counted afresh from then\.$/.test(lowered.raisedWhy)
+      && mp.classRow(mo.classesOf(one, [], [])[0]).floorTag === null, lowered.raisedWhy);
+    const passes = Array.from({ length: 10 }, (_, k) => ({ ...one[0], agentId: `p${k}`, at: Date.parse('2026-01-02T02:00:00Z') + k * 1000, line: k + 2 }));
+    check('a floor is offered for lowering once for each raise: not while its lowering stands, and again after it is raised anew',
+      mo.suggestionsOf(passes, [floor], []).length === 1 && mo.suggestionsOf(passes, [floor], [low('2026-01-05T10:00:00Z')]).length === 0
+      && mo.suggestionsOf(passes.map((r) => ({ ...r, at: Date.parse('2026-01-07T00:00:00Z') + r.line })), [{ ...floor, when: '2026-01-06T00:00:00Z' }], [low('2026-01-05T10:00:00Z')]).length === 1
+      // Calls from before the raise are not what the offer counts.
+      && mo.suggestionsOf(passes, [{ ...floor, when: '2026-01-03T00:00:00Z' }], []).length === 0);
+  }
+
   /* What the hook really writes. The file beside this one was written by kit/hooks/agent-outcome.sh (see
      fixtures/make-model-outcomes.sh), and is read here as a project's record. Where bash and git are there, the
      hook is run again and has to write the same lines, every column but the time. */
