@@ -56,7 +56,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | Ship | `/crew-ship` | `crew-review-agent` records a clean review; `crew-commit-agent` proposes the commit and waits for you |
 | Hand off | `/crew-handoff` | `handoff` writes the state down for the next session |
 
-**11 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`.
+**12 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`.
 
 ## The agents
 

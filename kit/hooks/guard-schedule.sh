@@ -81,8 +81,13 @@ while IFS= read -r sv; do
   [ -n "$sv" ] || continue
   _json_unescape "$sv" >/dev/null; _crew_appr_op "$_JU"
   if [ -n "$OP" ]; then
-    echo "GUARD (§4.4): this call schedules a prompt that is an approval for a commit or a push ($OP). An approval is what the user types; a prompt a tool schedules would approve in their place, so the call is refused." >&2
-    echo "Schedule the work without it. For the approval itself, show the commit message and ask: the user can type /crew-approve $OP when they agree." >&2
+    if [ "$OP" = loosen ]; then
+      echo "GUARD (§4.4): this call schedules a prompt that lowers a model floor. Only the user can type /crew-loosen; a prompt a tool schedules would lower the floor in their place, so the call is refused." >&2
+      echo "Schedule the work without it. If a floor looks too high, say so: the user can type /crew-loosen $LO_AGENT $LO_CHANGE $LO_RISK themselves." >&2
+    else
+      echo "GUARD (§4.4): this call schedules a prompt that is an approval for a commit or a push ($OP). An approval is what the user types; a prompt a tool schedules would approve in their place, so the call is refused." >&2
+      echo "Schedule the work without it. For the approval itself, show the commit message and ask: the user can type /crew-approve $OP when they agree." >&2
+    fi
     exit 2
   fi
 done <<< "$strs"

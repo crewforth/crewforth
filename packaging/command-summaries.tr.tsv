@@ -12,3 +12,4 @@ crew-update	Yeni bir sürüm var mı bakar, günceller, neyin değiştiğini sö
 crew-plan	Spec öncelikli planlama: kapsamı belirsiz bir işi crew-planner ile böler.
 crew-studio	Crewforth Studio'yu açar: ajanların ne yaptığını, ne harcadığını ve hangi kapıların tetiklendiğini gösteren görsel panel.
 crew-approve	Gösterilen commit ya da push için onay verir (auto ve dontAsk modunda): commit, push ya da commit+push.
+crew-loosen	Crewforth'un bir iş sınıfı için yükselttiği model tabanını bir kademe indirir (sınıf başına bir kez).

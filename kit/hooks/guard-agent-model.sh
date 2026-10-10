@@ -18,7 +18,8 @@
 #   * the referee is as strong as the risk: test-write and audit on sonnet or above (opus when critical, by the rule
 #     above); review, privacy, planner and database agents on sonnet or above; the security agent on opus.
 #   * work with no verify command runs on sonnet or above: haiku goes only to work a command can check.
-#   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh).
+#   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh),
+#     until the user lowers it again with /crew-loosen (one model, once for each raise).
 #   * a card whose verify failed is not run again on the same or a lower model, and not a third time at all.
 #   * critical work with a verify command runs in the foreground, where its result reaches the session.
 # THE WORDING IS READ BY ANOTHER PROGRAM (the Studio panel): a refusal is one line that begins
@@ -458,6 +459,38 @@ _am_rec_get(){  # $1 = a record file, $2 = key -> _AMV (lines are key=value)
   return 1
 }
 
+# ---- THE CALIBRATION FLOOR IN FORCE for a class ------------------------------------------------------------------
+# hooks/agent-outcome.sh raises it (crew-model-floors.auto: agent, change, risk, model, calls, not-first-try, when);
+# the user lowers it, one model, once for each raise, with /crew-loosen (crew-model-loosened.tsv: ts, agent, change,
+# risk, from, to; written by hooks/prompt-approval.sh from the user's own message). A lowering counts when it is
+# NEWER than the raise it answers: raised again afterwards, the floor is the raised one. One function, asked by this
+# gate, by the hook that raises, and by the hook that records the lowering.
+_am_floor_now(){  # $1 agent, $2 change, $3 risk -> _AMF_TIER (the raised floor, "" none), _AMF_WHEN, _AMF_LOOSE 0|1,
+                  #   _AMF_TO and _AMF_LTS (the lowering that is in force), _AMF_EFF (the floor that holds now, "" none)
+  local a b c t n bad w ts la lb lc lf lt
+  _AMF_TIER=""; _AMF_WHEN=""; _AMF_LOOSE=0; _AMF_TO=""; _AMF_LTS=""; _AMF_EFF=""
+  [ -n "${_AMS:-}" ] || _am_state
+  [ -f "$_AMS/crew-model-floors.auto" ] || return 0
+  while IFS=$'\t' read -r a b c t n bad w || [ -n "$a" ]; do
+    [ "$a" = "$1" ] && [ "$b" = "$2" ] && [ "$c" = "$3" ] || continue
+    _AMF_TIER="${t%$'\r'}"; _AMF_WHEN="${w%$'\r'}"
+  done < "$_AMS/crew-model-floors.auto"
+  [ -n "$_AMF_TIER" ] || return 0
+  _AMF_EFF="$_AMF_TIER"
+  [ -f "$_AMS/crew-model-loosened.tsv" ] || return 0
+  while IFS=$'\t' read -r ts la lb lc lf lt || [ -n "$ts" ]; do
+    [ "$la" = "$1" ] && [ "$lb" = "$2" ] && [ "$lc" = "$3" ] || continue
+    lt="${lt%$'\r'}"
+    # ISO 8601 in UTC sorts as text. Only a lowering of THIS raise counts: not older than it (the same second is a
+    # lowering of it; the hook that raises again never stamps the second of a lowering), from its model, one down.
+    [[ "$ts" < "$_AMF_WHEN" ]] && continue
+    [ "$lf" = "$_AMF_TIER" ] || continue
+    _am_rank "$lf"; n="$_AMR"; _am_rank "$lt"; [ "$_AMR" -gt 0 ] && [ "$_AMR" = $((n-1)) ] || continue
+    _AMF_LOOSE=1; _AMF_TO="$lt"; _AMF_LTS="$ts"; _AMF_EFF="$lt"
+  done < "$_AMS/crew-model-loosened.tsv"
+  return 0
+}
+
 # ---- the gate log: a refusal of this gate is recorded like any other gate's -------------------------------------
 _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog; the call's text is never recorded.
   local gl="${CREW_GATE_LOG:-}" v=BLOCK
@@ -733,11 +766,10 @@ for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
   case "$a" in '*'|"$st") ;; *) continue ;; esac; case "$b" in '*'|"$CARD_CHANGE") ;; *) continue ;; esac; case "$c" in '*'|"$CARD_RISK") ;; *) continue ;; esac
   _am_rank "$t"; if [ "$_AMR" -gt "$floor" ]; then floor="$_AMR"; why="crew-model-rules: floor $a $b $c $t"; fi
 done
-if [ -f "$_AMS/crew-model-floors.auto" ]; then
-  while IFS=$'\t' read -r a b c t _ || [ -n "$a" ]; do
-    [ "$a" = "$st" ] && [ "$b" = "$CARD_CHANGE" ] && [ "$c" = "$CARD_RISK" ] || continue
-    _am_rank "${t%$'\r'}"; if [ "$_AMR" -gt "$floor" ]; then floor="$_AMR"; why="this class ($st, $CARD_CHANGE, $CARD_RISK) failed its first try too often on the model below"; fi
-  done < "$_AMS/crew-model-floors.auto"
+_am_floor_now "$st" "$CARD_CHANGE" "$CARD_RISK"
+if [ -n "$_AMF_EFF" ]; then
+  _am_rank "$_AMF_EFF"
+  if [ "$_AMR" -gt "$floor" ]; then floor="$_AMR"; why="this class ($st, $CARD_CHANGE, $CARD_RISK) failed its first try too often on the model below"; [ "$_AMF_LOOSE" = 1 ] && why="$why; lowered once by the user, from $_AMF_TIER"; fi
 fi
 # A card whose verify failed: not on the same or a lower model again, and not a third time.
 p=""
