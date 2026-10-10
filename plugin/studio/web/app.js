@@ -26,6 +26,7 @@ import { defaultView, narrowWarning } from './list-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
+import { SESSION_MODES } from './convo.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
 const FLEET_POLL_MS = 2000;
@@ -291,6 +292,10 @@ const chat = new Chat(el.chat, {
       (outcomes.get(sessionId) ?? []).some((o) => o.toolUseId === toolUseId && o.outcome.startsWith('allowed'))
       || (owned.get(sessionId)?.alwaysAllowed ?? []).includes(toolName),
     onContinue: (pane, button) => continueHere(button, pane.id),
+    // The mode in the strip: the three a session can be started in, and the one it is in now is marked.
+    onMode: (pane, button, now) => openMenu(button, SESSION_MODES.map((m) => ({
+      label: m.label, title: m.title, checked: m.mode === now, run: () => setSessionMode(pane.id, m.mode),
+    }))),
     onTerminal: (pane, button) => offerTerminal(button, pane.id),
   },
 });
@@ -625,7 +630,7 @@ const list = new List(el.list, {
   dimmed: (n) => canvas.dimmed(n),
   // A row leads to the agent's detail: the inspector, which on a phone is a page of its own.
   onSelect: (n) => { list.select(n.id); canvas.select(n.id); },
-  onDecide: (item, verdict) => decideRequest(item, verdict),
+  onDecide: (item, verdict, extra) => decideRequest(item, verdict, extra),
   onLocate: (item) => { if (item.sessionId !== current) selectSession(item.sessionId); },
   // A section folded or opened by hand changes what Expand all and Fold all have left to do, at once.
   onFold: () => paintFoldButtons(),
@@ -2281,13 +2286,27 @@ function paintApprovals() {
   if (inspectorNode && inspectorTab === 'gates') paintInspector();
 }
 
-async function decideRequest(item, verdict) {
+/** Ask for a session started here to be put in another mode. The strip changes when Claude Code says it has. */
+async function setSessionMode(sessionId, mode) {
+  let res;
+  try {
+    const r = await fetch(api(`/api/owned/${encodeURIComponent(sessionId)}/mode`),
+      { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ mode }) });
+    res = await r.json();
+  } catch (e) {
+    res = { ok: false, reason: e.message };
+  }
+  if (!res.ok) toast(`Mode not changed — ${res.reason ?? 'no reason given'}`);
+  else pollOwned();
+}
+
+async function decideRequest(item, verdict, extra = {}) {
   decided.set(item.key, verdict);
   let res;
   try {
     const r = await fetch(
       api(`/api/owned/${encodeURIComponent(item.sessionId)}/permissions/${encodeURIComponent(item.toolUseId)}`),
-      { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ verdict }) },
+      { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ verdict, ...extra }) },
     );
     res = await r.json();
   } catch (e) {

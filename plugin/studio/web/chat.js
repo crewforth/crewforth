@@ -445,7 +445,17 @@ class Pane {
     d.dataset.tone = h.tone;
     badge.append(d, el('span', null, h.badge));
     const parts = [badge];
-    for (const p of h.parts) parts.push(el('span', 'sub', p));
+    for (const p of h.parts) {
+      // The mode is a control: a click offers the modes a session can be in. Everything else in the strip is said.
+      if (h.mode && p === `mode: ${h.mode}` && this.hooks.onMode && s?.state !== 'exited' && s?.state !== 'failed') {
+        const b = el('button', 'sub pane-mode', p);
+        b.type = 'button';
+        b.title = 'Change the mode this session is in';
+        b.setAttribute('aria-haspopup', 'menu');
+        b.addEventListener('click', (e) => { e.stopPropagation(); this.hooks.onMode(this, b, h.mode); });
+        parts.push(b);
+      } else parts.push(el('span', 'sub', p));
+    }
     if (h.ungated) {
       const warn = el('span', 'pill pane-ungated', 'No approval gate');
       warn.title = 'This session was started without the approval gate: its tool calls do not wait for you.';

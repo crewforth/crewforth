@@ -141,6 +141,9 @@ export function writeAllowed(req) {
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
+/** The session events after which a subscriber is sent the session's summary again. */
+export const STATE_AFTER = new Set(['result', 'exit', 'mode']);
+
 function readBody(req) {
   return new Promise((resolve) => {
     let size = 0;
@@ -464,12 +467,12 @@ async function handle(req, res) {
     const body = await readBody(req);
     if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
     const toolUseId = decodeURIComponent(permMatch[2]);
-    const out = decide(s.id, toolUseId, body.verdict);
+    const out = decide(s.id, toolUseId, body.verdict, { answers: body.answers, mode: body.mode });
     if (out.ok) s.noteDecision(toolUseId, body.verdict);
     return sendJson(res, out.ok ? 200 : 400, out);
   }
 
-  const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events))?$/);
+  const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events|mode))?$/);
   if (ownedMatch) {
     const s = getSession(decodeURIComponent(ownedMatch[1]));
     if (!s) return sendJson(res, 404, { ok: false, reason: 'no such owned session' });
@@ -484,6 +487,13 @@ async function handle(req, res) {
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, reason: 'POST only' });
 
     if (verb === 'stop') return sendJson(res, 200, { ...s.stop(), session: s.summary() });
+
+    // The viewer chose another mode for the session, from the three a session may be started in.
+    if (verb === 'mode') {
+      const asked = await readBody(req);
+      const out = s.requestMode(asked?.mode);
+      return sendJson(res, out.ok ? 200 : 400, { ...out, session: s.summary() });
+    }
 
     const body = await readBody(req);
     if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
@@ -737,7 +747,9 @@ function ownedStream(req, res, url, session) {
 
   const unsubscribe = session.subscribe((ev) => {
     write('event', ev);
-    if (ev.rec?.type === 'result' || ev.rec?.type === 'exit') write('state', session.summary());
+    // The summary is what a pane paints its strip from. It follows what changes it: a turn ending, the session
+    // going, and the mode Claude Code reports. Without the last, the strip waited for the beat below.
+    if (STATE_AFTER.has(ev.rec?.type)) write('state', session.summary());
   }, after);
 
   const beat = setInterval(() => write('state', session.summary()), 15000);

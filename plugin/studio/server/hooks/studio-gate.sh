@@ -51,8 +51,17 @@ _field() {                                 # _field <key>  -> value on stdout
 #
 # This approves the call the viewer was shown. It does not unblock anything:
 # another hook that exits 2 still blocks, and this hook's own denials are exit 2.
+# The mode is the spool's `mode` file when there is one, and the mode the hook was configured with otherwise. The
+# file starts as the mode the session started in and changes in exactly one way: the viewer approves a plan, in
+# the panel, into acceptEdits or default (permissions.js `decide`). A session that started in plan mode could not
+# otherwise ever have an allowance said out loud, plan approved or not. The check against what the harness itself
+# reports, below, stays: a file that says `default` approves nothing while the session is still in `plan`.
 _grant() {
-  case "${CREW_GATE_MODE:-}" in
+  local gm="${CREW_GATE_MODE:-}"
+  if [ -f "$SPOOL/mode" ]; then
+    read -r gm < "$SPOOL/mode" 2>/dev/null || gm=""
+  fi
+  case "$gm" in
     acceptEdits|default) ;;
     *) exit 0 ;;
   esac
@@ -76,6 +85,21 @@ case "$TUID" in
 esac
 
 REQ="$SPOOL/req"; ANS="$SPOOL/ans"; ALWAYS="$SPOOL/always"
+
+# The two tools that need a person. Claude Code offers them in a headless session only because Studio names a
+# permission host for it (studio-host.mjs); what answers them is this hook, from what the viewer chose in the
+# panel. A question and a plan take longer to read than one command, so they wait longer before the denial.
+ASK=0
+case "$TOOL" in
+  AskUserQuestion|ExitPlanMode) ASK=1; WAIT="${CREW_GATE_WAIT_ASK:-$WAIT}" ;;
+esac
+# The hook is wired twice: once for every tool, with the harness's ordinary limit, and once for these two alone,
+# with the longer one they need. Each copy answers its own and leaves the other's at once, in silence: silence is
+# no decision, so the copy that does answer decides. With no role (a settings file from before there were two)
+# this copy answers everything.
+case "${CREW_GATE_ROLE:-}:$ASK" in
+  general:1|ask:0) exit 0 ;;
+esac
 mkdir -p "$REQ" "$ANS" "$ALWAYS" 2>/dev/null || exit 0
 
 # A tool the panel already blanket-approved for this session skips the round trip.
@@ -187,10 +211,21 @@ esac
 START=$SECONDS
 while :; do
   if [ -f "$ANS/$TUID" ]; then
-    read -r VERDICT < "$ANS/$TUID" 2>/dev/null || VERDICT=deny
+    VERDICT=deny; OUT=""
+    # Two lines at most: the verdict, and for an answered question or an approved plan the output to print.
+    { IFS= read -r VERDICT; IFS= read -r OUT; } < "$ANS/$TUID" 2>/dev/null || :
     rm -f "$ANS/$TUID" "$REQ/$TUID.json" 2>/dev/null
-    case "$VERDICT" in
-      allow|always) _grant ;;
+    case "$ASK:$VERDICT" in
+      0:allow|0:always) _grant ;;
+      # The viewer's answers, or their approval of the plan, exactly as the server wrote them: `allow` with the
+      # tool's input, which is how the hooks reference says a hook answers these two tools. Printed only for them,
+      # and only when there is something to print.
+      1:output) [ -n "$OUT" ] || { printf 'studio: the answer could not be read — denied\n' >&2; exit 2; }
+                printf '%s\n' "$OUT"; exit 0 ;;
+      # A plan approved with a change of mode. The hook cannot change the mode, so it says nothing and the
+      # permission host, which can, answers from what the viewer chose.
+      1:host) [ "$TOOL" = ExitPlanMode ] && exit 0
+              printf 'studio: denied in the panel\n' >&2; exit 2 ;;
       *) printf 'studio: denied in the panel\n' >&2; exit 2 ;;
     esac
   fi

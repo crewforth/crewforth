@@ -100,6 +100,8 @@ export function sections(nodes, { queue = [], current = null, folded = new Map()
 
 /** What a request card says under the agent's name. */
 export function wants(item) {
+  if (item.ask?.kind === 'questions') return 'asks';
+  if (item.ask?.kind === 'plan') return 'wants its plan approved';
   return `wants to run ${item.toolName}`;
 }
 

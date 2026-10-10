@@ -197,6 +197,14 @@ for (const [p, want] of [
   ['/../../../etc/passwd', false],
   ['/a/b/../../../../secrets', false],
 ]) {
+  {
+    const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+    check('a pane is sent the session\'s summary again when the mode changes, not at the next beat',
+      /export const STATE_AFTER = new Set\(\[[^\]]*'mode'[^\]]*\]\);/.test(idx) && /'result'/.test(idx.match(/STATE_AFTER = new Set\(([^)]*)\)/)?.[1] ?? '')
+      && /'exit'/.test(idx.match(/STATE_AFTER = new Set\(([^)]*)\)/)?.[1] ?? '')
+      && /if \(STATE_AFTER\.has\(ev\.rec\?\.type\)\) write\('state', session\.summary\(\)\);/.test(idx),
+      'measured with a stand-in CLI: 13.5 s to the strip before (the 15 s beat), 2-3 ms after');
+  }
   check(`guard ${want ? 'allows' : 'blocks'} ${p}`, guard(p) === want, null);
 }
 
@@ -1540,10 +1548,21 @@ if (gate) {
   const loosens = (settings) => [
     ...Object.keys(settings).filter((k) => k !== 'hooks'),
     ...Object.keys(settings.hooks ?? {}).filter((k) => k !== 'PreToolUse'),
-    ...((settings.hooks?.PreToolUse ?? []).length === 1 && settings.hooks.PreToolUse[0].hooks?.length === 1 ? [] : ['more than one hook']),
+    // The gate is wired twice, and both entries are the gate: once for every tool, and once for the two tools that
+    // wait for a person, with the longer limit only they need. Any other hook, or a first entry that is not
+    // "every tool", is not that.
+    ...((() => {
+      const entries = settings.hooks?.PreToolUse ?? [];
+      const gateOnly = entries.every((e) => e.hooks?.length === 1 && /bash "[^"]*studio-gate\.sh" "/.test(e.hooks[0].command) && e.hooks[0].shell === 'bash');
+      return gateOnly && entries.length >= 1 && entries.length <= 2 && entries[0].matcher === '*'
+        && (entries.length === 1 || entries[1].matcher === 'AskUserQuestion|ExitPlanMode');
+    })() ? [] : ['a hook that is not the gate']),
   ];
-  check('Studio\'s settings file carries its one hook and nothing that loosens the session',
-    loosens(cfg).length === 0, loosens(cfg).join(', ') || 'keys: hooks.PreToolUse[0].hooks[0]');
+  check('Studio\'s settings file carries its own gate and nothing that loosens the session',
+    loosens(cfg).length === 0, loosens(cfg).join(', ') || `${cfg.hooks.PreToolUse.length} entries, both the gate: ${cfg.hooks.PreToolUse.map((e) => e.matcher).join(' and ')}`);
+  check('twin: another hook beside the gate, or a gate that no longer covers every tool, is caught',
+    loosens({ hooks: { PreToolUse: [...cfg.hooks.PreToolUse, { matcher: 'Bash', hooks: [{ type: 'command', shell: 'bash', command: 'true' }] }] } }).join() === 'a hook that is not the gate'
+    && loosens({ hooks: { PreToolUse: [{ ...cfg.hooks.PreToolUse[0], matcher: 'Read' }] } }).join() === 'a hook that is not the gate');
   check('twin: a settings file with a permission rule or a hook switch in it is caught',
     loosens({ ...cfg, permissions: { allow: ['Bash(rm:*)'] } }).join() === 'permissions'
     && loosens({ ...cfg, disableAllHooks: true }).join() === 'disableAllHooks');
@@ -1621,6 +1640,447 @@ if (gate) {
    options arrive as prose, and the panel only makes them clickable. The rule
    for when prose counts as a question is what these pin: too loose and every
    bulleted list grows buttons. */
+
+/* The two tools that need a person: a question the model asks, and a plan it wants approved.
+ *
+ * Measured on Claude Code 2.1.294, in six short sessions, before any of this was written:
+ *   - with no permission host, neither AskUserQuestion nor ExitPlanMode is in the session's tool list;
+ *   - with a host named by --permission-prompt-tool, both are;
+ *   - a PreToolUse hook that returns `allow` with the answers as `updatedInput` answers a question: the model
+ *     received "Which colour?"="Blue", "Which fruits?"="Apple,Pear" (a list for the question that takes several),
+ *     and the host was not consulted;
+ *   - the same, for a plan, approves it and the session goes from `plan` to `default`;
+ *   - a host that answers a plan with `updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }]` moves
+ *     the session to `acceptEdits`;
+ *   - a write the hook says nothing about, which the host denies, does not run (permission_denials: Write).
+ * The claims below hold the parts that are Studio's: the hook, the server's answer, the host. */
+process.stdout.write('\n== §12b the question and the plan ==\n');
+{
+  const { spawn: spawnChild } = await import('node:child_process');
+  const perm = await import(`../../kit/studio/server/lib/permissions.js?ask=${Date.now()}`);
+  const hostMod = await import(`../../kit/studio/server/hooks/studio-host.mjs?ask=${Date.now()}`);
+  const sid = `selfcheck-ask-${process.pid}`;
+  const g = perm.prepare(sid, 'plan');
+  const hook = (payload, env = {}) => new Promise((resolve) => {
+    const c = spawnChild('bash', [HOOK, g.spool], { env: { ...process.env, CREW_GATE_WAIT: '3', CREW_GATE_WAIT_ASK: '3', ...env } });
+    let out = '';
+    let err = '';
+    c.stdout.on('data', (d) => { out += d; });
+    c.stderr.on('data', (d) => { err += d; });
+    c.on('close', (code) => resolve({ code, out: out.trim(), err: err.trim() }));
+    c.stdin.end(JSON.stringify({ session_id: sid, permission_mode: 'plan', ...payload }));
+  });
+  const parked = async (id) => {
+    for (let i = 0; i < 80; i += 1) {
+      if (perm.pending(sid).some((r) => r.toolUseId === id)) return true;
+      await new Promise((r) => { setTimeout(r, 50); });
+    }
+    return false;
+  };
+  const decisionIn = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } catch { return null; } };
+  const QUESTIONS = { questions: [
+    { question: 'Which colour?', header: 'Colour', options: [{ label: 'Red', description: 'r' }, { label: 'Blue', description: 'b' }], multiSelect: false },
+    { question: 'Which fruits?', header: 'Fruit', options: [{ label: 'Apple', description: '' }, { label: 'Pear', description: '' }], multiSelect: true },
+  ] };
+
+  const cfgEntries = JSON.parse(fs.readFileSync(g.settingsPath, 'utf8')).hooks.PreToolUse;
+  const cfg = cfgEntries[0].hooks[0];
+  const cfgAsk = cfgEntries[1].hooks[0];
+  const mcp = JSON.parse(fs.readFileSync(g.host.mcpPath, 'utf8'));
+  check('a session is started with a permission host: without one Claude Code does not offer the two tools at all',
+    g.host.tool === `mcp__${g.host.server}__approve` && mcp.mcpServers[g.host.server].args[1] === g.spool
+    && fs.existsSync(mcp.mcpServers[g.host.server].args[0]) && mcp.mcpServers[g.host.server].command === process.execPath
+    && /args\.push\('--mcp-config', this\.gate\.host\.mcpPath, '--permission-prompt-tool', this\.gate\.host\.tool\);/.test(read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? ''));
+  check('a question and a plan wait longer than a command, and the hook still answers by itself before the harness would kill it',
+    perm._internals.ASK_WAIT_S > perm._internals.HOOK_WAIT_S && cfgAsk.timeout > perm._internals.ASK_WAIT_S
+    && /CREW_GATE_WAIT_ASK=300 /.test(cfgAsk.command), `${perm._internals.HOOK_WAIT_S}s, ${perm._internals.ASK_WAIT_S}s for these two, harness ${cfgAsk.timeout}s`);
+  check('the longer limit is those two tools\' alone: every other call keeps the limit it had',
+    cfg.timeout === perm._internals.HARNESS_TIMEOUT_S && cfg.timeout === 90 && cfgAsk.timeout === perm._internals.ASK_HARNESS_TIMEOUT_S
+    && cfgEntries[0].matcher === '*' && cfgEntries[1].matcher === 'AskUserQuestion|ExitPlanMode'
+    && / CREW_GATE_ROLE=general /.test(cfg.command) && / CREW_GATE_ROLE=ask /.test(cfgAsk.command),
+    `every tool: ${cfg.timeout}s; ${cfgEntries[1].matcher}: ${cfgAsk.timeout}s`);
+  // Each copy of the hook answers its own and leaves the other's at once, in silence.
+  const general = await hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_role1', tool_input: QUESTIONS }, { CREW_GATE_ROLE: 'general' });
+  const askOnBash = await hook({ tool_name: 'Bash', tool_use_id: 'toolu_role2', permission_mode: 'default', tool_input: { command: 'ls' } }, { CREW_GATE_ROLE: 'ask' });
+  check('the copy for every tool leaves a question to the other copy, and the copy for the two leaves every other tool: each at once, saying nothing, parking nothing',
+    general.code === 0 && general.out === '' && askOnBash.code === 0 && askOnBash.out === ''
+    && !perm.pending(sid).some((r) => ['toolu_role1', 'toolu_role2'].includes(r.toolUseId)));
+  const generalOnBash = await hook({ tool_name: 'Bash', tool_use_id: 'toolu_role3', permission_mode: 'default', tool_input: { command: 'ls' } }, { CREW_GATE_ROLE: 'general' });
+  const askOnAsk = await hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_role4', tool_input: QUESTIONS }, { CREW_GATE_ROLE: 'ask' });
+  check('and each still refuses its own when nobody answers', generalOnBash.code === 2 && askOnAsk.code === 2);
+
+  // The spool is this user's alone.
+  const modeOfDir = (d) => (fs.lstatSync(d).mode & 0o777).toString(8);
+  if (typeof process.getuid === 'function') {
+    check('the spool, its root and every directory in it are closed to other users',
+      [perm._internals.ROOT, g.spool, ...['req', 'ans', 'always', 'host'].map((d) => path.join(g.spool, d))].every((d) => modeOfDir(d) === '700' && fs.lstatSync(d).uid === process.getuid()),
+      `${modeOfDir(perm._internals.ROOT)} ${modeOfDir(g.spool)} ${modeOfDir(path.join(g.spool, 'ans'))}`);
+    const loose = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-spool-'));
+    fs.chmodSync(loose, 0o777);
+    const closed = perm.spoolProblem(loose) === null && modeOfDir(loose) === '700';
+    const link = `${loose}-link`;
+    fs.symlinkSync(loose, link);
+    const file = path.join(loose, 'a-file');
+    fs.writeFileSync(file, '');
+    check('a directory of ours that is too open is closed; a link to one, a file, or nothing at all is refused',
+      closed && /symbolic link/.test(perm.spoolProblem(link)) && /not a directory/.test(perm.spoolProblem(file)) && /does not exist/.test(perm.spoolProblem(path.join(loose, 'gone'))));
+    check('a directory that belongs to another user is refused, and is not closed on their behalf',
+      /another user/.test(perm.spoolProblem(loose, process.getuid() + 1)) && perm.spoolProblem(loose, process.getuid()) === null
+      && perm.spoolProblem(loose, null) === null);
+    // A spool that is not ours: the session gets no gate, and nothing in it is read or answered.
+    const hijack = `selfcheck-hijack-${process.pid}`;
+    fs.rmSync(perm.spoolFor(hijack), { recursive: true, force: true });
+    fs.symlinkSync(loose, perm.spoolFor(hijack));
+    fs.mkdirSync(path.join(loose, 'req'), { recursive: true });
+    fs.writeFileSync(path.join(loose, 'req', 'toolu_planted.json'), JSON.stringify({ tool_name: 'ExitPlanMode', tool_input: { plan: 'x' } }));
+    const refused = perm.prepare(hijack, 'plan');
+    check('a spool that is a link to somewhere else is not used: no gate is prepared, nothing in it is listed, and no answer is written into it',
+      refused === null && /symbolic link/.test(perm.prepare.refused ?? '') && perm.pending(hijack).length === 0
+      && perm.decide(hijack, 'toolu_planted', 'plan', { mode: 'acceptEdits' }).ok === false && !fs.existsSync(path.join(loose, 'ans'))
+      && !fs.existsSync(path.join(loose, 'host')), perm.prepare.refused);
+    fs.rmSync(perm.spoolFor(hijack), { force: true });
+    fs.rmSync(link, { force: true });
+    fs.rmSync(loose, { recursive: true, force: true });
+  } else {
+    skip('the spool is closed to other users', 'platform', 'this platform has no owner or mode to ask about; only "a real directory" is checked');
+  }
+  const n1 = perm.hostNames('7f3c1d20-9a4e-4b6f-8c21-5d0e2a41b9c7');
+  const n2 = perm.hostNames('5c9d7e02-4b31-48af-a7c6-0d21e9f4a831');
+  check('the host\'s name carries the session, so it is no name a user\'s own configuration has, and no two sessions share one',
+    n1.server === 'crew_studio_host_7f3c1d209a4e4b6f' && n1.tool === `mcp__${n1.server}__approve` && n1.server !== n2.server
+    && /^[A-Za-z0-9_]+$/.test(perm.hostNames('a/b c;d').server) && g.host.server === perm.hostNames(sid).server);
+
+  // The answers, checked harder.
+  const proto = perm.cleanAnswers([{ question: '__proto__', options: [], multiSelect: false }, { question: 'constructor', options: [], multiSelect: false }], JSON.parse('{"__proto__":"x","constructor":"y"}'));
+  const three = [{ label: 'a' }, { label: 'b' }, { label: 'c' }];
+  check('answers are kept in an object with no prototype, so a question called __proto__ is a key like any other',
+    proto !== null && Object.getPrototypeOf(proto) === null && proto['__proto__'] === 'x' && proto.constructor === 'y' && JSON.stringify(proto) === '{"__proto__":"x","constructor":"y"}');
+  check('a list of answers is no longer than the question\'s options and one of the viewer\'s own; more than that, a repeated question, or too many questions, is refused',
+    perm.cleanAnswers([{ question: 'q', options: three, multiSelect: true }], { q: ['a', 'b', 'c', 'own'] }) !== null
+    && perm.cleanAnswers([{ question: 'q', options: three, multiSelect: true }], { q: ['a', 'b', 'c', 'own', 'more'] }) === null
+    && perm.cleanAnswers([{ question: 'q', options: three, multiSelect: true }, { question: 'q', options: three, multiSelect: true }], { q: ['a'] }) === null
+    && perm.cleanAnswers(Array.from({ length: 9 }, (_, i) => ({ question: `q${i}`, options: three })), Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`q${i}`, 'a']))) === null
+    && perm.cleanAnswers([{ question: 'q', options: three }], ['a']) === null);
+
+
+  // A question.
+  let run = hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q1', tool_input: QUESTIONS });
+  await parked('toolu_q1');
+  const waiting = perm.pending(sid).find((r) => r.toolUseId === 'toolu_q1');
+  const bare = perm.decide(sid, 'toolu_q1', 'allow');
+  const always = perm.decide(sid, 'toolu_q1', 'always');
+  const half = perm.decide(sid, 'toolu_q1', 'answer', { answers: { 'Which colour?': 'Blue' } });
+  const wrongShape = perm.decide(sid, 'toolu_q1', 'answer', { answers: { 'Which colour?': ['Red', 'Blue'], 'Which fruits?': ['Apple'] } });
+  check('a question is not answered with a bare allow, cannot be allowed "for the session", and takes one answer per question in the shape the question asks for',
+    bare.ok === false && always.ok === false && half.ok === false && wrongShape.ok === false && waiting.waitSeconds === perm._internals.ASK_WAIT_S
+    && !fs.existsSync(path.join(g.spool, 'always', 'AskUserQuestion')) && !fs.existsSync(path.join(g.spool, 'ans', 'toolu_q1')),
+    `${bare.reason} | ${half.reason}`);
+  const sent = perm.decide(sid, 'toolu_q1', 'answer', { answers: { 'Which colour?': 'Blue', 'Which fruits?': ['Apple', 'Pear'] } });
+  let r = await run;
+  let d = decisionIn(r);
+  check('the viewer\'s answers reach Claude Code as the hooks reference says a hook answers a question: allow, with the questions and the answers as the tool\'s input',
+    sent.ok === true && r.code === 0 && d?.hookEventName === 'PreToolUse' && d?.permissionDecision === 'allow'
+    && JSON.stringify(d.updatedInput.answers) === '{"Which colour?":"Blue","Which fruits?":["Apple","Pear"]}'
+    && JSON.stringify(d.updatedInput.questions) === JSON.stringify(QUESTIONS.questions),
+    r.out.slice(0, 160));
+  r = await hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q2', tool_input: QUESTIONS });
+  check('a question nobody answers is refused when its time runs out, as it always was', r.code === 2 && r.out === '' && /denied/.test(r.err), r.err);
+  run = hook({ tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q3', tool_input: QUESTIONS });
+  await parked('toolu_q3');
+  perm.decide(sid, 'toolu_q3', 'deny');
+  r = await run;
+  check('and one the viewer dismisses is refused', r.code === 2 && r.out === '');
+
+  // A plan.
+  run = hook({ tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p1', tool_input: { plan: 'Create a.txt', planFilePath: '/x/plan.md' } });
+  await parked('toolu_p1');
+  const intoBypass = perm.decide(sid, 'toolu_p1', 'plan', { mode: 'bypassPermissions' });
+  const intoPlan = perm.decide(sid, 'toolu_p1', 'plan', { mode: 'plan' });
+  const intoAuto = perm.decide(sid, 'toolu_p1', 'plan', { mode: 'auto' });
+  const modeBefore = fs.readFileSync(path.join(g.spool, 'mode'), 'utf8').trim();
+  check('a plan is approved into acceptEdits or default and into nothing else: not bypassPermissions, not auto',
+    intoBypass.ok === false && intoPlan.ok === false && intoAuto.ok === false && modeBefore === 'plan'
+    && perm.PLAN_MODES.join() === 'acceptEdits,default' && perm.decide(sid, 'toolu_p1', 'allow').ok === false, intoBypass.reason);
+  perm.decide(sid, 'toolu_p1', 'plan', { mode: 'default' });
+  r = await run;
+  d = decisionIn(r);
+  check('approved into default, the hook approves the plan with the plan as its input, and the host has nothing to add',
+    r.code === 0 && d?.permissionDecision === 'allow' && d.updatedInput.plan === 'Create a.txt'
+    && fs.readFileSync(path.join(g.spool, 'mode'), 'utf8').trim() === 'default'
+    && hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: {}, tool_use_id: 'toolu_p1' }).behavior === 'deny');
+  run = hook({ tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p2', tool_input: { plan: 'Create b.txt' } });
+  await parked('toolu_p2');
+  perm.decide(sid, 'toolu_p2', 'plan', { mode: 'acceptEdits' });
+  r = await run;
+  const first = hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: { plan: 'Create b.txt' }, tool_use_id: 'toolu_p2' });
+  const again = hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: { plan: 'Create b.txt' }, tool_use_id: 'toolu_p2' });
+  check('approved into acceptEdits, the hook says nothing and the host approves it once, with the change of mode only it can make',
+    r.code === 0 && r.out === '' && first.behavior === 'allow' && first.updatedInput.plan === 'Create b.txt'
+    && JSON.stringify(first.updatedPermissions) === '[{"type":"setMode","mode":"acceptEdits","destination":"session"}]'
+    && again.behavior === 'deny' && fs.readFileSync(path.join(g.spool, 'mode'), 'utf8').trim() === 'acceptEdits',
+    JSON.stringify(first.updatedPermissions));
+  run = hook({ tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p3', tool_input: { plan: 'x' } });
+  await parked('toolu_p3');
+  perm.decide(sid, 'toolu_p3', 'deny');
+  r = await run;
+  check('"Keep planning" refuses the plan', r.code === 2 && r.out === '' && /denied in the panel/.test(r.err));
+
+  // What the host answers to everything else, and to a forged decision.
+  fs.writeFileSync(path.join(g.spool, 'host', 'toolu_b.json'), JSON.stringify({ mode: 'acceptEdits' }));
+  fs.writeFileSync(path.join(g.spool, 'host', 'toolu_x.json'), JSON.stringify({ mode: 'bypassPermissions' }));
+  check('the host denies every prompt that reaches it: a write, a command, a question — the dock is where a call is allowed',
+    ['Write', 'Bash', 'Edit', 'AskUserQuestion', 'mcp__x__y'].every((t) => hostMod.answer(g.spool, { tool_name: t, input: {}, tool_use_id: 'toolu_any' }).behavior === 'deny')
+    && hostMod.answer(g.spool, {}).behavior === 'deny' && hostMod.answer('', { tool_name: 'ExitPlanMode', tool_use_id: 'toolu_p2' }).behavior === 'deny');
+  check('a decision file is honoured for a plan only, and only for a mode a plan can be approved into',
+    hostMod.answer(g.spool, { tool_name: 'Bash', input: {}, tool_use_id: 'toolu_b' }).behavior === 'deny'
+    && hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: {}, tool_use_id: 'toolu_x' }).behavior === 'deny'
+    && hostMod.answer(g.spool, { tool_name: 'ExitPlanMode', input: {}, tool_use_id: '../mode' }).behavior === 'deny');
+
+  // After the plan: an allowance in the dock is said out loud in the mode the plan was approved into — and only
+  // once the harness itself reports that mode.
+  const allowedWrite = async (reported, id) => {
+    const w = hook({ tool_name: 'Write', tool_use_id: id, permission_mode: reported, tool_input: { file_path: '/x' } }, { CREW_GATE_MODE: 'plan' });
+    await parked(id);
+    perm.decide(sid, id, 'allow');
+    return w;
+  };
+  const afterApproved = await allowedWrite('acceptEdits', 'toolu_w1');
+  const stillPlan = await allowedWrite('plan', 'toolu_w2');
+  check('after a plan is approved, a write allowed in the dock is approved out loud; while the harness still reports plan, it is not',
+    decisionIn(afterApproved)?.permissionDecision === 'allow' && stillPlan.code === 0 && stillPlan.out === '',
+    `harness reports acceptEdits: ${decisionIn(afterApproved)?.permissionDecision}; reports plan: "${stillPlan.out}"`);
+
+  // The answers that belong to the two tools do nothing for any other.
+  run = hook({ tool_name: 'Bash', tool_use_id: 'toolu_b1', permission_mode: 'default', tool_input: { command: 'git commit -m x' } });
+  await parked('toolu_b1');
+  const bashAnswer = perm.decide(sid, 'toolu_b1', 'answer', { answers: {} });
+  const bashPlan = perm.decide(sid, 'toolu_b1', 'plan', { mode: 'default' });
+  fs.writeFileSync(path.join(g.spool, 'ans', 'toolu_b1'), 'output\n{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n');
+  r = await run;
+  check('an ordinary call cannot be given a question\'s or a plan\'s answer: the server refuses to write it, and the hook refuses one written by hand',
+    bashAnswer.ok === false && bashPlan.ok === false && r.code === 2 && r.out === '', `${bashAnswer.reason} | hook rc ${r.code}`);
+  run = hook({ tool_name: 'Bash', tool_use_id: 'toolu_b2', permission_mode: 'default', tool_input: { command: 'ls' } });
+  await parked('toolu_b2');
+  fs.writeFileSync(path.join(g.spool, 'ans', 'toolu_b2'), 'host\n');
+  r = await run;
+  check('and "leave it to the host" is a plan\'s answer alone: written for a command, it is a denial', r.code === 2 && r.out === '');
+  // CREWFORTH'S OWN GATES, WITH A QUESTION ANSWERED "YES, COMMIT".
+  // The worry: the model asks "May I commit?" with its question tool, the viewer clicks "Yes, commit" in the dock,
+  // and that click passes for the approval the commit gate asks for. Run here against the kit's real hooks, in a
+  // real repository with a staged change: after that answer a commit and a push are still refused, an approval
+  // typed into a session nobody sits in front of is still not recorded, and the control shows the same gate
+  // opening for an approval that IS one.
+  {
+    const hooks = path.join(PAYLOAD, 'hooks');
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-gate-'));
+    const remote = `${repo}-remote.git`;
+    const sh = (cmd, cwd = repo) => spawnSync('bash', ['-c', cmd], { cwd, encoding: 'utf8' });
+    sh(`git init -q --bare ${JSON.stringify(remote)} && git init -q . && git config user.email t@example.com && git config user.name t`
+      + ' && git config core.hooksPath /dev/null && git checkout -q -b feat/x && echo one > a.txt && git add a.txt && git commit -qm init'
+      + ` && git remote add origin ${JSON.stringify(remote)} && echo two >> a.txt && git add a.txt && mkdir -p .claude`);
+    fs.writeFileSync(path.join(repo, '.claude', 'settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'bash .claude/hooks/prompt-approval.sh' }] }] } }));
+    fs.writeFileSync(path.join(repo, '.claude', 'review-pass.json'), `${JSON.stringify({ diff_oid: sh('git diff --cached | git hash-object --stdin').stdout.trim(), head: sh('git rev-parse --verify --quiet HEAD').stdout.trim() })}\n`);
+    const transcript = path.join(repo, '..', `${path.basename(repo)}.jsonl`);
+    fs.writeFileSync(transcript, '{"type":"user"}\n');
+    const record = path.join(repo, '.git', 'crewforth-approval');
+    const gate = (mode, command) => {
+      const r = spawnSync('bash', [path.join(hooks, 'guard-bash.sh')], {
+        cwd: repo, encoding: 'utf8', env: { ...process.env, CREW_GATE_LOG: '/dev/null' },
+        input: JSON.stringify({ session_id: 's', cwd: repo, permission_mode: mode, tool_name: 'Bash', tool_input: { command } }),
+      });
+      let decision = null;
+      try { decision = JSON.parse(r.stdout).hookSpecificOutput.permissionDecision; } catch { /* no decision printed */ }
+      return { rc: r.status, decision, err: r.stderr };
+    };
+    const typed = (prompt, attended) => {
+      const env = { ...process.env };
+      delete env.CLAUDE_CODE_SESSION_ATTENDED;
+      if (attended !== null) env.CLAUDE_CODE_SESSION_ATTENDED = attended;
+      return spawnSync('bash', [path.join(hooks, 'prompt-approval.sh')], {
+        cwd: repo, encoding: 'utf8', env,
+        input: JSON.stringify({ session_id: 's', transcript_path: transcript, cwd: repo, permission_mode: 'auto', hook_event_name: 'UserPromptSubmit', prompt }),
+      });
+    };
+    const gatesPresent = fs.existsSync(path.join(hooks, 'guard-bash.sh')) && fs.existsSync(path.join(hooks, 'prompt-approval.sh'));
+
+    // The question, answered in the dock with the most permissive words there are.
+    const COMMIT_Q = { questions: [{ question: 'May I commit and push this?', header: 'Commit', options: [{ label: 'Yes, commit', description: '' }, { label: 'No', description: '' }], multiSelect: false }] };
+    const gsid = `selfcheck-gate-${process.pid}`;
+    const gg = perm.prepare(gsid, 'default');
+    const askRun = new Promise((resolve) => {
+      const c = spawnChild('bash', [HOOK, gg.spool], { env: { ...process.env, CREW_GATE_WAIT: '3', CREW_GATE_WAIT_ASK: '3' } });
+      let out = '';
+      c.stdout.on('data', (d) => { out += d; });
+      c.on('close', (code) => resolve({ code, out: out.trim() }));
+      c.stdin.end(JSON.stringify({ session_id: gsid, permission_mode: 'default', tool_name: 'AskUserQuestion', tool_use_id: 'toolu_commit_q', tool_input: COMMIT_Q }));
+    });
+    for (let i = 0; i < 80 && !perm.pending(gsid).some((r) => r.toolUseId === 'toolu_commit_q'); i += 1) await new Promise((r) => { setTimeout(r, 50); });
+    const yes = perm.decide(gsid, 'toolu_commit_q', 'answer', { answers: { 'May I commit and push this?': 'Yes, commit' } });
+    const answeredYes = await askRun;
+    const saidYes = yes.ok && answeredYes.code === 0 && /"May I commit and push this\?":"Yes, commit"/.test(answeredYes.out);
+
+    const autoCommit = gate('auto', 'git commit -m x');
+    const autoPush = gate('auto', 'git push origin feat/x');
+    const dontAsk = gate('dontAsk', 'git commit -m x');
+    check('MUST FAIL: with the question answered "Yes, commit" in the dock, a commit and a push are still refused where a prompt is answered by software',
+      gatesPresent && saidYes && autoCommit.rc === 2 && autoPush.rc === 2 && dontAsk.rc === 2 && /needs the user's approval/.test(autoCommit.err)
+      && !fs.existsSync(record),
+      `auto commit rc ${autoCommit.rc}, auto push rc ${autoPush.rc}, dontAsk commit rc ${dontAsk.rc}; no approval record was written`);
+    const askCommit = gate('default', 'git commit -m x');
+    const askPush = gate('acceptEdits', 'git push origin feat/x');
+    check('MUST FAIL: in the modes a Studio session runs in, the gate asks a person — and the only one a headless session can ask is the host, which denies',
+      askCommit.rc === 0 && askCommit.decision === 'ask' && askPush.decision === 'ask'
+      && hostMod.answer(gg.spool, { tool_name: 'Bash', input: { command: 'git commit -m x' }, tool_use_id: 'toolu_commit' }).behavior === 'deny',
+      `the commit gate answers "${askCommit.decision}", which outranks an allow from the dock; the host answers deny`);
+    // An approval is what a person types into their own session. A Studio session is started with -p: nobody sits
+    // in front of it, and the rule added in #177 does not record an approval there, whoever typed it.
+    const headless = typed('/crew-approve commit', '0');
+    const recordedHeadless = fs.existsSync(record);
+    const stillRefused = gate('auto', 'git commit -m x');
+    check('MUST FAIL: "/crew-approve commit" in a session nobody sits in front of records nothing, and the commit is still refused',
+      !recordedHeadless && stillRefused.rc === 2 && /nobody in front of it/.test(`${headless.stdout}${headless.stderr}`),
+      (`${headless.stdout}${headless.stderr}`.match(/nobody in front of it[^.]*/) ?? ['(the refusal was not read)'])[0]);
+    for (const words of ['Yes, commit', 'approve: commit and push', 'please /crew-approve commit']) typed(words, '1');
+    check('MUST FAIL: the words of an answer are not an approval even where a person is: only the whole message, in its own shape, is one',
+      !fs.existsSync(record) && gate('auto', 'git commit -m x').rc === 2);
+    // The control. Without it every line above would pass against a gate that refuses everything.
+    const real = typed('/crew-approve commit', '1');
+    const recorded = fs.existsSync(record);
+    const allowed = gate('auto', 'git commit -m x');
+    check('CONTROL: the same gate opens for an approval that is one — typed by a person, as the whole message, in a session with a transcript',
+      recorded && allowed.rc === 0 && allowed.decision === 'allow', `record written: ${recorded}; commit: rc ${allowed.rc}, ${allowed.decision} (${real.status})`);
+    const studioSrc = ['server/index.js', 'server/lib/permissions.js', 'server/lib/session.js', 'server/hooks/studio-gate.sh', 'server/hooks/studio-host.mjs', 'web/ask.js', 'web/dock.js', 'web/approvals.js']
+      .map((f) => read(path.join(STUDIO, f)) ?? '').join('\n');
+    check('nothing in Studio writes, reads or runs the approval: not the record, not the hook that makes it, not the command',
+      !/crewforth-approval|prompt-approval|crew-approve|review-pass/.test(studioSrc));
+    perm.cleanup(gsid);
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(remote, { recursive: true, force: true });
+    fs.rmSync(transcript, { force: true });
+  }
+
+  perm.cleanup(sid);
+
+  // The page: what the two requests look like, and what a form hands back.
+  const apw = await import(`../../kit/studio/web/approvals.js?ask=${Date.now()}`);
+  const asQ = apw.askOf({ toolName: 'AskUserQuestion', input: QUESTIONS });
+  check('a question is shown as the model wrote it, a plan as its text, and an ordinary call as neither',
+    asQ.kind === 'questions' && asQ.questions.length === 2 && asQ.questions[1].multiSelect === true && asQ.questions[0].options[1].label === 'Blue'
+    && apw.askOf({ toolName: 'ExitPlanMode', input: { plan: 'Do it' } }).plan === 'Do it'
+    && apw.askOf({ toolName: 'Bash', input: { command: 'ls', questions: [] } }) === null && apw.askOf({ toolName: 'AskUserQuestion', input: {} }) === null);
+  const pick = (o) => new Map(Object.entries(o).map(([k, v]) => [k, new Set(v)]));
+  check('a form\'s answers are the tool\'s own shape: a label, a list for a question that takes several, or the viewer\'s own words',
+    JSON.stringify(apw.answersOf(asQ, pick({ 'Which colour?': ['Blue'], 'Which fruits?': ['Apple', 'Pear'] }), new Map())) === '{"Which colour?":"Blue","Which fruits?":["Apple","Pear"]}'
+    && apw.answersOf(asQ, pick({ 'Which colour?': [], 'Which fruits?': ['Apple'] }), new Map([['Which colour?', ' teal ']]))['Which colour?'] === 'teal'
+    && JSON.stringify(apw.answersOf(asQ, pick({ 'Which colour?': ['Red'], 'Which fruits?': ['Pear'] }), new Map([['Which fruits?', 'Fig']]))['Which fruits?']) === '["Pear","Fig"]');
+  check('there are no answers to send while any question is open',
+    apw.answersOf(asQ, pick({ 'Which colour?': ['Blue'], 'Which fruits?': [] }), new Map()) === null
+    && apw.answersOf(asQ, pick({ 'Which colour?': [], 'Which fruits?': ['Apple'] }), new Map([['Which colour?', '   ']])) === null);
+  check('the answers a form can produce are answers the server takes',
+    perm.cleanAnswers(QUESTIONS.questions, apw.answersOf(asQ, pick({ 'Which colour?': ['Blue'], 'Which fruits?': ['Apple', 'Pear'] }), new Map())) !== null
+    && perm.cleanAnswers(QUESTIONS.questions, apw.answersOf(asQ, pick({ 'Which colour?': [], 'Which fruits?': [] }), new Map([['Which colour?', 'teal'], ['Which fruits?', 'Fig']]))) !== null
+    && perm.cleanAnswers(QUESTIONS.questions, { 'Which colour?': '', 'Which fruits?': ['Apple'] }) === null
+    && perm.cleanAnswers(QUESTIONS.questions, { 'Which colour?': 'x'.repeat(2001), 'Which fruits?': ['Apple'] }) === null
+    && perm.cleanAnswers(null, {}) === null);
+  check('a plan\'s two approvals are the two modes the server takes, and "accept edits" says a call is still shown first',
+    apw.PLAN_CHOICES.map((c) => c.mode).join() === perm.PLAN_MODES.join() && /still shown here first/.test(apw.PLAN_CHOICES[0].title));
+  const queued = apw.queue([{ sessionId: 's', gated: true, gateWaitSeconds: 45, pendingPermissions: [
+    { toolUseId: 'q', toolName: 'AskUserQuestion', input: QUESTIONS, askedAt: 1, waitSeconds: 300 },
+    { toolUseId: 'b', toolName: 'Bash', input: { command: 'ls' }, detail: 'ls', askedAt: 2 }] }]);
+  check('each request counts down on its own clock: five minutes for a question, the gate\'s wait for a command',
+    queued[0].waitSeconds === 300 && queued[0].ask.kind === 'questions' && queued[1].waitSeconds === 45 && queued[1].ask === null);
+  check('an answered question and an approved plan are recorded as allowed, not as "answered elsewhere"',
+    apw.settled([queued[0]], [], new Map([[queued[0].key, 'answer']]), 5)[0].outcome === 'allowed'
+    && apw.settled([queued[0]], [], new Map([[queued[0].key, 'plan']]), 5)[0].outcome === 'allowed');
+
+  const dom2 = installDom();
+  const { AskForms } = await import(`../../kit/studio/web/ask.js?ask=${Date.now()}`);
+  const { Dock } = await import(`../../kit/studio/web/dock.js?ask=${Date.now()}`);
+  const said = [];
+  const forms = new AskForms((item, verdict, extra) => said.push([item.key, verdict, extra]));
+  const qItem = queued[0];
+  const form = forms.get(qItem);
+  const walk = (el, out = []) => { out.push(el); for (const c of el.children ?? []) walk(c, out); return out; };
+  const all = walk(form);
+  const btn = (text) => all.find((e) => e.tagName === 'BUTTON' && e.textContent === text);
+  const sendBtn = btn('Send answers');
+  const off = sendBtn.disabled === true;
+  btn('Blue').emit('click');
+  btn('Red').emit('click');
+  btn('Apple').emit('click');
+  btn('Pear').emit('click');
+  btn('Apple').emit('click');
+  check('in the form one question takes one answer and the other takes several, and Send waits until each has one',
+    off && sendBtn.disabled === false && btn('Red').getAttribute('aria-checked') === 'true' && btn('Blue').getAttribute('aria-checked') === 'false'
+    && btn('Pear').getAttribute('aria-checked') === 'true' && btn('Apple').getAttribute('aria-checked') === 'false');
+  check('the form is kept while its request waits: asked for again, it is the same element with what was chosen',
+    forms.get(qItem) === form && forms.get(queued[1]) === null);
+  sendBtn.emit('click');
+  check('Send hands back the answers; Dismiss, a denial',
+    JSON.stringify(said[0]) === JSON.stringify([qItem.key, 'answer', { answers: { 'Which colour?': 'Red', 'Which fruits?': ['Pear'] } }])
+    && (btn('Dismiss').emit('click'), said[1][1] === 'deny'));
+  forms.setSent(qItem.key, true);
+  check('once sent, the form\'s controls are off until the answer is known to have arrived or failed', sendBtn.disabled === true && btn('Blue').disabled === true
+    && (forms.setSent(qItem.key, false), sendBtn.disabled === false));
+  const pItem = { key: 's/p', sessionId: 's', toolUseId: 'p', toolName: 'ExitPlanMode', ask: { kind: 'plan', plan: 'Step one.' }, askedAt: 1, waitSeconds: 300 };
+  const pAll = walk(forms.get(pItem));
+  pAll.find((e) => e.tagName === 'BUTTON' && /accept edits/.test(e.textContent)).emit('click');
+  pAll.find((e) => e.tagName === 'BUTTON' && e.textContent === 'Keep planning').emit('click');
+  check('a plan is shown with its text and three ways on: two modes, or keep planning',
+    pAll.some((e) => e.tagName === 'PRE' && e.textContent === 'Step one.') && pAll.filter((e) => e.tagName === 'BUTTON').length === 3
+    && JSON.stringify(said.slice(-2).map((x) => [x[1], x[2]])) === '[["plan",{"mode":"acceptEdits"}],["deny",{}]]');
+  forms.keep([pItem.key]);
+  check('a form is forgotten when its request is over', forms.get(qItem) !== form);
+
+  const decided = [];
+  const dk = new Dock(document.createElement('div'), { onDecide: (item, verdict, extra) => decided.push([item.toolName, verdict, extra]), now: () => 2 });
+  dk.render([qItem, queued[1]]);
+  check('the dock shows a question as its form, in place of the command and the three buttons',
+    dk.parts.ask.hidden === false && dk.parts.acts.hidden === true && dk.parts.cmd.hidden === true && dk.root.dataset.ask === 'questions'
+    && dk.parts.tool.textContent === 'asks' && /Refused in/.test(dk.parts.note.textContent));
+  dk.decide('allow');
+  dk.decide('always');
+  check('the keys that allow a command do not answer a question', decided.length === 0);
+  dk.step(1);
+  check('and the next request, a command, has its three buttons back',
+    dk.parts.ask.hidden === true && dk.parts.acts.hidden === false && dk.root.dataset.ask === '' && dk.parts.tool.textContent === 'Bash');
+  dom2();
+  // The mode of a running session.
+  const sess = await import(`../../kit/studio/server/lib/session.js?mode=${Date.now()}`);
+  const cvh = await import(`../../kit/studio/web/convo.js?mode=${Date.now()}`);
+  const proto2 = Object.getOwnPropertyNames(sess).length;   // the module loads
+  const SessionClass = sess._internals.OwnedSession;
+  const wrote = [];
+  const fake = { state: 'idle', child: { stdin: { write: (l) => wrote.push(l) } } };
+  const okMode = SessionClass.prototype.requestMode.call(fake, 'acceptEdits');
+  const badModes = ['bypassPermissions', 'auto', 'dontAsk', '', null, 'plan; rm -rf x'].map((m) => SessionClass.prototype.requestMode.call(fake, m).ok);
+  const sentLine = JSON.parse(wrote[0] ?? '{}');
+  check('a mode is asked for the way the SDK\'s setPermissionMode asks, and only one of the three a session may start in',
+    proto2 > 0 && okMode.ok === true && wrote.length === 1 && wrote[0].endsWith('\n') && sentLine.type === 'control_request'
+    && sentLine.request.subtype === 'set_permission_mode' && sentLine.request.mode === 'acceptEdits' && typeof sentLine.request_id === 'string'
+    && badModes.every((x) => x === false) && sess.ALLOWED_MODES.join() === 'plan,acceptEdits,default',
+    wrote[0]?.trim());
+  check('a session that has ended is asked nothing', SessionClass.prototype.requestMode.call({ state: 'exited', child: fake.child }, 'default').ok === false && wrote.length === 1);
+  const sessSrc = read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? '';
+  check('the session\'s mode is the one Claude Code reports on its stream, and the gate is told the same one',
+    /if \(rec\?\.type === 'system' && typeof rec\.permissionMode === 'string'\) this\.#seeMode\(rec\.permissionMode\);/.test(sessSrc)
+    && /if \(this\.gate\) writeMode\(this\.gate\.spool, mode\);/.test(sessSrc) && !/requestMode[\s\S]{0,600}this\.permissionMode = /.test(sessSrc),
+    'asking for a mode changes nothing by itself; the stream saying so does');
+  const head = cvh.headerOf({ permissionMode: 'plan', turns: 2, gated: true });
+  check('the mode in the conversation\'s strip is a control that offers the same three modes, and a read-only conversation has none',
+    head.mode === 'plan' && head.parts[0] === 'mode: plan' && cvh.SESSION_MODES.map((m) => m.mode).join() === sess.ALLOWED_MODES.join()
+    && cvh.headerOf({}, { readOnly: true }).mode === undefined
+    && /this\.hooks\.onMode\(this, b, h\.mode\)/.test(read(path.join(WEB_ROOT, 'chat.js')) ?? '')
+    && /onMode: \(pane, button, now\) => openMenu\(button, SESSION_MODES\.map/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
+    && /\/api\/owned\/\$\{encodeURIComponent\(sessionId\)\}\/mode/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
+    && /const out = s\.requestMode\(asked\?\.mode\);/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
+
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  check('the page sends the answer with its verdict, and the List\'s cards carry the same form',
+    /async function decideRequest\(item, verdict, extra = \{\}\)/.test(appSrc) && /body: JSON\.stringify\(\{ verdict, \.\.\.extra \}\)/.test(appSrc)
+    && /const form = this\.forms\.get\(item\);\s*if \(form\) \{ card\.append\(form\); return card; \}/.test(read(path.join(WEB_ROOT, 'list.js')) ?? '')
+    && /decide\(s\.id, toolUseId, body\.verdict, \{ answers: body\.answers, mode: body\.mode \}\)/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
+}
 
 process.stdout.write('\n== §13 quick replies ==\n');
 
