@@ -1207,26 +1207,37 @@ check('prose without a notice yields nothing', none.size === 0);
     [`2026-01-01T00:00:${String(n).padStart(2, '0')}Z`, `a${n}`, agent, change, risk, `card${n}`, model, verify, fixes, from, `claude-${model}-9`, '-'].join('\t');
   const rows = [
     mo.COLUMNS.join('\t'),
-    line(1, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'pass', 0),
-    line(2, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'pass', 2),
-    line(3, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'fail', 1),
-    line(4, 'crew-backend-expert', 'logic', 'normal', 'opus', 'pass', 0, 'sonnet'),
-    line(5, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'blocked', 0),
-    line(6, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'timeout', 0),
-    line(7, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'none', 0),
-    line(8, 'crew-docs-agent', 'text', 'low', 'haiku', 'none', 0),
+    line(1, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 0),
+    line(2, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 2),
+    line(3, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'fail', 1),
+    line(4, 'crew-backend-expert', 'feature', 'normal', 'opus', 'pass', 0, 'sonnet'),
+    line(5, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'blocked', 0),
+    line(6, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'timeout', 0),
+    line(7, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'none', 0),
+    line(8, 'crew-docs-agent', 'text', 'normal', 'haiku', 'none', 0),
     'a short line\twith two fields',
+    // Lines no hook writes: each is dropped for its own reason, and none of them is counted as work.
+    line(40, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'passed', 0),
+    line(41, 'crew-backend-expert', 'feature', 'normal', 'gpt', 'pass', 0),
+    line(42, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 'two'),
+    line(43, 'crew-backend-expert', 'feature', 'low', 'sonnet', 'pass', 0),
+    line(44, 'crew-backend-expert', 'logic', 'normal', 'sonnet', 'pass', 0),
+    line(45, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 0, 'gpt'),
+    line(46, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 0).replace('2026-01-01T00:00:46Z', 'yesterday'),
+    line(47, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 0).replace('2026-01-01T00:00:47Z', '2026-01-01 00:00:47'),
+    line(48, 'crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', -1),
   ];
-  for (let n = 20; n < 30; n += 1) rows.push(line(n, 'crew-test-expert', 'tests', 'normal', 'sonnet', 'pass', 0));
+  for (let n = 20; n < 30; n += 1) rows.push(line(n, 'crew-test-expert', 'test-run', 'normal', 'sonnet', 'pass', 0));
   fs.writeFileSync(path.join(state, 'model-outcomes.tsv'), `${rows.join('\r\n')}\r\n`);
   fs.writeFileSync(path.join(state, 'crew-model-floors.auto'),
-    '# held one model up\ncrew-test-expert\ttests\tnormal\tsonnet\t6\t3\t2025-12-31T00:00:00Z\ncrew-backend-expert\tlogic\tnormal\topus\t4\t2\t2025-12-31T00:00:00Z\n');
+    '# held one model up\ncrew-test-expert\ttest-run\tnormal\tsonnet\t6\t3\t2025-12-31T00:00:00Z\ncrew-backend-expert\tfeature\tnormal\topus\t4\t2\t2025-12-31T00:00:00Z\n');
 
-  const m = mo.readModels(dir, { costOf: (id) => (id === 'a1' ? 0.5 : id === 'a2' ? 0.25 : null) });
+  const m = mo.readModels(dir, { agents: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a999'] });
+  const costs = mo.readCosts(dir, (id) => (id === 'a1' ? 0.5 : id === 'a2' ? 0.25 : null));
   const be = m.classes.find((c) => c.agent === 'crew-backend-expert');
   const docs = m.classes.find((c) => c.agent === 'crew-docs-agent');
   check('the record is read in the kit\'s column order, CRLF or not, and a line that is not a row is counted, not guessed at',
-    m.measured === true && m.rows === 18 && m.dropped === 1 && m.classes.length === 3 && m.byAgent.a4.escalatedFrom === 'sonnet' && m.byAgent.a4.model === 'opus',
+    m.measured === true && m.rows === 18 && m.dropped === 10 && m.classes.length === 3 && m.byAgent.a4.escalatedFrom === 'sonnet' && m.byAgent.a4.model === 'opus',
     `rows ${m.rows}, dropped ${m.dropped}, classes ${m.classes.length}`);
   check('first try is verify passed with no fix, out of the calls that got a verdict',
     be.runs === 7 && be.verified === 4 && be.firstTry === 2 && be.firstTryRate === 0.5 && be.fixed === 2 && be.failed === 1 && be.escalated === 1,
@@ -1237,8 +1248,40 @@ check('prose without a notice yields nothing', none.size === 0);
     && mp.classRow(be).firstTry === '50%' && mp.classRow(be).firstTryOf === '2 of 4 verified calls passed the first time' && mp.classRow(be).tasks === '7' && mp.classRow(be).escalated === '1');
   check('a class with no verified call has no rate, and is not written as zero',
     docs.firstTryRate === null && mp.classRow(docs).firstTry === '\u2014' && mp.classRow(docs).rate === null && /No call of this class got a verdict/.test(mp.classRow(docs).firstTryOf));
-  check('cost is what was priced and says how many calls that was; a class with none priced shows no number',
-    Math.abs(be.cost - 0.75) < 1e-9 && be.costed === 2 && /2 of 7 calls priced/.test(mp.classRow(be).costNote) && docs.cost === null && mp.classRow(docs).cost === '—');
+  check('a line the hooks could not have written is dropped and its reason kept: a verdict, a model, a count, a risk, a change, a time',
+    m.droppedWhy['verify is not one of the five'] === 1 && m.droppedWhy['model is not a tier'] === 1 && m.droppedWhy['fixes is not a count'] === 2
+    && m.droppedWhy['risk is not critical or normal'] === 1 && m.droppedWhy['change is not one of the eleven'] === 1
+    && m.droppedWhy['escalated_from is not a tier'] === 1 && m.droppedWhy['ts is not a UTC time'] === 2 && m.droppedWhy['fewer than twelve columns'] === 1
+    && be.runs === 7 && /10 lines not read \(/.test(mp.totalsLine(m)), JSON.stringify(m.droppedWhy));
+  check('the words a row may carry are the hooks\' own: five verdicts, eleven kinds of change, two risks',
+    mo.VERIFY.join() === 'pass,fail,none,blocked,timeout' && mo.RISKS.join() === 'critical,normal' && mo.CHANGES.length === 11
+    && mo.CHANGES.every((c) => new RegExp(`[ |]${c}[ |>]`).test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''))
+    && /_AM_CHANGES=' text feature fix-known fix-unknown refactor migration security architecture test-run test-write audit '/.test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''),
+    'compared with the list in hooks/guard-agent-model.sh');
+  const beCost = mp.classRow(be, costs[be.key]); const docsCost = mp.classRow(docs, costs[docs.key]);
+  check('the cost of a class is a floor when only some of its tasks could be priced, and the cell says so: the sum, and how many it is the sum of',
+    Math.abs(costs[be.key].cost - 0.75) < 1e-9 && costs[be.key].costed === 2 && costs[be.key].runs === 7
+    && beCost.cost === '\u2265$0.75 \u00b7 2/7' && beCost.partial === true && /2 of 7 tasks could be priced/.test(beCost.costNote),
+    beCost.cost);
+  check('with every task priced the cell is the estimate; with none it is a dash; before costs are read it says so, and is never a zero',
+    mp.costCell({ cost: 1.2, costed: 3, runs: 3 }, 3).cost === '~$1.20' && mp.costCell({ cost: 1.2, costed: 3, runs: 3 }, 3).partial === false
+    && docsCost.cost === '\u2014' && mp.classRow(be).cost === '\u2026' && mp.costCell({ cost: 0, costed: 0, runs: 4 }, 4).cost === '\u2014');
+  check('a page is sent the lines of the agents it shows and no others',
+    Object.keys(m.byAgent).sort().join() === 'a1,a2,a3,a4,a5,a6,a7,a8' && Object.keys(mo.readModels(dir).byAgent).length === 0
+    && m.all === undefined && Object.keys(mo.readModels(dir, { agents: ['a20', '__proto__', 'constructor'] }).byAgent).join() === 'a20');
+  {
+    const before = mo._stats.parsed;
+    for (let k = 0; k < 20; k += 1) { mo.readModels(dir, { agents: ['a1'] }); mo.readCosts(dir, () => null); }
+    const kept = mo._stats.parsed - before;
+    fs.appendFileSync(path.join(state, 'model-outcomes.tsv'), `${line(50, 'crew-docs-agent', 'text', 'normal', 'haiku', 'pass', 0)}\r\n`);
+    const again = mo.readModels(dir, { agents: ['a50'] });
+    const reread = mo._stats.parsed - before;
+    fs.writeFileSync(path.join(state, 'crew-model-floors.auto'), fs.readFileSync(path.join(state, 'crew-model-floors.auto'), 'utf8') + '# a comment more\n');
+    mo.readModels(dir);
+    check('the record is parsed once and kept until one of its files changes: forty asks cost no parse, a line added costs one',
+      kept === 0 && reread === 1 && again.rows === 19 && again.byAgent.a50?.verify === 'pass' && mo._stats.parsed - before === 2,
+      `parses after 40 asks: ${kept}; after a line was added: ${reread}; after the floors file changed: ${mo._stats.parsed - before}`);
+  }
   check('a hold is offered for lowering only when its latest ten verified calls on that model all passed first time',
     m.suggestions.length === 1 && m.suggestions[0].agent === 'crew-test-expert' && m.suggestions[0].from === 'sonnet' && m.suggestions[0].to === 'haiku'
     && mo.suggestionsOf(mo.parseOutcomes(rows.slice(0, -1).join('\n')).rows, m.floors, []).length === 0,
@@ -1268,13 +1311,13 @@ check('prose without a notice yields nothing', none.size === 0);
   {
     // The same card given twice: its first call failed on sonnet, the second ran on opus. The second's line carries the first.
     const two = [mo.COLUMNS.join('\t'),
-      ['2026-01-01T00:00:01Z', 't1', 'crew-backend-expert', 'logic', 'normal', 'cardX', 'sonnet', 'fail', '1', '-', 'claude-sonnet-9', '-'].join('\t'),
-      ['2026-01-01T00:00:09Z', 't2', 'crew-backend-expert', 'logic', 'normal', 'cardX', 'opus', 'pass', '0', 'sonnet', 'claude-opus-9', '-'].join('\t'),
-      ['2026-01-01T00:00:05Z', 't3', 'crew-test-expert', 'tests', 'normal', 'cardX', 'haiku', 'pass', '0', '-', '-', '-'].join('\t')];
+      ['2026-01-01T00:00:01Z', 't1', 'crew-backend-expert', 'feature', 'normal', 'cardX', 'sonnet', 'fail', '1', '-', 'claude-sonnet-9', '-'].join('\t'),
+      ['2026-01-01T00:00:09Z', 't2', 'crew-backend-expert', 'feature', 'normal', 'cardX', 'opus', 'pass', '0', 'sonnet', 'claude-opus-9', '-'].join('\t'),
+      ['2026-01-01T00:00:05Z', 't3', 'crew-test-expert', 'test-run', 'normal', 'cardX', 'haiku', 'pass', '0', '-', '-', '-'].join('\t')];
     const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-trail-'));
     fs.mkdirSync(path.join(d2, '.claude', 'state'), { recursive: true });
     fs.writeFileSync(path.join(d2, '.claude', 'state', 'model-outcomes.tsv'), `${two.join('\n')}\n`);
-    const m2 = mo.readModels(d2);
+    const m2 = mo.readModels(d2, { agents: ['t1', 't2', 't3'] });
     const trail = mp.workSteps(m2.byAgent.t2).steps;
     check('the earlier call of the same card, by the same agent type, is the first step of the later one; another agent\'s card of the same name is not',
       m2.byAgent.t2.before.length === 1 && m2.byAgent.t2.before[0].agentId === 't1' && m2.byAgent.t1.before.length === 0 && m2.byAgent.t3.before.length === 0
@@ -1288,7 +1331,7 @@ check('prose without a notice yields nothing', none.size === 0);
     && /\['graph', 'timeline', 'list', 'models'\]\.includes\(next\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
     && /\/api\/models\?session=\$\{encodeURIComponent\(asked\)\}/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   check('the command a suggestion offers is the class in three words, with no model in it, and none is offered for a word it could not take',
-    mp.lowerCommand(m.suggestions[0]) === '/crew-loosen crew-test-expert tests normal'
+    mp.lowerCommand(m.suggestions[0]) === '/crew-loosen crew-test-expert test-run normal'
     && mp.lowerCommand({ agent: 'a b', change: 'tests', risk: 'normal' }) === null && mp.lowerCommand({ agent: 'x; rm', change: 't', risk: 'n' }) === null
     && mp.lowerCommand({ agent: 'x', change: 't' }) === null);
   {
@@ -1302,18 +1345,21 @@ check('prose without a notice yields nothing', none.size === 0);
       view.setData(null);
       const waiting = root.children[0]?.textContent;
       view.setData(m);
+      const reading = all(root, (e) => e.tagName === 'TD').filter((e) => e.textContent === '\u2026').length;
+      view.setCosts({ measured: true, costs, sessionsRead: 1 });
+      const partial = all(root, (e) => e.tagName === 'TD' && e.dataset?.partial === 'true').map((e) => e.textContent);
       const ths = all(root, (e) => e.tagName === 'TH').map((e) => e.textContent);
       const rowsOn = all(root, (e) => e.tagName === 'TR').length;
       const meters = all(root, (e) => e.className === 'mv-meter-fill');
       const buttons = all(root, (e) => e.tagName === 'BUTTON');
       buttons[0]?.emit?.('click', {});
       check('the view is the table of the design: agent and change, risk, model, tasks, first try with its bar, escalated, cost',
-        waiting === 'Reading the record…' && ths.join('|') === 'Agent · change|Risk|Model|Tasks|First try|Escalated|Cost' && rowsOn === 1 + m.classes.length
+        waiting === 'Reading the record…' && reading === m.classes.length && partial.join() === '\u2265$0.75 \u00b7 2/7' && ths.join('|') === 'Agent · change|Risk|Model|Tasks|First try|Escalated|Est. cost' && rowsOn === 1 + m.classes.length
         && meters.length === m.classes.filter((c) => c.firstTryRate !== null).length && meters.some((f) => f.style.width === '50%' && f.dataset.tone === 'waiting')
         && meters.some((f) => f.style.width === '100%' && f.dataset.tone === 'good'),
         `${ths.join('|')} · ${rowsOn} rows · ${meters.map((f) => f.style.width).join(',')}`);
       check('the suggestion sits under the table with one button, and pressing it hands over the command and nothing else',
-        buttons.length === 1 && buttons[0].textContent === 'Copy command' && copied.join() === '/crew-loosen crew-test-expert tests normal'
+        buttons.length === 1 && buttons[0].textContent === 'Copy command' && copied.join() === '/crew-loosen crew-test-expert test-run normal'
         && all(root, (e) => e.className === 'mv-suggest-h')[0]?.textContent === 'Suggestion · needs your approval'
         && all(root, (e) => e.className === 'mv-raised').length === 2 && all(root, (e) => e.dataset?.kind === 'raised').length === 4,
         `${buttons.length} button(s); copied: ${copied.join()}`);
@@ -1323,6 +1369,35 @@ check('prose without a notice yields nothing', none.size === 0);
     !/'md[- ']|"md[- "]|\bmd-[a-z]/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '') && /this\.root\.classList\.add\('mv'\);/.test(read(path.join(WEB_ROOT, 'models.js')) ?? '')
     && /^\.mv \{/m.test(read(path.join(WEB_ROOT, 'style.css')) ?? '') && /^\.md \{ font-size: 13px;/m.test(read(path.join(WEB_ROOT, 'style.css')) ?? ''),
     'the first draft used .md, .md-h and .md-table, which are the conversation\'s');
+  /* What the hook really writes. The file beside this one was written by kit/hooks/agent-outcome.sh (see
+     fixtures/make-model-outcomes.sh), and is read here as a project's record. Where bash and git are there, the
+     hook is run again and has to write the same lines, every column but the time. */
+  {
+    const fx = path.join(HERE, 'fixtures');
+    const kept = read(path.join(fx, 'model-outcomes.hook.tsv')) ?? '';
+    const parsed = mo.parseOutcomes(kept);
+    const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-hookrec-'));
+    fs.mkdirSync(path.join(d3, '.claude', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(d3, '.claude', 'state', 'model-outcomes.tsv'), kept);
+    const m3 = mo.readModels(d3, { agents: ['f1', 'f2', 'f3', 'f4', 'f5'] });
+    const back = m3.classes.find((c) => c.agent === 'crew-backend-expert');
+    const trail = mp.workSteps(m3.byAgent.f2).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
+    check('the record the hook wrote is read whole: five lines, none dropped, its header and its words as they are',
+      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0] === mo.COLUMNS.join('\t')
+      && parsed.rows.map((r) => r.verify).join() === 'fail,pass,pass,none,blocked' && parsed.rows.every((r) => mo.CHANGES.includes(r.change) && mo.RISKS.includes(r.risk)),
+      `${parsed.rows.length} rows, ${parsed.dropped} dropped`);
+    check('from the hook\'s own lines: a failed card and its re-run are one class, half first try, one escalated; the re-run\'s trail starts with the failure',
+      back.runs === 2 && back.verified === 2 && back.firstTryRate === 0.5 && back.escalated === 1 && back.failed === 1 && back.fixed === 1
+      && trail === 'Ran on Sonnet \u00b7 fixed once inside the agent [fail] > Re-run on Opus [pass] [escalated]'
+      && m3.classes.length === 4 && m3.classes.find((c) => c.risk === 'critical').notVerified.blocked === 1, trail);
+    const made = spawnSync('bash', [path.join(fx, 'make-model-outcomes.sh'), REPO, fs.mkdtempSync(path.join(os.tmpdir(), 'crew-hookrun-'))], { encoding: 'utf8', timeout: 60000 });
+    const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').slice(1).join('\t')).join('\n');
+    if (made.status === 3 || made.error) skip('the hook, run now, writes the lines that are kept as the fixture', 'tool', `bash or git is not available to run it (${(made.stderr || made.error?.message || '').trim().slice(0, 80)})`);
+    else check('the hook, run now, writes the lines that are kept as the fixture, every column but the time',
+      made.status === 0 && noTime(made.stdout) === noTime(kept) && noTime(kept).split('\n').length === 6,
+      made.status === 0 ? 'six lines, the same' : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
+    fs.rmSync(d3, { recursive: true, force: true });
+  }
   const serverJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   const outcomesJs = read(path.join(STUDIO, 'server', 'lib', 'model-outcomes.js')) ?? '';
   const before = fs.readdirSync(state).sort().join(',');

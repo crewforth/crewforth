@@ -4,7 +4,7 @@
 // verified ones passed the first time, how many were repeated one model up, and what the agents' tokens come to.
 // Under the table: the holds the record could let go of. They are shown, not acted on: the one button copies
 // Crewforth's command for it and lowers nothing.
-import { classRow, suggestionText, emptyNote, totalsLine, SOURCE, LOWER_RULE } from './models-plan.js';
+import { classRow, suggestionText, emptyNote, totalsLine, costLine, SOURCE, LOWER_RULE } from './models-plan.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -13,7 +13,7 @@ function mk(tag, cls, text) {
   return n;
 }
 
-const COLUMNS = [['Agent · change', ''], ['Risk', ''], ['Model', ''], ['Tasks', 'mv-num'], ['First try', 'mv-num'], ['Escalated', 'mv-num'], ['Cost', 'mv-num']];
+const COLUMNS = [['Agent · change', ''], ['Risk', ''], ['Model', ''], ['Tasks', 'mv-num'], ['First try', 'mv-num'], ['Escalated', 'mv-num'], ['Est. cost', 'mv-num']];
 
 export class Models {
   /** @param hooks.onCopy(text) put the command on the clipboard */
@@ -21,10 +21,13 @@ export class Models {
     this.root = root;
     this.hooks = hooks;
     this.data = null;
+    this.costs = null;
     this.root.classList.add('mv');
   }
 
   setData(data) { this.data = data; this.render(); }
+  /** What the classes cost, read apart and less often: { measured, costs: { classKey: { cost, costed, runs } } }. */
+  setCosts(costs) { this.costs = costs; this.render(); }
 
   render() {
     if (this.root.hidden) return;
@@ -34,7 +37,9 @@ export class Models {
     const pane = mk('section', 'mv-pane');
     const head = mk('header', 'mv-head');
     const source = mk('span', 'sub', SOURCE);
-    source.title = totalsLine(d);
+    source.title = [totalsLine(d), costLine(this.costs)].filter(Boolean).join(' \u00b7 ');
+    // Lines the hooks could not have written are not counted, and that is said where the count is.
+    if (d.dropped) source.textContent = `${SOURCE} \u00b7 ${d.dropped} ${d.dropped === 1 ? 'line' : 'lines'} not read`;
     head.append(mk('h2', 'mv-title', 'Which model each kind of task needs'), mk('span', 'row-fill'), source);
     pane.append(head);
 
@@ -46,7 +51,7 @@ export class Models {
     const tbody = mk('tbody');
     const raisedNotes = [];
     for (const c of d.classes) {
-      const r = classRow(c);
+      const r = classRow(c, this.costs?.measured ? (this.costs.costs?.[c.key] ?? { cost: 0, costed: 0, runs: c.runs }) : null);
       const tr = mk('tr');
       const who = mk('td');
       const name = mk('span', null, `${r.who} · ${r.change}`);
@@ -82,6 +87,7 @@ export class Models {
       }
       const cost = mk('td', 'mv-num', r.cost);
       cost.title = r.costNote;
+      if (r.partial) cost.dataset.partial = 'true';
       tr.append(who, risk, model, mk('td', 'mv-num', r.tasks), first, mk('td', 'mv-num', r.escalated), cost);
       tbody.append(tr);
     }

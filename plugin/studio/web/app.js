@@ -637,19 +637,46 @@ let modelsAt = 0;
 const models = new Models(el.models, {
   onCopy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied — send it in your own session to lower the hold'), () => toast(`Not copied — select it: ${text}`)),
 });
+let modelsBusy = false;
 async function loadModels(force = false) {
   if (!current) return;
+  // One request at a time: a slow answer is not asked for again by the next tick, and an answer for a session the
+  // viewer has left is dropped.
+  if (modelsBusy) return;
   if (!force && modelsFor === current && Date.now() - modelsAt < MODELS_POLL_MS) return;
   const asked = current;
   modelsAt = Date.now();
+  modelsBusy = true;
   let data;
   try { data = await getJson(`/api/models?session=${encodeURIComponent(asked)}`); } catch (e) { data = { measured: false, reason: e.message, classes: [], suggestions: [], byAgent: {} }; }
+  finally { modelsBusy = false; }
   if (asked !== current) return;
+  const changed = JSON.stringify(data) !== JSON.stringify(modelsData) || modelsFor !== asked;
   modelsFor = asked;
   modelsData = data;
+  if (!changed) return;
   models.setData(data);
   if (inspectorNode?.kind === 'agent') paintInspector();
 }
+/* What the classes cost is read from the project's transcripts, which is the slow part: asked for apart, once
+   when the view opens and then once a minute while it stays open, and never twice at once. */
+let costsBusy = false;
+let costsFor = null;
+let costsAt = 0;
+async function loadCosts(force = false) {
+  if (!current || costsBusy) return;
+  if (!force && costsFor === current && Date.now() - costsAt < COSTS_POLL_MS) return;
+  const asked = current;
+  costsAt = Date.now();
+  costsBusy = true;
+  let costs = null;
+  try { costs = await getJson(`/api/models/cost?session=${encodeURIComponent(asked)}`); } catch { /* the cells keep saying they are being read */ }
+  finally { costsBusy = false; }
+  if (asked !== current) return;
+  costsFor = asked;
+  models.setCosts(costs);
+}
+const COSTS_POLL_MS = 60000;
 const MODELS_POLL_MS = 5000;
 
 const list = new List(el.list, {
@@ -721,7 +748,9 @@ function setView(next, select = null, remember = true) {
   } else if (view === 'models') {
     // The record is the project's, not the session's: it is read when the view opens and while it stays open.
     models.render();
+    if (costsFor !== current) models.setCosts(null);
     loadModels(true);
+    loadCosts(costsFor !== current);
   } else {
     canvas.fitIfUntouched();
     if (carried && canvas.nodes.has(carried)) canvas.focus(carried);
@@ -2197,7 +2226,7 @@ function paintPulse() {
   pulse.detail.textContent = l.detail ? `· ${l.detail}` : '';
 }
 paintPulse();
-setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') loadModels(); }, 1000);
+setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } }, 1000);
 
 /* -------------------------------------------------------------- home, keys */
 

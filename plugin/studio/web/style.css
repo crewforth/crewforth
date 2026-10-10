@@ -570,6 +570,7 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 .mv-tag[data-tone="pass"] { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 .mv-tag[data-tone="fail"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
 .mv-tag[data-kind="escalated"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
+.mv-table td[data-partial="true"] { color: var(--ink-dim); }
 .mv-meter { display: inline-block; width: 72px; height: 6px; margin-left: 8px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; vertical-align: middle; }
 .mv-meter-fill { display: block; height: 6px; }
 .mv-meter-fill[data-tone="good"] { background: var(--status-good); }

@@ -25,6 +25,11 @@ import path from 'node:path';
 
 export const COLUMNS = ['ts', 'agent_id', 'agent', 'change', 'risk', 'card', 'model', 'verify', 'fixes', 'escalated_from', 'ran_on', 'confidence'];
 const VERIFIED = new Set(['pass', 'fail']);
+// What the hooks write, and nothing else is a row. The words are hooks/guard-agent-model.sh's and
+// hooks/agent-outcome.sh's; a word they do not use is a line this file cannot read, not a new kind of work.
+export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout'];
+export const CHANGES = ['text', 'feature', 'fix-known', 'fix-unknown', 'refactor', 'migration', 'security', 'architecture', 'test-run', 'test-write', 'audit'];
+export const RISKS = ['critical', 'normal'];
 const TIERS = ['haiku', 'sonnet', 'opus', 'fable'];
 const MAX_BYTES = 4 * 1024 * 1024;      // the record is read whole; past this only its end is, and the answer says so
 // How many of a held class's latest verified calls have to have passed first time before lowering it is offered.
@@ -35,18 +40,37 @@ const TRAIL_MAX = 6;
 const stateDir = (cwd) => path.join(cwd, '.claude', 'state');
 const dash = (v) => (v === '-' || v === '' || v == null ? null : v);
 
-/** The rows of a model-outcomes.tsv. A line with fewer than the twelve columns, or with no agent id, is dropped and counted. */
+/** Is this line one the hooks could have written? Every field that is counted or compared has to be what they write. */
+function rowProblem(f) {
+  if (f.length < COLUMNS.length) return 'fewer than twelve columns';
+  if (!/^[A-Za-z0-9._-]+$/.test(f[1])) return 'no agent id';
+  if (!Number.isFinite(Date.parse(f[0])) || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(f[0])) return 'ts is not a UTC time';
+  if (!f[2]) return 'no agent';
+  if (!CHANGES.includes(f[3])) return 'change is not one of the eleven';
+  if (!RISKS.includes(f[4])) return 'risk is not critical or normal';
+  if (f[6] !== '-' && !TIERS.includes(f[6])) return 'model is not a tier';
+  if (!VERIFY.includes(f[7])) return 'verify is not one of the five';
+  if (!/^\d{1,4}$/.test(f[8])) return 'fixes is not a count';
+  if (f[9] !== '-' && !TIERS.includes(f[9])) return 'escalated_from is not a tier';
+  return null;
+}
+
+/**
+ * The rows of a model-outcomes.tsv. A line the hooks could not have written is dropped and counted, with the
+ * first reason of each kind kept so the view can say why the count is not zero.
+ */
 export function parseOutcomes(text) {
   const lines = String(text ?? '').split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l !== '');
-  const out = { rows: [], dropped: 0, header: false };
+  const out = { rows: [], dropped: 0, why: {}, header: false };
   for (const [i, line] of lines.entries()) {
     const f = line.split('\t');
     if (i === 0 && f[0] === 'ts' && f[1] === 'agent_id') { out.header = true; continue; }
-    if (f.length < COLUMNS.length || !/^[A-Za-z0-9._-]+$/.test(f[1])) { out.dropped += 1; continue; }
+    const problem = rowProblem(f);
+    if (problem) { out.dropped += 1; out.why[problem] = (out.why[problem] ?? 0) + 1; continue; }
     const at = Date.parse(f[0]);
     out.rows.push({
-      ts: f[0], at: Number.isFinite(at) ? at : null, agentId: f[1], agent: f[2], change: f[3], risk: f[4], card: dash(f[5]),
-      model: dash(f[6]), verify: f[7], fixes: Number.parseInt(f[8], 10) || 0, escalatedFrom: dash(f[9]), ranOn: dash(f[10]),
+      line: i, ts: f[0], at, agentId: f[1], agent: f[2], change: f[3], risk: f[4], card: dash(f[5]),
+      model: dash(f[6]), verify: f[7], fixes: Number.parseInt(f[8], 10), escalatedFrom: dash(f[9]), ranOn: dash(f[10]),
       confidence: dash(f[11]),
     });
   }
@@ -81,18 +105,15 @@ export function parseLoosened(text) {
 const keyOf = (r) => `${r.agent}\t${r.change}\t${r.risk}`;
 const firstTry = (r) => r.verify === 'pass' && r.fixes === 0;
 
-/**
- * One line per class, the busiest first.
- * @param costOf  (agentId) => USD or null — what that agent's tokens come to at list price, where it was read
- */
-export function classesOf(rows, floors = [], costOf = () => null) {
+/** One line per class, the busiest first. What the class cost is asked apart (`classCosts`): it is read from elsewhere. */
+export function classesOf(rows, floors = []) {
   const by = new Map();
   for (const r of rows) {
     const k = keyOf(r);
     if (!by.has(k)) {
       by.set(k, {
         key: k, agent: r.agent, change: r.change, risk: r.risk, runs: 0, verified: 0, firstTry: 0, fixed: 0, failed: 0, escalated: 0,
-        notVerified: { none: 0, blocked: 0, timeout: 0, other: 0 }, models: {}, ranOn: {}, cost: 0, costed: 0, lastAt: null, floor: null,
+        notVerified: { none: 0, blocked: 0, timeout: 0 }, models: {}, ranOn: {}, lastAt: null, floor: null,
       });
     }
     const c = by.get(k);
@@ -105,18 +126,31 @@ export function classesOf(rows, floors = [], costOf = () => null) {
       if (firstTry(r)) { c.firstTry += 1; m.firstTry += 1; }
       if (r.verify === 'fail') c.failed += 1;
       if (r.fixes > 0) c.fixed += 1;
-    } else if (Object.hasOwn(c.notVerified, r.verify)) c.notVerified[r.verify] += 1;
-    else c.notVerified.other += 1;
+    } else c.notVerified[r.verify] += 1;
     if (r.escalatedFrom) c.escalated += 1;
-    const usd = costOf(r.agentId);
-    if (typeof usd === 'number') { c.cost += usd; c.costed += 1; }
     if (r.at !== null && (c.lastAt === null || r.at > c.lastAt)) c.lastAt = r.at;
   }
   for (const f of floors) { const c = by.get(keyOf(f)); if (c) c.floor = f; }
   return [...by.values()]
     // A rate with nothing under it is not zero: with no verified call there is none.
-    .map((c) => ({ ...c, firstTryRate: c.verified ? c.firstTry / c.verified : null, cost: c.costed ? c.cost : null }))
+    .map((c) => ({ ...c, firstTryRate: c.verified ? c.firstTry / c.verified : null }))
     .sort((a, b) => b.runs - a.runs || a.key.localeCompare(b.key));
+}
+
+/**
+ * What each class's agents come to, where an agent's tokens could be read: { classKey: { cost, costed, runs } }.
+ * `costed` of `runs` were priced; the rest are not in the sum, so the sum is a floor and not the total.
+ * @param costOf  (agentId) => USD or null
+ */
+export function classCosts(rows, costOf) {
+  const out = {};
+  for (const r of rows) {
+    const c = (out[keyOf(r)] ??= { cost: 0, costed: 0, runs: 0 });
+    c.runs += 1;
+    const usd = costOf(r.agentId);
+    if (typeof usd === 'number') { c.cost += usd; c.costed += 1; }
+  }
+  return out;
 }
 
 /**
@@ -156,18 +190,33 @@ function readBounded(file) {
   } finally { fs.closeSync(fd); }
 }
 
+const sigOf = (file) => { try { const st = fs.statSync(file); return `${st.mtimeMs}:${st.size}`; } catch { return '-'; } };
+const FILES = ['model-outcomes.tsv', 'crew-model-floors.auto', 'crew-model-loosened.tsv'];
+const records = new Map();           // cwd -> { sig, value }
+export const _stats = { parsed: 0 };  // how many times a record was really read: the claims count it
+
 /**
- * Everything the Models view shows for one project.
- * @returns measured: false with a reason when the project has no record — which is a project where no crew agent
- *          has finished since model routing was installed, not a project where every agent failed.
+ * The record of one project, read once and kept until one of its three files changes (its time or its size).
+ * A view that asks every few seconds costs three stats, not a parse.
  */
-export function readModels(cwd, { costOf = () => null } = {}) {
+export function readRecord(cwd) {
   const dir = stateDir(cwd);
-  const record = readBounded(path.join(dir, 'model-outcomes.tsv'));
+  const sig = FILES.map((f) => sigOf(path.join(dir, f))).join('|');
+  const hit = records.get(cwd);
+  if (hit && hit.sig === sig) return hit.value;
+  const value = parseRecord(dir, cwd);
+  _stats.parsed += 1;
+  if (records.size > 50) records.clear();
+  records.set(cwd, { sig, value });
+  return value;
+}
+
+function parseRecord(dir, cwd) {
+  const record = readBounded(path.join(dir, FILES[0]));
   if (!record) return { measured: false, reason: 'no .claude/state/model-outcomes.tsv in this project: no crew agent has finished here since model routing was installed', classes: [], suggestions: [], byAgent: {} };
   const parsed = parseOutcomes(record.text);
-  const floors = parseFloors(readBounded(path.join(dir, 'crew-model-floors.auto'))?.text ?? '');
-  const loosened = parseLoosened(readBounded(path.join(dir, 'crew-model-loosened.tsv'))?.text ?? '');
+  const floors = parseFloors(readBounded(path.join(dir, FILES[1]))?.text ?? '');
+  const loosened = parseLoosened(readBounded(path.join(dir, FILES[2]))?.text ?? '');
   const byAgent = {};
   for (const r of parsed.rows) byAgent[r.agentId] = r;           // a resumed agent's latest line is the one that stands
   // A card that failed is given again one model up, to another agent: the calls of one card, oldest first, are
@@ -176,7 +225,8 @@ export function readModels(cwd, { costOf = () => null } = {}) {
   for (const r of parsed.rows) if (r.card) byCard.set(`${r.agent}\t${r.card}`, [...(byCard.get(`${r.agent}\t${r.card}`) ?? []), r]);
   for (const r of Object.values(byAgent)) {
     const same = r.card ? (byCard.get(`${r.agent}\t${r.card}`) ?? []) : [];
-    r.before = same.filter((x) => x.agentId !== r.agentId && (x.at ?? 0) <= (r.at ?? 0)).slice(-TRAIL_MAX)
+    // Earlier in the file, not earlier by the clock: two lines can carry the same second.
+    r.before = same.filter((x) => x.agentId !== r.agentId && x.line < r.line).slice(-TRAIL_MAX)
       .map(({ agentId, model, verify, fixes, ranOn }) => ({ agentId, model, verify, fixes, ranOn }));
   }
   return {
@@ -184,12 +234,36 @@ export function readModels(cwd, { costOf = () => null } = {}) {
     cwd,
     rows: parsed.rows.length,
     dropped: parsed.dropped,
+    droppedWhy: parsed.why,
     truncated: record.truncated,
-    firstAt: parsed.rows.reduce((m, r) => (r.at !== null && (m === null || r.at < m) ? r.at : m), null),
-    classes: classesOf(parsed.rows, floors, costOf),
+    firstAt: parsed.rows.reduce((m, r) => (m === null || r.at < m ? r.at : m), null),
+    classes: classesOf(parsed.rows, floors),
     floors,
     suggestions: suggestionsOf(parsed.rows, floors, loosened),
     loosened,
     byAgent,
+    all: parsed.rows,
   };
+}
+
+/**
+ * What the Models view and the inspector are sent for one project.
+ * @param agents  the ids of the agents of the session on screen: only their lines are sent. Without it, none are:
+ *                a project's record can hold every agent it ever ran, and a page shows one session's.
+ * @returns measured: false with a reason when the project has no record — which is a project where no crew agent
+ *          has finished since model routing was installed, not a project where every agent failed.
+ */
+export function readModels(cwd, { agents = null } = {}) {
+  const rec = readRecord(cwd);
+  if (!rec.measured) return rec;
+  const byAgent = {};
+  for (const id of agents ?? []) if (Object.hasOwn(rec.byAgent, id)) byAgent[id] = rec.byAgent[id];
+  const { all, byAgent: _every, ...rest } = rec;
+  return { ...rest, byAgent };
+}
+
+/** What the classes of one project cost, from the kept record: see `classCosts`. Null when there is no record. */
+export function readCosts(cwd, costOf) {
+  const rec = readRecord(cwd);
+  return rec.measured ? classCosts(rec.all, costOf) : null;
 }

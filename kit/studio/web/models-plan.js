@@ -63,14 +63,30 @@ export function workSteps(row) {
   return { risk: row.risk ?? null, steps, note: row.escalatedFrom ? 'A re-run with the same or a lower model is refused by the gate.' : null };
 }
 
+/**
+ * The cost cell of a class. `cost` is { cost, costed, runs } for it, or null while costs have not been read.
+ * Every call priced: the estimate. Some priced: a floor, marked as one, with how many it is the sum of
+ * ("\u2265$0.75 \u00b7 2/7"), because a sum of two calls must not be read as the cost of seven. None: a dash.
+ */
+export function costCell(cost, runs) {
+  if (!cost) return { cost: '\u2026', costNote: 'Reading what this class cost\u2026', partial: false };
+  if (!cost.costed) return { cost: '\u2014', costNote: 'No agent of this class has a transcript on this machine that could be priced', partial: false };
+  const usd = fmtCost(cost.cost);
+  if (cost.costed >= runs) return { cost: usd, costNote: `All ${runs} ${runs === 1 ? 'task' : 'tasks'} priced, at API list price. An estimate: what a subscription is charged is not known here.`, partial: false };
+  return {
+    cost: `\u2265${usd.replace(/^~/, '')} \u00b7 ${cost.costed}/${runs}`,
+    costNote: `At least this much: ${cost.costed} of ${runs} tasks could be priced; the others have no transcript on this machine. At API list price.`,
+    partial: true,
+  };
+}
+
 /** One class as the view's row: who and what kind of change, how risky, what ran it, and how it went. */
-export function classRow(c) {
+export function classRow(c, cost = null) {
   const models = Object.entries(c.models ?? {}).sort((a, b) => b[1].runs - a[1].runs).map(([t, m]) => `${tierWord(t)} ${m.runs}`).join(' \u00b7 ');
   const apart = [
     c.notVerified?.none ? `${c.notVerified.none} with no verify command` : null,
     c.notVerified?.blocked ? `${c.notVerified.blocked} not run` : null,
     c.notVerified?.timeout ? `${c.notVerified.timeout} timed out` : null,
-    c.notVerified?.other ? `${c.notVerified.other} unreadable` : null,
   ].filter(Boolean);
   return {
     key: c.key,
@@ -91,8 +107,7 @@ export function classRow(c) {
     notVerified: apart.join(' \u00b7 '),
     after: [c.fixed ? `${c.fixed} fixed by the agent` : null, c.failed ? `${c.failed} failed` : null].filter(Boolean).join(' \u00b7 '),
     escalated: String(c.escalated ?? 0),
-    cost: c.cost === null ? '\u2014' : fmtCost(c.cost),
-    costNote: c.cost === null ? 'No agent of this class has a transcript on this machine that could be priced' : `${c.costed} of ${c.runs} calls priced, at API list price`,
+    ...costCell(cost, c.runs),
   };
 }
 
@@ -127,9 +142,11 @@ export function emptyNote(data) {
 export const SOURCE = 'Source: .claude/state/model-outcomes.tsv';
 export const LOWER_RULE = 'Lowering a floor is never automatic. Raising it is.';
 
+/** What was read for cost, for the header's tooltip; null before it has been. */
+export const costLine = (costs) => (costs?.measured ? `${fmtCount(costs.sessionsRead ?? 0)} ${costs.sessionsRead === 1 ? 'session' : 'sessions'} read for cost` : null);
+
 export const totalsLine = (data) => [
   `${plural(data.rows ?? 0, 'task')} in ${plural(data.classes?.length ?? 0, 'class', 'classes')}`,
-  data.dropped ? `${data.dropped} unreadable ${data.dropped === 1 ? 'line' : 'lines'}` : null,
+  data.dropped ? `${data.dropped} ${data.dropped === 1 ? 'line' : 'lines'} not read (${Object.entries(data.droppedWhy ?? {}).map(([why, n]) => `${n}: ${why}`).join('; ') || 'no reason kept'})` : null,
   data.truncated ? 'only the end of a long record was read' : null,
-  `${fmtCount(data.sessionsRead ?? 0)} ${data.sessionsRead === 1 ? 'session' : 'sessions'} read for cost`,
 ].filter(Boolean).join(' · ');
