@@ -1087,6 +1087,86 @@ check('prose without a notice yields nothing', none.size === 0);
   fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true });
 }
 
+/* The two calls the viewer is not asked about: a tool lookup, and Claude Code's own plan file in plan mode. The
+   gate script itself is run on each case. A case that is asked about finds a refusal already waiting in the spool
+   and leaves with it (exit 2); a case that is not asked about leaves in silence (exit 0, nothing printed) with
+   that refusal untouched. */
+{
+  const gate = path.join(STUDIO, 'server', 'hooks', 'studio-gate.sh');
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'crew-plan-')));
+  const home = path.join(base, 'home'); const plans = path.join(home, '.claude', 'plans');
+  const other = path.join(base, 'other-config'); const proj = path.join(base, 'proj');
+  for (const d of [plans, path.join(plans, 'sub'), path.join(other, 'plans'), proj]) fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'real.md'), 'x');
+  let links = true;
+  try {
+    fs.symlinkSync(path.join(proj, 'real.md'), path.join(plans, 'linked.md'));          // a plan "file" that is a link out
+    fs.symlinkSync(proj, path.join(base, 'looks-like-plans'), 'dir');                    // a directory that is not the plans directory
+    fs.symlinkSync(plans, path.join(base, 'way-in'), 'dir');                             // another way to the real plans directory
+  } catch { links = false; }
+  let n = 0;
+  const run = (tool, mode, file, env = {}) => {
+    n += 1;
+    const spool = path.join(base, `spool-${n}`);
+    fs.mkdirSync(path.join(spool, 'ans'), { recursive: true }); fs.mkdirSync(path.join(spool, 'req'));
+    fs.writeFileSync(path.join(spool, '.pause-mode'), 'sleep_pause\n');
+    fs.writeFileSync(path.join(spool, 'ans', `t${n}`), 'deny\n');
+    const input = file === null ? { query: 'select:ExitPlanMode' } : { file_path: file, content: 'x' };
+    const r = spawnSync('bash', [gate, spool], {
+      input: JSON.stringify({ session_id: 's', permission_mode: mode, hook_event_name: 'PreToolUse', tool_name: tool, tool_use_id: `t${n}`, tool_input: input }),
+      encoding: 'utf8', timeout: 20000, env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: '', CREW_GATE_ROLE: 'general', CREW_GATE_MODE: mode, ...env },
+    });
+    const asked = !fs.existsSync(path.join(spool, 'ans', `t${n}`));
+    return r.status === 0 && r.stdout === '' && !asked ? 'silent' : r.status === 2 && asked ? 'asked' : `rc ${r.status}, stdout ${JSON.stringify(r.stdout)}, asked ${asked}`;
+  };
+  if (spawnSync('bash', ['-c', 'exit 0']).status !== 0) {
+    skip('the plan file and the tool lookup are not asked about; every other write is', 'tool', 'bash is not available to run the gate script');
+  } else {
+    const plan = path.join(plans, 'my-plan.md');
+    const got = {
+      'the plan file in plan mode': run('Write', 'plan', plan),
+      'a tool lookup in default mode': run('ToolSearch', 'default', null),
+      'a tool lookup in plan mode': run('ToolSearch', 'plan', null),
+      'CLAUDE_CONFIG_DIR names the plans directory': run('Write', 'plan', path.join(other, 'plans', 'p.md'), { CLAUDE_CONFIG_DIR: other }),
+    };
+    const quiet = Object.entries(got).filter(([, v]) => v !== 'silent');
+    check('the plan file in plan mode and a tool lookup are not asked about, and the gate says nothing: no approval is printed',
+      quiet.length === 0, quiet.map(([k, v]) => `${k}: ${v}`).join(' | ') || Object.keys(got).join(' · '));
+    const must = {
+      'the same file outside plan mode (default)': run('Write', 'default', plan),
+      'the same file outside plan mode (acceptEdits)': run('Write', 'acceptEdits', plan),
+      'an Edit of the plan file': run('Edit', 'plan', plan),
+      'a directory under plans/': run('Write', 'plan', path.join(plans, 'sub', 'x.md')),
+      'a file that is not .md': run('Write', 'plan', path.join(plans, 'notes.txt')),
+      'a path with ../ that ends in plans/': run('Write', 'plan', path.join(plans, 'sub') + '/../escape.md'),
+      'a path with ../ that leaves plans/': run('Write', 'plan', plans + '/../../../proj/real.md'),
+      'a file in the project': run('Write', 'plan', path.join(proj, 'real.md')),
+      'a project\'s own .claude/plans': (fs.mkdirSync(path.join(proj, '.claude', 'plans'), { recursive: true }), run('Write', 'plan', path.join(proj, '.claude', 'plans', 'p.md'))),
+      'the home plans directory when CLAUDE_CONFIG_DIR names another': run('Write', 'plan', plan, { CLAUDE_CONFIG_DIR: other }),
+      'a plans directory that does not exist': run('Write', 'plan', path.join(base, 'nowhere', '.claude', 'plans', 'p.md'), { HOME: path.join(base, 'nowhere') }),
+      'no file path': run('Write', 'plan', ''),
+      'a bare file name': run('Write', 'plan', 'plan.md'),
+    };
+    if (links) {
+      must['a plan file that is a symbolic link'] = run('Write', 'plan', path.join(plans, 'linked.md'));
+      must['a linked directory that is not the plans directory'] = run('Write', 'plan', path.join(base, 'looks-like-plans', 'real.md'));
+    }
+    const leaked = Object.entries(must).filter(([, v]) => v !== 'asked');
+    check('every other write is asked about as before: outside plan mode, an Edit, a directory under plans/, not .md, ../, a link, another directory',
+      leaked.length === 0, leaked.map(([k, v]) => `${k}: ${v}`).join(' | ') || `${Object.keys(must).length} cases, all asked${links ? '' : ' (no link could be made here)'}`);
+    if (links) {
+      check('the directory is compared as it resolves, not as it is spelled: another way in to the real plans directory is the plans directory',
+        run('Write', 'plan', path.join(base, 'way-in', 'via-link.md')) === 'silent');
+    } else skip('the directory is compared as it resolves, not as it is spelled', 'platform', 'no symbolic link could be made here');
+  }
+  const gateSrc = read(gate) ?? '';
+  check('silence is the whole of it: the two cases leave before anything is written to the spool, and neither prints a decision',
+    gateSrc.indexOf('_plan_file && exit 0') > 0 && gateSrc.indexOf('_plan_file && exit 0') < gateSrc.indexOf('mkdir -p "$REQ"')
+    && gateSrc.indexOf('[ "$TOOL" = "ToolSearch" ] && exit 0') < gateSrc.indexOf('_plan_file() {')
+    && !/_plan_file[^\n]*_grant|ToolSearch[^\n]*_grant/.test(gateSrc));
+  fs.rmSync(base, { recursive: true, force: true });
+}
+
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
    hold the arithmetic and the rules, not the prices' truth. */
 {

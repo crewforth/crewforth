@@ -78,6 +78,48 @@ TUID="$(_field tool_use_id || true)"
 SID="$(_field session_id || true)"
 [ -n "$TOOL" ] || exit 0                   # nothing to ask about
 
+# ---- two calls the viewer is not asked about ---------------------------------
+# Silence here is not an approval. The hook says nothing, and Claude Code decides the call as it would with no
+# panel: its own mode rules and every other hook still apply.
+#
+# ToolSearch looks up a tool's definition and changes nothing. A session reaches for it before the tools it has
+# to load first, ExitPlanMode among them, and asking the viewer to allow a lookup taught them to click through.
+[ "$TOOL" = "ToolSearch" ] && exit 0
+
+# The plan file. In plan mode Claude Code writes its plan to a file of its own before it asks to leave the mode,
+# and plan mode lets it write that file and no other. The viewer could only refuse it, and a plan they have not
+# been shown yet is not something to refuse: the plan itself comes to the panel with ExitPlanMode.
+#
+# Every condition has to hold, and anything that cannot be checked is asked about as before:
+#   - the session is in plan mode, by Claude Code's own report in this call
+#   - the tool is Write (an Edit is asked about)
+#   - the file is named *.md, and the path has no ".." in it
+#   - the file is not a symbolic link
+#   - the directory it is in, resolved, IS Claude Code's plans directory, resolved: not a directory under it
+# The two directories are resolved by the same builtin (cd -P) and compared as it reports them, so how a path is
+# spelled (C:\… or /c/…, a link on the way) does not matter. No process is started.
+_plan_file() {
+  [ "$TOOL" = "Write" ] || return 1
+  [ "$(_field permission_mode || true)" = "plan" ] || return 1
+  local fp; fp="$(_field file_path || true)"
+  [ -n "$fp" ] || return 1
+  fp="${fp//\\\\/\\}"                       # JSON writes one backslash as two
+  case "$fp" in *..*) return 1 ;; esac
+  case "$fp" in *.md) ;; *) return 1 ;; esac
+  local dir="${fp%[/\\]*}"
+  [ "$dir" != "$fp" ] && [ -n "$dir" ] || return 1
+  [ -L "$fp" ] && return 1
+  [ -e "$fp" ] && [ ! -f "$fp" ] && return 1
+  local plans="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/plans" was="$PWD" at want
+  cd -P -- "$dir" 2>/dev/null || return 1
+  at="$PWD"
+  if ! cd -P -- "$plans" 2>/dev/null; then cd -- "$was" 2>/dev/null; return 1; fi
+  want="$PWD"
+  cd -- "$was" 2>/dev/null
+  [ -n "$at" ] && [ "$at" = "$want" ]
+}
+_plan_file && exit 0
+
 # Ids become filenames; anything unexpected is refused rather than sanitised
 # into something that might escape the spool.
 case "$TUID" in
