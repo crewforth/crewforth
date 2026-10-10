@@ -92,11 +92,14 @@
         <button id="view-list" class="seg-btn" type="button" role="tab" aria-label="List view" aria-selected="false" aria-controls="list">
           <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h9M5 8h9M5 12h9M2 4h.01M2 8h.01M2 12h.01"/></svg><span class="tb-words">List</span>
         </button>
+        <button id="view-models" class="seg-btn" type="button" role="tab" aria-label="Models view" aria-selected="false" aria-controls="models">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V8M8 13V3M13 13V6"/></svg><span class="tb-words">Models</span>
+        </button>
       </div>
       <button id="tb-group" data-view="graph timeline" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Group <span>Workflow run</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
       <button id="tb-density" data-view="graph" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Density <span>Auto</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
-      <button id="tb-show" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Show <span>All</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
-      <button id="tb-options" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu" aria-label="View options"><span class="tb-name">View<span class="tb-more"> options</span></span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <button id="tb-show" data-view="graph timeline list" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Show <span>All</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <button id="tb-options" data-view="graph timeline list" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu" aria-label="View options"><span class="tb-name">View<span class="tb-more"> options</span></span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
       <span id="foot-note" class="toolbar-note" role="status"></span>
       <span class="toolbar-fill"></span>
       <span class="tb-follow" data-view="timeline" hidden>
@@ -135,6 +138,7 @@
     <div id="canvas" class="canvas"></div>
     <div id="timeline" role="tabpanel" aria-labelledby="view-timeline" hidden></div>
     <div id="list" role="tabpanel" aria-labelledby="view-list" hidden></div>
+    <div id="models" role="tabpanel" aria-labelledby="view-models" hidden></div>
     <div id="first-run" class="first-run" hidden></div>
     <div id="terminal-wait" class="terminal-wait" role="status" hidden></div>
     <div id="dock" role="region" aria-label="Waiting for approval" hidden></div>

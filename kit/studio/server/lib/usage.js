@@ -187,7 +187,14 @@ export async function sessionUsage(session) {
     const agentId = path.basename(jsonl).slice('agent-'.length, -'.jsonl'.length);
     try { usage.add((await readAll(jsonl)).records, agentId); } catch { /* an agent that has not written yet */ }
   }
-  return withTimes(usage, records);
+  // Each agent's own share, by its id: what the Models view prices a class of work with.
+  const agents = {};
+  for (const [who, t] of usage.who) {
+    if (who === 'session' || who.startsWith('agents:')) continue;
+    const r = t.result();
+    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost };
+  }
+  return { ...withTimes(usage, records), agents };
 }
 
 // One answer per session, kept until one of its files changes. The key is what the stream's own signature

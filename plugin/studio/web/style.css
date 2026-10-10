@@ -547,6 +547,54 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 
 /* ------------------------------------------------------------ the list ---
    One column, in the order of what needs the reader. */
+/* ------------------------------------------------------------- models ---
+   The fourth view: the project's record of which model each kind of task needs. One pane, a table that scrolls
+   sideways in a narrow window, and under it what could be lowered. */
+.mv { flex: 1; min-height: 0; min-width: 0; overflow: auto; background: var(--ground); padding: var(--space-4); }
+.mv[hidden] { display: none; }
+.mv-empty { padding: var(--space-6); color: var(--ink-dim); font-size: 13px; }
+.mv-pane { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
+.mv-head { display: flex; align-items: center; gap: var(--space-2); padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.mv-title { margin: 0; font-size: 15px; font-weight: 700; }
+.mv .sub { white-space: normal; flex: initial; min-width: 0; }
+.mv-scroll { overflow-x: auto; }
+.mv-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.mv-table th { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.mv-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.mv-table tbody tr:last-child td { border-bottom: 0; }
+.mv-table .mv-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mv-table td.mv-num { font-family: var(--font-mono); }
+.mv-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 700; white-space: nowrap; background: var(--surface-raised); color: var(--ink-dim); }
+.mv-tag[data-risk="critical"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
+.mv-tag[data-kind="raised"] { margin-left: 6px; color: var(--status-waiting); background: color-mix(in srgb, var(--status-waiting) 14%, transparent); }
+.mv-tag[data-tone="pass"] { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
+.mv-tag[data-tone="fail"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
+.mv-tag[data-kind="escalated"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
+.mv-table td[data-partial="true"] { color: var(--ink-dim); }
+.mv-meter { display: inline-block; width: 72px; height: 6px; margin-left: 8px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; vertical-align: middle; }
+.mv-meter-fill { display: block; height: 6px; }
+.mv-meter-fill[data-tone="good"] { background: var(--status-good); }
+.mv-meter-fill[data-tone="waiting"] { background: var(--status-waiting); }
+.mv-suggest { margin: 16px 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; border: 1px solid color-mix(in srgb, var(--studio-accent) 45%, var(--line)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--studio-accent) 9%, var(--surface)); }
+.mv-suggest-h { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--studio-accent); }
+.mv-suggest-text { margin: 0; font-size: 14px; line-height: 21px; }
+.mv-suggest-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.mv-cmd { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 12px; user-select: all; }
+.mv-raised { display: flex; align-items: baseline; gap: var(--space-2); padding: 0 18px 16px; }
+.mv-raised .mv-tag { margin-left: 0; flex: none; }
+
+/* The inspector's task card: the three lines as they were written, and under them how the work went. */
+.icard { margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; font-size: 12px; line-height: 18px; }
+.icard dt { color: var(--ink-faint); }
+.icard dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.isec-h .mv-tag { float: right; text-transform: none; letter-spacing: 0; }
+.isteps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 20px; }
+.isteps li { display: flex; gap: 10px; align-items: flex-start; }
+.istep-n { flex: none; width: 20px; height: 20px; border-radius: 999px; background: var(--surface-raised); color: var(--ink-dim); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.istep-says { min-width: 0; overflow-wrap: anywhere; }
+.istep-says .mv-tag { margin-left: 6px; }
+.istep-note { margin: 8px 0 0; font-size: 12px; line-height: 16px; color: var(--ink-dim); }
+
 .ls { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; background: var(--ground); padding: var(--space-3) var(--space-4) var(--space-6); }
 .ls[hidden] { display: none; }
 .ls-sec { max-width: 760px; margin: 0 auto var(--space-4); }

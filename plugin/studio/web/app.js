@@ -23,6 +23,8 @@ import { NewSession } from './newsession.js';
 import { Timeline } from './timeline.js';
 import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
+import { Models } from './models.js';
+import { cardOf, cardLines, workSteps } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
@@ -75,6 +77,8 @@ const el = {
   viewGraph: document.getElementById('view-graph'),
   viewTimeline: document.getElementById('view-timeline'),
   viewList: document.getElementById('view-list'),
+  viewModels: document.getElementById('view-models'),
+  models: document.getElementById('models'),
   list: document.getElementById('list'),
   firstRun: document.getElementById('first-run'),
   stageNote: document.getElementById('stage-note'),
@@ -625,6 +629,56 @@ let view = 'graph';
 
 // The List: the same agents by what they need from the reader. A waiting request is a card with its own three
 // answers there, so the dock stands down while the List is the view.
+/* Which model did which class of work in this project (Crewforth's own record), and the holds that could be lowered.
+   Read only: lowering a hold is a Crewforth command the user runs in their own session, never a request from here. */
+let modelsData = null;
+let modelsFor = null;
+let modelsAt = 0;
+const models = new Models(el.models, {
+  onCopy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied — send it in your own session to lower the hold'), () => toast(`Not copied — select it: ${text}`)),
+});
+let modelsBusy = false;
+async function loadModels(force = false) {
+  if (!current) return;
+  // One request at a time: a slow answer is not asked for again by the next tick, and an answer for a session the
+  // viewer has left is dropped.
+  if (modelsBusy) return;
+  if (!force && modelsFor === current && Date.now() - modelsAt < MODELS_POLL_MS) return;
+  const asked = current;
+  modelsAt = Date.now();
+  modelsBusy = true;
+  let data;
+  try { data = await getJson(`/api/models?session=${encodeURIComponent(asked)}`); } catch (e) { data = { measured: false, reason: e.message, classes: [], suggestions: [], byAgent: {} }; }
+  finally { modelsBusy = false; }
+  if (asked !== current) return;
+  const changed = JSON.stringify(data) !== JSON.stringify(modelsData) || modelsFor !== asked;
+  modelsFor = asked;
+  modelsData = data;
+  if (!changed) return;
+  models.setData(data);
+  if (inspectorNode?.kind === 'agent') paintInspector();
+}
+/* What the classes cost is read from the project's transcripts, which is the slow part: asked for apart, once
+   when the view opens and then once a minute while it stays open, and never twice at once. */
+let costsBusy = false;
+let costsFor = null;
+let costsAt = 0;
+async function loadCosts(force = false) {
+  if (!current || costsBusy) return;
+  if (!force && costsFor === current && Date.now() - costsAt < COSTS_POLL_MS) return;
+  const asked = current;
+  costsAt = Date.now();
+  costsBusy = true;
+  let costs = null;
+  try { costs = await getJson(`/api/models/cost?session=${encodeURIComponent(asked)}`); } catch { /* the cells keep saying they are being read */ }
+  finally { costsBusy = false; }
+  if (asked !== current) return;
+  costsFor = asked;
+  models.setCosts(costs);
+}
+const COSTS_POLL_MS = 60000;
+const MODELS_POLL_MS = 5000;
+
 const list = new List(el.list, {
   tileOf: (n) => canvas.tileFor(n),
   dimmed: (n) => canvas.dimmed(n),
@@ -659,13 +713,15 @@ function paintTimelineBar(st) {
  */
 function setView(next, select = null, remember = true) {
   const was = view;
-  view = ['graph', 'timeline', 'list'].includes(next) ? next : 'graph';
+  view = ['graph', 'timeline', 'list', 'models'].includes(next) ? next : 'graph';
   // A view the window opened on by default is not a choice, and is not remembered as one.
   if (remember) store.set('crewforth-studio-view', view);
   const carried = select ?? (was === 'timeline' ? timeline.selected : was === 'list' ? list.selected : canvas.selected) ?? null;
   el.canvasEl.hidden = view !== 'graph';
   el.timeline.hidden = view !== 'timeline';
   el.list.hidden = view !== 'list';
+  el.models.hidden = view !== 'models';
+  el.viewModels.setAttribute('aria-selected', String(view === 'models'));
   el.viewGraph.setAttribute('aria-selected', String(view === 'graph'));
   el.viewTimeline.setAttribute('aria-selected', String(view === 'timeline'));
   el.viewList.setAttribute('aria-selected', String(view === 'list'));
@@ -689,6 +745,12 @@ function setView(next, select = null, remember = true) {
   } else if (view === 'list') {
     list.select(carried && canvas.nodes.get(carried)?.kind === 'agent' ? carried : null);
     list.render();
+  } else if (view === 'models') {
+    // The record is the project's, not the session's: it is read when the view opens and while it stays open.
+    models.render();
+    if (costsFor !== current) models.setCosts(null);
+    loadModels(true);
+    loadCosts(costsFor !== current);
   } else {
     canvas.fitIfUntouched();
     if (carried && canvas.nodes.has(carried)) canvas.focus(carried);
@@ -705,6 +767,7 @@ function goTo(agentId) {
 el.viewGraph.addEventListener('click', () => setView('graph'));
 el.viewTimeline.addEventListener('click', () => setView('timeline'));
 el.viewList.addEventListener('click', () => setView('list'));
+el.viewModels.addEventListener('click', () => setView('models'));
 el.tbFollow.addEventListener('click', () => timeline.setFollow(el.tbFollow.getAttribute('aria-checked') !== 'true'));
 // "Out" is more time on screen, "in" is less: the same way round as the graph's zoom.
 el.tbRangeOut.addEventListener('click', () => timeline.zoom(1));
@@ -906,6 +969,36 @@ function paintAgentOverview(body, n, detail) {
     grid.append(tile);
   }
   body.append(grid);
+
+  // The task card the work started with, and how Crewforth recorded it going: the calls of this card, oldest
+  // first, each with what it ran on and what its verify command said; the last is this agent's.
+  if (n.kind === 'agent') {
+    if (modelsFor !== current) loadModels();
+    const row = modelsFor === current ? (modelsData?.byAgent?.[n.id] ?? null) : null;
+    const lines = cardLines(cardOf(detail?.prompt ?? null), row);
+    const work = workSteps(row);
+    if (lines.length) {
+      const dl = node('dl', 'icard');
+      for (const l of lines) dl.append(node('dt', null, l.label), node('dd', null, l.text));
+      const sec = isection('Task card', dl);
+      if (work.risk) { const tag = node('span', 'mv-tag', work.risk); tag.dataset.risk = work.risk; sec.children[0].append(tag); }
+      body.append(sec);
+    }
+    // No card and no line: an agent that is not a crew agent, and nothing is said about it here.
+    if (row || lines.length) {
+      const ol = node('ol', 'isteps');
+      work.steps.forEach((st, i) => {
+        const li = node('li');
+        const says = node('span', 'istep-says', st.text);
+        if (st.verify) { says.append(' \u00b7 verify'); const v = node('span', 'mv-tag', st.verify); v.dataset.tone = st.tone; says.append(v); }
+        if (st.escalated) { const e = node('span', 'mv-tag', 'escalated'); e.dataset.kind = 'escalated'; says.append(e); }
+        li.append(node('span', 'istep-n', String(i + 1)), says);
+        ol.append(li);
+      });
+      const sec = isection('Model and verify', ...(work.steps.length ? [ol] : []), ...(work.note ? [node('p', 'istep-note', work.note)] : []));
+      body.append(sec);
+    }
+  }
 
   // What it ran on and what its call asked for, and what the model gate or a low-confidence report did to it.
   const models = modelLines(n, lastNodes);
@@ -2133,7 +2226,7 @@ function paintPulse() {
   pulse.detail.textContent = l.detail ? `· ${l.detail}` : '';
 }
 paintPulse();
-setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); }, 1000);
+setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } }, 1000);
 
 /* -------------------------------------------------------------- home, keys */
 
@@ -2185,6 +2278,8 @@ document.addEventListener('keydown', (e) => {
     setView('list');
   } else if (key === 'r') {
     if (view === 'graph') resetLayout();
+  } else if (key === 'm') {
+    setView('models');
   } else if (key === 'j') {
     stepAttention(1);
   } else if (key === 'k') {
