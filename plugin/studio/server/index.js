@@ -27,9 +27,9 @@ import { palette } from './lib/palette.js';
 import { latestVersion, latestVersionCached, kitStatus } from './lib/kit.js';
 import { parsePeers, askAll, ask } from './lib/peers.js';
 import {
-  createSession, getSession, listSessionsOwned, reap, stopAll, ALLOWED_MODES,
+  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES,
 } from './lib/session.js';
-import { decide, pending, alwaysList, revoke } from './lib/permissions.js';
+import { decide, pending, alwaysList, revoke, sweepLeft } from './lib/permissions.js';
 import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
@@ -836,6 +836,10 @@ async function main() {
     process.exit(await selftest());
   }
 
+  // What an earlier server left under the temp directory when it was killed: gone before this one makes its own.
+  // Only a server that is about to run does this; asking for --help or --selftest removes nothing.
+  sweepLeft();
+
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {
       process.stderr.write(`crewforth-studio: unhandled: ${e?.stack ?? e}\n`);
@@ -921,6 +925,7 @@ async function main() {
       // Children outlive their parent unless told otherwise, and a panel that
       // leaks running sessions is worse than one that never started them.
       stopAll();
+      dropSpools();
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 2000).unref();
     });

@@ -80,7 +80,12 @@ function spoolUsable(sessionId) {
 }
 const POLL_MS = 250;
 
-const ROOT = path.join(os.tmpdir(), 'crew-studio-gate');
+// One root per user: on a machine with a shared temp directory, two users' panels do not meet in one directory.
+// Where the platform has no user id to ask for (Windows), the temp directory is already the user's own.
+const UID = typeof process.getuid === 'function' ? process.getuid() : null;
+const ROOT = path.join(os.tmpdir(), UID === null ? 'crew-studio-gate' : `crew-studio-gate-${UID}`);
+// Where spools were kept before the root carried the user: swept, never written to.
+const OLD_ROOT = path.join(os.tmpdir(), 'crew-studio-gate');
 
 export function spoolFor(sessionId) {
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error('bad session id');
@@ -105,6 +110,9 @@ export function prepare(sessionId, mode = null) {
     if (problem) { prepare.refused = `${d}: ${problem}`; return null; }
   }
   prepare.refused = null;
+  // Whose spool this is: the server that made it. A later start reads this to tell a spool that was left behind
+  // (see `sweep`) from one a running server is still using.
+  try { fs.writeFileSync(path.join(spool, OWNER), `${process.pid}\n`, { mode: 0o600 }); } catch { /* swept by age instead */ }
   // The mode an allowance in the panel is said out loud in. It starts as the mode the session starts in, and
   // changes only when the viewer approves a plan into another one (see `decide`).
   writeMode(spool, mode);
@@ -405,4 +413,67 @@ export function cleanup(sessionId) {
   try { fs.rmSync(spoolFor(sessionId), { recursive: true, force: true }); } catch { /* already gone */ }
 }
 
-export const _internals = { HOOK, HOST, HOOK_WAIT_S, ASK_WAIT_S, HARNESS_TIMEOUT_S, ASK_HARNESS_TIMEOUT_S, ROOT };
+const OWNER = 'owner';
+const STALE_MS = 24 * 60 * 60 * 1000;
+
+/** Is a process with this id running? One that exists and is somebody else's counts: it is not ours to judge. */
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e?.code === 'EPERM'; }
+}
+
+/** The latest change time of a directory and of what is in it, two levels down: a spool is no deeper. Links are not followed. */
+function newest(dir, seen, depth = 2) {
+  let at = seen;
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return at; }
+  for (const n of names) {
+    let st;
+    try { st = fs.lstatSync(path.join(dir, n)); } catch { continue; }
+    if (st.mtimeMs > at) at = st.mtimeMs;
+    if (depth > 1 && st.isDirectory()) at = newest(path.join(dir, n), at, depth - 1);
+  }
+  return at;
+}
+
+/** What `sweep` is run on when a server starts: this user's root, and the one from before roots carried the user. */
+export function sweepLeft(opts = {}) {
+  return [...sweep({ ...opts, root: ROOT }), ...(OLD_ROOT === ROOT ? [] : sweep({ ...opts, root: OLD_ROOT }))];
+}
+
+/**
+ * Remove the spools a server left behind.
+ *
+ * A session's spool goes when the session exits (`cleanup`). A server that is killed never sees that exit, and on
+ * Windows a kill runs no handler at all, so its spools stay under the temp directory: settings, the mode, and
+ * whatever was waiting. This is run when a server starts.
+ *
+ * What is removed, and nothing else: a real directory (not a link) directly under the root, named like a session
+ * id, that is this user's alone, and whose owner — the server that made it — is no longer running. A spool with
+ * no owner written (made by a version before this) goes once it has not been touched for a day. A spool whose
+ * owner is running is another panel's, or this one's, and is left.
+ *
+ * @returns the names removed
+ */
+export function sweep({ root = ROOT, alive = pidAlive, self = process.pid, now = Date.now(), staleMs = STALE_MS } = {}) {
+  const gone = [];
+  if (spoolProblem(root) !== null) return gone;
+  let names;
+  try { names = fs.readdirSync(root); } catch { return gone; }
+  for (const name of names) {
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) continue;
+    const dir = path.join(root, name);
+    let st;
+    try { st = fs.lstatSync(dir); } catch { continue; }
+    if (!st.isDirectory() || spoolProblem(dir) !== null) continue;
+    let pid = null;
+    try { pid = Number.parseInt(fs.readFileSync(path.join(dir, OWNER), 'utf8'), 10); } catch { /* no owner written */ }
+    // With no owner to ask, age decides, and the age is the newest thing in the spool: a hook that wrote a request
+    // a minute ago touched a file two levels down, not the directory at the top.
+    const left = Number.isInteger(pid) && pid > 0 ? pid !== self && !alive(pid) : now - newest(dir, st.mtimeMs) > staleMs;
+    if (!left) continue;
+    try { fs.rmSync(dir, { recursive: true, force: true }); gone.push(name); } catch { /* still there; the next start tries again */ }
+  }
+  return gone;
+}
+
+export const _internals = { HOOK, HOST, HOOK_WAIT_S, ASK_WAIT_S, HARNESS_TIMEOUT_S, ASK_HARNESS_TIMEOUT_S, ROOT, OLD_ROOT, UID };

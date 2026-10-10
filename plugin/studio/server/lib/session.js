@@ -353,3 +353,11 @@ export function stopAll() {
     if (s.state !== 'exited' && s.state !== 'failed') s.stop();
   }
 }
+
+/**
+ * Remove the spool of every session this server started. For the server's own way out: it stops its sessions and
+ * leaves before their exits are seen, and the exit is where a spool is otherwise removed.
+ */
+export function dropSpools() {
+  for (const s of sessions.values()) cleanup(s.id);
+}
