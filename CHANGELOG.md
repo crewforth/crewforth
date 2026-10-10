@@ -116,7 +116,9 @@ versioning follows [SemVer](https://semver.org/).
     raised, and the class is counted afresh from then, so the old failures do not raise it straight back and new
     ones do. Only a command you type does it, as with `/crew-approve`: a session cannot write the file, schedule
     the command or hand it to another session, and it is not taken as a session's first message or in a headless
-    one. The card's own rules are not lowered by it: critical work stays on `opus`.
+    one. The card's own rules are not lowered by it: critical work stays on `opus`. Known limit: the shell rule
+    can be passed by a name built from pieces, an interpreter or a parent-folder move; such a write can add a
+    lowering, not only remove one.
   - `guard-agent-model.sh` holds the rules at the tool level and never rewrites a call; `agent-outcome.sh` runs the
     verify command and keeps the record. Which kind of change a task is, is the caller's judgement.
     `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`.
