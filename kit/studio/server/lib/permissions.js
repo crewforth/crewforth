@@ -80,7 +80,12 @@ function spoolUsable(sessionId) {
 }
 const POLL_MS = 250;
 
-const ROOT = path.join(os.tmpdir(), 'crew-studio-gate');
+// One root per user: on a machine with a shared temp directory, two users' panels do not meet in one directory.
+// Where the platform has no user id to ask for (Windows), the temp directory is already the user's own.
+const UID = typeof process.getuid === 'function' ? process.getuid() : null;
+const ROOT = path.join(os.tmpdir(), UID === null ? 'crew-studio-gate' : `crew-studio-gate-${UID}`);
+// Where spools were kept before the root carried the user: swept, never written to.
+const OLD_ROOT = path.join(os.tmpdir(), 'crew-studio-gate');
 
 export function spoolFor(sessionId) {
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error('bad session id');
@@ -416,6 +421,25 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e?.code === 'EPERM'; }
 }
 
+/** The latest change time of a directory and of what is in it, two levels down: a spool is no deeper. Links are not followed. */
+function newest(dir, seen, depth = 2) {
+  let at = seen;
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return at; }
+  for (const n of names) {
+    let st;
+    try { st = fs.lstatSync(path.join(dir, n)); } catch { continue; }
+    if (st.mtimeMs > at) at = st.mtimeMs;
+    if (depth > 1 && st.isDirectory()) at = newest(path.join(dir, n), at, depth - 1);
+  }
+  return at;
+}
+
+/** What `sweep` is run on when a server starts: this user's root, and the one from before roots carried the user. */
+export function sweepLeft(opts = {}) {
+  return [...sweep({ ...opts, root: ROOT }), ...(OLD_ROOT === ROOT ? [] : sweep({ ...opts, root: OLD_ROOT }))];
+}
+
 /**
  * Remove the spools a server left behind.
  *
@@ -443,11 +467,13 @@ export function sweep({ root = ROOT, alive = pidAlive, self = process.pid, now =
     if (!st.isDirectory() || spoolProblem(dir) !== null) continue;
     let pid = null;
     try { pid = Number.parseInt(fs.readFileSync(path.join(dir, OWNER), 'utf8'), 10); } catch { /* no owner written */ }
-    const left = Number.isInteger(pid) && pid > 0 ? pid !== self && !alive(pid) : now - st.mtimeMs > staleMs;
+    // With no owner to ask, age decides, and the age is the newest thing in the spool: a hook that wrote a request
+    // a minute ago touched a file two levels down, not the directory at the top.
+    const left = Number.isInteger(pid) && pid > 0 ? pid !== self && !alive(pid) : now - newest(dir, st.mtimeMs) > staleMs;
     if (!left) continue;
     try { fs.rmSync(dir, { recursive: true, force: true }); gone.push(name); } catch { /* still there; the next start tries again */ }
   }
   return gone;
 }
 
-export const _internals = { HOOK, HOST, HOOK_WAIT_S, ASK_WAIT_S, HARNESS_TIMEOUT_S, ASK_HARNESS_TIMEOUT_S, ROOT };
+export const _internals = { HOOK, HOST, HOOK_WAIT_S, ASK_WAIT_S, HARNESS_TIMEOUT_S, ASK_HARNESS_TIMEOUT_S, ROOT, OLD_ROOT, UID };

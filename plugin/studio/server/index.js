@@ -29,7 +29,7 @@ import { parsePeers, askAll, ask } from './lib/peers.js';
 import {
   createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES,
 } from './lib/session.js';
-import { decide, pending, alwaysList, revoke, sweep } from './lib/permissions.js';
+import { decide, pending, alwaysList, revoke, sweepLeft } from './lib/permissions.js';
 import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
@@ -813,9 +813,6 @@ async function main() {
     process.exit(64);
   }
 
-  // What an earlier server left under the temp directory when it was killed: gone before this one makes its own.
-  sweep();
-
   if (args.help) {
     process.stdout.write(
       'crewforth-studio — visual orchestration panel for Claude Code\n\n' +
@@ -838,6 +835,10 @@ async function main() {
   if (args.selftest) {
     process.exit(await selftest());
   }
+
+  // What an earlier server left under the temp directory when it was killed: gone before this one makes its own.
+  // Only a server that is about to run does this; asking for --help or --selftest removes nothing.
+  sweepLeft();
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {

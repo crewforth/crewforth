@@ -1057,12 +1057,15 @@ check('prose without a notice yields nothing', none.size === 0);
     fs.chmodSync(d, 0o700);
     fs.writeFileSync(path.join(d, 'settings.json'), '{}');
     if (owner !== null) fs.writeFileSync(path.join(d, 'owner'), `${owner}\n`);
-    if (ageMs) { const t = new Date(Date.now() - ageMs); fs.utimesSync(d, t, t); }
+    // Aged all the way down: the age of a spool is the newest thing in it.
+    if (ageMs) { const t = new Date(Date.now() - ageMs); for (const f of [path.join(d, 'settings.json'), path.join(d, 'owner'), path.join(d, 'req'), d]) if (fs.existsSync(f)) fs.utimesSync(f, t, t); }
     return d;
   };
   const DAY = 24 * 60 * 60 * 1000;
   mk('dead-owner', 4001); mk('live-owner', 4002); mk('mine', 4003);
-  mk('no-owner-fresh', null); mk('no-owner-old', null, 2 * DAY); mk('odd.name', 4001); mk('bad-owner-old', 'not a number', 2 * DAY); mk('bad-owner-fresh', 'x');
+  mk('no-owner-fresh', null); mk('no-owner-old', null, 2 * DAY);
+  // Old at the top, with a request written a moment ago two levels down: a spool somebody is using.
+  { const d = mk('no-owner-busy', null, 2 * DAY); fs.writeFileSync(path.join(d, 'req', 'toolu_1.json'), '{}'); const t = new Date(Date.now() - 2 * DAY); fs.utimesSync(d, t, t); fs.utimesSync(path.join(d, 'req'), t, t); } mk('odd.name', 4001); mk('bad-owner-old', 'not a number', 2 * DAY); mk('bad-owner-fresh', 'x');
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sweep-out-'));
   fs.writeFileSync(path.join(outside, 'keep.txt'), 'x');
   let linked = true;
@@ -1071,7 +1074,7 @@ check('prose without a notice yields nothing', none.size === 0);
   const gone = perm.sweep({ root, alive: (pid) => pid === 4002, self: 4003 }).sort();
   const left = fs.readdirSync(root).sort();
   check('a start removes the spools whose server is gone, and only those: a running server\'s, this one\'s and a fresh one with no owner stay',
-    gone.join() === 'bad-owner-old,dead-owner,no-owner-old' && ['live-owner', 'mine', 'no-owner-fresh', 'bad-owner-fresh'].every((n) => left.includes(n))
+    gone.join() === 'bad-owner-old,dead-owner,no-owner-old' && ['live-owner', 'mine', 'no-owner-fresh', 'bad-owner-fresh', 'no-owner-busy'].every((n) => left.includes(n))
     && !left.includes('dead-owner') && !left.includes('no-owner-old'), `removed: ${gone.join()} · left: ${left.join()}`);
   check('the sweep removes nothing it was not sure of: a link is not followed, a file and an oddly named directory are left',
     left.includes('a-file') && left.includes('odd.name') && fs.existsSync(path.join(outside, 'keep.txt')) && (!linked || left.includes('a-link')),
@@ -1082,8 +1085,17 @@ check('prose without a notice yields nothing', none.size === 0);
   const idxSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   check('a spool says which server made it, the server sweeps when it starts, and removes its own on the way out',
     /fs\.writeFileSync\(path\.join\(spool, OWNER\), `\$\{process\.pid\}\\n`/.test(permSrc)
-    && /process\.exit\(64\);\s*\}\s*\/\/[^\n]*\n\s*sweep\(\);/.test(idxSrc) && /stopAll\(\);\s*dropSpools\(\);/.test(idxSrc)
+    && /stopAll\(\);\s*dropSpools\(\);/.test(idxSrc)
     && /export function dropSpools\(\) \{\s*for \(const s of sessions\.values\(\)\) cleanup\(s\.id\);/.test(read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? ''));
+  check('only a server that is about to run sweeps: asking for --help or --selftest removes nothing',
+    (idxSrc.match(/sweepLeft\(\);/g) ?? []).length === 1 && idxSrc.indexOf('sweepLeft();') > idxSrc.indexOf('if (args.help) {')
+    && idxSrc.indexOf('sweepLeft();') > idxSrc.indexOf('process.exit(await selftest());') && idxSrc.indexOf('sweepLeft();') < idxSrc.indexOf('const server = http.createServer('));
+  const uidNow = typeof process.getuid === 'function' ? process.getuid() : null;
+  check('the spools of one user are under a root of their own, and the root from before that is swept and never written to',
+    perm._internals.UID === uidNow && path.basename(perm._internals.ROOT) === (uidNow === null ? 'crew-studio-gate' : `crew-studio-gate-${uidNow}`)
+    && path.basename(perm._internals.OLD_ROOT) === 'crew-studio-gate' && perm.spoolFor('abc').startsWith(perm._internals.ROOT + path.sep)
+    && /sweep\(\{ \.\.\.opts, root: ROOT \}\), \.\.\.\(OLD_ROOT === ROOT \? \[\] : sweep\(\{ \.\.\.opts, root: OLD_ROOT \}\)\)/.test(permSrc)
+    && !/mkdirSync\([^)]*OLD_ROOT|writeFileSync\([^)]*OLD_ROOT/.test(permSrc), path.basename(perm._internals.ROOT));
   fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true });
 }
 
@@ -1146,10 +1158,24 @@ check('prose without a notice yields nothing', none.size === 0);
       'a plans directory that does not exist': run('Write', 'plan', path.join(base, 'nowhere', '.claude', 'plans', 'p.md'), { HOME: path.join(base, 'nowhere') }),
       'no file path': run('Write', 'plan', ''),
       'a bare file name': run('Write', 'plan', 'plan.md'),
+      'the extension in capitals (X.MD)': run('Write', 'plan', path.join(plans, 'X.MD')),
+      'a trailing slash (x.md/)': run('Write', 'plan', `${plans}/x.md/`),
+      'a trailing dot (x.md.)': run('Write', 'plan', `${plans}/x.md.`),
+      'MultiEdit of the plan file': run('MultiEdit', 'plan', plan),
+      'NotebookEdit of the plan file': run('NotebookEdit', 'plan', plan),
     };
     if (links) {
       must['a plan file that is a symbolic link'] = run('Write', 'plan', path.join(plans, 'linked.md'));
       must['a linked directory that is not the plans directory'] = run('Write', 'plan', path.join(base, 'looks-like-plans', 'real.md'));
+    }
+    // A backslash separates directories on Windows and nowhere else. Here it is part of a name, and a path with
+    // one is not the plan file, however much it looks like it; nor is a path spelled with a drive letter.
+    if (process.platform !== 'win32') {
+      must['a backslash before the file name'] = run('Write', 'plan', `${plans}\\p.md`);
+      must['a path spelled with backslashes'] = run('Write', 'plan', `${plans.replace(/\//g, '\\')}\\p.md`);
+      must['a backslash in the middle of the path'] = run('Write', 'plan', `${home}/.claude\\plans/p.md`);
+      must['a drive letter and backslashes'] = run('Write', 'plan', 'C:\\Users\\someone\\.claude\\plans\\p.md');
+      must['a drive letter and slashes'] = run('Write', 'plan', 'C:/Users/someone/.claude/plans/p.md');
     }
     const leaked = Object.entries(must).filter(([, v]) => v !== 'asked');
     check('every other write is asked about as before: outside plan mode, an Edit, a directory under plans/, not .md, ../, a link, another directory',
@@ -1163,7 +1189,9 @@ check('prose without a notice yields nothing', none.size === 0);
   check('silence is the whole of it: the two cases leave before anything is written to the spool, and neither prints a decision',
     gateSrc.indexOf('_plan_file && exit 0') > 0 && gateSrc.indexOf('_plan_file && exit 0') < gateSrc.indexOf('mkdir -p "$REQ"')
     && gateSrc.indexOf('[ "$TOOL" = "ToolSearch" ] && exit 0') < gateSrc.indexOf('_plan_file() {')
-    && !/_plan_file[^\n]*_grant|ToolSearch[^\n]*_grant/.test(gateSrc));
+    && !/_plan_file[^\n]*_grant|ToolSearch[^\n]*_grant/.test(gateSrc)
+    // "\\" is a separator under MSYS and Cygwin only; everywhere else a path with one is refused before it is split.
+    && /msys\*\|cygwin\*\)/.test(gateSrc) && /case "\$fp" in \*\\\\\*\) return 1 ;; esac/.test(gateSrc));
   fs.rmSync(base, { recursive: true, force: true });
 }
 

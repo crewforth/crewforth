@@ -93,7 +93,9 @@ SID="$(_field session_id || true)"
 # Every condition has to hold, and anything that cannot be checked is asked about as before:
 #   - the session is in plan mode, by Claude Code's own report in this call
 #   - the tool is Write (an Edit is asked about)
-#   - the file is named *.md, and the path has no ".." in it
+#   - the file is named *.md (as written: not .MD, not "x.md/" or "x.md."), and the path has no ".." in it
+#   - the path is spelled the way this platform spells one: "\" separates directories on Windows (MSYS, Cygwin)
+#     and nowhere else, so on any other system a path with a "\" in it is asked about
 #   - the file is not a symbolic link
 #   - the directory it is in, resolved, IS Claude Code's plans directory, resolved: not a directory under it
 # The two directories are resolved by the same builtin (cd -P) and compared as it reports them, so how a path is
@@ -103,10 +105,17 @@ _plan_file() {
   [ "$(_field permission_mode || true)" = "plan" ] || return 1
   local fp; fp="$(_field file_path || true)"
   [ -n "$fp" ] || return 1
-  fp="${fp//\\\\/\\}"                       # JSON writes one backslash as two
   case "$fp" in *..*) return 1 ;; esac
   case "$fp" in *.md) ;; *) return 1 ;; esac
-  local dir="${fp%[/\\]*}"
+  local dir
+  case "${OSTYPE:-}" in
+    msys*|cygwin*)
+      fp="${fp//\\\\/\\}"                   # JSON writes one backslash as two
+      dir="${fp%[/\\]*}" ;;
+    *)
+      case "$fp" in *\\*) return 1 ;; esac    # not a separator here: a name with one in it is not the plan file
+      dir="${fp%/*}" ;;
+  esac
   [ "$dir" != "$fp" ] && [ -n "$dir" ] || return 1
   [ -L "$fp" ] && return 1
   [ -e "$fp" ] && [ ! -f "$fp" ] && return 1
