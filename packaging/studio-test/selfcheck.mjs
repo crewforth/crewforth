@@ -1045,6 +1045,48 @@ check('prose without a notice yields nothing', none.size === 0);
     /\.cv-chip \.cv-model \{ flex: none; \}/.test(css) && /\.cv-chip \.cv-task \{ flex: 1 1 0;/.test(css));
 }
 
+/* The spools a killed server leaves behind. Found on Windows by hand: three sessions, the server killed, and three
+   directories still under the temp directory with their settings and mode files. */
+{
+  const perm = await import(`../../kit/studio/server/lib/permissions.js?sweep=${Date.now()}`);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sweep-'));
+  fs.chmodSync(root, 0o700);
+  const mk = (name, owner, ageMs = 0) => {
+    const d = path.join(root, name);
+    fs.mkdirSync(path.join(d, 'req'), { recursive: true, mode: 0o700 });
+    fs.chmodSync(d, 0o700);
+    fs.writeFileSync(path.join(d, 'settings.json'), '{}');
+    if (owner !== null) fs.writeFileSync(path.join(d, 'owner'), `${owner}\n`);
+    if (ageMs) { const t = new Date(Date.now() - ageMs); fs.utimesSync(d, t, t); }
+    return d;
+  };
+  const DAY = 24 * 60 * 60 * 1000;
+  mk('dead-owner', 4001); mk('live-owner', 4002); mk('mine', 4003);
+  mk('no-owner-fresh', null); mk('no-owner-old', null, 2 * DAY); mk('odd.name', 4001); mk('bad-owner-old', 'not a number', 2 * DAY); mk('bad-owner-fresh', 'x');
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sweep-out-'));
+  fs.writeFileSync(path.join(outside, 'keep.txt'), 'x');
+  let linked = true;
+  try { fs.symlinkSync(outside, path.join(root, 'a-link'), 'dir'); } catch { linked = false; }
+  fs.writeFileSync(path.join(root, 'a-file'), 'x');
+  const gone = perm.sweep({ root, alive: (pid) => pid === 4002, self: 4003 }).sort();
+  const left = fs.readdirSync(root).sort();
+  check('a start removes the spools whose server is gone, and only those: a running server\'s, this one\'s and a fresh one with no owner stay',
+    gone.join() === 'bad-owner-old,dead-owner,no-owner-old' && ['live-owner', 'mine', 'no-owner-fresh', 'bad-owner-fresh'].every((n) => left.includes(n))
+    && !left.includes('dead-owner') && !left.includes('no-owner-old'), `removed: ${gone.join()} · left: ${left.join()}`);
+  check('the sweep removes nothing it was not sure of: a link is not followed, a file and an oddly named directory are left',
+    left.includes('a-file') && left.includes('odd.name') && fs.existsSync(path.join(outside, 'keep.txt')) && (!linked || left.includes('a-link')),
+    linked ? 'a link to a directory outside was planted, and the directory is whole' : 'no link could be made here; the rest was checked');
+  check('a root that is not there, or not this user\'s alone to read, is swept of nothing',
+    perm.sweep({ root: path.join(root, 'nowhere') }).length === 0 && perm.sweep({ root: path.join(root, 'a-file') }).length === 0);
+  const permSrc = read(path.join(STUDIO, 'server', 'lib', 'permissions.js')) ?? '';
+  const idxSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('a spool says which server made it, the server sweeps when it starts, and removes its own on the way out',
+    /fs\.writeFileSync\(path\.join\(spool, OWNER\), `\$\{process\.pid\}\\n`/.test(permSrc)
+    && /process\.exit\(64\);\s*\}\s*\/\/[^\n]*\n\s*sweep\(\);/.test(idxSrc) && /stopAll\(\);\s*dropSpools\(\);/.test(idxSrc)
+    && /export function dropSpools\(\) \{\s*for \(const s of sessions\.values\(\)\) cleanup\(s\.id\);/.test(read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? ''));
+  fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true });
+}
+
 /* What a session spent. The prices were read from the pricing page on the day pricing.js names; the claims below
    hold the arithmetic and the rules, not the prices' truth. */
 {

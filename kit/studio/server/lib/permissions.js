@@ -105,6 +105,9 @@ export function prepare(sessionId, mode = null) {
     if (problem) { prepare.refused = `${d}: ${problem}`; return null; }
   }
   prepare.refused = null;
+  // Whose spool this is: the server that made it. A later start reads this to tell a spool that was left behind
+  // (see `sweep`) from one a running server is still using.
+  try { fs.writeFileSync(path.join(spool, OWNER), `${process.pid}\n`, { mode: 0o600 }); } catch { /* swept by age instead */ }
   // The mode an allowance in the panel is said out loud in. It starts as the mode the session starts in, and
   // changes only when the viewer approves a plan into another one (see `decide`).
   writeMode(spool, mode);
@@ -403,6 +406,48 @@ export function watch(sessionId, onChange) {
 
 export function cleanup(sessionId) {
   try { fs.rmSync(spoolFor(sessionId), { recursive: true, force: true }); } catch { /* already gone */ }
+}
+
+const OWNER = 'owner';
+const STALE_MS = 24 * 60 * 60 * 1000;
+
+/** Is a process with this id running? One that exists and is somebody else's counts: it is not ours to judge. */
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e?.code === 'EPERM'; }
+}
+
+/**
+ * Remove the spools a server left behind.
+ *
+ * A session's spool goes when the session exits (`cleanup`). A server that is killed never sees that exit, and on
+ * Windows a kill runs no handler at all, so its spools stay under the temp directory: settings, the mode, and
+ * whatever was waiting. This is run when a server starts.
+ *
+ * What is removed, and nothing else: a real directory (not a link) directly under the root, named like a session
+ * id, that is this user's alone, and whose owner — the server that made it — is no longer running. A spool with
+ * no owner written (made by a version before this) goes once it has not been touched for a day. A spool whose
+ * owner is running is another panel's, or this one's, and is left.
+ *
+ * @returns the names removed
+ */
+export function sweep({ root = ROOT, alive = pidAlive, self = process.pid, now = Date.now(), staleMs = STALE_MS } = {}) {
+  const gone = [];
+  if (spoolProblem(root) !== null) return gone;
+  let names;
+  try { names = fs.readdirSync(root); } catch { return gone; }
+  for (const name of names) {
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) continue;
+    const dir = path.join(root, name);
+    let st;
+    try { st = fs.lstatSync(dir); } catch { continue; }
+    if (!st.isDirectory() || spoolProblem(dir) !== null) continue;
+    let pid = null;
+    try { pid = Number.parseInt(fs.readFileSync(path.join(dir, OWNER), 'utf8'), 10); } catch { /* no owner written */ }
+    const left = Number.isInteger(pid) && pid > 0 ? pid !== self && !alive(pid) : now - st.mtimeMs > staleMs;
+    if (!left) continue;
+    try { fs.rmSync(dir, { recursive: true, force: true }); gone.push(name); } catch { /* still there; the next start tries again */ }
+  }
+  return gone;
 }
 
 export const _internals = { HOOK, HOST, HOOK_WAIT_S, ASK_WAIT_S, HARNESS_TIMEOUT_S, ASK_HARNESS_TIMEOUT_S, ROOT };

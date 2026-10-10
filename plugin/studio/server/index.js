@@ -27,9 +27,9 @@ import { palette } from './lib/palette.js';
 import { latestVersion, latestVersionCached, kitStatus } from './lib/kit.js';
 import { parsePeers, askAll, ask } from './lib/peers.js';
 import {
-  createSession, getSession, listSessionsOwned, reap, stopAll, ALLOWED_MODES,
+  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES,
 } from './lib/session.js';
-import { decide, pending, alwaysList, revoke } from './lib/permissions.js';
+import { decide, pending, alwaysList, revoke, sweep } from './lib/permissions.js';
 import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
@@ -813,6 +813,9 @@ async function main() {
     process.exit(64);
   }
 
+  // What an earlier server left under the temp directory when it was killed: gone before this one makes its own.
+  sweep();
+
   if (args.help) {
     process.stdout.write(
       'crewforth-studio — visual orchestration panel for Claude Code\n\n' +
@@ -921,6 +924,7 @@ async function main() {
       // Children outlive their parent unless told otherwise, and a panel that
       // leaks running sessions is worse than one that never started them.
       stopAll();
+      dropSpools();
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 2000).unref();
     });
