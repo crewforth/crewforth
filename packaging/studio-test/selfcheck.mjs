@@ -1383,7 +1383,8 @@ check('prose without a notice yields nothing', none.size === 0);
     const back = m3.classes.find((c) => c.agent === 'crew-backend-expert');
     const trail = mp.workSteps(m3.byAgent.f2).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
     check('the record the hook wrote is read whole: five lines, none dropped, its header and its words as they are',
-      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0] === mo.COLUMNS.join('\t')
+      // A Windows checkout hands this file over with CRLF line ends; the reader takes either, and so does this.
+      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0].replace(/\r$/, '') === mo.COLUMNS.join('\t')
       && parsed.rows.map((r) => r.verify).join() === 'fail,pass,pass,none,blocked' && parsed.rows.every((r) => mo.CHANGES.includes(r.change) && mo.RISKS.includes(r.risk)),
       `${parsed.rows.length} rows, ${parsed.dropped} dropped`);
     check('from the hook\'s own lines: a failed card and its re-run are one class, half first try, one escalated; the re-run\'s trail starts with the failure',
