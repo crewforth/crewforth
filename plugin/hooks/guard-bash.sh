@@ -1901,6 +1901,9 @@ _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names i
 # for the file tools): the user's rules, the floors, the list of critical paths, and the records of calls and results.
 # A command that NAMES one is refused, reading included; model-outcomes.tsv, the plain record, may be read. The
 # name is `crew-model…` for all of them (the rules, the floors, the user's lowerings, the records of calls).
+# HONEST SCOPE: this stops an accident and a plain attempt, not a determined one. A command that builds the name
+# from pieces (`f=crew-mo; … ${f}del-loosened.tsv`), writes through an interpreter (`python3 -c`), or moves a
+# folder above it (`cd .claude && mv state x`) spells none of what is matched here and is past this rule.
 _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$CMD_UQ" in *crew-model*|*crew-critical-paths*) rc=0 ;; esac
   # ...and by a glob that could reach one, or the folder itself in a command that moves, copies or removes: a word

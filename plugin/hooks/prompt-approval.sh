@@ -473,9 +473,14 @@ if [ "$OP" = loosen ]; then
   LF="$_AMS/crew-model-loosened.tsv"
   mkdir -p "$_AMS" 2>/dev/null || nol "the state folder could not be made."
   [ -s "$LF" ] || { printf 'ts\tagent\tchange\trisk\tfrom\tto\n' > "$LF"; } 2>/dev/null || nol "the record could not be written."
-  { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$LTS" "$LO_AGENT" "$LO_CHANGE" "$LO_RISK" "$_AMF_TIER" "$LTO" >> "$LF"; } 2>/dev/null || nol "the record could not be written."
-  say "Crewforth: floor lowered - $LO_AGENT / $LO_CHANGE / $LO_RISK from $_AMF_TIER to $LTO. Its outcomes are counted afresh from now." \
-      "The user lowered the calibration floor of $LO_AGENT / $LO_CHANGE / $LO_RISK from $_AMF_TIER to $LTO with their own command. The card's own rules still hold (critical work on opus, no verify command on sonnet or above, the agent's floor). If the class fails its first try too often again, the floor rises again."
+  LFROM="$_AMF_TIER"
+  { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$LTS" "$LO_AGENT" "$LO_CHANGE" "$LO_RISK" "$LFROM" "$LTO" >> "$LF"; } 2>/dev/null || nol "the record could not be written."
+  # Said only when it is TRUE: the floor is read back the way the gate will read it. A line that was written and
+  # does not count (a clock that went backwards, a floors file that changed underneath) is not a lowering.
+  _am_floor_now "$LO_AGENT" "$LO_CHANGE" "$LO_RISK"
+  { [ "$_AMF_LOOSE" = 1 ] && [ "$_AMF_EFF" = "$LTO" ]; } || nol "the line was written but the floor read back is still ${_AMF_EFF:-$LFROM}, so it is not in force (is the clock behind the time the floor was raised, $_AMF_WHEN?)."
+  say "Crewforth: floor lowered - $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO. Its outcomes are counted afresh from now." \
+      "The user lowered the calibration floor of $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO with their own command. The card's own rules still hold (critical work on opus, no verify command on sonnet or above, the agent's floor). If the class fails its first try too often again, the floor rises again."
 fi
 
 _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
