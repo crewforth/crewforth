@@ -54,6 +54,28 @@ _am_state
 # was three hours off on a machine at +0300 (measured on Windows, bash 5.3; macOS's bash 3.2 took the `date` branch
 # and CI runs in UTC, so neither showed it). One process, on a hook that is not on any hot path.
 _ao_now(){ _AON="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; case "$_AON" in [0-9][0-9][0-9][0-9]-*Z) ;; *) _AON=- ;; esac; }
+# One writer at a time on the record: a line is added when an agent stops and a line is rewritten when its model
+# arrives, and two hooks can run at once. The lock is a folder (made, or not) with the second it was taken inside.
+#   held now          waited for, three seconds at most, then gone ahead without it: this hook does not hang an
+#                     agent over a file, and the holder keeps its lock.
+#   older than 30 s   nobody's: a hook that died holding it left it, and every write after it paid the three
+#                     seconds. Removed and taken again.
+#   no stamp          its holder died between making it and stamping it: cleared after the wait.
+_ao_lock(){ local i=0 at now
+  _AOL="$_AMS/.outcomes.lock"
+  while [ "$i" -lt 6 ]; do
+    if mkdir "$_AOL" 2>/dev/null; then date +%s > "$_AOL/at" 2>/dev/null; return 0; fi
+    now="$(date +%s 2>/dev/null)"; at=""; [ -f "$_AOL/at" ] && IFS= read -r at < "$_AOL/at"
+    case "$at" in ''|*[!0-9]*) at="" ;; esac; case "$now" in ''|*[!0-9]*) now=0 ;; esac
+    if [ -n "$at" ] && [ $((now - at)) -gt 30 ]; then rm -rf "$_AOL" 2>/dev/null; i=$((i+1)); continue; fi
+    if [ "$i" -ge 3 ]; then
+      [ -z "$at" ] && { rm -rf "$_AOL" 2>/dev/null; i=$((i+1)); continue; }
+      break
+    fi
+    i=$((i+1)); sleep 1
+  done
+  _AOL=""; return 0; }
+_ao_unlock(){ [ -n "${_AOL:-}" ] && rm -rf "$_AOL" 2>/dev/null; _AOL=""; return 0; }
 _ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
   local s="$1"
   s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
@@ -324,14 +346,23 @@ case "$EV" in
     ESCL=0; case $'\n'"$LAST" in *$'\n'"escalate:"*) ESCL=1 ;; esac      # a write to a critical path was refused
     LAST="${LAST##*$'\n'}"
     case "$LAST" in "confidence: high") CONF=high ;; "confidence: low") CONF=low ;; *) CONF=- ;; esac
-    RAN=-; if [ -f "$ATP" ]; then RAN="$(grep -m1 -o '"model":"[^"]*"' "$ATP" 2>/dev/null)" || RAN=""; RAN="${RAN#\"model\":\"}"; RAN="${RAN%\"}"; case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac; fi
+    # The model the agent ran on. Claude Code names it in the answer to the Agent call (resolvedModel), which the
+    # PostToolUse branch below keeps under the agent's id: for a background call that answer comes when the agent is
+    # launched, so it is here already; for a foreground call it comes after this, and that branch then writes it
+    # into the line this one adds. Failing that, the first model the agent's own transcript names; failing that, `-`.
+    RAN=-
+    if [ -s "$_AMD/ran/$AID" ]; then IFS= read -r RAN < "$_AMD/ran/$AID" || true
+    elif [ -f "$ATP" ]; then RAN="$(grep -m1 -o '"model":"[^"]*"' "$ATP" 2>/dev/null)" || RAN=""; RAN="${RAN#\"model\":\"}"; RAN="${RAN%\"}"; fi
+    case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac
     [ "$RES" = fail ] && printf '%s\n' "$ASK" >> "$_AMD/fails/$CID" 2>/dev/null
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
     [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\n' > "$TSV" 2>/dev/null
     _ao_now
+    _ao_lock
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" >> "$TSV" 2>/dev/null
+    _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
     exit 0 ;;
 
@@ -339,6 +370,25 @@ case "$EV" in
     _json_slice "$INPUT" tool_name >/dev/null; case "$_JS" in Agent|Task) ;; *) exit 0 ;; esac
     _json_slice "$INPUT" agentId >/dev/null; AID="$_JS"
     case "$AID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+    # The model the agent really ran on, as Claude Code resolved it (measured, 2.1.294: tool_response.resolvedModel,
+    # in the answer of a finished foreground call and of a background launch alike). Kept under the agent's id for
+    # the stop hook, and written into the agent's line where that line is there already.
+    _json_keycount "$INPUT" resolvedModel
+    if [ "$_KC" = 1 ]; then
+      _json_slice "$INPUT" resolvedModel >/dev/null; RM="$_JS"
+      case "$RM" in ''|*[!A-Za-z0-9._:\[\]-]*) RM="" ;; esac
+      if [ -n "$RM" ] && [ "${#RM}" -le 80 ] && mkdir -p "$_AMD/ran" 2>/dev/null; then
+        printf '%s\n' "$RM" > "$_AMD/ran/$AID" 2>/dev/null
+        TSV="$_AMS/model-outcomes.tsv"
+        if [ -f "$TSV" ] && grep -q "$(printf '\t')$AID$(printf '\t')" "$TSV" 2>/dev/null; then
+          _ao_lock
+          awk -F'\t' -v OFS='\t' -v A="$AID" -v M="$RM" 'NR > 1 && $2 == A && NF >= 11 { $11 = M } { print }' "$TSV" > "$TSV.tmp" 2>/dev/null \
+            && [ "$(wc -l < "$TSV.tmp")" = "$(wc -l < "$TSV")" ] && mv "$TSV.tmp" "$TSV" 2>/dev/null
+          rm -f "$TSV.tmp" 2>/dev/null
+          _ao_unlock
+        fi
+      fi
+    fi
     R="$_AMD/results/$AID"; [ -f "$R" ] || exit 0
     _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
     _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"

@@ -7904,7 +7904,7 @@ sec "== 12h3) model routing v2: the card, the risk class, verify-then-escalate, 
 # answers "block" keeps the agent working; PostToolUse's additionalContext reaches the session; an Agent call that
 # leaves run_in_background out started in the background.
 _V2G="$HOOKS/guard-agent-model.sh"; _V2O="$HOOKS/agent-outcome.sh"
-if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 24
+if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 26
 elif [ ! -f "$_V2O" ] || [ ! -f "$_V2G" ]; then fail "hooks/agent-outcome.sh or guard-agent-model.sh is missing — nothing verifies an agent's work or holds the model to the risk"
 else
 _v2="$(mktemp -d)"; _v2="$(cd -P "$_v2" && pwd)"; _v2p="$_v2/p"
@@ -8397,6 +8397,49 @@ unset _V2ENV
 _v2call crew-backend-expert opus 'src/payments/p.ts' feature true ',"run_in_background":false,"run_in_background":true'; { [ "$_v2rc" = 2 ] && grep -q 'run_in_background more than once' "$_v2/err"; } || _v2b="$_v2b run_in_background-twice-passed:$_v2rc"
 [ -z "$_v2b" ] && pass "refusals of the model gate and of the write-time check are written to the gate log (5 of 5); an agent id that is empty or unreadable does not open the write-time check on a critical path, and does not close an ordinary file; run_in_background named twice is refused" \
                || fail "gate log, agent id, run_in_background:$_v2b"
+
+# ---- ran_on: the model Claude Code says the agent ran on -------------------------------------------------------
+# The answer to an Agent call names it (tool_response.resolvedModel; measured on Claude Code 2.1.294 for a finished
+# foreground call and for a background launch). For a foreground call that answer comes AFTER the agent stopped, so
+# the line is there already and is completed; for a background call it comes at the launch, before the line.
+_v2new; _v2b=""
+_v2ran(){ awk -F'\t' -v a="$1" '$2 == a { print $11 }' "$_v2p/.claude/state/model-outcomes.tsv" 2>/dev/null; }
+# $1 agent id, $2 status, $3 the resolvedModel field as JSON (or nothing)
+_v2postm(){ printf '{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"prompt":"p \\"resolvedModel\\":\\"decoy\\""},"tool_response":{"status":"%s","agentId":"%s"%s,"content":"x"}}' "$2" "$1" "${3:-}" | ( cd "$_v2p" && _v2e bash "$_V2O" >/dev/null 2>&1 ); }
+_v2call crew-backend-expert sonnet 'src/ui/m1.ts' feature none; _v2start fg1; _v2stop fg1 >/dev/null
+[ "$(_v2ran fg1)" = "-" ] || _v2b="$_v2b [before the answer: $(_v2ran fg1)]"
+_v2postm fg1 completed ',"resolvedModel":"claude-sonnet-5-5"'; [ "$(_v2ran fg1)" = "claude-sonnet-5-5" ] || _v2b="$_v2b [foreground: $(_v2ran fg1)]"
+_v2call crew-backend-expert opus 'src/ui/m2.ts' feature none ',"run_in_background":true'; _v2start bg1
+_v2postm bg1 async_launched ',"resolvedModel":"claude-opus-5-5[1m]","isAsync":true'; _v2stop bg1 >/dev/null
+[ "$(_v2ran bg1)" = "claude-opus-5-5[1m]" ] || _v2b="$_v2b [background: $(_v2ran bg1)]"
+_v2call crew-backend-expert sonnet 'src/ui/m3.ts' feature none; _v2start no1; _v2postm no1 async_launched ',"isAsync":true'; _v2stop no1 >/dev/null
+[ "$(_v2ran no1)" = "-" ] || _v2b="$_v2b [no model named: $(_v2ran no1)]"
+_v2call crew-backend-expert sonnet 'src/ui/m4.ts' feature none; _v2start od1; _v2stop od1 >/dev/null; _v2postm od1 completed ',"resolvedModel":"a b\tc"'
+[ "$(_v2ran od1)" = "-" ] || _v2b="$_v2b [a model that is not a name was written: $(_v2ran od1)]"
+[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 12' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
+[ -d "$_v2p/.claude/state/.outcomes.lock" ] && _v2b="$_v2b the-lock-was-left-behind"
+[ -z "$_v2b" ] && pass "ran_on is the model the answer to the Agent call names: written into the agent's line when the answer follows the stop (a foreground call), there already when it came at the launch (a background call), '-' when the answer names none or names something that is not a model; a decoy of the field inside the task's text is not read, the other lines and the twelve columns stay as they were, and no lock is left behind" \
+               || fail "ran_on:$_v2b"
+
+# The lock on the record, when a hook died holding it. A lock older than 30 s is nobody's: it is removed and taken
+# again, so a write does not wait behind it. A lock that is being held is waited for, three seconds at most, and
+# then the line is written without it (this hook does not hang an agent over a file).
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"; _v2lk="$_v2p/.claude/state/.outcomes.lock"
+_v2call crew-backend-expert sonnet 'src/ui/k1.ts' feature none; _v2start k1
+mkdir -p "$_v2lk"; echo $(( $(date +%s) - 120 )) > "$_v2lk/at"
+_t0=$SECONDS; _v2stop k1 >/dev/null; _t1=$((SECONDS - _t0))
+{ [ -n "$(_v2ran k1)" ] && [ "$_t1" -le 2 ] && [ ! -d "$_v2lk" ]; } || _v2b="$_v2b [a lock 120 s old: line written: $([ -n "$(_v2ran k1)" ] && echo yes || echo no), waited ${_t1}s, lock still there: $([ -d "$_v2lk" ] && echo yes || echo no)]"
+_v2call crew-backend-expert sonnet 'src/ui/k2.ts' feature none; _v2start k2
+mkdir -p "$_v2lk"; date +%s > "$_v2lk/at"
+_t0=$SECONDS; _v2stop k2 >/dev/null; _t2=$((SECONDS - _t0))
+{ [ -n "$(_v2ran k2)" ] && [ "$_t2" -ge 2 ] && [ "$_t2" -le 8 ] && [ -d "$_v2lk" ]; } || _v2b="$_v2b [a lock held now: line written: $([ -n "$(_v2ran k2)" ] && echo yes || echo no), waited ${_t2}s, the holder's lock removed: $([ -d "$_v2lk" ] && echo no || echo yes)]"
+rm -rf "$_v2lk"
+_v2call crew-backend-expert sonnet 'src/ui/k3.ts' feature none; _v2start k3
+mkdir -p "$_v2lk"                                   # made, and its holder died before it stamped it
+_v2stop k3 >/dev/null; { [ -n "$(_v2ran k3)" ] && [ ! -d "$_v2lk" ]; } || _v2b="$_v2b a-lock-with-no-stamp-was-not-cleared"
+[ "$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")" = 4 ] || _v2b="$_v2b [lines: $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv"), want 4]"
+[ -z "$_v2b" ] && pass "the lock on the record does not outlive its holder: one stamped 120 s ago is removed and taken (the line is written in ${_t1}s), one with no stamp is cleared after the wait, and one held now is waited for (${_t2}s) and left to its holder, with the line still written" \
+               || fail "the lock on the record:$_v2b"
 
 # ---- 6. calibration tightens by itself, and nothing but the user loosens ---------------------------------------
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"
