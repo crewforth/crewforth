@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Crewforth/crewforth/main/assets/logo.svg" alt="Crewforth" width="420"></p>
 
-**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 12 specialist agents that each own a domain, 40 skills that hold the method, 10 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 12 specialist agents that each own a domain, 40 skills that hold the method, 12 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 ```bash
 npx crewforth init              # set up a new project
@@ -31,6 +31,7 @@ Then open Claude Code and run `/crew-doctor` to confirm the setup. Requires bash
 - **12 specialist agents**, from `crew-planner` to `crew-commit-agent`, each owning one domain.
 - **40 skills** holding the method: testing, migrations, API contracts, observability, accessibility, deployment.
 - **12 commands**, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`.
+- In `auto` mode a commit or a push waits for you: type `/crew-approve` and what was just refused is approved, tied to what is staged.
 - **Safe adoption.** `adopt` lands everything on a branch, staged and uncommitted; `main` is never touched.
 
 ## Updating

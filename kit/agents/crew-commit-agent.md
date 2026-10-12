@@ -96,8 +96,10 @@ write is refused because the file is on a critical path, do not reach it another
   approval prompt only the user can answer — so present the message FIRST, then run the commit yourself and let the user
   approve it at the prompt. Never hand the user a command to paste into their own terminal. In `auto` and `dontAsk`
   the prompt reaches nobody: stage, then ask in this shape and with nothing after it — the message in ONE code block,
-  and under it one line, the sentence in the user's language and the command as it is: "If you approve, send only
-  this: `/crew-approve commit`" (or `/crew-approve push`, `/crew-approve commit+push`). The user approves by sending
+  and under it one sentence in the user's language ("If you approve, send only this:") followed by the command
+  on a line of its own: `/crew-approve`. With nothing after it, it approves what the gate just refused in this
+  session (a commit, a push, or both when both were refused); spelled out it is `/crew-approve commit`,
+  `/crew-approve push` or `/crew-approve commit+push`. The user approves by sending
   that command alone; a sentence that says yes is not an approval, and you cannot run `/crew-approve` for them. It covers what is staged on that HEAD. If the gate says the approval path is closed in this session (the
   recording hook is not wired), say so and offer Shift+Tab or their own terminal instead.
   Then run `git commit -m '…'` alone in its call (single-quoted, or from a here-document with a quoted delimiter),

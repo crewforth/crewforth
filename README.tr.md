@@ -14,9 +14,9 @@
 **Crewforth, Claude Code için mühendislik ekibinizdir.**
 
 Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 12 uzman ajan,<br>
-yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 10 komut ve önemli kuralları uygulayan hook'lar.
+yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 12 komut ve önemli kuralları uygulayan hook'lar.
 
-https://github.com/user-attachments/assets/ce17e971-c447-4147-8b33-6f4bda419821
+https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
 [crewforth.com](https://crewforth.com/#overview)'da da izleyebilirsiniz
 
@@ -81,7 +81,7 @@ Toplam **12 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-pl
 
 | Kural | Neyle uygulanır |
 |:--|:--|
-| Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay sizin yazdığınız bir komuttur: `/crew-approve commit`. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
+| Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay sizin yazdığınız bir komuttur: `/crew-approve`, az önce reddedilen commit ya da push'u onaylar (ya da açıkça yazın: `/crew-approve commit`, `push`, `commit+push`). Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
 | Bir commit, tam olarak kendi diff'i için temiz bir inceleme ister | `guard-bash.sh` ve `crew-review-agent`'ın yazdığı kayıt |
 | Yıkıcı komutlar (`reset --hard`, force push, `rm -rf`, `--no-verify`) reddedilir | `guard-bash.sh` |
 | Bir `crew-*` ajanı bir iş kartıyla (dosyalar, değişiklik türü, verify komutu) ve kartın riskine uyan modelle çağrılır: kritik iş (auth, ödeme, migration, güvenlik…) `opus`'ta, hiçbir komutun doğrulayamadığı iş en az `sonnet`'te, `haiku` yalnız bir komutun denetlediği işte. `opus`'ta olmayan ajan kritik yola yazamaz. `CREW_MODEL_ROUTING=off` bunu kapatır | `guard-agent-model.sh`, `guard-write.sh` |

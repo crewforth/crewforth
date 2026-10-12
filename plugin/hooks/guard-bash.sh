@@ -1823,7 +1823,7 @@ _appr_named(){  # sets _APN: 1 = the record is named, 2 = the hook is fed, 3 = a
   t="$CMD_UQ"; _APN=0
   shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$t" in
-    *crewforth-appr*) _APN=1 ;;
+    *crewforth-appr*|*crew-approval-pending*) _APN=1 ;;
   esac
   [ "$nc" = 0 ] && shopt -u nocasematch
   # FED means the hook is what the input goes INTO: it stands after a pipe, or shares its command with an input
@@ -1857,9 +1857,13 @@ _appr_named
 _appr_word(){  # $1 = a word of the command -> 0 when it, or what follows its first `=`, is an approval
   local w="$1"
   [ "${#w}" -le 160 ] || return 1
-  _crew_appr_op "$w"; [ -n "$OP" ] && return 0
-  case "$w" in *=*) _crew_appr_op "${w#*=}"; [ -n "$OP" ] && return 0 ;; esac
-  return 1
+  _crew_appr_op "$w"; [ -z "$OP" ] && case "$w" in *=*) _crew_appr_op "${w#*=}" ;; esac
+  [ -n "$OP" ] || return 1
+  # `/crew-approve` with nothing after it is a single word, and a single word turns up where nothing is started:
+  # `grep -rn /crew-approve .claude/hooks`. It counts only in a command one of whose words IS claude (also
+  # claude.exe, a path that ends in it, the package's name): then it is a prompt, or about to be piped into one.
+  if [ "$OP" = pending ] && [ "$_AWC" != 1 ]; then OP=""; return 1; fi
+  return 0
 }
 _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names it)
   # The command AS IT WAS SENT: the prompt of a plain `claude -p "…"` has been taken out of CMD by now (it is text for
@@ -1871,7 +1875,10 @@ _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names i
   [ -f "$here/prompt-approval.sh" ] || return 1          # no recording hook: no approval can be recorded at all
   declare -F _crew_appr_op >/dev/null 2>&1 || . "$here/prompt-approval.sh"
   declare -F _crew_appr_op >/dev/null 2>&1 || return 1
-  OP=""
+  OP=""; _AWC=0
+  case " ${CMD_UQ//[;|&()]/ } " in
+    *[[:space:]]claude[[:space:]]*|*[[:space:]]claude.exe[[:space:]]*|*[[:space:]]claude.cmd[[:space:]]*|*/claude[[:space:]]*|*/claude.exe[[:space:]]*|*claude-code*) _AWC=1 ;;
+  esac
   while :; do
     pre="${s%%[\"\'\\$' \t\n;|&()<>']*}"
     [ -n "$pre" ] && { w="$w$pre"; inw=1; }
@@ -3254,10 +3261,39 @@ ${BRANCH_WARN}Approve only if the commit message above was shown to you and you 
         exit 2
       fi
       _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
+      # WHAT WAS REFUSED IS WRITTEN DOWN, so that the user can approve it with `/crew-approve` and nothing after it:
+      # the session, the operation and the second, in .claude/state/crew-approval-pending. The operation is what
+      # THIS gate saw in the command it refused; a commit refused and then a push refused in the same session
+      # within 30 minutes are one thing waiting, commit+push. The file is closed to the session (guard-write.sh,
+      # and the name rule above): a session that could write it would choose what the user's approval covers.
+      _pw=""
+      if ! { git_has "$CMD_SEEN" 'commit' && git_has "$CMD_SEEN" 'push'; }; then
+        _pd="${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"; _pd="${_pd//\\//}"; _pd="${_pd%/}/.claude/state"
+        _json_slice "$INPUT" session_id >/dev/null; _psid="$_JS"
+        case "$_psid" in ''|*[!A-Za-z0-9._-]*) _psid="" ;; esac
+        if [ -n "$_psid" ] && mkdir -p "$_pd" 2>/dev/null; then
+          if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _pn '%(%s)T' -1; else _pn="$(date +%s)"; fi
+          _po=""; _ps=""; _pt=""
+          if [ -f "$_pd/crew-approval-pending" ]; then
+            while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; esac; done < "$_pd/crew-approval-pending"
+          fi
+          _pw="$_aps"
+          case "$_pt" in ''|*[!0-9]*) _pt=0 ;; esac
+          if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ]; then
+            case "$_po:$_aps" in commit:push|push:commit|commit+push:*) _pw="commit+push" ;; esac
+          fi
+          { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
+        fi
+      fi
       echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
       echo "  1. the commit message, whole, in ONE code block;" >&2
-      echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
-      echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
+      if [ -n "$_pw" ]; then
+        echo "  2. under it one sentence in their language (If you approve, send only this:), and then the command on a line of its own, exactly as it is:" >&2
+        echo "/crew-approve"$'\n'"     That line is the whole message, and only the user can type it. It approves what was just refused here: $_pw. (Spelled out, the user can type /crew-approve commit, push or commit+push instead.)" >&2
+      else
+        echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
+        echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
+      fi
       echo "Their message has to be that command alone, typed by them: a sentence such as 'go ahead and commit' is not an approval, and you cannot run the command for them. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
       echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
       echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2

@@ -122,7 +122,11 @@ versioning follows [SemVer](https://semver.org/).
   - `guard-agent-model.sh` holds the rules at the tool level and never rewrites a call; `agent-outcome.sh` runs the
     verify command and keeps the record. Which kind of change a task is, is the caller's judgement.
     `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`.
-  - **Known limits.** A test runner runs code the agent wrote (test files, `package.json` scripts, `conftest.py`, a
+  - **Known limits.** Model routing applies to `crew-*` agents only: Explore, general-purpose and a project's own
+    agents run on the session's model and are not in the record (a kit agent for documents is planned for 3.2.0).
+    The gate holds a floor, not a ceiling: nothing stops ordinary work from being given to Opus. Not measured on
+    Windows: Studio under a path that holds a space, and stopping a session from the panel; both were measured on
+    macOS. A test runner runs code the agent wrote (test files, `package.json` scripts, `conftest.py`, a
     `Makefile`): the list limits the command, not what the tests do. A failed card stays failed until the card
     changes. The shell rule that protects the routing files goes by their names. The list of critical paths is
     written at the first session, not at install; the gate reads the patterns, not the list. Managed policy is
@@ -184,6 +188,17 @@ versioning follows [SemVer](https://semver.org/).
   agent that reported before it was called, with the words `after Planner reported`; that wire is inferred from the
   order of events and is not a call from one agent to another, and the panel says so. Read from the transcript
   alone. Agents a workflow started are not called by the session, so they carry no place.
+- **Studio: the Models view.** A fourth tab (key `m`), read from the record of outcomes: for each kind of task
+  (agent, change, risk) the model, the tasks, how often the first try passed, how often it was repeated one model
+  up, and an estimated cost. A class with no verified call shows `—`, not 0%. A class the record holds one model up
+  is offered for lowering once its latest ten verified calls all passed first time; the offer is one button, **Copy
+  command**, for `/crew-loosen …`. Studio writes nothing. A floor you lowered reads **lowered**, with what raised
+  it and when you lowered it. The inspector shows a task's card (files, change, verify) and its steps: each call
+  of the card, what it ran on, what its verify command said.
+- **Studio: a session started in the panel can ask its question and have its plan approved, in the dock.** Such a
+  session had neither tool. It has both now, and the question or the plan waits in the strip where an approval
+  does; approving a plan can carry the mode the session goes on in.
+- **Studio: Reset layout**, and **Report**: an agent's hand-back is read as its report.
 - **Studio: which model did which work.** Every agent card carries a badge with the model it ran on, and a third
   line with its duration, new tokens and estimated cost. Two facts are kept apart: the model the call **asked** for
   and the model the agent **ran on**; when they differ the badge carries `≠`. The inspector has a **Model** section.
@@ -201,6 +216,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **Studio: every agent that is not Crewforth's is a Claude Code agent.** A type the panel did not know carried a
+  `?`; there is no list to go stale now. Its tooltip says where it is defined (the project, the user's folder, a
+  plugin, or Claude Code itself). **Density: Auto** chooses what fits.
+- **Studio: Expand all and Fold all reach every group**, the cards that stand for several agents of one type and
+  the groups inside an opened group included; what you open or fold by hand afterwards stays as you left it.
 - **Studio: agents are named by their role.** `crew-backend-expert` reads Backend, `general-purpose` General Purpose,
   in the graph, the Timeline, the List, the dock, the inspector and the conversation; the declared type is under the
   name in the inspector and on hover. A task cut short on a card is said in full on hover.
@@ -214,6 +234,12 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio: a group of agents opens beside itself.** Several agents of one type are one card; in a window of 1024 px
   and up, clicking it puts its agents in the next column as ordinary cards, and opening another group folds the
   first. Below that width it opens downward as before.
+- **`/crew-approve`, with nothing after it, approves what was just refused.** In a trial the session said "send
+  `/crew-approve commit+push`" and stood still until someone noticed. The gate now writes down what it refused
+  (the session, commit, push or both, the moment), and the bare command approves that: the same session's, within
+  30 minutes, once. The refusal puts the command on a line of its own. What is approved is the gate's note of the
+  command it refused, never the model's choice: the note is closed to the session, and the bare command is refused
+  when scheduled or handed to another session, like the spelled-out forms, which still work.
 - **The approval of 3.1.0's release candidates was a text, `approve: commit` (`onay: commit`); it is the command
   `/crew-approve commit` now.** The same in every language, and recorded exactly as the text was. Only a command you
   type counts: measured on Claude Code 2.1.284, a typed command reaches the recording hook as typed, a skill the
@@ -324,6 +350,9 @@ versioning follows [SemVer](https://semver.org/).
   only a call that says `run_in_background: true` is refused; one that leaves the field out passes. Where the tool
   does have the field, a call that leaves it out starts in the background: the session is then told, when the
   launch comes back, to run the verify command itself once the agent has finished.
+- **Studio: no spool is left behind.** A server that stopped or was killed left its sessions' settings in the temp
+  directory, and they piled up; it removes them as it stops and sweeps when it starts. Two calls in plan mode (a
+  tool lookup, the plan file) no longer come to the dock.
 - **Studio: a card's text stays in the card.** `N in background` could push the session card's line past its edge;
   it has a line of its own, and every text part of a card is clipped inside it, whole on hover.
 - **Studio: the time moves in a live session.** The summary read the span of the session's own transcript, which
