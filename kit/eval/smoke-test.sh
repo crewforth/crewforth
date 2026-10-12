@@ -10102,8 +10102,10 @@ printf 'acme-internal-host\n' > "$_TH/r/.private-terms.txt"
 _thbad=""
 _th_hook "$_TH/r" pre-commit ""; { [ "$_thr" = 1 ] && grep -q 'PRIVATE-PATH SCANNER: a staged line contains' "$_TH/out"; } \
   || _thbad="$_thbad [FIXTURE: with a working grep the private string is not reported: rc=$_thr]"
-_th_hook "$_TH/r" pre-commit "" "$_TH/bin"; { [ "$_thr" = 1 ] && grep -q 'could not run' "$_TH/out"; } \
-  || _thbad="$_thbad [grep aborting for -iF: rc=$_thr, want 1 and 'could not run' — $(sed -n 1p "$_TH/out" | cut -c1-120)]"
+# A grep that aborts for -iF changes nothing: the look for a private string does not use it (measured on two
+# Windows machines: Git Bash's grep 3.0 aborts for -iF in the C locale on one and under tr_TR on the other).
+_th_hook "$_TH/r" pre-commit "" "$_TH/bin"; { [ "$_thr" = 1 ] && grep -q 'PRIVATE-PATH SCANNER: a staged line contains' "$_TH/out" && ! grep -q 'could not run' "$_TH/out"; } \
+  || _thbad="$_thbad [grep aborting for -iF: rc=$_thr, want 1 and the private string reported — $(sed -n 1p "$_TH/out" | cut -c1-120)]"
 # the same for a scan by pattern: an abort is not "this pattern does not compile"
 mkdir -p "$_TH/bin2"
 printf '#!/bin/sh\ncase " $* " in *" -qiE "*) kill -ABRT $$ ;; esac\nexec "%s" "$@"\n' "$_thg" > "$_TH/bin2/grep"; chmod +x "$_TH/bin2/grep"
@@ -10112,6 +10114,41 @@ _th_hook "$_TH/e" pre-commit "" "$_TH/bin2"; { [ "$_thr" = 1 ] && grep -q 'TRACE
   || _thbad="$_thbad [pre-commit, grep aborting for -iE: rc=$_thr, want 1 and 'could not run' — $(sed -n 1p "$_TH/out" | cut -c1-120)]"
 _th_hook "$_TH/e" commit-msg "" "$_TH/bin2" msg.txt; { [ "$_thr" = 1 ] && grep -q 'could not run' "$_TH/out"; } \
   || _thbad="$_thbad [commit-msg, grep aborting for -iE: rc=$_thr, want 1 and 'could not run' — $(sed -n 1p "$_TH/out" | cut -c1-120)]"
+# ...and the look for a private string, which is a scan by pattern now: an abort stops the commit and says so
+_th_hook "$_TH/r" pre-commit "" "$_TH/bin2"; { [ "$_thr" = 1 ] && grep -q 'PRIVATE-PATH SCANNER: the look for a machine-private string could not run' "$_TH/out"; } \
+  || _thbad="$_thbad [the private-string look, grep aborting for -iE: rc=$_thr, want 1 and 'could not run' — $(grep -m1 PRIVATE "$_TH/out" | cut -c1-120)]"
+# A term is a literal, whatever it holds: each is found as written and in another case, and none of its characters
+# works as a pattern (the line on the right is what it would match if one did).
+_thl=0
+while IFS= read -r _tl; do [ -z "$_tl" ] && continue
+  _tt="${_tl%% @@ *}"; _tr="${_tl#* @@ }"; _th1="${_tr%% @@ *}"; _th0="${_tr#* @@ }"; _thl=$((_thl+1))
+  _th_repo "$_TH/l"; printf '%s\n' "$_tt" > "$_TH/l/.private-terms.txt"
+  ( cd "$_TH/l" && printf 'x %s y\n' "$_th1" > n.md && git add n.md ) >/dev/null 2>&1
+  _th_hook "$_TH/l" pre-commit ""; { [ "$_thr" = 1 ] && grep -q 'a staged line contains' "$_TH/out"; } || _thbad="$_thbad [the term $_tt is not found in: $_th1 (rc=$_thr)]"
+  ( cd "$_TH/l" && printf 'x %s y\n' "$_th0" > n.md && git add n.md ) >/dev/null 2>&1
+  _th_hook "$_TH/l" pre-commit ""; [ "$_thr" = 0 ] || _thbad="$_thbad [the term $_tt is read as a pattern: it matched $_th0 (rc=$_thr, $(sed -n 1p "$_TH/out" | cut -c1-80))]"
+done <<'TL'
+acme.internal @@ ACME.Internal @@ acmeXinternal
+C:\Users\ada.l @@ c:\users\ADA.L @@ C:Usersada.l
+build[7] @@ BUILD[7] @@ build7
+a+b(c) @@ A+B(C) @@ aab(c)
+host|other @@ HOST|OTHER @@ host
+cost$ ^x* @@ COST$ ^X* @@ cost ^
+q{2}? @@ Q{2}? @@ qq
+TL
+[ "$_thl" = 7 ] || _thbad="$_thbad [FIXTURE: the literal-term table has $_thl rows, not 7]"
+# No hook looks for anything with -iF: a code line of a gate that calls grep with both flags is the defect itself.
+_thf="$(for _f in "$HOOKS"/*.sh "$HOOKS/pre-commit" "$HOOKS/commit-msg"; do grep -nE '^[^#]*(grep[[:space:]][^|;#]*-[A-Za-z]*(i[A-Za-z]*F|F[A-Za-z]*i)|_crew_(scan|any)[^#]*[[:space:]](iF|Fi)([[:space:]]|$))' "$_f" 2>/dev/null | sed "s#^#${_f##*/}:#"; done)"
+[ -z "$_thf" ] || _thbad="$_thbad [a hook calls grep with -i and -F together: $(printf '%s' "$_thf" | head -2 | cut -c1-140)]"
+# ...and the look itself names the C locale on the call (3 calls: _crew_scan in both git hooks, _crew_any): under
+# tr_TR `grep -iE` answers "no match" for i against I without aborting, so a look left to the session's locale
+# would miss a term in capitals, silently.
+_thc="$(grep -cE '^[[:space:]]*LC_ALL=C grep -q' "$HOOKS/pre-commit" "$HOOKS/commit-msg" | tr '\n' ' ')"
+_thu="$(grep -nE '^[[:space:]]*grep -q("\$1"|\$3) -- ' "$HOOKS/pre-commit" "$HOOKS/commit-msg" | head -2)"
+case "$_thc" in *"pre-commit:2 "*"commit-msg:1 "*) ;; *) _thbad="$_thbad [the first look does not name the C locale on the call: $_thc]" ;; esac
+[ -z "$_thu" ] || _thbad="$_thbad [a first look runs in whatever locale is exported: $(printf '%s' "$_thu" | cut -c1-120)]"
+printf 'x() { grep -qiF -- "$a" "$b"; }\n_crew_scan iF "$t" "$f"\n# grep -iF in a comment\n' > "$_TH/pin.sh"
+[ "$(grep -cE '^[^#]*(grep[[:space:]][^|;#]*-[A-Za-z]*(i[A-Za-z]*F|F[A-Za-z]*i)|_crew_(scan|any)[^#]*[[:space:]](iF|Fi)([[:space:]]|$))' "$_TH/pin.sh")" = 2 ] || _thbad="$_thbad [FIXTURE: the -iF pin does not see the two lines it is for]"
 # and for the diff itself: the grep that picks the added lines aborting must not leave an empty file to scan
 mkdir -p "$_TH/bin3"
 printf '#!/bin/sh\n[ "$1" = -E ] && [ "$2" = "^\\+" ] && kill -ABRT $$\nexec "%s" "$@"\n' "$_thg" > "$_TH/bin3/grep"; chmod +x "$_TH/bin3/grep"
@@ -10124,7 +10161,7 @@ _th_hook "$_TH/b" pre-commit ""; { [ "$_thr" = 0 ] && grep -q 'is not a valid re
   || _thbad="$_thbad [pre-commit with a pattern that does not compile: rc=$_thr, want 0 and the warning]"
 _th_hook "$_TH/b" commit-msg "" "" msg.txt; { [ "$_thr" = 0 ] && grep -q 'is not a valid regular expression' "$_TH/out"; } \
   || _thbad="$_thbad [commit-msg with a pattern that does not compile: rc=$_thr, want 0 and the warning]"
-[ -z "$_thbad" ] && pass "a scan that could not run stops the commit: with grep aborting for -iF (what Git Bash's grep does under a Turkish locale) or for -iE, or while the added lines are collected, pre-commit and commit-msg exit 1 and say so; a pattern that does not compile still only warns, in both" \
+[ -z "$_thbad" ] && pass "a scan that could not run stops the commit: with grep aborting for -iE (the scan by pattern and the look for a private string), or while the added lines are collected, pre-commit and commit-msg exit 1 and say so; a pattern that does not compile still only warns, in both; a grep that aborts for -iF changes nothing, since no hook calls it (pinned, with a twin the pin sees); the first look names the C locale on the call, in both git hooks; a private term is a literal: 7 terms with . \\ [ ] + ( ) | \$ ^ * { } ? are found as written, in another case, and match nothing else" \
                  || fail "a scan that could not run:$_thbad"
 
 # The command shown in the approval prompt is cut to 300 bytes a line and goes into JSON. `cut -c` did it: GNU cut
@@ -10207,7 +10244,7 @@ else
   ( cd "$_TH/n" && printf 'see ŞİRKET-GİZLİ\n' > n.md && git add n.md ) >/dev/null 2>&1
   _th_hook "$_TH/n" pre-commit "$_th"; _thna="$_thr"
   # required where this platform's grep folds such a letter under the locale at all (GNU grep does, BSD grep does not)
-  if ( printf 'ŞİRKET\n' | LC_ALL=$_th grep -qiF 'şirket' ) >/dev/null 2>&1; then
+  if ( printf 'ŞİRKET\n' | LC_ALL=$_th grep -qiE 'şirket' ) >/dev/null 2>&1; then
     [ "$_thna" = 1 ] || _thbad="$_thbad [pre-commit, a private string of non-ASCII letters in another case: rc=$_thna, want 1 (this grep folds them under $_th)]"
   fi
   [ -z "$_thbad" ] && pass "under $_th the git hooks stop what they stop under C: a vendor name in another case in an added line and in the message, a staged key that holds an I, a private string in another case; an ordinary line and message pass (a private string of non-ASCII letters in another case: exit $_thna, 1 = caught by the second look)" \
