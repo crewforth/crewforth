@@ -343,6 +343,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **On some Windows machines every commit was stopped: "PRIVATE-PATH SCANNER: … could not run".** The look for a
+  machine-private string used `grep -iF`, and Git Bash's grep 3.0 aborts for it (exit 134): in the C locale with
+  Git for Windows 2.53, under a Turkish locale with 2.55 (measured on one machine of each). The commit hook sets
+  the C locale, so on the first kind every look aborted, and the hook rightly stopped the commit. A private term
+  is now escaped and matched with `-iE`, which aborted in none of the 15 pairs of `LANG` and `LC_ALL` measured on
+  either machine. A term is still a literal: `.`, `\`, `[`, `(`, `+`, `|` and the rest match only themselves.
 - **Critical work with a verify command was refused every time where the Agent tool has no `run_in_background`.**
   The gate asked for the field to be `false`. Where background tasks are off the tool has no such field (measured on
   Claude Code 2.1.296: the call arrives with description, prompt, subagent_type and model, and runs in the
