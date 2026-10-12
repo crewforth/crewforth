@@ -73,3 +73,13 @@ html[lang='tr'] starlight-theme-select label { --sl-select-width: 7.5em !importa
 :root[data-theme='light'] .cf-only-light { display: inline; }
 :root[data-theme='light'] .cf-only-dark { display: none; }
 .cf-diagram img { max-width: 100%; height: auto; }
+
+/* A picture in a page opens at its full size when pressed (src/scripts/zoom.js). The pointer says so, the focus
+   ring is the site's own, and the large picture sits on a dimmed page and never grows past the window. */
+.sl-markdown-content img.cf-zoomable { cursor: zoom-in; }
+.sl-markdown-content img.cf-zoomable:focus-visible { outline: 2px solid var(--cf-accent); outline-offset: 3px; }
+dialog.cf-zoom { margin: auto; padding: 0; border: 0; background: transparent; max-width: 96vw; max-height: 94vh; overflow: visible; cursor: zoom-out; }
+dialog.cf-zoom::backdrop { background: rgb(5 8 16 / 0.86); }
+dialog.cf-zoom img { display: block; max-width: 96vw; max-height: 94vh; width: auto; height: auto; border-radius: var(--cf-radius-md); border: 1px solid var(--cf-line); background: var(--cf-ground); }
+dialog.cf-zoom .cf-zoom-close { position: fixed; top: 12px; right: 16px; width: 36px; height: 36px; border-radius: var(--cf-radius-pill); border: 1px solid var(--cf-line); background: var(--cf-surface); color: var(--cf-ink); font-size: 20px; line-height: 1; cursor: pointer; }
+dialog.cf-zoom .cf-zoom-close:focus-visible { outline: 2px solid var(--cf-accent); outline-offset: 2px; }

@@ -51,7 +51,7 @@ await beat('open the session from the navigator', async () => {
 }, { name: 'cards on the graph', probe: `document.querySelectorAll('#canvas .cv-node').length`, want: (v) => v > 5 }, 2200);
 
 await beat('open an agent: what it did, and what it reported', async () => {
-  await click(await findByText(ev, '#canvas .cv-node', 'Map every retry path'), 'a finished agent');
+  await click(await findByText(ev, '#canvas .cv-node', 'Add idempotency keys'), 'a finished agent');
 }, { name: 'inspector on Overview', probe: `document.getElementById('inspector').hidden === false && !!document.querySelector('.itiles')`, want: (v) => v === true }, 2600);
 
 await beat('the same session against time', async () => {
@@ -63,12 +63,16 @@ await beat('the whole session, and the agent that failed', async () => {
   await sleep(350);
   await click(await centreOf(ev, '#tb-range-out'), 'the range control');
   await sleep(700);
-  await click(await findByText(ev, '#timeline .tl-agent .tl-lab', 'claude-code-guide'), 'the failed agent\'s row');
+  await click(await findByText(ev, '#timeline .tl-agent .tl-lab', 'Claude Code Guide'), 'the failed agent\'s row');
 }, { name: 'drawer with its last error', probe: `document.querySelector('.tl-drawer').hidden === false && document.querySelector('.tl-d-error').textContent.length > 20`, want: (v) => v === true }, 2800);
 
 await beat('the list: what needs someone, first', async () => {
   await click(await centreOf(ev, '#view-list'), 'the List tab');
 }, { name: 'sections in the List', probe: `[...document.querySelectorAll('#list .ls-title')].map((t) => t.textContent).join(' | ')`, want: (v) => /Failed/.test(v) && /Done/.test(v) }, 2400);
+
+await beat('the project, not the session: which model each kind of task has needed', async () => {
+  await click(await centreOf(ev, '#view-models'), 'the Models tab');
+}, { name: 'classes in the Models view', probe: `document.querySelectorAll('#models tbody tr').length`, want: (v) => v > 3 }, 2800);
 
 // A tool call in another session now waits on the viewer. It is started here, off screen, through the panel's
 // own API; the stand-in CLI answers the message by playing a tool call through the real approval hook.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Re-record the two Studio pictures in assets/ from a synthetic fixture:
+# Re-record the three Studio pictures in assets/ from a synthetic fixture:
 #   studio-panels.gif  the panel in use (the Studio page)
 #   studio-graph.png   the finished graph (the Studio page)
+#   studio-models.png  the Models view with one agent's task card (the Studio page)
 # and leave the flow take's frames for scene.py, which puts them into the overview video.
 #
 # No model session and no real transcript: every project, path, session and sentence is invented. The panel runs
@@ -95,7 +96,10 @@ node "$HERE/tour.mjs" --url "$URL" --session "Duplicate settlements" --asking "$
   --out "$TOUR" --profile "$T/chrome-tour"
 gif "$TOUR" 1600 "$REPO/assets/studio-panels.gif"
 
-for f in studio-panels.gif studio-graph.png; do
+# Take 3: the Models view, with the task card of the agent whose card ran again one model up.
+node "$HERE/models.mjs" --url "$URL" --session "Duplicate settlements" --out "$REPO/assets/studio-models.png" --profile "$T/chrome-models"
+
+for f in studio-panels.gif studio-graph.png studio-models.png; do
   printf 'record: assets/%-18s %9s bytes  %s\n' "$f" "$(wc -c < "$REPO/assets/$f" | tr -d ' ')" \
     "$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=width,height,nb_read_frames -of csv=p=0 "$REPO/assets/$f")"
 done
