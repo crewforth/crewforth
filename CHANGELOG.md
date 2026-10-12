@@ -317,6 +317,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Critical work with a verify command was refused every time where the Agent tool has no `run_in_background`.**
+  The gate asked for the field to be `false`. Where background tasks are off the tool has no such field (measured on
+  Claude Code 2.1.296: the call arrives with description, prompt, subagent_type and model, and runs in the
+  foreground), so the model could not send it and each call was refused, four times in a row in one session. Now
+  only a call that says `run_in_background: true` is refused; one that leaves the field out passes. Where the tool
+  does have the field, a call that leaves it out starts in the background: the session is then told, when the
+  launch comes back, to run the verify command itself once the agent has finished.
 - **Studio: a card's text stays in the card.** `N in background` could push the session card's line past its edge;
   it has a line of its own, and every text part of a card is clipped inside it, whole on hover.
 - **Studio: the time moves in a live session.** The summary read the span of the session's own transcript, which

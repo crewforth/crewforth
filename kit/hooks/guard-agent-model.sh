@@ -21,7 +21,8 @@
 #   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh),
 #     until the user lowers it again with /crew-loosen (one model, once for each raise).
 #   * a card whose verify failed is not run again on the same or a lower model, and not a third time at all.
-#   * critical work with a verify command runs in the foreground, where its result reaches the session.
+#   * critical work with a verify command is not sent to the background (run_in_background true), where its
+#     result does not reach the session. A call that leaves the field out passes: not every Agent tool has it.
 # THE WORDING IS READ BY ANOTHER PROGRAM (the Studio panel): a refusal is one line that begins
 # `GUARD (agent model):`, and a floor is said as ` runs on <model> or above`. The suite pins both.
 #
@@ -799,9 +800,15 @@ _json_keycount "$ti" run_in_background
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names run_in_background more than once, so where it runs cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_find "$ti" '"run_in_background"'; bg=unset
 if [ "$_KC" = 1 ] && [ "$_JF" -ge 0 ]; then f="${ti:_JF+19:12}"; f="${f//[$' \t\n\r']/}"; case "$f" in :false*) bg=false ;; :true*) bg=true ;; esac; fi
-if [ "$CARD_RISK" = critical ] && [ "$CARD_VERIFY" != none ] && [ "$bg" != false ]; then
-  echo "GUARD (agent model): critical work with a verify command runs in the foreground, where its result comes back to you: repeat the same call with run_in_background set to false (left out, an agent starts in the background)." >&2
-  _am_log "critical work not in the foreground"; exit 2
+# Measured on Claude Code 2.1.294 and 2.1.296. Where the Agent tool has run_in_background, a call that leaves it out
+# starts in the background. Where background tasks are off the tool has NO such parameter: the model cannot send it
+# and the call runs in the foreground. The payload of the two is the same, so a call that leaves the field out is
+# let through. (Asking for `false` refused every critical call with a verify command in a session whose tool has
+# no such field, each time.) Only a call that SAYS background is refused; agent-outcome.sh tells the session when a
+# call that left the field out turned out to be launched in the background.
+if [ "$CARD_RISK" = critical ] && [ "$CARD_VERIFY" != none ] && [ "$bg" = true ]; then
+  echo "GUARD (agent model): critical work with a verify command is not sent to the background, where its result does not come back to you: repeat the same call with run_in_background set to false." >&2
+  _am_log "critical work sent to the background"; exit 2
 fi
 # The verify command is NOT judged here. Whether the hook runs it is decided when it would start (_am_verify_ok, in
 # hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is told to run it
