@@ -524,12 +524,53 @@ fi
 rowm 'git' "$GITKIND"   # every GITKIND value is a literal with its own table row
 
 # existing hook system (decision #5 — single-hooksPath clash with husky/lefthook)
-HOOKSYS="none"; SHIM_CHAIN=""
+# WHAT core.hooksPath NAMES, however it is spelled. It was matched as text against `.claude/hooks`, so the same
+# directory written as an absolute path (seen in a real project) was read as a hook chain of the project's own:
+# the shim then named `$ROOT//Users/<name>/…/.claude/hooks`, a path that does not exist and that carries the
+# machine's user name into a file projects commit; had it existed, every hook would have run twice.
+# Asked of the file system and of git, not of the spelling: `-ef` says whether two names are one directory, and
+# `git rev-parse --show-prefix` says where a directory is inside the repository.
+_hp_class(){  # $1 = a hooks path as configured -> HP_KIND: none | own | shim | in (HP_REL, from the root) | out (HP_ABS)
+  local p="$1" top pfx r
+  HP_KIND=none; HP_REL=""; HP_ABS=""
+  [ -n "$p" ] || return 0
+  case "$p" in '~/'*) p="$HOME/${p#\~/}" ;; esac
+  while :; do case "$p" in ?*/) p="${p%/}" ;; *) break ;; esac; done
+  case "$p" in
+    /*|[A-Za-z]:[/\\]*)
+      if [ -d "$p" ]; then
+        if [ -d .claude/hooks ] && [ "$p" -ef .claude/hooks ]; then HP_KIND=own; return 0; fi
+        if [ -d .claude/git-shim ] && [ "$p" -ef .claude/git-shim ]; then HP_KIND=shim; return 0; fi
+        top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -n "$top" ] && [ "$top" -ef . ]; then
+          pfx="$(git -C "$p" rev-parse --show-prefix 2>/dev/null || true)"; pfx="${pfx%/}"
+          if [ -n "$pfx" ]; then HP_KIND=in; HP_REL="$pfx"; return 0; fi
+        fi
+      fi
+      # Not there, or git cannot place it (.git/hooks is not in the work tree): the spelling is what is left.
+      for r in "$PWD" "$(pwd -P 2>/dev/null || true)"; do
+        [ -n "$r" ] || continue
+        case "$p" in "$r"/?*) p="${p#"$r"/}"
+          case "$p" in .claude/hooks) HP_KIND=own ;; .claude/git-shim) HP_KIND=shim ;; *) HP_KIND=in; HP_REL="$p" ;; esac
+          return 0 ;;
+        esac
+      done
+      HP_KIND=out; HP_ABS="$p" ;;
+    *)
+      while :; do case "$p" in ./?*) p="${p#./}" ;; *) break ;; esac; done
+      case "$p" in .claude/hooks) HP_KIND=own; return 0 ;; .claude/git-shim) HP_KIND=shim; return 0 ;; esac
+      if [ -d "$p" ] && [ -d .claude/hooks ] && [ "$p" -ef .claude/hooks ]; then HP_KIND=own; return 0; fi
+      if [ -d "$p" ] && [ -d .claude/git-shim ] && [ "$p" -ef .claude/git-shim ]; then HP_KIND=shim; return 0; fi
+      HP_KIND=in; HP_REL="$p" ;;
+  esac
+}
+HOOKSYS="none"; SHIM_CHAIN=""; SHIM_OUT=0; CUR_OUT=0
 CURHP="$(git config --get core.hooksPath 2>/dev/null || true)"
-case "$CURHP" in
-  "") : ;;
-  .claude/hooks) HOOKSYS="Crewforth (already armed)"; CURHP="" ;;   # kit's OWN path — not a foreign chain (re-adopt must not shim itself)
-  .claude/git-shim)
+_hp_class "$CURHP"
+case "$HP_KIND" in
+  none) : ;;
+  own) HOOKSYS="Crewforth (already armed)"; CURHP="" ;;   # kit's OWN path — not a foreign chain (re-adopt must not shim itself)
+  shim)
     # Crewforth's shim, from an earlier run: git is pointed at it, and IT holds the project's own chain. That chain
     # is read back from the shim, or the next lines would see "no chain" and point git straight at .claude/hooks:
     # measured, the second update of a project with core.hooksPath=myhooks left its own pre-commit never running
@@ -540,14 +581,23 @@ case "$CURHP" in
       [ -f "$_sf" ] || continue
       while IFS= read -r _sl || [ -n "$_sl" ]; do
         _sl="${_sl%$'\r'}"
+        # (A shim written before this was fixed can hold `P="$ROOT//abs/path/$H"`: what is left after `$ROOT/` is
+        # the absolute path, and it is classed like any other.)
         case "$_sl" in 'P="'*'/$H"') _sl="${_sl#P=\"}"; _sl="${_sl%/\$H\"}"; _sl="${_sl#\$ROOT/}"
-          case "$_sl" in ''|.claude/hooks|.claude/git-shim) ;; *) SHIM_CHAIN="$_sl" ;; esac ;;
+          _hp_class "$_sl"
+          case "$HP_KIND" in in) SHIM_CHAIN="$HP_REL"; SHIM_OUT=0 ;; out) SHIM_CHAIN="$HP_ABS"; SHIM_OUT=1 ;; esac ;;
         esac
       done < "$_sf"
       [ -n "$SHIM_CHAIN" ] && break
     done
+    # A chain outside the repository is not written in the shim: it is in this clone's git config.
+    if [ -z "$SHIM_CHAIN" ]; then
+      _hp_class "$(git config --get crewforth.hookschain 2>/dev/null || true)"
+      case "$HP_KIND" in in) SHIM_CHAIN="$HP_REL"; SHIM_OUT=0 ;; out) SHIM_CHAIN="$HP_ABS"; SHIM_OUT=1 ;; esac
+    fi
     [ -n "$SHIM_CHAIN" ] && HOOKSYS="core.hooksPath=$SHIM_CHAIN" ;;
-  *) HOOKSYS="core.hooksPath=$CURHP" ;;
+  in)  CURHP="$HP_REL"; HOOKSYS="core.hooksPath=$CURHP" ;;
+  out) CURHP="$HP_ABS"; CUR_OUT=1; HOOKSYS="core.hooksPath=$CURHP" ;;
 esac
 [ -d .husky ] && HOOKSYS="husky (.husky/)"
 { [ -f lefthook.yml ] || [ -f .lefthook.yml ]; } && HOOKSYS="lefthook"
@@ -1627,9 +1677,9 @@ else HAND_SET="hook-aware merge (Crewforth hooks REFRESHED to current — new ev
 h1m 'Stage 4 — arm the git gates (SHIM via husky) + PROOF'
 
 # 4a) location of the existing hook chain (the shim calls this too)
-ORIG_HOOKS=""
-if [ -n "$CURHP" ]; then ORIG_HOOKS="$CURHP"
-elif [ -n "$SHIM_CHAIN" ]; then ORIG_HOOKS="$SHIM_CHAIN"   # the chain the shim of an earlier run already runs
+ORIG_HOOKS=""; ORIG_OUT=0
+if [ -n "$CURHP" ]; then ORIG_HOOKS="$CURHP"; ORIG_OUT="$CUR_OUT"
+elif [ -n "$SHIM_CHAIN" ]; then ORIG_HOOKS="$SHIM_CHAIN"; ORIG_OUT="$SHIM_OUT"   # the chain the shim of an earlier run already runs
 elif [ -d .husky ]; then ORIG_HOOKS=".husky"
 elif [ -x .git/hooks/pre-commit ] || [ -x .git/hooks/commit-msg ]; then ORIG_HOOKS=".git/hooks"; fi
 # never shim the kit onto its OWN hooks (re-adopt) — the shim would exec itself and recurse on every commit
@@ -1637,9 +1687,28 @@ case "$ORIG_HOOKS" in .claude/hooks|.claude/git-shim) ORIG_HOOKS="" ;; esac
 
 if [ -z "$ORIG_HOOKS" ]; then
   git config core.hooksPath .claude/hooks
+  git config --unset-all crewforth.hookschain 2>/dev/null || true
+  # A shim of an earlier run has no chain to run any more. It is Crewforth's own generated file (its second line
+  # says so), and one written before the fix above can hold a path of this machine: it goes, and nothing else does.
+  for hk in pre-commit commit-msg; do
+    if [ -f ".claude/git-shim/$hk" ] && grep -q '^# kit git-shim:' ".claude/git-shim/$hk" 2>/dev/null; then rm -f ".claude/git-shim/$hk"; fi
+  done
+  [ -d .claude/git-shim ] && rmdir .claude/git-shim 2>/dev/null || true
   say 'core.hooksPath -> .claude/hooks (no existing hook chain)'
 else
   mkdir -p .claude/git-shim
+  # THE SHIM HOLDS NO PATH OF THIS MACHINE. A chain inside the repository is named from the root. One outside it
+  # (a hooks directory in the user's home) is kept in this clone's git config, which is not committed, and the shim
+  # reads it when it runs.
+  if [ "$ORIG_OUT" = 1 ]; then
+    git config crewforth.hookschain "$ORIG_HOOKS"
+    _shp='C="$(git config --get crewforth.hookschain 2>/dev/null || true)"
+P=""
+[ -z "$C" ] || P="$C/$H"'
+  else
+    git config --unset-all crewforth.hookschain 2>/dev/null || true
+    _shp="P=\"\$ROOT/$ORIG_HOOKS/\$H\""
+  fi
   for hk in pre-commit commit-msg; do
     cat > ".claude/git-shim/$hk" <<SHIM
 #!/usr/bin/env bash
@@ -1648,7 +1717,7 @@ set -e
 H="\$(basename "\$0")"
 ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 K="\$ROOT/.claude/hooks/\$H"; [ -x "\$K" ] && "\$K" "\$@"
-P="\$ROOT/$ORIG_HOOKS/\$H"
+$_shp
 if   [ -x "\$P" ]; then "\$P" "\$@"
 elif [ -f "\$P" ]; then bash "\$P" "\$@"; fi
 exit 0

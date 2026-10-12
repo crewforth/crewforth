@@ -330,6 +330,78 @@ for _shc in myhooks .husky/_; do
 done
 echo "[shim-kept] core.hooksPath=myhooks and =.husky/_: three runs each, git stays on .claude/git-shim, the shim keeps naming that chain, the project's pre-commit runs on every commit, a staged key is stopped by Crewforth's, doctor reports the shim ✅"
 
+# ---- core.hooksPath is read for what it NAMES, not for how it is spelled ----
+# Seen in a real project: core.hooksPath held the ABSOLUTE path of the kit's own .claude/hooks. The updater matched
+# the text `.claude/hooks`, took the directory for a chain of the project's own, and wrote a shim that named
+# `$ROOT//Users/<name>/…/.claude/hooks`: a path that does not exist, with the machine's user name in a file
+# projects commit. Checked by what is left on disk and by what git runs.
+sp_new(){  # $1 = project -> a repository with one commit, the kit beside adopt.sh, nothing installed yet
+  rm -rf "$1"; mkdir -p "$1"; cp adopt.sh "$1/"; cp -R kit "$1/"; cp VERSION "$1/"; printf '{"name":"x"}' > "$1/package.json"
+  ( cd "$1" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init ) >/dev/null 2>&1; }
+sp_again(){ cp adopt.sh "$1/"; cp -R kit "$1/"; run_adopt "$1" --yes --here; }
+sp_hp(){ ( cd "$1" && git config --get core.hooksPath ); }
+# No path of this machine in a generated shim. Asked of the SHAPE of the line that names the chain, since a path
+# has more than one spelling on Windows (C:/… to git, /c/… to the shell) and a look for one of them proves nothing
+# about the other: that line is `P=""` or `P="$ROOT/<a path from the root>/$H"`, and nothing else.
+sp_clean(){ local f; for f in "$1"/.claude/git-shim/pre-commit "$1"/.claude/git-shim/commit-msg; do
+    [ -f "$f" ] || continue
+    grep -qE '^P="(\$ROOT//|\$ROOT/[A-Za-z]:|\$ROOT/~|[^$"])' "$f" && return 1
+    grep -qF -e "$1" -e "$HOME" "$f" && return 1
+  done; return 0; }
+SP="$WORK/shim-spell"; sp_new "$SP"; run_adopt "$SP" --yes --here
+[ "$(sp_hp "$SP")" = .claude/hooks ] || die "FIXTURE: a first install did not point git at .claude/hooks" shim-spell "$SP"
+SPR="$(cd -P "$SP" && pwd)"
+# 1) the kit's own hooks directory, spelled five ways: none is a chain, no shim is written, git ends on .claude/hooks
+for _spv in "$SPR/.claude/hooks" "$SPR/.claude/hooks/" "./.claude/hooks" ".claude/hooks/" "$SP/.claude/hooks"; do
+  ( cd "$SP" && git config core.hooksPath "$_spv" ); sp_again "$SP"
+  [ "$(sp_hp "$SP")" = .claude/hooks ] || die "core.hooksPath=$_spv (the kit's own directory) ended as '$(sp_hp "$SP")'" shim-spell "$SP"
+  [ ! -e "$SP/.claude/git-shim" ] || die "core.hooksPath=$_spv (the kit's own directory) was shimmed as a chain of the project's" shim-spell "$SP"
+done
+# 2) the shim an earlier version wrote for that case is found, understood and removed: it names no chain
+mkdir -p "$SP/.claude/git-shim"
+for _h in pre-commit commit-msg; do
+  printf '#!/usr/bin/env bash\n# kit git-shim: runs the kit hook + the existing project chain IN ORDER (if one fails git stops).\nset -e\nH="$(basename "$0")"\nROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"\nK="$ROOT/.claude/hooks/$H"; [ -x "$K" ] && "$K" "$@"\nP="$ROOT/%s/.claude/hooks/$H"\nif   [ -x "$P" ]; then "$P" "$@"\nelif [ -f "$P" ]; then bash "$P" "$@"; fi\nexit 0\n' "$SPR" > "$SP/.claude/git-shim/$_h"
+  chmod +x "$SP/.claude/git-shim/$_h"
+done
+grep -qF "P=\"\$ROOT/$SPR/.claude/hooks/\$H\"" "$SP/.claude/git-shim/pre-commit" || die "FIXTURE: the old shim does not hold the line the defect wrote" shim-spell "$SP"
+sp_clean "$SP" && die "FIXTURE: the check for a machine path does not see the line the defect wrote" shim-spell "$SP"
+( cd "$SP" && git config core.hooksPath .claude/git-shim ); sp_again "$SP"
+[ "$(sp_hp "$SP")" = .claude/hooks ] || die "an old shim that chained the kit to itself: git ended on '$(sp_hp "$SP")'" shim-spell "$SP"
+[ ! -e "$SP/.claude/git-shim" ] || die "an old shim that holds this machine's path was left in place" shim-spell "$SP"
+# ...and a file in that directory that is not Crewforth's stays
+mkdir -p "$SP/.claude/git-shim"; echo mine > "$SP/.claude/git-shim/notes.txt"; sp_again "$SP"
+[ -f "$SP/.claude/git-shim/notes.txt" ] || die "a file that is not a generated shim was removed" shim-spell "$SP"
+rm -rf "$SP/.claude/git-shim"
+# 3) a chain inside the repository, spelled absolute: named from the root in the shim, and it runs
+SPI="$WORK/shim-spell-in"; sp_new "$SPI"; mkdir -p "$SPI/myhooks"
+printf '#!/bin/sh\necho ran >> "$(git rev-parse --show-toplevel)/own.log"\n' > "$SPI/myhooks/pre-commit"; chmod +x "$SPI/myhooks/pre-commit"
+SPIR="$(cd -P "$SPI" && pwd)"; ( cd "$SPI" && git add -A && git commit -qm hooks && git config core.hooksPath "$SPIR/myhooks" ) >/dev/null 2>&1
+for _spn in 1 2; do
+  sp_again "$SPI"
+  [ "$(sp_hp "$SPI")" = .claude/git-shim ] || die "run $_spn: an absolute in-repository chain ended as '$(sp_hp "$SPI")'" shim-spell "$SPI"
+  grep -qF 'P="$ROOT/myhooks/$H"' "$SPI/.claude/git-shim/pre-commit" || die "run $_spn: the shim does not name the chain from the root: $(grep -m1 '^P=' "$SPI/.claude/git-shim/pre-commit")" shim-spell "$SPI"
+  sp_clean "$SPI" || die "run $_spn: a generated shim holds a path of this machine" shim-spell "$SPI"
+  : > "$SPI/own.log"; echo "$_spn" > "$SPI/f$_spn.txt"; sh_commit "$SPI" "f$_spn.txt" || die "run $_spn: an ordinary commit was refused" shim-spell "$SPI"
+  [ "$(grep -c ran "$SPI/own.log")" = 1 ] || die "run $_spn: the project's pre-commit ran $(grep -c ran "$SPI/own.log") time(s), not once" shim-spell "$SPI"
+done
+# 4) a chain OUTSIDE the repository: kept in this clone's git config, read by the shim when it runs, never written in it
+SPO="$WORK/shim-spell-out"; sp_new "$SPO"; SPX="$WORK/shim-spell-outside-hooks"; rm -rf "$SPX"; mkdir -p "$SPX"; SPX="$(cd -P "$SPX" && pwd)"
+printf '#!/bin/sh\necho ran >> "%s/out.log"\n' "$SPX" > "$SPX/pre-commit"; chmod +x "$SPX/pre-commit"
+( cd "$SPO" && git config core.hooksPath "$SPX" )
+for _spn in 1 2 3; do
+  sp_again "$SPO"
+  [ "$(sp_hp "$SPO")" = .claude/git-shim ] || die "run $_spn: a chain outside the repository ended as '$(sp_hp "$SPO")'" shim-spell "$SPO"
+  [ "$(cd "$SPO" && git config --get crewforth.hookschain)" -ef "$SPX" ] || die "run $_spn: the outside chain is not in git config: '$(cd "$SPO" && git config --get crewforth.hookschain)'" shim-spell "$SPO"
+  ! grep -qF -e "$SPX" -e "$(cd "$SPO" && git config --get crewforth.hookschain)" "$SPO"/.claude/git-shim/* || die "run $_spn: the shim holds the outside chain's path" shim-spell "$SPO"
+  grep -qxF 'P=""' "$SPO/.claude/git-shim/pre-commit" || die "run $_spn: the shim of an outside chain names a path of its own" shim-spell "$SPO"
+  sp_clean "$SPO" || die "run $_spn: a generated shim holds a path of this machine" shim-spell "$SPO"
+  : > "$SPX/out.log"; echo "$_spn" > "$SPO/f$_spn.txt"; sh_commit "$SPO" "f$_spn.txt" || die "run $_spn: an ordinary commit was refused" shim-spell "$SPO"
+  [ "$(grep -c ran "$SPX/out.log")" = 1 ] || die "run $_spn: the outside pre-commit ran $(grep -c ran "$SPX/out.log") time(s), not once" shim-spell "$SPO"
+done
+printf 'aws_key = "%s%s"\n' AKIA IOSFODNN7EXAMPLQ > "$SPO/k.py"
+sh_commit "$SPO" k.py && die "with an outside chain a staged key was committed — Crewforth's pre-commit is not running" shim-spell "$SPO"
+echo "[shim-spell] the kit's own hooks directory spelled 5 ways (absolute as resolved and as the shell names it, each also with a trailing slash or ./) is never a chain; an old shim that chained the kit to itself is removed and a stranger's file beside it stays; an absolute in-repository chain is named from the root and runs once; a chain outside the repository lives in git config, runs once through 3 updates, and no generated shim holds a path of this machine"
+
 # CSK_CORRECT_STACK used to flip a recorded 'generic' to 'dotnet'. 3.0 has one shape, so the variable does
 # nothing — and says so, rather than being silently ignored by an automation that still sets it.
 R="$WORK/adopt-refresh"; rm -rf "$R"; mkdir -p "$R/backend"
