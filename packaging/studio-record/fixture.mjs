@@ -51,7 +51,7 @@ function writeJsonl(file, records, mtimeMs) {
 /* ------------------------------------------------------------------ agents */
 
 const MODEL_MAIN = 'claude-opus-5-5';
-const MODEL_SUB = 'claude-sonnet-5';
+const MODEL_SUB = 'claude-sonnet-5-5';
 
 // One agent transcript: prompt, alternating assistant/tool_result turns, report.
 function agentRecords({ cwd, sessionId, branch, prompt, calls, startMs, endMs, errorsAt = [], tokens, narration, report }) {
