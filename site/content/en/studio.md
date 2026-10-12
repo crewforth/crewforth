@@ -65,7 +65,7 @@ Crewforth's model routing gives every crew agent's task a card (the files it may
 | **Agent · change**, **Risk** | the class. The risk is `critical` or `normal`, as the hook classified the task |
 | **Model** | what the class ran on, with a count for each model. A class Crewforth holds one model up carries **raised**; one you lowered again carries **lowered** |
 | **Tasks** | how many tasks of the class are on record |
-| **First try** | the share of *verified* tasks whose verify command passed with no fix by the agent. A task whose command was not there, was not allowed to run or ran out of time got no verdict and is in no rate; a class with no verified task shows a dash, not 0% |
+| **First try** | the share of *verified* tasks whose verify command passed with no fix by the agent. A task whose command was not there, was not allowed to run or ran out of time got no verdict and is in no rate; a class with no verified task shows a dash, not a zero |
 | **Escalated** | how many tasks repeated a card that had failed one model down |
 | **Est. cost** | what the class's agents come to at API list price. Where only some of its tasks could be priced, the cell is a floor and says so: `≥$0.75 · 2/7` is the sum of two tasks out of seven |
 

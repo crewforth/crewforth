@@ -65,7 +65,7 @@ Crewforth'un model seçimi her crew ajanının işine bir kart veriyor (dokunabi
 | **Agent · change**, **Risk** | sınıf. Risk `critical` ya da `normal`; işi hook böyle sınıflandırmış |
 | **Model** | sınıfın koştuğu modeller, her biri için sayısıyla. Crewforth'un bir üst modelde tuttuğu sınıf **raised** taşıyor; sizin yeniden indirdiğiniz sınıf **lowered** |
 | **Tasks** | sınıfın kayıtta kaç işi olduğu |
-| **First try** | *doğrulanmış* işlerden, verify komutu ajan hiç düzeltme yapmadan geçenlerin oranı. Komutu olmayan, komutunun koşmasına izin verilmeyen ya da süresi dolan iş hüküm almamış sayılıyor ve hiçbir orana girmiyor; doğrulanmış işi olmayan sınıf %0 değil, çizgi gösteriyor |
+| **First try** | *doğrulanmış* işlerden, verify komutu ajan hiç düzeltme yapmadan geçenlerin oranı. Komutu olmayan, komutunun koşmasına izin verilmeyen ya da süresi dolan iş hüküm almamış sayılıyor ve hiçbir orana girmiyor; doğrulanmış işi olmayan sınıf sıfır değil, çizgi gösteriyor |
 | **Escalated** | kaç işin, bir alt modelde düşmüş bir kartı tekrarladığı |
 | **Est. cost** | sınıfın ajanlarının API liste fiyatıyla tutarı. İşlerin yalnız bir kısmı fiyatlanabildiyse hücre bir alt sınır ve bunu söylüyor: `≥$0.75 · 2/7`, yedi işten ikisinin toplamı |
 
