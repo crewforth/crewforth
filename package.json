@@ -43,6 +43,7 @@
     "git-hooks"
   ],
   "author": "Bar\u0131\u015f Yerlikaya",
+  "homepage": "https://crewforth.com/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Crewforth/crewforth.git"
