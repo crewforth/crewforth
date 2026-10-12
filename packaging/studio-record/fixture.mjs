@@ -22,6 +22,7 @@ const MIN = 60_000;
 const iso = (ms) => new Date(ms).toISOString();
 const enc = (cwd) => cwd.replace(/[:\\/._]/g, '-');
 
+const FAILED = 'cat: plugin/.claude-plugin/plugin.json: No such file or directory';
 let uidN = 0;
 const uid = () => {
   uidN += 1;
@@ -50,7 +51,7 @@ function writeJsonl(file, records, mtimeMs) {
 /* ------------------------------------------------------------------ agents */
 
 const MODEL_MAIN = 'claude-opus-5-5';
-const MODEL_SUB = 'claude-sonnet-5';
+const MODEL_SUB = 'claude-sonnet-5-5';
 
 // One agent transcript: prompt, alternating assistant/tool_result turns, report.
 function agentRecords({ cwd, sessionId, branch, prompt, calls, startMs, endMs, errorsAt = [], tokens, narration, report }) {
@@ -83,7 +84,8 @@ function agentRecords({ cwd, sessionId, branch, prompt, calls, startMs, endMs, e
       message: { role: 'user', content: batch.map((c, k) => ({
         type: 'tool_result',
         tool_use_id: c.id,
-        content: c.result ?? 'ok',
+        // A call that failed says what failed: "ok" under "Last error" reads as a mistake in the picture.
+        content: errorsAt.includes(i + k) ? (c.error ?? FAILED) : (c.result ?? 'ok'),
         ...(errorsAt.includes(i + k) ? { is_error: true } : {}),
       })) } });
 
@@ -138,6 +140,59 @@ const projDir = (n) => path.join(ROOT, enc(cwdOf(n)));
 
 const HERO = '7f3c1d20-9a4e-4b6f-8c21-5d0e2a41b9c7';
 const HERO_CWD = cwdOf('acme-payments-api');
+
+// The task card a crew agent's work starts with (model routing): three lines at the top of its task. The panel
+// shows it in the inspector; an agent that is not a crew agent has none.
+const CARDS = {
+  '3e7b10d5': { files: 'src/capture/handler.ts, src/capture/idempotency.ts', change: 'feature', verify: 'npm test -- capture' },
+  b48d29e1: { files: 'test/capture/**', change: 'test-run', verify: 'npm test -- capture' },
+  f20a7c63: { files: 'web/checkout/RefundBanner.tsx', change: 'feature', verify: 'npm test -- checkout' },
+  '5d93be08': { files: 'db/migrations/0042_ledger_index.sql', change: 'migration', verify: 'npm run migrate:dry' },
+  c7e58f14: { files: 'jobs/settlement/**', change: 'audit', verify: 'none' },
+};
+const cardText = (id) => (CARDS[id] ? `files: ${CARDS[id].files}\nchange: ${CARDS[id].change}\nverify: ${CARDS[id].verify}\n\n` : '');
+
+// The record of outcomes Crewforth's hooks keep for the project (.claude/state): which model did which kind of
+// task and how it went. Written here in the hooks' own format and words, for the Models view. Two of the lines are
+// agents of the session on screen; the rest stand for earlier sessions of the project.
+function writeOutcomes(dir) {
+  const stamp = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const t0 = NOW - 6 * 60 * MIN;
+  let n = 0;
+  const rows = ['ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence'];
+  const add = (agent, change, risk, model, verify, fixes = 0, from = '-', id = null, card = null) => {
+    n += 1;
+    rows.push([stamp(t0 + n * 4 * MIN), id ?? `e${String(n).padStart(4, '0')}a1`, agent, change, risk, card ?? `c${n}`, model, verify, fixes, from, '-', 'high'].join('\t'));
+    return stamp(t0 + n * 4 * MIN);
+  };
+  // Backend features on haiku: two of five did not pass first time, so the class was raised to sonnet...
+  for (const v of ['pass', 'fail', 'pass', 'fail', 'pass']) add('crew-backend-expert', 'feature', 'normal', 'haiku', v, v === 'fail' ? 1 : 0, '-', null, v === 'fail' && n === 3 ? 'idem' : null);
+  const raisedBackend = stamp(t0 + n * 4 * MIN + 1000);
+  // ...and has passed ten times on sonnet since: the lowering is offered.
+  for (let k = 0; k < 9; k += 1) add('crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass');
+  // Reviews were raised the same way, and the user lowered them again.
+  for (const v of ['pass', 'fail', 'fail', 'pass', 'pass', 'pass']) add('crew-review-agent', 'audit', 'normal', 'haiku', v, v === 'fail' ? 1 : 0);
+  const raisedReview = stamp(t0 + n * 4 * MIN + 1000);
+  for (let k = 0; k < 3; k += 1) add('crew-review-agent', 'audit', 'normal', 'sonnet', 'pass');
+  const loweredReview = stamp(t0 + n * 4 * MIN + 2000);
+  for (let k = 0; k < 2; k += 1) add('crew-review-agent', 'audit', 'normal', 'haiku', 'pass');
+  for (let k = 0; k < 18; k += 1) add('crew-test-expert', 'test-run', 'normal', 'haiku', 'pass');
+  for (const v of ['pass', 'pass', 'pass', 'blocked']) add('crew-database-expert', 'migration', 'critical', 'opus', v);
+  for (const v of ['pass', 'pass', 'none']) add('crew-security-expert', 'security', 'critical', 'opus', v);
+  for (const [v, f] of [['pass', 0], ['pass', 1], ['pass', 0], ['fail', 1], ['pass', 0], ['pass', 0], ['timeout', 0]]) add('crew-frontend-expert', 'feature', 'normal', 'sonnet', v, f);
+  // The session on screen: the capture feature (its card failed once on haiku, above, and ran again on sonnet),
+  // and the test run under it.
+  add('crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 0, 'haiku', '3e7b10d5', 'idem');
+  add('crew-test-expert', 'test-run', 'normal', 'haiku', 'pass', 0, '-', 'b48d29e1');
+  const state = path.join(dir, '.claude', 'state');
+  mk(state);
+  fs.writeFileSync(path.join(state, 'model-outcomes.tsv'), `${rows.join('\n')}\n`);
+  fs.writeFileSync(path.join(state, 'crew-model-floors.auto'),
+    `crew-backend-expert\tfeature\tnormal\tsonnet\t5\t2\t${raisedBackend}\ncrew-review-agent\taudit\tnormal\tsonnet\t6\t2\t${raisedReview}\n`);
+  fs.writeFileSync(path.join(state, 'crew-model-loosened.tsv'),
+    `ts\tagent\tchange\trisk\tfrom\tto\n${loweredReview}\tcrew-review-agent\taudit\tnormal\tsonnet\thaiku\n`);
+}
+writeOutcomes(HERO_CWD);
 const HERO_DIR = projDir('acme-payments-api');
 const BRANCH = 'feat/payment-retries';
 const T0 = NOW - 52 * MIN;
@@ -301,7 +356,7 @@ for (const a of AG) {
   if (a.spawn) cs.push({ ...a.spawn, result: 'agent finished' });
   writeJsonl(path.join(wfDir, `agent-${a.id}.jsonl`), agentRecords({
     cwd: HERO_CWD, sessionId: HERO, branch: BRANCH,
-    prompt: `${a.desc}. Report what you changed and what you deliberately left alone.`,
+    prompt: `${cardText(a.id)}${a.desc}. Report what you changed and what you deliberately left alone.`,
     calls: cs, startMs: a.start, endMs: a.end, errorsAt: a.errorsAt,
     tokens: a.tokens, narration: a.narration, report: a.report,
   }), a.mtime);

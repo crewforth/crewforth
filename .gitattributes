@@ -3,6 +3,9 @@
 *.sh text eol=lf
 # The awk JSON reader ships in the payload, and a CRLF build would change its bytes (smoke checks every shipped pin).
 *.awk text eol=lf
+# The one PowerShell file: read with Get-Content and run with Invoke-Expression, which takes LF. Pinned so the
+# bytes that ship are the bytes in the repository on every platform.
+*.ps1 text eol=lf
 kit/hooks/pre-commit text eol=lf
 kit/hooks/commit-msg text eol=lf
 # The plugin edition ships the same two hooks under a different root, and being extensionless they are not
@@ -56,6 +59,7 @@ LICENSE text eol=lf
 # published SHA. Nothing parses these files line by line, so this is about bytes, like the *.md pin: the tarball must
 # not depend on the machine that builds it. smoke-test §14 keeps every text file in a shipped path pinned.
 *.js text eol=lf
+*.mjs text eol=lf
 *.py text eol=lf
 *.html text eol=lf
 *.css text eol=lf
@@ -77,4 +81,5 @@ packaging/skill-summaries.tr.tsv text eol=lf
 # The legacy blob list ships in the payload and is compared byte for byte with its generator's LF output; under
 # core.autocrlf=true it came out with 207 CRs and the smoke gate read it as stale (measured in review).
 kit/legacy-blobs.tsv text eol=lf
+kit/owned-blobs.tsv text eol=lf
 .github/workflows/*.yml text eol=lf

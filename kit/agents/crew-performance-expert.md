@@ -47,7 +47,7 @@ Static reading is legitimate for finding *where to point the measurement*:
 - **Allocation**: per-item allocation in a loop, a large buffer copied instead of streamed, string building in a loop.
 - **Payload/cache**: an oversized response, no caching where the input is stable, a cache keyed so it never hits.
 - **Client/render**: a re-render loop, work in a render path, an effect that re-triggers itself, an unbounded list
-  without virtualisation, a heavy import on the startup path ([[frontend]], [[frontend-rn-expo]]).
+  without virtualisation, a heavy import on the startup path ([[frontend]], [[frontend-rn-expo]], [[frontend-flutter]]).
 - **Startup**: work at module load that belongs behind first use.
 
 ## How
@@ -76,3 +76,11 @@ Without a measurement you are guessing which line matters, and intuition about h
 which is why profilers exist. If you have no number, write **"unmeasured"**, never "slow", and name the
 measurement that would settle it (the command, the workload, what you would compare it against). A ranked
 performance finding with no number attached is a preference.
+
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up. Your task opens with a card (`files:`, `change:`,
+`verify:`): the `verify` command is run when you stop, and if it fails you are asked once to fix the work. If a
+write is refused because the file is on a critical path, do not reach it another way: stop, and put
+`escalate: <the file>` on the line before `confidence: low`.

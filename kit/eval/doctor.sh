@@ -78,6 +78,14 @@ _mt() {
       'core.hooksPath -> %s (commit-time gates active)') s='core.hooksPath -> %s (commit anındaki kapılar devrede)' ;;
       'core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE') s='core.hooksPath ayarlı değil — commit iz, gizli bilgi ve şişkinlik kapıları DEVRE DIŞI' ;;
       "core.hooksPath -> %s (not Crewforth's hooks)") s="core.hooksPath -> %s (Crewforth'un hook'ları değil)" ;;
+      "core.hooksPath -> %s (Crewforth's hooks run first, then the project's own — commit-time gates active)") s="core.hooksPath -> %s (önce Crewforth'un hook'ları, sonra projenin kendi hook'ları çalışır — commit anındaki kapılar devrede)" ;;
+      "core.hooksPath -> %s, but the shim there does not run Crewforth's hook:%s") s="core.hooksPath -> %s, ama oradaki shim Crewforth'un hook'unu çalıştırmıyor:%s" ;;
+      'update Crewforth (npx crewforth update), which writes the shim again') s="Crewforth'u güncelleyin (npx crewforth update); güncelleme shim'i yeniden yazar" ;;
+      "update Crewforth (npx crewforth update): this project has hooks of its own, and the update runs Crewforth's before them instead of replacing them") s="Crewforth'u güncelleyin (npx crewforth update): bu projenin kendi hook'ları var; güncelleme Crewforth'unkileri onların yerine koymaz, önlerinde çalıştırır" ;;
+      "update Crewforth (npx crewforth update): it keeps that chain and runs Crewforth's hooks before it (.claude/git-shim)") s="Crewforth'u güncelleyin (npx crewforth update): o zinciri korur ve Crewforth'un hook'larını önünde çalıştırır (.claude/git-shim)" ;;
+      "trace-blocklist.txt: the placeholder %s is active as it shipped — §4.2 looks for those characters and for no template name; write the template's name in its place, or put the # back") s="trace-blocklist.txt: %s yer tutucusu gönderildiği hâliyle etkin — §4.2 o karakterleri arıyor, bir şablon adını değil; yerine şablonun adını yazın ya da başına # koyun" ;;
+      "§4.2 names no vendor template: .claude/hooks/trace-blocklist.txt holds only its placeholder, so that rule looks for nothing — if this project came from a template, write its name there") s="§4.2 hiçbir üçüncü taraf şablon adı içermiyor: .claude/hooks/trace-blocklist.txt'te yalnız yer tutucu var, yani o kural hiçbir şey aramıyor — proje bir şablondan geldiyse adını oraya yazın" ;;
+      '§4.2 names %s vendor template pattern(s) in trace-blocklist.txt') s="§4.2, trace-blocklist.txt'te %s üçüncü taraf şablon deseni içeriyor" ;;
       'not a git repo — commit gates need: git init && git config core.hooksPath .claude/hooks') s='git deposu değil — commit kapıları için: git init && git config core.hooksPath .claude/hooks' ;;
       "Crewforth's JSON reader is missing (%s) — settings.json cannot be checked") s="Crewforth'un JSON okuyucusu yok (%s) — settings.json denetlenemiyor" ;;
       'update Crewforth') s="Crewforth'u güncelleyin" ;;
@@ -88,6 +96,11 @@ _mt() {
       'SessionStart not wired — session rehydration after /compact or /clear is inactive (update Crewforth)') s="SessionStart bağlı değil — /compact ya da /clear sonrasında oturum toparlanmıyor (Crewforth'u güncelleyin)" ;;
       'SessionStart wired (session rehydration active)') s='SessionStart bağlı (oturum toparlama devrede)' ;;
       'settings.json is invalid JSON') s='settings.json geçersiz JSON' ;;
+      "Claude Code %s is older than 2.1.293 — the model alias haiku may not resolve to Haiku 5.5 there, so an agent called with model haiku can run on an older model (update Claude Code)") s="Claude Code %s, 2.1.293'ten eski — orada haiku model takma adı Haiku 5.5'e çözülmeyebilir; model haiku ile çağrılan bir ajan eski bir modelde koşabilir (Claude Code'u güncelleyin)" ;;
+      'approval by your own message is wired (auto / dontAsk: /crew-approve commit)') s='kendi mesajınızla onay bağlı (auto / dontAsk: /crew-approve commit)' ;;
+      "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
+      "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
+      "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
       "fix the syntax by hand — restoring Crewforth's file would drop any hooks you added") s="sözdizimini elle düzeltin — Crewforth'un dosyasını geri yüklemek eklediğiniz hook'ları siler" ;;
       'settings.json wires hooks through the %s placeholder — on Windows its separators are stripped before bash runs, so NO hook launches and every gate is silently absent') s="settings.json hook'ları %s yer tutucusuyla bağlıyor — Windows'ta ayırıcılar bash çalışmadan silinir, bu yüzden HİÇBİR hook başlamaz ve bütün kapılar sessizce yok olur" ;;
       'update Crewforth (npx crewforth adopt) — hook commands become:') s="Crewforth'u güncelleyin (npx crewforth adopt) — hook komutları şu olur:" ;;
@@ -261,13 +274,59 @@ if [ -x .claude/hooks/guard-bash.sh ]; then
   esac
 fi
 
-# 3) core.hooksPath — without it the §4.1/§4.2 commit trace + secret/bloat scan never runs
+# 2c) §4.2's list. trace-blocklist.txt ships the vendor section with a placeholder, `# <vendor-template-name>`,
+#     commented out: until a name stands there §4.2 looks for nothing, and nothing said so (a field note: it stays
+#     unfilled). Two states are told apart. The placeholder made ACTIVE as it shipped (the # removed, the text left)
+#     is a mistake: the rule then looks for those characters. No active line at all is the ordinary state of a
+#     project that came from no template, so it is said once, as information, and is not counted.
+_tb=.claude/hooks/trace-blocklist.txt
+if [ -f "$_tb" ]; then
+  _tbn=0; _tbp=""; _tbon=0
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    _l="${_l%$'\r'}"
+    case "$_l" in
+      '# --- '*4.2*) _tbon=1; continue ;;
+      '# --- '*)     _tbon=0; continue ;;
+    esac
+    [ "$_tbon" = 1 ] || continue
+    case "$_l" in ''|'#'*) continue ;; esac
+    _tbn=$((_tbn+1))
+    case "$_l" in '<'*'>') _tbp="$_l" ;; esac
+  done < "$_tb"
+  if [ -n "$_tbp" ]; then
+    warn "trace-blocklist.txt: the placeholder %s is active as it shipped — §4.2 looks for those characters and for no template name; write the template's name in its place, or put the # back" "$_tbp"
+  elif [ "$_tbn" = 0 ]; then
+    skip "§4.2 names no vendor template: .claude/hooks/trace-blocklist.txt holds only its placeholder, so that rule looks for nothing — if this project came from a template, write its name there"
+  else
+    ok "§4.2 names %s vendor template pattern(s) in trace-blocklist.txt" "$_tbn"
+  fi
+fi
+
+# 3) core.hooksPath — without it the §4.1/§4.2 commit trace + secret/bloat scan never runs on a commit.
+#    .claude/git-shim is Crewforth's too: it is where the updater points git when the project has a hook chain of
+#    its own (husky, .git/hooks), and each shim there runs Crewforth's hook and then the project's. Doctor did not
+#    know it: on such a project it answered ❌ "not Crewforth's hooks" and advised `git config core.hooksPath
+#    .claude/hooks`, the one command that disconnects the project's own hooks. The advice for a project with a chain
+#    of its own is the updater, which keeps the chain.
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   HP="$(git config --get core.hooksPath 2>/dev/null || true)"
+  # A hook chain of the project's own that an unset or foreign core.hooksPath would be running today.
+  _own=0; { [ -d .husky ] || [ -x .git/hooks/pre-commit ] || [ -x .git/hooks/commit-msg ]; } && _own=1
   case "$HP" in
     */.claude/hooks|.claude/hooks) ok "core.hooksPath -> %s (commit-time gates active)" "$HP" ;;
-    "") bad "core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE" "git config core.hooksPath .claude/hooks" ;;
-    *)  bad "core.hooksPath -> %s (not Crewforth's hooks)" "git config core.hooksPath .claude/hooks" "$HP" ;;
+    */.claude/git-shim|.claude/git-shim)
+      _shb=""
+      for h in pre-commit commit-msg; do
+        { [ -x "$HP/$h" ] && grep -q '\.claude/hooks/' "$HP/$h" 2>/dev/null; } || _shb="$_shb $h"
+      done
+      if [ -z "$_shb" ]; then ok "core.hooksPath -> %s (Crewforth's hooks run first, then the project's own — commit-time gates active)" "$HP"
+      else bad "core.hooksPath -> %s, but the shim there does not run Crewforth's hook:%s" "update Crewforth (npx crewforth update), which writes the shim again" "$HP" "$_shb"; fi ;;
+    "") if [ "$_own" = 1 ]; then
+          bad "core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE" "update Crewforth (npx crewforth update): this project has hooks of its own, and the update runs Crewforth's before them instead of replacing them"
+        else
+          bad "core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE" "git config core.hooksPath .claude/hooks"
+        fi ;;
+    *)  bad "core.hooksPath -> %s (not Crewforth's hooks)" "update Crewforth (npx crewforth update): it keeps that chain and runs Crewforth's hooks before it (.claude/git-shim)" "$HP" ;;
   esac
 else
   warn "not a git repo — commit gates need: git init && git config core.hooksPath .claude/hooks"
@@ -295,6 +354,14 @@ if [ -f "$S" ]; then
                     || bad "settings.json hook events empty or missing:%s — those gates won't fire" "restore settings.json from Crewforth (npx crewforth update)" "$EMPTY"
     sn="$(awk -v op=len -v path=hooks.SessionStart -f "$SJ" "$S" 2>/dev/null)"
     case "$sn" in ''|0) warn "SessionStart not wired — session rehydration after /compact or /clear is inactive (update Crewforth)" ;; *) ok "SessionStart wired (session rehydration active)" ;; esac
+    # In auto and dontAsk the only approval is the user's own message, and ONE hook records it. Where it is not wired
+    # the gate stays closed and '/crew-approve commit' records nothing (field report: a worktree on an older
+    # Crewforth). A warning, not a failure: commit and push still cannot happen without the user.
+    case "$(awk -v op=get -v path=hooks.UserPromptSubmit -f "$SJ" "$S" 2>/dev/null)" in
+      *prompt-approval.sh*) if [ -f .claude/hooks/prompt-approval.sh ]; then ok "approval by your own message is wired (auto / dontAsk: /crew-approve commit)"
+                            else warn "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)"; fi ;;
+      *) warn "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)" ;;
+    esac
   else bad "settings.json is invalid JSON" "fix the syntax by hand — restoring Crewforth's file would drop any hooks you added"; fi
   # `${CLAUDE_PROJECT_DIR}` inside a hook command is the shape that breaks on Windows, and it breaks invisibly.
   # Claude Code substitutes that placeholder into the command STRING before any shell sees it; on Windows the
@@ -315,6 +382,20 @@ if [ -f "$S" ]; then
   fi
 else
   bad "settings.json missing — the tool-level gates (commit approval, guards, context) are INACTIVE" "reinstall Crewforth"
+fi
+# 4b) Another worktree of this repository on another Crewforth. A session that moves there runs THAT version's hooks
+#     against this one's expectations: its gates, its approval path (3.0 has none for auto mode). `.claude/` is
+#     tracked in some projects, so a worktree cut from an older branch carries the older kit.
+if [ -f .claude/VERSION ] && git rev-parse --git-dir >/dev/null 2>&1; then
+  _wv0="$(head -1 .claude/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.-')"; _wt0="$(git rev-parse --show-toplevel 2>/dev/null)"
+  while IFS= read -r _wl; do
+    case "$_wl" in "worktree "*) _wp="${_wl#worktree }" ;; *) continue ;; esac
+    [ "$_wp" != "$_wt0" ] && [ -f "$_wp/.claude/VERSION" ] || continue
+    _wv="$(head -1 "$_wp/.claude/VERSION" 2>/dev/null | tr -cd '0-9A-Za-z.-')"
+    [ "$_wv" = "$_wv0" ] || warn "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)" "$_wp" "${_wv:-?}" "$_wv0"
+  done <<EOF_WT
+$(git worktree list --porcelain 2>/dev/null)
+EOF_WT
 fi
 
 # 4a) Skill listing budget. Claude Code puts a listing of every model-invocable skill's name and description into
@@ -587,6 +668,21 @@ if [ -x .claude/skills/automode-policy/scripts/check.sh ] || [ -f .claude/skills
   [ "$AMRC" = 2 ] && printf '%s\n' "$AMOUT" | grep 'auto-mode config' 
 else
   warn "auto-mode policy check skipped (install predates the automode-policy skill; run the updater)"
+fi
+# 9b) Model routing names a model on every crew agent call (hooks/guard-agent-model.sh), by alias. An alias is
+#     resolved by Claude Code, so an old one can hand `haiku` an older model than the table means. Advisory: said
+#     only when a claude CLI answers with a version, and never a failure.
+if command -v claude >/dev/null 2>&1; then
+  _ccv="$(claude --version 2>/dev/null | head -1)"; _ccv="${_ccv%%[!0-9.]*}"
+  case "$_ccv" in [0-9]*.[0-9]*.[0-9]*)
+    IFS=. read -r _cc1 _cc2 _cc3 <<EOF_CCV
+$_ccv
+EOF_CCV
+    _cc3="${_cc3%%[!0-9]*}"
+    if [ "$_cc1" -lt 2 ] || { [ "$_cc1" = 2 ] && { [ "$_cc2" -lt 1 ] || { [ "$_cc2" = 1 ] && [ "${_cc3:-0}" -lt 293 ]; }; }; }; then
+      warn "Claude Code %s is older than 2.1.293 — the model alias haiku may not resolve to Haiku 5.5 there, so an agent called with model haiku can run on an older model (update Claude Code)" "$_ccv"
+    fi ;;
+  esac
 fi
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has

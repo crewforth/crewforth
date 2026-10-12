@@ -11,7 +11,7 @@ set -euo pipefail
 # match here is written in ASCII. Measured under tr_TR.UTF-8 with the locale left as it came:
 #   GNU grep 3.11 / bash 5.2 on Linux: `grep -i init` does not find INIT (-F, -E and plain alike);
 #     bash's nocasematch does not match GIT against git; `[A-Za-z]` in a regex does not hold I; awk's tolower
-#     turns GIT into gıt. The suite, run whole under that locale, went from 2 failures to 23: a recursive
+#     turns GIT into gıt. The suite, run whole under that locale, went from 4 failures to 30: a recursive
 #     Remove-Item, a write to a gate file, `git config --remove-section core`, a read of a nested .env and a
 #     staged key all passed.
 #   GNU grep 3.0 in Git Bash on Windows: `grep -iF` with an ASCII pattern aborts (exit 134), and the pre-commit
@@ -37,7 +37,9 @@ export LC_ALL=C
 # the first look finds nothing and the match ignores case: in the C locale such a letter has no other case.
 _crew_scan(){  # $1 = grep's flags after -q (iE, E, iF) · $2 = pattern · $3 = file
   local r=0
-  grep -q"$1" -- "$2" "$3" 2>/dev/null || r=$?
+  # The first look is in the C locale, SAID ON THE CALL and not left to the export at the top of the file: under
+  # tr_TR `grep -iE` does not abort, it answers "no match" for i against I (measured in Git Bash), which is silent.
+  LC_ALL=C grep -q"$1" -- "$2" "$3" 2>/dev/null || r=$?
   if [ "$r" = 1 ] && [ -n "$_CREW_LOCALE" ]; then
     case "$1" in *i*) case "$2" in *[!$'\t'\ -~]*) r=0; LC_ALL="$_CREW_LOCALE" grep -q"$1" -- "$2" "$3" 2>/dev/null || r=$? ;; esac ;; esac
   fi
@@ -352,18 +354,32 @@ done < <({ _floor_diff --cached; [ "${CREW_SCAN_UNSTAGED:-0}" = 1 ] && _floor_di
 # escapes to top level): 8 mismatches, in BOTH directions — three clean messages newly rejected and two real
 # secrets newly passed. Also checked structurally: no pattern in either shipped blocklist carries a bare
 # top-level `|` (every one is inside a group) and none uses a back-reference, so joining cannot reshape them.
-_crew_any(){   # $1 = pattern list  $2 = corpus  $3 = grep flags  $4 = 1 for newline-joined fixed strings
+# A LITERAL TERM IS LOOKED FOR AS A PATTERN, NEVER WITH `grep -iF`. Measured on two Windows machines, both GNU grep
+# 3.0 in Git Bash, and they fail in opposite places:
+#     Git for Windows 2.53 (msys bash 5.2)    grep -iF aborts (exit 134) when the locale in effect is C or POSIX
+#     Git for Windows 2.55 (cygwin bash 5.3)  grep -iF aborts (exit 134) when the locale in effect is tr_TR
+# This file sets the C locale (above), so on the first of them every look for a private string aborted and every
+# commit was stopped; with no locale set, the second one aborted for a Turkish user. No locale is safe for both.
+# On both, -iE and -i did not abort in any of 15 pairs of LANG and LC_ALL. So the term is escaped and matched with
+# -iE: _crew_lit puts a backslash before each character that means something in a pattern.
+_crew_lit(){  # $1 = a literal string -> _CL, the pattern that matches exactly it
+  local s="$1" c; _CL=""
+  while [ -n "$s" ]; do
+    c="${s:0:1}"; s="${s:1}"
+    case "$c" in '\'|.|'['|']'|'^'|'$'|'*'|+|'?'|'('|')'|'{'|'}'|'|') _CL="$_CL\\$c" ;; *) _CL="$_CL$c" ;; esac
+  done
+}
+_crew_any(){   # $1 = pattern list  $2 = corpus  $3 = grep flags  $4 = 1 when the list holds literal terms, not patterns
   local pat alt="" sep="|" na=0 r=0
-  [ "$4" = 1 ] && sep="
-"
   while IFS= read -r pat || [ -n "$pat" ]; do
     pat="${pat%$'\r'}"
     case "$pat" in ''|\#*) continue;; esac
-    alt="${alt:+$alt$sep}$pat"
     case "$pat" in *[!$'\t'\ -~]*) na=1 ;; esac
+    if [ "$4" = 1 ]; then _crew_lit "$pat"; pat="$_CL"; fi
+    alt="${alt:+$alt$sep}$pat"
   done < "$1"
   [ -n "$alt" ] || return 1
-  grep -q$3 -- "$alt" "$2" 2>/dev/null || r=$?
+  LC_ALL=C grep -q$3 -- "$alt" "$2" 2>/dev/null || r=$?
   # Nothing found, but a pattern holds a letter outside ASCII and the match ignores case: the per-pattern loop looks
   # again under the session's own locale (_crew_scan), so send the caller there.
   if [ "$r" = 1 ] && [ "$na" = 1 ] && [ -n "$_CREW_LOCALE" ]; then case "$3" in *i*) return 4 ;; esac; fi
@@ -463,27 +479,30 @@ PAL="";  [ -n "$GITROOT" ] && [ -f "$GITROOT/.private-allowlist.txt" ] && PAL="$
     # Git Bash reports /c/Users/x for what Windows itself calls C:\Users\x — both spellings reach a file.
     case "$HOME" in
       /[a-zA-Z]/?*)
-        d="$(printf '%s' "${HOME:1:1}" | tr 'a-z' 'A-Z')"; r="${HOME:3}"
+        # The drive letter, upper-cased with a builtin: `$(printf … | tr a-z A-Z)` was a subshell and a process on
+        # every commit, on the platform where a process costs most (bash 3.2 has no ${x^^}).
+        d="${HOME:1:1}"; r="${HOME:3}"
+        case "$d" in [a-z]) _lc=abcdefghijklmnopqrstuvwxyz; _uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ; _i="${_lc%%"$d"*}"; d="${_uc:${#_i}:1}" ;; esac
         printf '%s\n' "$d:/$r" "$d:\\${r//\//\\}" ;;
     esac
   fi
   [ -n "$PTF" ] && sed -e 's/[[:space:]]*$//' -e '/^#/d' -e '/^$/d' "$PTF"
 } > "$PTERM_F" 2>/dev/null || true
-if _crew_any "$PTERM_F" "$SECRET_F" iF 1; then _dec=0; else _dec=$?; fi
+if _crew_any "$PTERM_F" "$SECRET_F" iE 1; then _dec=0; else _dec=$?; fi
 if [ -s "$PTERM_F" ] && [ -s "$SECRET_F" ] && [ "$_dec" != 1 ]; then
   while IFS= read -r term || [ -n "$term" ]; do
     term="${term%$'\r'}"
     [ -n "$term" ] || continue
     if [ -n "$PAL" ] && grep -qxF -- "$term" "$PAL"; then continue; fi
-    _gr=0; _crew_scan iF "$term" "$SECRET_F" || _gr=$?
+    _crew_lit "$term"; _gr=0; _crew_scan iE "$_CL" "$SECRET_F" || _gr=$?
     if [ "$_gr" = 0 ]; then
       # The term is echoed back deliberately: unlike a secret, the author has to see WHICH private string to
       # replace, and it is already sitting in their own working tree.
       echo "PRIVATE-PATH SCANNER: a staged line contains a machine-private string -> '$term' (§4.3)"
       HIT=1
     elif [ "$_gr" -ge 2 ]; then
-      # This loop used to read every exit status but 0 as "no match": under a Turkish locale in Git Bash grep -iF
-      # aborted (134) for each term and the commit went through with both private strings in it (measured).
+      # This loop used to read every exit status but 0 as "no match": where grep aborted (134) for each term the
+      # commit went through with both private strings in it (measured).
       echo "PRIVATE-PATH SCANNER: the look for a machine-private string could not run, so the staged lines are not known to be clean and the commit is stopped (§4.3)."
       HIT=1
     fi

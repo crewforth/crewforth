@@ -5,6 +5,373 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.1.0] — 2026-10-12
+
+### Security
+
+- **A session could start another one and hand it the approval.** `claude -p "/crew-approve commit"` starts a session
+  whose only message is the approval; it was recorded there, and that session would then commit and push: the first
+  session had approved for you. Two things changed. The recording hook writes nothing in a headless session
+  (Claude Code marks one with `CLAUDE_CODE_SESSION_ATTENDED=0`, whatever its caller sets), and nothing unless the
+  session's transcript is already on disk, so not at a session's first message and not in a session started inside
+  another, which keeps none; each refusal says why. And `guard-bash.sh` refuses a command that names `claude` (also
+  through `npx`, `bunx` or `node`) when one of its words is an approval, judged by the function that reads your own
+  prompt. An ordinary `claude -p "…"` is untouched. Known limit: a session started with an emptied environment and
+  typed into by a program, for a second message, passes both.
+- **A session could schedule its own approval.** In `auto` and `dontAsk` the approval for a commit or a push is what
+  you type, and the hook that records it reads the prompt Claude Code hands it. A prompt that a tool schedules
+  (`CronCreate`, `ScheduleWakeup`, `RemoteTrigger`, an MCP tool that schedules) is handed to it in the same way when
+  it fires, so a session that scheduled `/crew-approve commit` would have approved its own commit. A new gate,
+  `guard-schedule.sh`, refuses such a call when any text in it is an approval, judged by the one function that reads
+  your own prompt. An ordinary scheduled prompt is untouched.
+- **A git subcommand the shell fills in walked past every gate.** Each rule about a git command finds it by its name,
+  and with an expansion inside the word the name is not in the text: `git com${z}mit`, `c=commit; git "$c"`, `git
+  $(printf com)mit`, a backtick, and the same for `git pu${z}sh --force`, `git re$(:)set --hard`, `git cl${z}ean -fdx`
+  and `git co${z}nfig core.hooksPath …`. Measured: 20 of 22 such calls passed silently, and git ran them. A git call
+  whose subcommand holds an expansion is refused now, in every session. In PowerShell, git started through
+  `System.Diagnostics.Process` (`[Diagnostics.Process]::Start('git','commit -n …')`, a `ProcessStartInfo`) is refused
+  as well: its arguments are one string no rule reads. An expansion anywhere else in a git call is untouched: of 4986
+  real commands that hold git, 2850 have one, none in the subcommand, and none changed its verdict.
+- **In PowerShell, a force push handed to git as arguments was not read.** `Start-Process git -ArgumentList
+  'push','--force',…` and `& $g push --force …` run the same git command as the plain form; of 23 such forms of
+  `push --force` (`-f`, `+ref`, `--force-with-lease`), `reset --hard`, `clean -f` and `core.hooksPath`, 21 passed. The
+  arguments are judged now as the git command they make, by the same rules that judge the plain form, and the refusal
+  says what was read.
+- **A `git commit` is read the way the shell and git read it.** The rules for `--no-verify`, `--amend` and a commit
+  that takes its content from the working tree looked for those words and walked the command token by token. Each of
+  these reached the approval prompt with no rule firing (and with `CLAUDE_GIT_OK` ran with nobody asked), measured by
+  running them: `git commit -n` and `--no-verif` skip the hooks; `--amen` amends; `-m x 2>&1 -a`, `-mxm b.txt`,
+  `-m 'a"' -a ; echo 'b"'` and `-F - <<END -a` commit the working tree; `cd ../other && git commit` and
+  `GIT_INDEX_FILE=… git commit` commit something the review record does not describe; `bash -c 'git commit -am x'`
+  hides the whole command. The command is now read left to right — quotes as the shell pairs them, here-document
+  bodies as data, redirections as redirections — and every `git commit` in it against git's own option table,
+  wherever it sits (braces, `if`, a wrapper, a quoted command word). Refused with the reason: an abbreviated or
+  unknown option, an argument the shell would expand into something else, a `-c` setting or a `GIT_` / `HOME`
+  variable that changes what git reads, and a commit after a `cd` into another repository. Nothing that was refused
+  before is let through.
+- **`core.hooksPath` could be switched off without `git config`.** `printf '[core]\n\thooksPath = /dev/null\n' >> .git/config`
+  passed, and after it a commit from your own terminal skipped the trace and secret scans. `.git/config` (a worktree's
+  and a submodule's too), your own `~/.gitconfig` and `~/.config/git/config`, and `.claude/git-shim` are gate files now: a shell write and the file tools are refused,
+  reading is not. `git config include.path`, `includeIf` and `GIT_CONFIG_` variables that carry `hooksPath` are
+  refused as well, and so is an abbreviated `--no-verify` on any git command.
+- **A large commit command could run past the gate's timeout, and a hook that times out does not block.** `guard-bash.sh`
+  stripped and padded the whole command with `${text//x/y}`, ten times over, and bash rebuilds the string for every
+  match: a 46 KB commit whose message is a quote-dense here-document took 335 s on macOS and 14 s at 18 KB on Windows,
+  against a 600 s timeout. The substitutions are done a piece at a time now; a 30 KB commit of that shape is judged in
+  about a second. Other shapes still cost the square of their size (a 64 KB commit took 154 s to read), so a command
+  that holds a `git commit` is read up to 32768 bytes and refused unread above, with the advice to put the message in
+  a file and use `git commit -F <file>`. And whatever the command, taking it out of the hook's JSON costs the square of
+  its size (256 KB of an escape-dense command: 49 s, 512 KB: 200 s), in `guard-bash.sh` and `guard-commit-scan.sh` alike,
+  so a Bash or PowerShell call above 262144 bytes is refused before it is parsed, by size alone, with the advice to put
+  the long content in a file. The largest of 12387 real commands is 31639 bytes. Write and Edit are not limited.
+- **A Write or Edit of a few megabytes ran `guard-write.sh` past its timeout, a gate file included.** The look for a
+  second path key walked the content with an expansion that costs the square of the size when nothing matches: 1 MB
+  took 24 s on macOS, and a 6 MB Write to `.claude/hooks/guard-bash.sh` was refused after 636 s, which is after the
+  600 s timeout, so it was not refused. The key search walks the payload a piece at a time now: the same Write is
+  refused in 2.6 s, and an ordinary 6 MB file passes in the same time. The file tools stay unlimited in size.
+- A review record could vouch for any staged diff once `git config diff.external true` was set: the staged diff then
+  prints nothing, and every change got the same id. The id is computed with `--no-ext-diff --no-textconv`.
+- A recursive forced delete of `.` or `..` passed in both shells (`rm -rf .`, `rm -rf ..`,
+  `Remove-Item -Recurse -Force .`): the rule looked for `/`, `*` or `~` in the target, and these carry none. They are
+  stopped now, in any flag spelling, with `sudo`, and across a backslash line break.
+- In PowerShell a path was a target only when it began with a drive letter, a UNC prefix or `$HOME`:
+  `Remove-Item -Recurse -Force src\app` and `"$env:TEMP\x"` passed, while `rm -rf src/app` was stopped. A target
+  with a path separator is stopped now, and so is a recursive forced removal fed by a pipeline.
+- **With no Git Bash, nothing guarded the session.** On Windows, when Claude Code finds no Git Bash, every Crewforth
+  gate fails to start (they are bash scripts; the failure does not block), and PowerShell is the only shell. One hook
+  now names no shell: Claude Code runs it through bash where there is one — it leaves at once, starting no process —
+  and through PowerShell where there is none, and there it stops every call of the Bash, PowerShell, Write, Edit and
+  NotebookEdit tools, with the `CLAUDE_CODE_GIT_BASH_PATH` to set. Reading and searching keep working.
+- Two spellings of `-Recurse` and `-Force` walked past the PowerShell delete rule, which wanted a hyphen and then
+  whitespace: a value after a colon (`-Recurse:$true -Force:$true`, `-Rec:1 -Fo:1`), and an en dash, an em dash or a
+  horizontal bar in place of the hyphen. PowerShell 5.1 deletes the tree with each of them (measured). They are
+  recognised now, whether the dash arrives as itself or as a JSON `\u` escape.
+
+### Added
+
+- **The model is chosen per task, checked after it, and raised when it was not enough.** A call to a `crew-*`
+  agent opens with a card: the files it touches, the kind of change, and the command that proves the work (or
+  `none`). The card gives the work a risk class. **Critical** work runs on `opus`, whatever the agent: a migration,
+  a security or architecture change, a bug of unknown cause, or anything on a critical path (auth, payments,
+  billing, migrations, security, crypto, secrets, `*.sql`, `schema.prisma`). The paths are found in your project
+  with no configuration and listed in `.claude/state/crew-critical-paths.auto`; `.claude/crew-model-rules` adds or
+  removes one if you want to. Work nothing can verify runs on `sonnet` or above, and `haiku` goes only to work a
+  command checks. The referee is as strong as the risk: tests, audits and reviews of critical work are on `opus`,
+  and in normal work an author on Opus no longer pulls its review up to Opus.
+  - **Verified, not declared.** When the agent stops, its verify command is run. Red once: the agent is kept
+    running to fix it. Red again: the task is repeated once, one model up, and the gate refuses the same card on
+    the same or a lower model. Red there too: you are asked. So a model that was too small costs one more run, not
+    broken code that looked finished. The verify command is run by a hook, outside any tool call, so it
+    runs only when you have allowed it by name: a `verify <command>` line in `.claude/crew-model-rules`, or a
+    `Bash(...)` rule of `permissions.allow`. In `auto` and `bypassPermissions`, where Claude Code itself runs a test
+    command you have not allowed, a built-in list of test and build runners is allowed too (`npm test`, `pytest`, `dotnet test`,
+    `flutter test`, `go test`, `cargo test`, `make test` …), with paths or test names as arguments and no options.
+    It is one command, never a commit or a push, not one a `permissions.deny` or `ask` rule covers, and
+    `guard-bash.sh` has to agree. Anything else is not run (`blocked`), and a command that does not finish in nine
+    minutes is stopped with what it started (`timeout`). Neither is taken as a pass or a fail; you or the session run the command instead.
+  - **At write time.** An agent that is not on `opus` cannot write to a critical path, whatever its card said.
+  - **Recorded.** One line per call goes to `.claude/state/model-outcomes.tsv` (it stays in the project). A class
+    of work whose first try fails too often is held one model up from then on; nothing lowers a floor but you.
+  - **`/crew-loosen <agent> <change> <risk>`** lowers such a floor again: one model, once for each time it was
+    raised, and the class is counted afresh from then, so the old failures do not raise it straight back and new
+    ones do. Only a command you type does it, as with `/crew-approve`: a session cannot write the file, schedule
+    the command or hand it to another session, and it is not taken as a session's first message or in a headless
+    one. The card's own rules are not lowered by it: critical work stays on `opus`. Known limit: the shell rule
+    can be passed by a name built from pieces, an interpreter or a parent-folder move; such a write can add a
+    lowering, not only remove one.
+  - `guard-agent-model.sh` holds the rules at the tool level and never rewrites a call; `agent-outcome.sh` runs the
+    verify command and keeps the record. Which kind of change a task is, is the caller's judgement.
+    `CREW_MODEL_ROUTING=off` turns all of it off; `fable` needs `CREW_ALLOW_FABLE=1`.
+  - **Known limits.** Model routing applies to `crew-*` agents only: Explore, general-purpose and a project's own
+    agents run on the session's model and are not in the record (a kit agent for documents is planned for 3.2.0).
+    The gate holds a floor, not a ceiling: nothing stops ordinary work from being given to Opus. Not measured on
+    Windows: Studio under a path that holds a space, and stopping a session from the panel; both were measured on
+    macOS. A test runner runs code the agent wrote (test files, `package.json` scripts, `conftest.py`, a
+    `Makefile`): the list limits the command, not what the tests do. A failed card stays failed until the card
+    changes. The shell rule that protects the routing files goes by their names. The list of critical paths is
+    written at the first session, not at install; the gate reads the patterns, not the list. Managed policy is
+    read from the managed settings file only: a policy delivered by macOS MDM, by the Windows registry or from
+    the server is not read, so a deny rule that exists only there does not stop a verify command. Each agent's report still
+    ends with `confidence: high` or `confidence: low`. `doctor.sh` warns when Claude Code is older than 2.1.293.
+- **`frontend-flutter`: a stack layer for Flutter**, beside `frontend-rn-expo`. It applies only in a project whose
+  `pubspec.yaml` depends on the Flutter SDK, and `crew-frontend-expert` adds it on top of `frontend` there. It leaves
+  state management, routing and the lint set to the project, and holds what Flutter itself asks for: the layers and
+  rules of its architecture guide, the rebuild cost model, layout by window size and never by device type, isolates,
+  platform channels, generated localisations, the mix of unit, widget, integration and golden tests, measuring in
+  profile mode on a real device, and a release without a secret in it. Its done-definition is `dart format
+  --set-exit-if-changed .`, `flutter analyze`, `flutter test` and the accessibility guideline test. It also holds
+  what a real app taught it: panes that split at a foldable's hinge, a list and a detail whose selection and typed
+  input survive a change of window class, a widget test at one width of each window class, figures of one width for
+  amounts, case changed by the language's rules, no inline text (one central file is enough for one language), a
+  domain layer with no `package:flutter` import, goldens made in one pinned container, and a store build that
+  refuses the flag of a closed feature. For an app that holds sensitive data: an encrypted database, its key in the
+  platform's secure store, both kept out of backup and device transfer, every network call through a transport bound to its own allowed hosts,
+  and no ad in a window that shows a sensitive screen. The rules were checked against Flutter's, Dart's and the
+  named packages' and platforms' own pages; the sources, and what was not checked, are in the skill's `references/`.
+  40 skills now.
+- **In `auto` and `dontAsk`, a command you type approves a commit or a push: `/crew-approve`.** Those modes answer
+  a permission prompt with software, so the commit gate fails closed there and the only way through was to switch
+  mode for every commit. Now a message that is nothing but `/crew-approve commit`, `/crew-approve push` or
+  `/crew-approve commit+push` is recorded by a new hook, `prompt-approval.sh`, with what git reports at that moment: the tree of what is staged
+  and `HEAD` for a commit; `HEAD`, the branch, its remote and the address that remote pushes to for a push; and the
+  session you wrote in. The confirmation you see names that address. `guard-bash.sh` then allows one call and no other: `git commit -m …` alone (a single-quoted
+  message, or one read from a here-document with a quoted delimiter; `-q`, `-s`, `-v`), or
+  `git push <remote> <branch>` alone. A changed index, a moved `HEAD`, a second commit, another branch, remote or
+  address, a refspec, another option, a `cd`, a pipe or a second command is refused, with the reason. The record
+  lasts 30 minutes and your next message ends it. It opens neither the review-before-commit rule nor any destructive
+  command, and `plan` and `bypassPermissions` stay closed.
+  A session cannot produce the approval it would use: the file tools and any shell command that names the record
+  are refused, and so are a command that feeds the hook a payload of its own and, in those two modes, one that
+  starts a Claude Code session continuing this one. Those rules match names, as the rules for the gate files do.
+- **Studio: two more views of a session.** The **Timeline** draws the same agents against the clock, one row each,
+  with a drawer for an agent's last error; the **List** sorts them by what needs someone, and is the view a narrow
+  window opens on. `g`, `t` and `l` switch between Graph, Timeline and List. The time an agent waited for you is drawn
+  only for a session Studio started, and only since the panel started; for any other session the Timeline says
+  `Not measured: this session's approvals are not seen by Studio`.
+- **Studio: an approval dock.** A tool call in a session Studio started waits along the bottom of the panel,
+  whichever session and view are on screen, with the agent that asked, the tool and its input: Allow once, Allow the
+  tool for this session, or Deny (`a`, `s`, `d`); denied at 45 s when nobody answers. A session allowance is listed
+  in the inspector's Gates tab and can be revoked there.
+- **Studio: a New session panel.** The project, the permission mode and an optional first message. Plan is the
+  default; Accept edits and Default are the other two, and modes that skip Crewforth's gates are not offered.
+- **Studio: a layout for a narrow window.** Below 640 px the panel is one column: the navigator is a drawer, the
+  inspector and the conversation take the whole stage and stop above the dock. Checked in a narrow desktop browser
+  window; not measured on a phone.
+- **Studio: what a session spent.** A summary box on the canvas and one line in the navigator give the session's
+  time, its tokens (agents included) and an estimate of the cost, such as `51m · 2.8M · ~$3.22`. The cost is an
+  estimate at API list price and reads as one (a leading `~`; on a subscription it is not what you are billed). The
+  prices are one table, read from the pricing page on 2026-10-08; a model with no row in it shows `—`, never a guess.
+  Not checked against an invoice.
+- **Studio: the order the session called its agents in.** Each agent's card says its place and the time
+  (`#3 · 09:14`). **Order**, in the Group menu, lays the agents out by wave: the agents called in one message are a
+  wave, waves run left to right, and the Timeline groups by the same waves. A later wave is wired, dotted, from each
+  agent that reported before it was called, with the words `after Planner reported`; that wire is inferred from the
+  order of events and is not a call from one agent to another, and the panel says so. Read from the transcript
+  alone. Agents a workflow started are not called by the session, so they carry no place.
+- **Studio: the Models view.** A fourth tab (key `m`), read from the record of outcomes: for each kind of task
+  (agent, change, risk) the model, the tasks, how often the first try passed, how often it was repeated one model
+  up, and an estimated cost. A class with no verified call shows `—`, not 0%. A class the record holds one model up
+  is offered for lowering once its latest ten verified calls all passed first time; the offer is one button, **Copy
+  command**, for `/crew-loosen …`. Studio writes nothing. A floor you lowered reads **lowered**, with what raised
+  it and when you lowered it. The inspector shows a task's card (files, change, verify) and its steps: each call
+  of the card, what it ran on, what its verify command said.
+- **Studio: a session started in the panel can ask its question and have its plan approved, in the dock.** Such a
+  session had neither tool. It has both now, and the question or the plan waits in the strip where an approval
+  does; approving a plan can carry the mode the session goes on in.
+- **Studio: Reset layout**, and **Report**: an agent's hand-back is read as its report.
+- **Studio: which model did which work.** Every agent card carries a badge with the model it ran on, and a third
+  line with its duration, new tokens and estimated cost. Two facts are kept apart: the model the call **asked** for
+  and the model the agent **ran on**; when they differ the badge carries `≠`. The inspector has a **Model** section.
+  When the model gate refused a call and the session made it again, the inspector says so in one line (`first
+  asked: haiku → refused (floor: sonnet) → sonnet`), and a report that closed `confidence: low` is tied to the call
+  that repeated it one model up (`escalated: sonnet → opus`). The summary's `Cost` opens per model, and the Show menu
+  filters by model family. Both traces were tested on synthetic transcripts: no released version writes them yet.
+- **Studio: background work is shown.** A Bash command sent to the background is listed on its session (`1 in
+  background` on the card, **In the background** in the inspector) until the notice that ends it arrives.
+- **Studio: a question waiting in a terminal is named.** For a session started in a terminal, a permission question
+  can only be answered there; the view now says so, with the tool and the command: `Waiting for an answer in the
+  terminal: Bash · npm run build`.
+- **Studio: the inspector can be resized** (drag its left edge, arrow keys, double-click for the default; 280 to
+  720 px, remembered).
+
+### Changed
+
+- **Studio: every agent that is not Crewforth's is a Claude Code agent.** A type the panel did not know carried a
+  `?`; there is no list to go stale now. Its tooltip says where it is defined (the project, the user's folder, a
+  plugin, or Claude Code itself). **Density: Auto** chooses what fits.
+- **Studio: Expand all and Fold all reach every group**, the cards that stand for several agents of one type and
+  the groups inside an opened group included; what you open or fold by hand afterwards stays as you left it.
+- **Studio: agents are named by their role.** `crew-backend-expert` reads Backend, `general-purpose` General Purpose,
+  in the graph, the Timeline, the List, the dock, the inspector and the conversation; the declared type is under the
+  name in the inspector and on hover. A task cut short on a card is said in full on hover.
+- **Studio: agents of one type are one card under Workflow run.** They folded into one card only when the picture
+  grew too tall and only from three of a type; now two or more of a type under one parent are always one card,
+  wherever they stand in the order (`Privacy × 3`). The card gives the count, the first one's place, total time, new
+  and cached tokens, the estimated cost and the models (`2 Sonnet, 1 Opus`). Under Order nothing is grouped.
+- **Studio: `Tokens` counts what was new.** It counted cache reads too, which were 97% of the total on a long
+  session. `Tokens` is now input, output and cache writes; `From cache` is a row of its own; `Session` and `Agents`
+  are separate rows, and a click on a row opens its breakdown. The cost is computed as before.
+- **Studio: a group of agents opens beside itself.** Several agents of one type are one card; in a window of 1024 px
+  and up, clicking it puts its agents in the next column as ordinary cards, and opening another group folds the
+  first. Below that width it opens downward as before.
+- **`/crew-approve`, with nothing after it, approves what was just refused.** In a trial the session said "send
+  `/crew-approve commit+push`" and stood still until someone noticed. The gate now writes down what it refused
+  (the session, commit, push or both, the moment), and the bare command approves that: the same session's, within
+  30 minutes, once. The refusal puts the command on a line of its own. What is approved is the gate's note of the
+  command it refused, never the model's choice: the note is closed to the session, and the bare command is refused
+  when scheduled or handed to another session, like the spelled-out forms, which still work.
+- **The approval of 3.1.0's release candidates was a text, `approve: commit` (`onay: commit`); it is the command
+  `/crew-approve commit` now.** The same in every language, and recorded exactly as the text was. Only a command you
+  type counts: measured on Claude Code 2.1.284, a typed command reaches the recording hook as typed, a skill the
+  model starts itself does not reach it at all, and Claude Code refuses to let the model start this one. The text
+  still works; the refusals and the documentation name the command only.
+- **In `auto` and `dontAsk`, a refused commit or push says what to ask and what to send back.** The refusal was a
+  paragraph with the approval text somewhere inside it, and the question the model made of it was as long. It now
+  asks for one shape: the commit message in one code block and, under it, one line with the command to send, named
+  for the call that was refused. A sentence that says yes is still not an approval, and nothing about what an
+  approval covers has changed.
+- **Where the approval cannot be recorded, the refusal says so.** The record is written by `prompt-approval.sh`. In a
+  session whose settings do not wire it (a worktree that carries an older Crewforth, for one) the approval
+  recorded nothing, and the refusal went on asking for it. The gate now reads the settings it can
+  see (the plugin's `hooks.json`, the project's `settings.json` and `settings.local.json`, the user's
+  `settings.json`) and, when none wires the hook, says the approval path is closed in this session and names the
+  two ways that work: Shift+Tab, or your own terminal. The command is refused either way. `doctor.sh` warns about
+  the same thing, and about a worktree of the repository that carries another Crewforth version.
+- **After a final release, npm's `next` no longer names something older than `latest`.** A final moved `latest`
+  only, so `npx crewforth@next` went on installing the rc before it. The release now moves `next` to the final when
+  what `next` names is older; an rc of a later version stays where it is.
+- **A command that names a gate file must be one that reads it.** The rule that guards the hooks, `settings.json`,
+  the rulebook and the git hooks looked for a write verb (`rm`, `mv`, `cp`, `tee`, …) in front of the path, and a
+  list of verbs is never complete: of 39 ways to write or delete a gate file, 32 passed (in 3.0.3 as well: `curl -o`,
+  `wget -O`, `sort -o`, `git log --output=`, `tar -C`, `unzip -d`, `unlink`, `shred`, `touch`, `patch`, an editor,
+  `find … -delete`, `git checkout <rev> -- <file>`). The question is turned round. A command that names a gate path
+  passes when it is a reader (`grep`, `cat`, `head`, `tail`, `wc`, `ls`, `less`, `diff`, `jq`, `sed` without `-i`,
+  `find` without `-delete` or `-exec`, …), a runner of a hook script (`bash .claude/hooks/<x>.sh`), `chmod +x` on
+  one, or a git command that only reads or stages (`status`, `log`, `diff`, `show`, `add`, `commit`, a `git config`
+  that reads); anything else is refused, with the reason. A path that is hidden is followed where the text allows
+  it: quoting inside the name, the `.claude` folder itself, a glob, a variable or a loop that holds the path, a `cd`
+  into the folder, a command substitution, `xargs`. `bash -c`, `eval`, `source`, a changed `PATH`, an alias or a
+  function in such a call, and an interpreter fed a here-document that names a gate file are refused.
+  **Reading is freer than before:** `grep -n rm .claude/hooks/guard-bash.sh` and `cat /Users/ed/p/.claude/hooks/x`
+  were refused for the word `rm` and the folder `ed`, and pass now. Bash tool; a PowerShell call keeps the verb
+  rule, without counting a verb that is a name in a path.
+- **A quoted argument is no longer read as a command.** `git commit -m "drop the rm -rf /tmp/build step"` deletes
+  nothing and `claude -p "… git push --force origin main"` pushes nothing, yet the §4.5 rules read the command as
+  text and refused both (measured: 14 of 20 such commands). The gate now takes the quoted argument out before those
+  rules read, for a short list of commands that do not run their argument: `git commit` / `git tag -m`, `gh pr|issue|release
+  --title` / `--body`, `claude -p`, the grep family, and `echo` / `printf` when the call has no pipe and no
+  redirection. A `claude -p` prompt is taken out only when nothing in the call changes the directory (`cd`, `pushd`,
+  `popd`, `git -C`) and its other options are `--output-format`, `--model` or `--max-turns`: the session it starts is
+  judged by the gates of where it starts and with the settings it is given. The
+  word must be wholly quoted, and a double-quoted one must hold no `$(` and no backtick. Everything else is as
+  before: the same words outside the quotes, after the argument, printed into a shell or a file, handed to `bash
+  -c`, `eval`, `ssh` or `xargs`, stored with `printf -v`, or anywhere in a call that changes what a command word
+  means (`alias`, `hash`, a function, `PATH=`) are refused. Bash tool only.
+- **Trusting or declining a component is confirmed.** `skill-trust.sh --trust-one` and `--decline-one` printed nothing
+  on success, and in the field a session that had just declined a skill said it had not checked the record. Each
+  prints one line now (the component, the file, the first characters of the digest it holds), and only after the
+  line is read back from the file; when the answer could not be written the command exits 1 and says so.
+- **Reading `core.hooksPath` is no longer refused on Windows.** `git config --get core.hooksPath` is how a person
+  checks that the gate is armed, and a read is let through only when the payload holds no escape the reader drops.
+  That was asked of the whole payload, and a Windows `cwd` is full of them once JSON-encoded (`C:\\repos\\app` holds
+  a backslash and an r), so in such a directory every read was refused as tampering. It is asked of the command
+  now, with every escaped backslash taken out first. Of 250 measured cells (7 reads, 18 writes, a POSIX `cwd` and
+  four Windows ones, Bash and PowerShell) 40 reads changed from refused to passed; every write, a real CR, form
+  feed or backspace escape in the command among them, is refused as before.
+- **A project's own hook chain survives the second update.** The first run puts `.claude/git-shim` in front of it
+  and points git there; the second read that as "no chain" and pointed git at `.claude/hooks`, so the project's own
+  `pre-commit` never ran again, with nothing said (a project with `.husky` was found again, as `.husky` and not the
+  `.husky/_` it had). The chain is read back from the shim.
+- **The doctor knows `.claude/git-shim`.** On a project with hooks of its own it answered "not Crewforth's hooks" and
+  advised `git config core.hooksPath .claude/hooks`, the command that disconnects the project's hooks. A shim that
+  runs Crewforth's hook is healthy; where a chain of the project's own exists the advice is the update, which
+  keeps it.
+- **The session is told when the git hooks are not connected.** An install made before `git init`, and every clone
+  of a repository that shares `.claude/`, starts with `core.hooksPath` unset: a commit typed in a terminal is then
+  scanned by nothing. Crewforth does not change git's configuration by itself; the session start says so, and the
+  fix stays the user's.
+- **The doctor's Git Bash advice ends with "close the terminal and Claude Code and open them again".** An open
+  terminal keeps the old value of `CLAUDE_CODE_GIT_BASH_PATH`; in the field the fix was right and the proof came two
+  rounds late.
+- **The doctor reads §4.2's list.** `trace-blocklist.txt` ships the vendor section as a commented placeholder, and
+  until a name stands there that rule looks for nothing: the doctor says so, as information. The placeholder made
+  active as it shipped is a warning.
+- **An update no longer loses an edit of the three files Crewforth owns.** `adopt` and `update` rewrote
+  `.claude/AGENT_TEMPLATE.md` and `.claude/DISCIPLINE.md` on every run with no look at what was there, so a copy the
+  user had edited was gone without a word (`README.md` was already kept when it differed). One rule for the three now:
+  a copy that is this version's, or exactly what an earlier release shipped (line endings aside), is refreshed and
+  nothing is kept; anything else goes to `.claude/.legacy-backup/<time>/` first, and the update names it. What "an
+  earlier release shipped" is comes from `kit/owned-blobs.tsv`, generated from the release tags: 6 versions of
+  AGENT_TEMPLATE.md, 8 of README.md and 24 of DISCIPLINE.md, so an untouched copy from any of them does not pile up
+  in the backup directory on each update. A copy that cannot be backed up is left as it is.
+- **A gate that times out does not block, so the gates got faster and their timeout longer.** Claude Code runs the
+  tool call when a `PreToolUse` hook reaches its timeout; one field session on 3.0.0 showed nine such calls in a day.
+  - Every read-only Bash call, every Write and Edit, and every PowerShell call now costs **no process at all** in the
+    four gates (it was 5 in `guard-bash.sh`, 7 in `guard-commit-scan.sh` and 4 in `guard-write.sh`, counting the
+    `$( )` subshells the 3.0.1 count did not see). On Git Bash a process costs 62–135 ms, and seconds on a loaded
+    machine.
+  - The four gates' timeout is 600 s, Claude Code's own default; Crewforth had set 60. The other hooks keep 60.
+- **Studio has a new interface.** The graph is a left-to-right tree: the session on the left, its agents to the right,
+  a workflow run as one group, and a strip above the canvas naming what needs attention. Selecting an agent opens an
+  inspector with four tabs (Overview, Conversation, Gates, Stats), and the inspector, the conversation and the New
+  session panel share one place on the right.
+- **Allow in Studio is an explicit answer to Claude Code.** In the Accept edits and Default modes the approval hook
+  returns `permissionDecision: allow`; before, it only stayed silent, and Claude Code then refused a write in Default
+  mode (measured on Windows). In Plan it still says nothing. A Crewforth gate or a `deny` rule refuses the call all
+  the same (measured on Windows, in a real session), and the conversation says who refused it. Known limit: the dock
+  can ask about a call that another gate refuses anyway.
+
+### Fixed
+
+- **On some Windows machines every commit was stopped: "PRIVATE-PATH SCANNER: … could not run".** The look for a
+  machine-private string used `grep -iF`, and Git Bash's grep 3.0 aborts for it (exit 134): in the C locale with
+  Git for Windows 2.53, under a Turkish locale with 2.55 (measured on one machine of each). The commit hook sets
+  the C locale, so on the first kind every look aborted, and the hook rightly stopped the commit. A private term
+  is now escaped and matched with `-iE`, which aborted in none of the 15 pairs of `LANG` and `LC_ALL` measured on
+  either machine. A term is still a literal: `.`, `\`, `[`, `(`, `+`, `|` and the rest match only themselves.
+- **Critical work with a verify command was refused every time where the Agent tool has no `run_in_background`.**
+  The gate asked for the field to be `false`. Where background tasks are off the tool has no such field (measured on
+  Claude Code 2.1.296: the call arrives with description, prompt, subagent_type and model, and runs in the
+  foreground), so the model could not send it and each call was refused, four times in a row in one session. Now
+  only a call that says `run_in_background: true` is refused; one that leaves the field out passes. Where the tool
+  does have the field, a call that leaves it out starts in the background: the session is then told, when the
+  launch comes back, to run the verify command itself once the agent has finished.
+- **Studio: no spool is left behind.** A server that stopped or was killed left its sessions' settings in the temp
+  directory, and they piled up; it removes them as it stops and sweeps when it starts. Two calls in plan mode (a
+  tool lookup, the plan file) no longer come to the dock.
+- **Studio: a card's text stays in the card.** `N in background` could push the session card's line past its edge;
+  it has a line of its own, and every text part of a card is clipped inside it, whole on hover.
+- **Studio: the time moves in a live session.** The summary read the span of the session's own transcript, which
+  stands still while an agent works. A running session now says `Running for` and counts to now; a finished one's
+  span runs to the last record of any of its files, agents' included.
+- **Studio: full screen keeps its panels.** In full screen the navigator, the inspector and the conversation could
+  not be opened, so a selected agent showed nothing and a request under "Needs you" could not be answered. A style
+  rule hid every panel there; it is gone, and full screen now only takes the browser away.
+- **Studio: a background agent that is still working is no longer drawn "Done".** Claude Code sends a `completed`
+  notice each time a background agent stops, and the agent can be resumed after it; Studio took the first notice as
+  final. A notice now stands only until the agent writes to its transcript again, and while its session is running
+  an agent in the middle of a turn is drawn Running.
+
 ## [3.0.4] — 2026-10-05
 
 ### Security

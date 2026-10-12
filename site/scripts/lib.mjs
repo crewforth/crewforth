@@ -104,7 +104,7 @@ export function gateRules(root) {
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
-// The two counts the network diagrams print ("12 agents · 39 skills"), read from each SVG's <title>, which carries
+// The two counts the network diagrams print ("12 agents · 40 skills"), read from each SVG's <title>, which carries
 // the diagram's words as text (the drawing itself is outlines). A stale picture is the claim a reader never checks.
 export function checkNetworkSvgs(root, nAgents, nSkills) {
   for (const loc of ['en', 'tr']) for (const theme of ['dark', 'light']) {
@@ -143,7 +143,7 @@ export function alwaysOn(root) {
   const agentsB = agentFiles.reduce((n, f) => n + frontmatterBytes(f), 0);
   const skillsB = skillFiles.reduce((n, f) => n + frontmatterBytes(f), 0);
   const ui = ['kit/skills/a11y/SKILL.md', 'kit/skills/frontend/SKILL.md', 'kit/skills/frontend-design/SKILL.md',
-    'kit/skills/frontend-rn-expo/SKILL.md', 'kit/agents/crew-frontend-expert.md'].reduce((n, f) => n + frontmatterBytes(path.join(root, f)), 0);
+    'kit/skills/frontend-rn-expo/SKILL.md', 'kit/skills/frontend-flutter/SKILL.md', 'kit/agents/crew-frontend-expert.md'].reduce((n, f) => n + frontmatterBytes(path.join(root, f)), 0);
   return { discipline, agents: agentsB, skills: skillsB, total: discipline + agentsB + skillsB, descriptions: agentsB + skillsB, ui };
 }
 

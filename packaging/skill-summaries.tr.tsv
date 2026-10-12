@@ -13,6 +13,7 @@ commit-message	Conventional Commits: staged diff'i okur, `type(scope): özet` ö
 db-migration	Şema göçlerini güvenle uygula: aracı sapta, değişikliği riske göre sınıfla, yıkıcı olanları onaya bağla, prod'da yedekle, önizle-uygula-doğrula, hatada geri al.
 dependency-audit	Bağımlılık denetimi: bilinen CVE'ler, lisans uyumu, terk edilmiş/eski paketler, lockfile bütünlüğü ve her yeni bağımlılık için gerekçe.
 docs-writer	Dokümantasyonu kodla eşzamanlı tutar: public API veya davranış değişince README, kullanım ve ilgili dokümanlar.
+frontend-flutter	OPSİYONEL, yığına özel: Flutter (Dart).
 frontend-rn-expo	OPSİYONEL, yığına özel: React Native + Expo (prebuild).
 frontend	Yığından bağımsız frontend disiplini (web · mobil · masaüstü): bileşen yapısı, state, veri çekme, loading/empty/error durumları, i18n, erişilebilirlik, performans.
 handoff	Oturum devri: bağlam dolunca, bir faz kapanınca veya konu değişince docs/SESSION_STATE.md'ye eyleme dönük devir yaz, sonra /clear öner.

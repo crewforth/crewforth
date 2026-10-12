@@ -80,15 +80,32 @@ On a mixed/non-atomic diff, **propose a split**; do not commit before approval (
 - ✅ Proposing a commit message from the staged diff
 - ❌ Push/commit without approval (prohibited, §4.4)
 
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up. Your task opens with a card (`files:`, `change:`,
+`verify:`): the `verify` command is run when you stop, and if it fails you are asked once to fix the work. If a
+write is refused because the file is on a critical path, do not reach it another way: stop, and put
+`escalate: <the file>` on the line before `confidence: low`.
+
 ## Prohibitions (absolute)
 - **Approval gate:** no `git commit` / `git push` unless the user says "commit" / "push".
   Staging (`git add`) and creating a branch are free, in every mode — do them without asking. "Done / we can
   proceed" is not approval (§4.4).
   The tool-level gate `guard-bash.sh` intercepts commit/push in **every** permission mode: in normal modes it raises an
   approval prompt only the user can answer — so present the message FIRST, then run the commit yourself and let the user
-  approve it at the prompt. Never hand the user a command to paste into their own terminal. Under `bypassPermissions`
-  the gate fails closed; there the user must switch modes or pre-authorise with `CLAUDE_GIT_OK=1` (which never
-  substitutes for approval).
+  approve it at the prompt. Never hand the user a command to paste into their own terminal. In `auto` and `dontAsk`
+  the prompt reaches nobody: stage, then ask in this shape and with nothing after it — the message in ONE code block,
+  and under it one sentence in the user's language ("If you approve, send only this:") followed by the command
+  on a line of its own: `/crew-approve`. With nothing after it, it approves what the gate just refused in this
+  session (a commit, a push, or both when both were refused); spelled out it is `/crew-approve commit`,
+  `/crew-approve push` or `/crew-approve commit+push`. The user approves by sending
+  that command alone; a sentence that says yes is not an approval, and you cannot run `/crew-approve` for them. It covers what is staged on that HEAD. If the gate says the approval path is closed in this session (the
+  recording hook is not wired), say so and offer Shift+Tab or their own terminal instead.
+  Then run `git commit -m '…'` alone in its call (single-quoted, or from a here-document with a quoted delimiter),
+  and a push as `git push <remote> <branch>`. Never write that message yourself. Under `plan` and
+  `bypassPermissions` the gate fails closed; there the user must switch modes or pre-authorise with
+  `CLAUDE_GIT_OK=1` (which never substitutes for approval).
 - **No AI trace:** the message contains no co-author trailer, auto-generation footer, robot emoji, AI-assistant/tool name,
   or the `.claude` name; the message is human, technical prose (§4.1).
 - **No vendor name:** the third-party template name and any "cleanup/vendor copy" disclosure are not written into the message (§4.2).

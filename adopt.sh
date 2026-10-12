@@ -220,9 +220,10 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       ".NET pattern skill renamed: devarch-module -> cqrs-aop-module (content kept)") s=".NET desen skill'inin adı değişti: devarch-module -> cqrs-aop-module (içerik korundu)" ;;
       "⚠️  both devarch-module and cqrs-aop-module are present — nothing moved; remove the old one when ready") s='⚠️  devarch-module ve cqrs-aop-module ikisi birden var — hiçbir şey taşınmadı; hazır olduğunuzda eskisini silin' ;;
       "AGENT_TEMPLATE.md written (owned by Crewforth; refreshed on every update)") s="AGENT_TEMPLATE.md yazıldı (Crewforth'un dosyası; her güncellemede yenilenir)" ;;
-      "README.md differed from this version's — the old one is kept in %s/README.md") s="README.md bu sürümünkinden farklıydı — eskisi %s/README.md içinde saklandı" ;;
+      '%s is not a copy Crewforth shipped before this version — it is kept in %s/%s') s="%s, Crewforth'un bu sürümden önce gönderdiği bir kopya değil — %s/%s içinde saklandı" ;;
+      '%s could not be checked against what Crewforth shipped (git or the shipped list is missing) — the old copy is kept in %s/%s') s="%s, Crewforth'un gönderdikleriyle karşılaştırılamadı (git ya da gönderilen liste yok) — eski kopya %s/%s içinde saklandı" ;;
       'README.md refreshed (describes this version of Crewforth)') s="README.md yenilendi (Crewforth'un bu sürümünü anlatıyor)" ;;
-      "README.md differs from this version's and could not be backed up — left as it is") s='README.md bu sürümünkinden farklı ve yedeklenemedi — olduğu gibi bırakıldı' ;;
+      '%s is not a copy Crewforth shipped before this version and could not be backed up — left as it is') s="%s, Crewforth'un bu sürümden önce gönderdiği bir kopya değil ve yedeklenemedi — olduğu gibi bırakıldı" ;;
       "pre-2.0 install (profile=%s): profile pruning was removed — completing the install") s='2.0 öncesi kurulum (profile=%s): profil budama kalktı — eksikler tamamlanıyor' ;;
       "pre-2.0 install (profile=%s): nothing was missing — the full set was already present") s='2.0 öncesi kurulum (profile=%s): eksik yok — tam set zaten kuruluydu' ;;
       "overlap: %s -> skill '%s' already present (kept); original re-backed up") s="çakışma: %s -> '%s' skill'i zaten var (korundu); orijinal yeniden yedeklendi" ;;
@@ -523,11 +524,29 @@ fi
 rowm 'git' "$GITKIND"   # every GITKIND value is a literal with its own table row
 
 # existing hook system (decision #5 — single-hooksPath clash with husky/lefthook)
-HOOKSYS="none"
+HOOKSYS="none"; SHIM_CHAIN=""
 CURHP="$(git config --get core.hooksPath 2>/dev/null || true)"
 case "$CURHP" in
   "") : ;;
-  .claude/hooks|.claude/git-shim) HOOKSYS="Crewforth (already armed)"; CURHP="" ;;   # kit's OWN path — not a foreign chain (re-adopt must not shim itself)
+  .claude/hooks) HOOKSYS="Crewforth (already armed)"; CURHP="" ;;   # kit's OWN path — not a foreign chain (re-adopt must not shim itself)
+  .claude/git-shim)
+    # Crewforth's shim, from an earlier run: git is pointed at it, and IT holds the project's own chain. That chain
+    # is read back from the shim, or the next lines would see "no chain" and point git straight at .claude/hooks:
+    # measured, the second update of a project with core.hooksPath=myhooks left its own pre-commit never running
+    # again, with nothing said. (A project with .husky was found again by its directory; one with any other
+    # directory was not.)
+    HOOKSYS="Crewforth (already armed)"; CURHP=""
+    for _sf in .claude/git-shim/pre-commit .claude/git-shim/commit-msg; do
+      [ -f "$_sf" ] || continue
+      while IFS= read -r _sl || [ -n "$_sl" ]; do
+        _sl="${_sl%$'\r'}"
+        case "$_sl" in 'P="'*'/$H"') _sl="${_sl#P=\"}"; _sl="${_sl%/\$H\"}"; _sl="${_sl#\$ROOT/}"
+          case "$_sl" in ''|.claude/hooks|.claude/git-shim) ;; *) SHIM_CHAIN="$_sl" ;; esac ;;
+        esac
+      done < "$_sf"
+      [ -n "$SHIM_CHAIN" ] && break
+    done
+    [ -n "$SHIM_CHAIN" ] && HOOKSYS="core.hooksPath=$SHIM_CHAIN" ;;
   *) HOOKSYS="core.hooksPath=$CURHP" ;;
 esac
 [ -d .husky ] && HOOKSYS="husky (.husky/)"
@@ -1164,36 +1183,66 @@ copy_noclobber "$SRC/studio"   .claude/studio   "$KIT_PRESENT"; T_ADD=$ret_add; 
 # lives in packaging/studio-test/, outside the payload, so nothing has to be deleted here and
 # the count is simply what landed.
 chmod +x .claude/studio/server/hooks/*.sh 2>/dev/null || true
-# AGENT_TEMPLATE.md — a kit-owned flat file, so it is written on every run rather than never-overwritten.
-# `/crew-skill` opens with `Read .claude/AGENT_TEMPLATE.md`, and until now only start.sh copied it
-# (start.sh:486). That left the command pointing at a file that does not exist on an adopted install, and
-# `update` is an alias of this script (bin/cli.js:48), so a copy placed by start.sh was never refreshed
-# either — it went stale from the day it landed and nothing ever noticed, because §3b iterates skills and
-# agents and this is neither. Overwriting is right for the same reason DISCIPLINE.md is overwritten: the
-# file states the kit's own contract, a project does not author it, and a stale contract is worse than none.
-cp "$SRC/AGENT_TEMPLATE.md" .claude/ 2>/dev/null && say 'AGENT_TEMPLATE.md written (owned by Crewforth; refreshed on every update)'
-# README.md — Crewforth's description of what lives under .claude/. start.sh copied it; this script never did, so an
-# updated project kept the README of the version it was first installed with (RC-1 field: both projects still
-# described 3.0.0). It is refreshed on every run now, and never at the cost of an edit: a copy that differs from this
-# version's (line endings aside) is kept first in .claude/.legacy-backup/<time>/README.md and named.
-if [ -f "$SRC/README.md" ]; then
-  if [ -f .claude/README.md ] && ! cmp -s "$SRC/README.md" .claude/README.md \
-     && ! tr -d '\r' < .claude/README.md 2>/dev/null | cmp -s "$SRC/README.md" -; then
-    _rbk="$LEG_BK"
-    if [ -z "$_rbk" ] || [ ! -d "$_rbk" ]; then
-      _rbk=".claude/.legacy-backup/$(date +%Y%m%d-%H%M%S)"; _b="$_rbk"; i=2
-      while [ -e "$_b" ]; do _b="$_rbk-$i"; i=$((i+1)); done; _rbk="$_b"
-    fi
-    if mkdir -p "$_rbk" 2>/dev/null && cp .claude/README.md "$_rbk/README.md" 2>/dev/null; then
-      [ -f .claude/.legacy-backup/.gitignore ] || printf '*\n' > .claude/.legacy-backup/.gitignore 2>/dev/null
-      say "README.md differed from this version's — the old one is kept in %s/README.md" "$_rbk"
-      cp "$SRC/README.md" .claude/ 2>/dev/null && say 'README.md refreshed (describes this version of Crewforth)'
-    else
-      warnm "README.md differs from this version's and could not be backed up — left as it is"
-    fi
-  else
-    cp "$SRC/README.md" .claude/ 2>/dev/null
+# THE FLAT FILES CREWFORTH OWNS — AGENT_TEMPLATE.md, README.md and (in stage 3) DISCIPLINE.md. Each states the kit's own
+# contract, so it is rewritten on every run: `/crew-skill` opens with `Read .claude/AGENT_TEMPLATE.md`, the README
+# describes this version, and a stale discipline is worse than none. Until 3.1 two of the three were rewritten with
+# no look at what was there, so a copy the user had edited was lost without a word. One rule for the three now:
+#   * the same as this version's (line endings aside): written, nothing said about the old one;
+#   * a copy an earlier release shipped, untouched — its bytes, or its bytes with CR removed, are an id
+#     kit/owned-blobs.tsv holds for that file: refreshed, nothing kept (it is in the release it came from);
+#   * anything else is kept first in .claude/.legacy-backup/<time>/ and named, then refreshed: an edit of the user's,
+#     or a copy from a release the list does not hold (it holds the final releases below this VERSION, so a patch
+#     release made after this one, or a release candidate, is not in it). The line says what is known — "not a copy
+#     Crewforth shipped before this version" — and not that somebody edited it. When git or the list is missing
+#     nothing can be told, and the copy is kept the same way.
+# A copy that cannot be backed up is left as it is.
+_owned_bkdir(){  # -> LEG_BK: this run's backup directory (the legacy sweep's when it made one), created; 1 when it cannot be
+  local b i=2
+  if [ -z "$LEG_BK" ] || [ ! -d "$LEG_BK" ]; then
+    LEG_BK=".claude/.legacy-backup/$(date +%Y%m%d-%H%M%S)"; b="$LEG_BK"
+    while [ -e "$b" ]; do b="$LEG_BK-$i"; i=$((i+1)); done; LEG_BK="$b"
   fi
+  mkdir -p "$LEG_BK" 2>/dev/null || return 1
+  # A team that shares .claude/ should not commit the backup by accident.
+  [ -f .claude/.legacy-backup/.gitignore ] || printf '*\n' > .claude/.legacy-backup/.gitignore 2>/dev/null
+  return 0
+}
+_owned_shipped(){  # $1 = name -> 0 when .claude/<name> is a copy an earlier release shipped · 1 it is not · 2 cannot tell
+  local f=".claude/$1" lst="$SRC/owned-blobs.tsv" h hl cr crl
+  [ -f "$lst" ] && command -v git >/dev/null 2>&1 || return 2
+  h="$(git hash-object --no-filters -- "$f" 2>/dev/null)" || return 2
+  [ -n "$h" ] || return 2
+  hl="$h"
+  # CR is stripped only when every CR ends a line (a Windows editor, an autocrlf copy); no shipped copy holds one.
+  # Whether there is a CR at all is asked with tr, not `grep -q`: Git for Windows' grep 3.0 answers "no" to
+  # `grep -q $'\r'` on a CRLF file (measured there: rc 1 on a file where `grep -c` counts 107), and an untouched copy
+  # checked out with core.autocrlf=true was then kept as if it had been edited.
+  cr="$(tr -dc '\r' < "$f" 2>/dev/null | wc -c | tr -d ' ')"
+  if [ "${cr:-0}" != 0 ]; then
+    crl="$(grep -c $'\r$' "$f" 2>/dev/null)"
+    [ "$cr" = "${crl:-x}" ] && hl="$(tr -d '\r' < "$f" 2>/dev/null | git hash-object --no-filters --stdin 2>/dev/null)"
+  fi
+  awk -F'\t' -v p="$f" -v a="$h" -v b="${hl:-$h}" '!/^#/ && $1 == p && ($2 == a || $2 == b) { f = 1 } END { exit !f }' "$lst"
+}
+_owned_refresh(){  # $1 = name under .claude/, $2 = a file holding this version's content -> 0 written · 1 left as it is
+  local n="$1" new="$2" cur=".claude/$1" rc
+  if [ -f "$cur" ] && ! cmp -s "$new" "$cur" && ! tr -d '\r' < "$cur" 2>/dev/null | cmp -s "$new" -; then
+    _owned_shipped "$n"; rc=$?
+    if [ "$rc" != 0 ]; then
+      if _owned_bkdir && cp "$cur" "$LEG_BK/$n" 2>/dev/null; then
+        if [ "$rc" = 2 ]; then say '%s could not be checked against what Crewforth shipped (git or the shipped list is missing) — the old copy is kept in %s/%s' "$n" "$LEG_BK" "$n"
+        else say '%s is not a copy Crewforth shipped before this version — it is kept in %s/%s' "$n" "$LEG_BK" "$n"; fi
+      else
+        warnm '%s is not a copy Crewforth shipped before this version and could not be backed up — left as it is' "$n"
+        return 1
+      fi
+    fi
+  fi
+  cp "$new" "$cur" 2>/dev/null
+}
+_owned_refresh AGENT_TEMPLATE.md "$SRC/AGENT_TEMPLATE.md" && say 'AGENT_TEMPLATE.md written (owned by Crewforth; refreshed on every update)'
+if [ -f "$SRC/README.md" ]; then
+  _owned_refresh README.md "$SRC/README.md" && say 'README.md refreshed (describes this version of Crewforth)'
 fi
 # Report the migration by what LANDED, not by what was missing: a component the payload lists can still be kept
 # out (EXCL_S), and must not be announced as restored when it was.
@@ -1482,8 +1531,10 @@ h1m "Stage 3 — activate the Crewforth discipline (without touching the project
 #     everything above the sentinel line. Contains NO @import (leaf) -> no 4-hop trap.
 if [ -f "$SRC/CLAUDE.md" ]; then
   kit_require_sentinel "$SRC/CLAUDE.md"
-  kit_discipline_of "$SRC/CLAUDE.md" > .claude/DISCIPLINE.md
-  say 'DISCIPLINE.md written (Crewforth discipline only; the project template stays out of it)'
+  kit_discipline_of "$SRC/CLAUDE.md" > .claude/DISCIPLINE.md.crew-new
+  _owned_refresh DISCIPLINE.md .claude/DISCIPLINE.md.crew-new \
+    && say 'DISCIPLINE.md written (Crewforth discipline only; the project template stays out of it)'
+  rm -f .claude/DISCIPLINE.md.crew-new
 fi
 
 # 3b) single-line @import into the project CLAUDE.md (if present DON'T touch content, only prepend; if absent create).
@@ -1578,6 +1629,7 @@ h1m 'Stage 4 — arm the git gates (SHIM via husky) + PROOF'
 # 4a) location of the existing hook chain (the shim calls this too)
 ORIG_HOOKS=""
 if [ -n "$CURHP" ]; then ORIG_HOOKS="$CURHP"
+elif [ -n "$SHIM_CHAIN" ]; then ORIG_HOOKS="$SHIM_CHAIN"   # the chain the shim of an earlier run already runs
 elif [ -d .husky ]; then ORIG_HOOKS=".husky"
 elif [ -x .git/hooks/pre-commit ] || [ -x .git/hooks/commit-msg ]; then ORIG_HOOKS=".git/hooks"; fi
 # never shim the kit onto its OWN hooks (re-adopt) — the shim would exec itself and recurse on every commit

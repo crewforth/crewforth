@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Version](https://img.shields.io/badge/version-3.0.4-6D28D9?style=flat-square)
+![Version](https://img.shields.io/badge/version-3.1.0-6D28D9?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 
 🇬🇧 English · [🇹🇷 Türkçe](README.tr.md)
@@ -14,9 +14,9 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 12 specialist agents that each own a domain,<br>
-39 skills that hold the method, 10 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 12 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
-https://github.com/user-attachments/assets/f9f08001-91b3-4ae6-8a9e-6566ce0b1684
+https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
 Also on [crewforth.com](https://crewforth.com/#overview)
 
@@ -56,7 +56,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | Ship | `/crew-ship` | `crew-review-agent` records a clean review; `crew-commit-agent` proposes the commit and waits for you |
 | Hand off | `/crew-handoff` | `handoff` writes the state down for the next session |
 
-**10 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`.
+**12 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`.
 
 ## The agents
 
@@ -81,18 +81,20 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 | Rule | Enforced by |
 |:--|:--|
-| Commit and push need your approval, in every permission mode | `guard-bash.sh` |
+| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is a command you type: `/crew-approve`, which approves the commit or push that was just refused (or spell it out: `/crew-approve commit`, `push`, `commit+push`). If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
 | A commit needs a clean review of that exact diff | `guard-bash.sh` and the record `crew-review-agent` writes |
 | Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused | `guard-bash.sh` |
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |
 | No API key, token or private key reaches a commit | `pre-commit` secret scan |
 | A gate file cannot be edited or deleted to switch the gate off | `guard-write.sh` |
+| A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, work nothing can verify on `sonnet` or above, `haiku` only where a command checks it. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
+| An agent's work is verified when it stops: red once, the agent fixes it; red again, the task is repeated one model up and the same model is refused; red there too, you are asked | `agent-outcome.sh` and `guard-agent-model.sh` |
 
 Every hook and rule: [crewforth.com/gates](https://crewforth.com/gates). Gates stop accidents, not determined attempts; for a hard boundary, use a devcontainer or a VM.
 
 ## Studio
 
-Studio is a local panel that draws a delegation as it happens: each agent is a node showing what it is doing, what it has spent and what it reported. It reads every Claude Code session on the machine, opens with `/crew-studio` or `npx crewforth studio`, and binds to `127.0.0.1` only. More: [crewforth.com/studio](https://crewforth.com/studio).
+Studio is a local panel that draws a delegation as it happens, in three views: a graph of who started whom, a timeline of the same agents against the clock, and a list sorted by what needs you. Selecting an agent opens what it is doing, what it has spent and what it reported. Each session shows its time, its tokens and an estimate of their cost at API list price, and every agent says the model it ran on. A session started from the panel asks before every tool call, in an approval dock; an unanswered request is denied. A session started in a terminal answers there, and the panel says which call it is waiting on. It reads every Claude Code session on the machine, opens with `/crew-studio` or `npx crewforth studio`, and binds to `127.0.0.1` only. More: [crewforth.com/studio](https://crewforth.com/studio).
 
 ## Install and update
 
@@ -112,7 +114,7 @@ Studio is a local panel that draws a delegation as it happens: each agent is a n
 /plugin install crewforth@crewforth
 ```
 
-When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. On Windows, use Git Bash; the gates run only when Claude Code finds it, and `/crew-doctor` says when it does not. Every option: [crewforth.com/install](https://crewforth.com/install).
+When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. The three files Crewforth owns under `.claude/` (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) are refreshed on every update; a copy you edited is kept in `.claude/.legacy-backup/` first, and named. On Windows, use Git Bash; the gates run only when Claude Code finds it. When it does not, the tools that write or run commands are stopped, and the message and `/crew-doctor` name the path to set. Every option: [crewforth.com/install](https://crewforth.com/install).
 
 ## How we measure
 

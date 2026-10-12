@@ -44,7 +44,7 @@ chmod +x "$OUT/studio/ensure-node.sh" "$OUT/studio/server/hooks/"*.sh 2>/dev/nul
 # would carry the board's session-start awareness and none of its claim gate — the exact one-channel-is-weaker
 # asymmetry the git hooks below were added to close.
 for h in guard-bash.sh guard-write.sh context-usage.sh session-guard.sh session-rehydrate.sh session-stats.sh \
-         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh; do
+         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-schedule.sh guard-agent-model.sh agent-outcome.sh; do
   cp "$SRC/hooks/$h" "$OUT/hooks/$h"
   chmod +x "$OUT/hooks/$h"
 done
@@ -58,6 +58,9 @@ for h in pre-commit commit-msg; do
   chmod +x "$OUT/hooks/$h"
 done
 cp "$SRC/hooks/trace-blocklist.txt" "$SRC/hooks/secret-blocklist.txt" "$SRC/hooks/floor-blocklist.txt" "$OUT/hooks/"
+# The one gate that is not a bash script: what the hook with no "shell" loads when Claude Code finds no Git Bash and
+# runs it through PowerShell. Read with Get-Content and run with Invoke-Expression — never executed as a file.
+cp "$SRC/hooks/no-bash-guard.ps1" "$OUT/hooks/"
 
 # The commands the model is told to run name the file install's path, `bash .claude/<path>.sh`. A plugin install has
 # no .claude/, so in this edition every one of them exited 127 (measured from an empty project: 12 lines in 8 files).
@@ -96,28 +99,47 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Bash|PowerShell|Write|Edit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "echo --% >/dev/null;: ' | out-null\n<#'\nexit 0\n#> try { Invoke-Expression (Get-Content -Raw -LiteralPath (Join-Path $env:CLAUDE_PLUGIN_ROOT 'hooks/no-bash-guard.ps1') -ErrorAction Stop) } catch { [Console]::Error.WriteLine(\"GUARD: Crewforth's gate for a machine without Git Bash could not be loaded, so this tool call is stopped: $_\"); exit 2 }", "timeout": 600 }
+        ]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-bash.sh\"", "timeout": 60 },
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-commit-scan.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-bash.sh\"", "timeout": 600 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-commit-scan.sh\"", "timeout": 600 }
         ]
       },
       {
         "matcher": "PowerShell",
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-powershell.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-powershell.sh\"", "timeout": 600 }
         ]
       },
       {
         "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-write.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-write.sh\"", "timeout": 600 }
+        ]
+      },
+      {
+        "matcher": "CronCreate|ScheduleWakeup|RemoteTrigger|mcp__.*([Tt]rigger|[Ss]chedul|[Cc]ron|[Ll]ater).*",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-schedule.sh\"", "timeout": 600 }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-agent-model.sh\"", "timeout": 600 }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 },
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/context-usage.sh\"", "timeout": 60 },
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/route-hint.sh\"", "timeout": 60 }
         ]
@@ -130,6 +152,15 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         ]
       }
     ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact|fork",
@@ -140,7 +171,8 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
       {
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/board-sync.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/board-sync.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 }
         ]
       },
       {

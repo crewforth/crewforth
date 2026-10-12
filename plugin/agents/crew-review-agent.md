@@ -58,7 +58,7 @@ refuses a commit without it (§4.6). Use exactly this recipe; the hook hashes th
 ```bash
 # CREW-REVIEW-PASS (kept identical in guard-bash.sh; smoke-test pins the pair)
 mkdir -p .claude
-D=$(git diff --cached | git hash-object --stdin)
+D=$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)
 H=$(git rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)
 printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .claude/review-pass.json
 ```
@@ -87,6 +87,14 @@ For any "fixed" / "passes" claim, name the command whose exit code you checked. 
 verification and "it looks right now" is not a passing test — if you cannot name the check, downgrade the claim
 instead of restating it. The same applies to severity: a finding you cannot tie to a behaviour is `low`, whatever
 it looks like, and ranking it higher spends the credibility you will need for the next real blocker.
+
+## Confidence
+The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
+on the line, nothing after it. `low` when you guessed, could not verify, or the task was above the model this run
+was given; the caller then repeats it once, one model up. Your task opens with a card (`files:`, `change:`,
+`verify:`): the `verify` command is run when you stop, and if it fails you are asked once to fix the work. If a
+write is refused because the file is on a critical path, do not reach it another way: stop, and put
+`escalate: <the file>` on the line before `confidence: low`.
 
 ## Prohibitions (absolute)
 CLAUDE.md §4 applies. In review, additionally catch: §4.1 AI-authorship traces (co-author trailers,

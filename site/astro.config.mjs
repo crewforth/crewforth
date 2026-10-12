@@ -3,6 +3,7 @@
 // is Pagefind (static), and the analytics beacon is added only when CF_BEACON_TOKEN is set (5b sets it).
 import { defineConfig, passthroughImageService } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import fs from 'node:fs';
 
 const beacon = process.env.CF_BEACON_TOKEN;
 const t = (en, tr) => ({ label: en, translations: { tr } });
@@ -34,6 +35,9 @@ export default defineConfig({
       head: [
         { tag: 'meta', attrs: { property: 'og:image', content: 'https://crewforth.com/social-preview.png' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
+        // A picture in a page opens at its full size when pressed (src/scripts/zoom.js). Inline, first-party, and
+        // run once the page is parsed.
+        { tag: 'script', attrs: { type: 'module' }, content: fs.readFileSync(new URL('./src/scripts/zoom.js', import.meta.url), 'utf8') },
         ...(beacon
           ? [{ tag: 'script', attrs: { defer: true, src: 'https://static.cloudflareinsights.com/beacon.min.js', 'data-cf-beacon': JSON.stringify({ token: beacon }) } }]
           : []),

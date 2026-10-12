@@ -17,15 +17,20 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { getFleet, measureSpawnCost } from './lib/fleet.js';
-import { projectDir, listSessions, findSession, listProjects, sessionCwd } from './lib/projects.js';
+import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentMetaFiles } from './lib/projects.js';
+import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
+import { cachedUsage } from './lib/usage.js';
+import { readModels, readRecord, readCosts } from './lib/model-outcomes.js';
+
+const USAGE_BATCH = 12;
 import { palette } from './lib/palette.js';
 import { latestVersion, latestVersionCached, kitStatus } from './lib/kit.js';
 import { parsePeers, askAll, ask } from './lib/peers.js';
 import {
-  createSession, getSession, listSessionsOwned, reap, stopAll, ALLOWED_MODES,
+  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES,
 } from './lib/session.js';
-import { decide, pending, alwaysList } from './lib/permissions.js';
+import { decide, pending, alwaysList, revoke, sweepLeft } from './lib/permissions.js';
 import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
@@ -135,7 +140,44 @@ export function writeAllowed(req) {
   return { ok: true };
 }
 
+/**
+ * The record of outcomes for a project, with each agent's cost where it can be read. Only the sessions written
+ * since the record began are opened, and each is read once and kept until it grows (usage.js).
+ */
+/** The ids of the agents of one session, from the files it left: the only lines of the record a page of it needs. */
+async function agentIdsOf(session) {
+  if (!session?.subagentsDir) return [];
+  return (await agentMetaFiles(session.subagentsDir)).map((m) => path.basename(m).replace(/^agent-/, '').replace(/\.meta\.json$/, ''));
+}
+
+/**
+ * What the classes of a project cost: each agent's tokens at list price, from the transcripts of the project's
+ * sessions that are on this machine. Reading those is the expensive part of the Models view, so it is asked for
+ * apart from the record and less often, and a session whose transcript has not changed is not read again
+ * (`cachedUsage`).
+ */
+async function modelCosts(cwd) {
+  const rec = readRecord(cwd);
+  if (!rec.measured) return { measured: false, reason: rec.reason, costs: {}, sessionsRead: 0 };
+  const per = new Map();
+  const dir = await projectDir(cwd);
+  let read = 0;
+  if (dir) {
+    const since = (rec.firstAt ?? 0) - 3600_000;
+    for (const s of (await listSessions(dir)).filter((x) => x.modifiedAt >= since).slice(0, MODELS_SESSIONS_MAX)) {
+      const u = await cachedUsage(s);
+      read += 1;
+      for (const [id, a] of Object.entries(u.agents ?? {})) per.set(id, a.cost);
+    }
+  }
+  return { measured: true, costs: readCosts(cwd, (id) => (per.has(id) ? per.get(id) : null)), sessionsRead: read };
+}
+const MODELS_SESSIONS_MAX = 60;
+
 const MAX_BODY_BYTES = 1024 * 1024;
+
+/** The session events after which a subscriber is sent the session's summary again. */
+export const STATE_AFTER = new Set(['result', 'exit', 'mode']);
 
 function readBody(req) {
   return new Promise((resolve) => {
@@ -190,6 +232,21 @@ async function handle(req, res) {
       pid: process.pid,
       uptimeMs: Math.round(process.uptime() * 1000),
     });
+  }
+
+  // What a handful of sessions spent, for the navigator's rows. Asked for a few at a time and answered from a
+  // cache that lasts until a transcript grows: reading every transcript on the machine to draw a list is not
+  // something a page load should do.
+  if (url.pathname === '/api/usage') {
+    const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).slice(0, USAGE_BATCH);
+    const usage = {};
+    for (const id of ids) {
+      const session = await findSession(id);
+      if (!session) continue;                 // a session on another machine: not read here, and not guessed
+      const u = await cachedUsage(session);
+      usage[id] = { durationMs: u.durationMs, workedMs: u.workedMs, startedAt: u.startedAt, tokens: u.tokens.fresh, cost: u.cost, unpriced: u.unpriced };
+    }
+    return sendJson(res, 200, { measured: true, usage });
   }
 
   if (url.pathname === '/api/fleet') {
@@ -276,6 +333,24 @@ async function handle(req, res) {
   }
 
   // What Crewforth already measures about itself, reported as Crewforth reports it.
+  // Which model did which class of work in this project, and how it went: Crewforth's own record of outcomes,
+  // and the lines of it that belong to the session on screen. What the classes cost is the next route.
+  if (url.pathname === '/api/models') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], byAgent: {} });
+    return sendJson(res, 200, readModels(cwd, { agents: await agentIdsOf(session) }));
+  }
+
+  if (url.pathname === '/api/models/cost') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', costs: {}, sessionsRead: 0 });
+    return sendJson(res, 200, await modelCosts(cwd));
+  }
+
   if (url.pathname === '/api/kit') {
     const cwd = url.searchParams.get('cwd') || process.cwd();
     const sid = url.searchParams.get('session');
@@ -290,6 +365,14 @@ async function handle(req, res) {
 
   if (url.pathname === '/api/palette') {
     return sendJson(res, 200, palette());
+  }
+
+  // Where the agents of a session's project are defined: the project's own files and the user's.
+  if (url.pathname === '/api/agents') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = session ? await sessionCwd(session.file, session.bytes) : null;
+    return sendJson(res, 200, { measured: true, ...agentOrigins(cwd) });
   }
 
   if (url.pathname === '/api/sessions') {
@@ -387,7 +470,7 @@ async function handle(req, res) {
 
   if (url.pathname === '/api/owned' && req.method === 'GET') {
     reap();
-    return sendJson(res, 200, { measured: true, modes: ALLOWED_MODES, sessions: listSessionsOwned() });
+    return sendJson(res, 200, { measured: true, modes: ALLOWED_MODES, sessions: listSessionsOwned(), now: Date.now() });
   }
 
   if (url.pathname === '/api/owned' && req.method === 'POST') {
@@ -418,21 +501,31 @@ async function handle(req, res) {
         waitSeconds: s.gate?.waitSeconds ?? null,
         pending: s.gate ? pending(s.id) : [],
         always: s.gate ? alwaysList(s.id) : [],
+        now: Date.now(),
       });
     }
 
     const gate = writeAllowed(req);
     if (!gate.ok) return sendJson(res, 403, { ok: false, reason: gate.reason });
-    if (req.method !== 'POST' || !permMatch[2]) return sendJson(res, 405, { ok: false, reason: 'POST to a request id' });
     if (!s.gate) return sendJson(res, 409, { ok: false, reason: 'this session has no gate to answer' });
+    // DELETE /permissions/<tool> takes back an "allow this tool for the session".
+    if (req.method === 'DELETE' && permMatch[2]) {
+      const out = revoke(s.id, decodeURIComponent(permMatch[2]));
+      return sendJson(res, out.ok ? 200 : 400, { ...out, always: alwaysList(s.id) });
+    }
+    if (req.method !== 'POST' || !permMatch[2]) {
+      return sendJson(res, 405, { ok: false, reason: 'POST to a request id, or DELETE a tool name' });
+    }
 
     const body = await readBody(req);
     if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
-    const out = decide(s.id, decodeURIComponent(permMatch[2]), body.verdict);
+    const toolUseId = decodeURIComponent(permMatch[2]);
+    const out = decide(s.id, toolUseId, body.verdict, { answers: body.answers, mode: body.mode });
+    if (out.ok) s.noteDecision(toolUseId, body.verdict);
     return sendJson(res, out.ok ? 200 : 400, out);
   }
 
-  const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events))?$/);
+  const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events|mode))?$/);
   if (ownedMatch) {
     const s = getSession(decodeURIComponent(ownedMatch[1]));
     if (!s) return sendJson(res, 404, { ok: false, reason: 'no such owned session' });
@@ -447,6 +540,13 @@ async function handle(req, res) {
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, reason: 'POST only' });
 
     if (verb === 'stop') return sendJson(res, 200, { ...s.stop(), session: s.summary() });
+
+    // The viewer chose another mode for the session, from the three a session may be started in.
+    if (verb === 'mode') {
+      const asked = await readBody(req);
+      const out = s.requestMode(asked?.mode);
+      return sendJson(res, out.ok ? 200 : 400, { ...out, session: s.summary() });
+    }
 
     const body = await readBody(req);
     if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
@@ -700,7 +800,9 @@ function ownedStream(req, res, url, session) {
 
   const unsubscribe = session.subscribe((ev) => {
     write('event', ev);
-    if (ev.rec?.type === 'result' || ev.rec?.type === 'exit') write('state', session.summary());
+    // The summary is what a pane paints its strip from. It follows what changes it: a turn ending, the session
+    // going, and the mode Claude Code reports. Without the last, the strip waited for the beat below.
+    if (STATE_AFTER.has(ev.rec?.type)) write('state', session.summary());
   }, after);
 
   const beat = setInterval(() => write('state', session.summary()), 15000);
@@ -787,6 +889,10 @@ async function main() {
     process.exit(await selftest());
   }
 
+  // What an earlier server left under the temp directory when it was killed: gone before this one makes its own.
+  // Only a server that is about to run does this; asking for --help or --selftest removes nothing.
+  sweepLeft();
+
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {
       process.stderr.write(`crewforth-studio: unhandled: ${e?.stack ?? e}\n`);
@@ -872,6 +978,7 @@ async function main() {
       // Children outlive their parent unless told otherwise, and a panel that
       // leaks running sessions is worse than one that never started them.
       stopAll();
+      dropSpools();
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 2000).unref();
     });

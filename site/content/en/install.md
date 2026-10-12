@@ -90,7 +90,7 @@ At install time Crewforth stamps `.claude/kit.conf` with which installer ran, pl
 | | On update |
 |:--|:--|
 | `.claude/` agents · skills · commands · hooks · eval · studio | refreshed from the new version |
-| `.claude/DISCIPLINE.md` | **overwritten** — Crewforth owns it, so keep nothing of your own in it |
+| `.claude/DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md` | **refreshed** — Crewforth owns them, so keep nothing of your own in them; a copy you edited is kept in `.claude/.legacy-backup/` first, and named |
 | `./CLAUDE.md` | never touched — your project rules stay exactly as written |
 | `.claude/settings.json` | merged schema-aware; your own hooks and permissions survive |
 | your own agents and skills (no `crew-` prefix) | untouched |

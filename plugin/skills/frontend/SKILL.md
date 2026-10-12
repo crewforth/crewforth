@@ -29,13 +29,13 @@ There is no default client stack, and none is suggested: the user chooses. **Mod
 4. **Still open (a new project) → ask, once.** A few questions at most (which platforms · which client stack), the
    options listed plainly — **no option marked recommended and no "Decide for me"**: the stack is the user's call.
    This is the one decision where the discipline's "give a clear recommendation" does NOT apply: state each option's
-   trade-off and stop there. That Crewforth ships a layer for one stack (`frontend-rn-expo`) is not a reason to
-   favour it (measured: the first version of this step still got "React Native + Expo (recommended)", because of it).
+   trade-off and stop there. That Crewforth ships layers for two stacks (`frontend-rn-expo`, `frontend-flutter`) is
+   not a reason to favour either (measured: the first version of this step still got "React Native + Expo (recommended)", because of it).
    No one to ask (headless) → write the questions as text and stop; do not start client code on a guessed stack.
 
 **Record it** in the `Client:` line of `CLAUDE.md ## Stack`, plus an ADR (`adr` skill). **Never ask twice** — a
 recorded client stack changes only when the user asks. Then apply this skill on that stack; an RN/Expo project
-also applies `frontend-rn-expo`.
+also applies `frontend-rn-expo`, a Flutter project `frontend-flutter`.
 
 ## Architecture
 - **Presentation / logic separation:** component/view is pure and thin; business logic lives in the hook/composable/service layer.

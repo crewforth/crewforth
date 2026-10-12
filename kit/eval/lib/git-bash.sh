@@ -40,16 +40,24 @@ _mt(){ local s="$1"; shift
       'set CLAUDE_CODE_GIT_BASH_PATH to') s="CLAUDE_CODE_GIT_BASH_PATH'i şuna ayarlayın:" ;;
       "Claude Code cannot find Git Bash — its hooks run under PowerShell and Crewforth's gates do not run") s="Claude Code Git Bash'i bulamıyor — hook'lar PowerShell altında koşuyor ve Crewforth'un kapıları çalışmıyor" ;;
       'install Git for Windows in its default folder, or set CLAUDE_CODE_GIT_BASH_PATH to') s="Git for Windows'u varsayılan klasörüne kurun ya da CLAUDE_CODE_GIT_BASH_PATH'i şuna ayarlayın:" ;;
+      'then close the terminal and Claude Code and open them again — an open terminal keeps the old value') s="sonra terminali ve Claude Code'u kapatıp yeniden açın — açık bir terminal eski değeri taşır" ;;
       *) [ -n "${CREW_I18N_MISS:-}" ] && printf '%s\n' "$s" >> "$CREW_I18N_MISS" ;;
     esac
   fi
   printf -v _M "$s" "$@"; }
 ok(){   _mt "$@"; echo "  ✅ $_M"; }
-warn(){ _mt "$@"; echo "  ⚠️  $_M"; [ "$RC" = 0 ] && RC=3; }
+warn(){ _mt "$@"; echo "  ⚠️  $_M"; [ "$RC" = 0 ] && RC=3; ADVISED=1; }
 skip(){ _mt "$@"; echo "  ·  $_M"; RC=4; }
 # bad MESSAGE FIX [arguments for MESSAGE]: the fix takes none; what follows it goes in BAD_TAIL, printed once.
 bad(){ local _m="$1" _x="$2"; shift 2; _mt "$_m" "$@"; echo "  ❌ $_M"; _mt "fix: "; local _f="$_M"; _mt "$_x"
-       echo "     ↳ $_f$_M${BAD_TAIL:-}"; BAD_TAIL=""; RC=1; }
+       echo "     ↳ $_f$_M${BAD_TAIL:-}"; BAD_TAIL=""; RC=1; ADVISED=1; }
+# Every warning and failure here ends in "set CLAUDE_CODE_GIT_BASH_PATH" (or install Git). A process keeps the
+# environment it started with, so a Claude Code restarted INSIDE the terminal that was open when the variable was
+# changed still has the old value: in the field the fix was right and the proof came two rounds late. Said once,
+# after whatever was advised.
+ADVISED=0
+reopen(){ [ "$ADVISED" = 1 ] || return 0
+  _mt 'then close the terminal and Claude Code and open them again — an open terminal keeps the old value'; echo "     ↳ $_M"; }
 
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*)
   if ! command -v cygpath >/dev/null 2>&1; then
@@ -114,6 +122,7 @@ GBEOF
             "install Git for Windows in its default folder, or set CLAUDE_CODE_GIT_BASH_PATH to"
       fi
     fi
+    reopen
   fi ;;
 esac
 exit "$RC"

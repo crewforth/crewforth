@@ -4,82 +4,156 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crewforth Studio</title>
+<link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header class="bar">
-  <div class="brand">
+  <button id="menu-btn" class="btn icon ghost" type="button" aria-label="Open the navigator" aria-expanded="false">
+    <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+  </button>
+  <a id="home" class="brand" href="/" title="Back to the latest session">
     <svg class="brand-mark" viewBox="0 0 200 200" aria-hidden="true">
       <polyline points="44,58 86,100 44,142" stroke-width="21" class="bar-1"/>
       <polyline points="80,58 122,100 80,142" stroke-width="21" class="bar-2"/>
       <polyline points="116,58 158,100 116,142" stroke-width="24" class="bar-3"/>
     </svg>
     <h1>Crewforth <span class="brand-accent">Studio</span></h1>
-  </div>
-  <div class="bar-mid">
-    <span id="graph-summary" class="meta"></span>
-    <span id="kitline" class="kitline"></span>
-  </div>
-  <div class="bar-right">
-    <button id="continue-session" class="ghost primary" type="button" hidden
-            title="Start a new session holding a copy of this conversation. It does not write into the original.">⑂ fork &amp; continue</button>
-    <button id="new-session" class="ghost primary" type="button">+ session</button>
-    <span id="pulse" class="pulse">connecting</span>
-      <button id="fullscreen" class="ghost" type="button" title="Full screen (f)" aria-label="Full screen">⛶</button>
-    <button id="theme" class="ghost" type="button" aria-label="Toggle theme">◐</button>
-  </div>
+  </a>
+  <span class="bar-sep" aria-hidden="true"></span>
+  <nav id="crumb" class="crumb" aria-label="Breadcrumb"></nav>
+  <span class="bar-fill"></span>
+  <div id="graph-summary" class="chips" role="group" aria-label="Session summary"></div>
+  <span class="bar-sep" aria-hidden="true"></span>
+  <span id="pulse" class="live" role="status" data-state="connecting"><span class="dot"></span><strong>Connecting</strong><span class="live-detail"></span></span>
+  <button id="theme" class="btn icon ghost" type="button" aria-label="Switch theme">
+    <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/></svg>
+  </button>
+  <button id="fullscreen" class="btn icon ghost" type="button" title="Full screen (f)" aria-label="Full screen">
+    <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6V3h3M10 3h3v3M13 10v3h-3M6 13H3v-3"/></svg>
+  </button>
+  <button id="new-session" class="btn primary" type="button">
+    <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span>New session</span>
+  </button>
 </header>
 
-<div class="shell">
-  <button id="side-show" class="side-rail" type="button"
-          title="Show the sidebar" aria-label="Show the sidebar" hidden>
-    <span class="side-rail-arrow">›</span>
-    <span class="side-rail-label">sessions</span>
-  </button>
-  <aside class="side">
-    <section class="side-block" data-sect="fleet">
-      <div class="side-head">
-        <button class="twisty" type="button" data-fold="fleet" aria-expanded="true"
-                aria-label="Collapse Fleet">▾</button>
-        <h2 data-fold-for="fleet">Fleet</h2><span id="fleet-meta" class="meta"></span>
-        <button id="side-wide" class="ghost pin" type="button" title="Widen the sidebar">⇥</button>
-        <button id="side-hide" class="ghost pin" type="button" title="Collapse the sidebar">‹</button>
-      </div>
-      <div id="fleet" class="fleet" role="list" data-fold-body="fleet"></div>
-      <div class="side-head reach-head" hidden id="reach-head">
-        <button class="twisty" type="button" data-fold="reach" aria-expanded="true"
-                aria-label="Collapse Reachable elsewhere">▾</button>
-        <h2 data-fold-for="reach">Reachable elsewhere</h2><span id="reach-meta" class="meta"></span>
-      </div>
-      <div id="reach" class="fleet" role="list" data-fold-body="reach"></div>
-    </section>
-    <section class="side-block grow" data-sect="sessions">
-      <div class="side-head">
-        <button class="twisty" type="button" data-fold="sessions" aria-expanded="true"
-                aria-label="Collapse Projects">▾</button>
-        <h2 data-fold-for="sessions">Projects</h2><span id="sessions-meta" class="meta"></span>
-      </div>
-      <div class="side-filter" data-fold-body="sessions">
-        <input id="filter" type="search" placeholder="filter projects…" autocomplete="off" spellcheck="false">
-      </div>
-      <div id="sessions" class="sessions" role="tree" data-fold-body="sessions"></div>
-    </section>
+<div class="shell no-chat">
+  <nav id="side-rail" class="side-rail" aria-label="Navigator, collapsed" hidden>
+    <button class="rail-btn" type="button" data-rail-tab="projects" aria-label="Projects">
+      <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>
+    </button>
+    <button class="rail-btn" type="button" data-rail-tab="live" aria-label="Live sessions">
+      <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8h3l2-4 3 8 2-4h3"/></svg>
+    </button>
+    <button class="rail-btn" type="button" data-rail-tab="machines" aria-label="Machines">
+      <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 14h4M8 11v3"/></svg>
+    </button>
+    <span class="rail-fill"></span>
+    <button id="side-show" class="rail-btn" type="button" title="Expand the navigator (])" aria-label="Expand the navigator">
+      <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
+    </button>
+  </nav>
+
+  <aside class="side" aria-label="Projects and sessions">
+    <div class="nav-top">
+      <label class="nav-search">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+        <input id="filter" type="search" placeholder="Search projects and sessions"
+               aria-label="Search projects and sessions" autocomplete="off" spellcheck="false">
+      </label>
+      <button id="side-hide" class="btn icon ghost sm" type="button" title="Collapse the navigator ([)" aria-label="Collapse the navigator">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 4l-4 4 4 4"/></svg>
+      </button>
+    </div>
+    <div class="seg" role="tablist" aria-label="Navigator">
+      <button class="seg-btn" type="button" role="tab" id="tab-projects" data-tab="projects" aria-controls="sessions" aria-selected="true">Projects</button>
+      <button class="seg-btn" type="button" role="tab" id="tab-live" data-tab="live" aria-controls="fleet" aria-selected="false">Live <span id="live-count" class="badge" hidden></span></button>
+      <button class="seg-btn" type="button" role="tab" id="tab-machines" data-tab="machines" aria-controls="reach" aria-selected="false">Machines</button>
+    </div>
+    <div id="sessions" class="nav-list" role="tabpanel" aria-labelledby="tab-projects" aria-busy="true"><div class="skel" aria-hidden="true"><span></span><span></span><span></span><span></span></div></div>
+    <div id="fleet" class="nav-list" role="tabpanel" aria-labelledby="tab-live" hidden></div>
+    <div id="reach" class="nav-list" role="tabpanel" aria-labelledby="tab-machines" hidden></div>
+    <div id="other-machines" class="nav-foot" hidden></div>
   </aside>
 
   <div class="resizer" id="resizer" role="separator" aria-orientation="vertical"
        aria-label="Resize sidebar" tabindex="0"></div>
 
   <main class="stage">
+    <div id="phone-head" class="phone-head"></div>
+    <div class="toolbar" role="toolbar" aria-label="Canvas">
+      <div class="seg tb-views" role="tablist" aria-label="View">
+        <button id="view-graph" class="seg-btn" type="button" role="tab" aria-label="Graph view" aria-selected="true" aria-controls="canvas">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="4" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/><path d="M5.2 7.3L10.8 4.7M5.2 8.7l5.6 2.6"/></svg><span class="tb-words">Graph</span>
+        </button>
+        <button id="view-timeline" class="seg-btn" type="button" role="tab" aria-label="Timeline view" aria-selected="false" aria-controls="timeline">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5 8h9M3 12h6"/></svg><span class="tb-words">Timeline</span>
+        </button>
+        <button id="view-list" class="seg-btn" type="button" role="tab" aria-label="List view" aria-selected="false" aria-controls="list">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h9M5 8h9M5 12h9M2 4h.01M2 8h.01M2 12h.01"/></svg><span class="tb-words">List</span>
+        </button>
+        <button id="view-models" class="seg-btn" type="button" role="tab" aria-label="Models view" aria-selected="false" aria-controls="models">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V8M8 13V3M13 13V6"/></svg><span class="tb-words">Models</span>
+        </button>
+      </div>
+      <button id="tb-group" data-view="graph timeline" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Group <span>Workflow run</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <button id="tb-density" data-view="graph" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Density <span>Auto</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <button id="tb-show" data-view="graph timeline list" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Show <span>All</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <button id="tb-options" data-view="graph timeline list" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu" aria-label="View options"><span class="tb-name">View<span class="tb-more"> options</span></span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
+      <span id="foot-note" class="toolbar-note" role="status"></span>
+      <span class="toolbar-fill"></span>
+      <span class="tb-follow" data-view="timeline" hidden>
+        <span class="sub" aria-hidden="true">Follow now</span>
+        <button id="tb-follow" class="switch" type="button" role="switch" aria-checked="true" aria-label="Follow now"><span></span></button>
+      </span>
+      <button id="tb-range-out" class="btn icon sm ghost" type="button" data-view="timeline" aria-label="Show more time" hidden>
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg>
+      </button>
+      <span id="tb-range" class="tb-zoom tb-range" data-view="timeline" hidden>15m</span>
+      <button id="tb-range-in" class="btn icon sm ghost" type="button" data-view="timeline" aria-label="Show less time" hidden>
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+      </button>
+      <button id="tb-expand" data-view="graph timeline list" class="btn sm" type="button" aria-label="Expand all groups">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6l5 5 5-5"/></svg><span class="tb-words">Expand all</span>
+      </button>
+      <button id="tb-fold" data-view="graph timeline list" class="btn sm" type="button" aria-label="Fold all groups">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg><span class="tb-words">Fold all</span>
+      </button>
+      <button id="tb-zoom-out" data-view="graph" class="btn icon sm ghost" type="button" aria-label="Zoom out">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg>
+      </button>
+      <button id="tb-zoom" data-view="graph" class="tb-zoom" type="button" title="Back to 100%" aria-label="Zoom 100%. Back to 100%">100%</button>
+      <button id="tb-zoom-in" data-view="graph" class="btn icon sm ghost" type="button" aria-label="Zoom in">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+      </button>
+      <button id="tb-reset" data-view="graph" class="btn sm" type="button" title="Reset layout (r)" aria-label="Reset layout: put the cards moved by hand back where they belong" disabled>
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7M3 3v3h3"/></svg><span class="tb-words">Reset layout</span>
+      </button>
+      <button id="tb-fit" data-view="graph" class="btn sm" type="button" aria-label="Fit the graph to the view">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5.5v-3h3M10.5 2.5h3v3M13.5 10.5v3h-3M5.5 13.5h-3v-3"/></svg><span class="tb-words">Fit</span>
+      </button>
+    </div>
+    <div id="stage-note" class="stage-note" role="status" hidden></div>
+    <div id="attention" class="attention" role="region" aria-label="Needs attention" hidden></div>
     <div id="canvas" class="canvas"></div>
-    <aside id="inspector" class="inspector" hidden></aside>
+    <div id="timeline" role="tabpanel" aria-labelledby="view-timeline" hidden></div>
+    <div id="list" role="tabpanel" aria-labelledby="view-list" hidden></div>
+    <div id="models" role="tabpanel" aria-labelledby="view-models" hidden></div>
+    <div id="first-run" class="first-run" hidden></div>
+    <div id="terminal-wait" class="terminal-wait" role="status" hidden></div>
+    <div id="dock" role="region" aria-label="Waiting for approval" hidden></div>
   </main>
+
+  <aside id="inspector" class="inspector" aria-label="Selected node" hidden></aside>
 
   <div class="resizer" id="chat-split" role="separator" aria-orientation="vertical"
        aria-label="Resize conversation" tabindex="0" hidden></div>
   <section id="chat" class="chat" hidden></section>
+  <section id="new-panel" class="newpanel" aria-label="New session" hidden></section>
 </div>
 
-<footer class="foot"><span id="foot-note">starting…</span></footer>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<div id="menu" class="menu" role="menu" hidden></div>
 
 <script type="module" src="/app.js"></script>
 </body>

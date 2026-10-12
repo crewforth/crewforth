@@ -90,11 +90,19 @@ CREW_PROMPT="$(printf '%s' "$IN" | sed -n 's/.*"prompt"[[:space:]]*:[[:space:]]*
 # `[Subagent hand-back]` on the next line — measured by capturing this hook's stdin on a real hand-back (3.0.1,
 # field report P2): the first 80 bytes of `prompt` were exactly that, and the hook named the agent whose work had
 # just been reported, in three field sessions on two machines.
-case "$CREW_PROMPT" in
-  '<task-notification'*|'<system-reminder'*|'<cross-session-message'*|'<local-command-stdout'*|'<agent-message'*\
-  |'[SYSTEM NOTIFICATION'*|'[Task '*|'Another Claude session sent a message'*)
-    exit 0 ;;
-esac
+# ---- CREW-NOT-A-PERSON (one definition, carried by prompt-approval.sh and route-hint.sh; smoke-test pins it) ----
+# Turns that open with one of these are not something a person typed: a finished background task, a subagent's
+# hand-back, a message from another session. Measured on real hand-backs (3.0.1): they do raise UserPromptSubmit.
+_crew_not_a_person(){  # $1 = the prompt as it sits in the payload -> 0 when it is not a person's message
+  case "$1" in
+    '<task-notification'*|'<system-reminder'*|'<cross-session-message'*|'<local-command-stdout'*|'<agent-message'*\
+    |'[SYSTEM NOTIFICATION'*|'[Task '*|'Another Claude session sent a message'*)
+      return 0 ;;
+  esac
+  return 1
+}
+# ---- /CREW-NOT-A-PERSON ----------------------------------------------------------------------------------
+_crew_not_a_person "$CREW_PROMPT" && exit 0
 export CREW_PROMPT
 
 # Glob expansion is a shell builtin — no forks. Agents FIRST, then skills: awk reads its arguments in order and

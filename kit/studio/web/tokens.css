@@ -1,0 +1,131 @@
+/* GENERATED from packaging/design/tokens.json (Crewforth, version 1) by
+   packaging/gen-studio-tokens.mjs. Do not edit: change the JSON and run the generator. */
+
+:root {
+  color-scheme: dark;
+  --ground: #0B1020;
+  --surface: #141821;
+  --surface-raised: #1b202b;
+  --line: #262c39;
+  --ink: #e6e9f0;
+  --ink-dim: #9aa7cc;
+  --ink-faint: #5c6472;
+  --accent: #A78BFA;
+  --on-accent: #0B1020;
+  --wordmark-ink: #FFFFFF;
+  --wordmark-accent: #A78BFA;
+  --chevron-1: #E5E7FB;
+  --chevron-2: #B9BEF9;
+  --chevron-3: #A78BFA;
+  --brand-navy: #0B1020;
+  --studio-accent: #5b8cff;
+  --status-busy: #26c6e6;
+  --status-waiting: #f2a65a;
+  --status-idle: #9aa7cc;
+  --status-good: #35c874;
+  --status-bad: #ff8a4d;
+  --status-fail: #ff6b7a;
+  --font-sans: Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --type-wordmark-size: 56px;
+  --type-wordmark-line: 1;
+  --type-wordmark-weight: 800;
+  --type-wordmark-tracking: -1.5px;
+  --type-hero-size: 48px;
+  --type-hero-line: 52px;
+  --type-hero-weight: 800;
+  --type-hero-tracking: -1px;
+  --type-h1-size: 36px;
+  --type-h1-line: 42px;
+  --type-h1-weight: 700;
+  --type-h1-tracking: -0.5px;
+  --type-h2-size: 24px;
+  --type-h2-line: 32px;
+  --type-h2-weight: 700;
+  --type-h3-size: 18px;
+  --type-h3-line: 26px;
+  --type-h3-weight: 600;
+  --type-body-size: 16px;
+  --type-body-line: 26px;
+  --type-body-weight: 400;
+  --type-body-sm-size: 14px;
+  --type-body-sm-line: 22px;
+  --type-body-sm-weight: 400;
+  --type-label-size: 12px;
+  --type-label-line: 16px;
+  --type-label-weight: 600;
+  --type-label-tracking: 0.06em;
+  --type-code-size: 14px;
+  --type-code-line: 22px;
+  --type-code-weight: 400;
+  --type-code-sm-size: 12px;
+  --type-code-sm-line: 18px;
+  --type-code-sm-weight: 400;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 4px;
+  --radius-md: 10px;
+  --radius-lg: 20px;
+  --radius-icon: 23%;
+  --radius-pill: 999px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --ground: #f7f8fa;
+    --surface: #ffffff;
+    --surface-raised: #eef0f4;
+    --line: #d9dde5;
+    --ink: #1a1d24;
+    --ink-dim: #5c6472;
+    --ink-faint: #8d95a3;
+    --accent: #6D28D9;
+    --on-accent: #ffffff;
+    --wordmark-ink: #0F172A;
+    --wordmark-accent: #6366F1;
+    --chevron-1: #A8AEF6;
+    --chevron-2: #7C83F5;
+    --chevron-3: #6D28D9;
+    --brand-navy: #0B1020;
+    --studio-accent: #5b8cff;
+    --status-busy: #26c6e6;
+    --status-waiting: #f2a65a;
+    --status-idle: #9aa7cc;
+    --status-good: #35c874;
+    --status-bad: #ff8a4d;
+    --status-fail: #d92d3f;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ground: #f7f8fa;
+  --surface: #ffffff;
+  --surface-raised: #eef0f4;
+  --line: #d9dde5;
+  --ink: #1a1d24;
+  --ink-dim: #5c6472;
+  --ink-faint: #8d95a3;
+  --accent: #6D28D9;
+  --on-accent: #ffffff;
+  --wordmark-ink: #0F172A;
+  --wordmark-accent: #6366F1;
+  --chevron-1: #A8AEF6;
+  --chevron-2: #7C83F5;
+  --chevron-3: #6D28D9;
+  --brand-navy: #0B1020;
+  --studio-accent: #5b8cff;
+  --status-busy: #26c6e6;
+  --status-waiting: #f2a65a;
+  --status-idle: #9aa7cc;
+  --status-good: #35c874;
+  --status-bad: #ff8a4d;
+  --status-fail: #d92d3f;
+}

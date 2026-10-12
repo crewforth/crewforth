@@ -52,6 +52,19 @@ sequence. Every agent above is installed; "no owner" is an `ls`, not a default.
    proposes, waits for approval (`/crew-ship`); held items close here.
 5. **Hand off** — phase boundary or full context → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
 
+**Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
+`files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
+· `verify:` the command that proves it, or `none`. **crew-planner** writes the card; with no plan, you do.
+
+| `model` | the card |
+|---|---|
+| `haiku` | text, test-run, mechanical work — only with a `verify:` command |
+| `sonnet` | feature, fix-known, refactor, test-write, audit, review; anything with `verify: none` |
+| `opus` | **critical**: migration, security, architecture, fix-unknown, or a file on a critical path (auth, payments, migrations…) — its test-write, audit and review too |
+
+The referee follows the RISK, not the author's model. Verify fails → the agent fixes once; again → re-run ONCE one
+model up; again → AskUserQuestion. The same for a report that ends `confidence: low`. `guard-agent-model.sh` holds it.
+
 **Naming an agent in prose is a hope; `@agent-<name>` is a guarantee** — measured here: 0/3 vs 3/3. Use that form
 whenever an agent must run, and tell the user they can too.
 
@@ -170,7 +183,7 @@ a team that adopted Crewforth may have chosen to share them instead, and the tra
 No `git commit` / `git push` unless the user says "commit" / "push". `git add` and new branches: no approval, any
 mode (`add -f` is §4.5). "Done / we can proceed" is **not** approval. **Present the message FIRST** — even in
 auto/fast mode. `guard-bash.sh` asks in `default`/`acceptEdits`; in `auto`, `dontAsk`, `plan`, `bypassPermissions`
-nobody sees a prompt, so commit/push FAIL CLOSED — get a real yes, then switch mode. Never hand the user a command
+nobody sees a prompt, so commit/push FAIL CLOSED: get a real yes; the guard says how. Never hand the user a command
 to paste. **Headless/CI:** if `printenv CLAUDE_GIT_OK` is set AND this request itself says "commit"/"push", that IS
 the approval — commit (a review blocker still stops you) and show the message in your report.
 

@@ -16,6 +16,14 @@ const FEED = process.env.CREW_UPDATE_URL
 const FEED_TTL_MS = 60 * 60 * 1000;   // the hook uses a day; a panel refreshes hourly
 const FETCH_TIMEOUT_MS = 8000;
 
+// How an install made of files is updated: the command, as the project's own update notice words it. It lives
+// here and travels in the payload so that the panel never types a command of its own.
+//
+// It is given ONLY to a project that has `.claude/VERSION`. A plugin install leaves no file in the project, so
+// from here it cannot be told from a project without Crewforth — and it does not update through npx. Such a
+// project gets null, and the panel shows the `/crew-update` hint instead of a command it would have to invent.
+const FILE_INSTALL_UPDATE = 'npx crewforth@latest update --here';
+
 let latestCache = null;   // { at, value }
 let inflight = null;
 
@@ -120,7 +128,12 @@ export async function kitStatus(cwd, latest) {
     // the other is a dead path.
     let present = false;
     try { await fsp.stat(cwd); present = true; } catch { present = false; }
-    return { installed: false, dirExists: present, reason: present ? 'Crewforth not installed' : 'directory no longer exists' };
+    return {
+      installed: false,
+      dirExists: present,
+      reason: present ? 'Crewforth not installed' : 'directory no longer exists',
+      updateCommand: null,
+    };
   }
 
   const conf = {};
@@ -137,6 +150,7 @@ export async function kitStatus(cwd, latest) {
     version,
     stack: conf.stack ?? null,
     installer: conf.installer ?? null,
+    updateCommand: FILE_INSTALL_UPDATE,
   };
 
   if (!latest?.measured) {
@@ -155,4 +169,4 @@ export async function kitStatus(cwd, latest) {
   return out;
 }
 
-export const _internals = { sane, FEED };
+export const _internals = { sane, FEED, FILE_INSTALL_UPDATE };

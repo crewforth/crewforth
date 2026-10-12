@@ -39,19 +39,29 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Bash|PowerShell|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo --% >/dev/null;: ' | out-null\n<#'\nexit 0\n#> try { Invoke-Expression (Get-Content -Raw -LiteralPath (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/no-bash-guard.ps1') -ErrorAction Stop) } catch { [Console]::Error.WriteLine(\"GUARD: Crewforth's gate for a machine without Git Bash could not be loaded, so this tool call is stopped: $_\"); exit 2 }",
+            "timeout": 600
+          }
+        ]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-bash.sh",
-            "timeout": 60
+            "timeout": 600
           },
           {
             "type": "command",
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-commit-scan.sh",
-            "timeout": 60
+            "timeout": 600
           }
         ]
       },
@@ -62,7 +72,7 @@
             "type": "command",
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-powershell.sh",
-            "timeout": 60
+            "timeout": 600
           }
         ]
       },
@@ -73,7 +83,29 @@
             "type": "command",
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-write.sh",
-            "timeout": 60
+            "timeout": 600
+          }
+        ]
+      },
+      {
+        "matcher": "CronCreate|ScheduleWakeup|RemoteTrigger|mcp__.*([Tt]rigger|[Ss]chedul|[Cc]ron|[Ll]ater).*",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-schedule.sh",
+            "timeout": 600
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-agent-model.sh",
+            "timeout": 600
           }
         ]
       }
@@ -81,6 +113,12 @@
     "UserPromptSubmit": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/prompt-approval.sh",
+            "timeout": 60
+          },
           {
             "type": "command",
             "shell": "bash",
@@ -103,6 +141,43 @@
             "type": "command",
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/session-guard.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/agent-outcome.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/agent-outcome.sh",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/agent-outcome.sh",
             "timeout": 60
           }
         ]
@@ -133,6 +208,12 @@
             "type": "command",
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/board-sync.sh",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/agent-outcome.sh",
             "timeout": 60
           }
         ]

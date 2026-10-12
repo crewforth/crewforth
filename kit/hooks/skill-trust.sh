@@ -72,6 +72,17 @@ digest(){
   else cksum "$1" 2>/dev/null | tr -s ' ' | cut -d' ' -f1,2 | tr ' ' '-'; fi
 }
 
+# THE ANSWER IS CONFIRMED, AND FROM THE FILE. Both commands printed nothing on success, so a session that had just run
+# one could not say the answer was recorded: in the field (two machines) it said it had not checked the record. One
+# line now, and only after the component's line is READ BACK from the file it was written to; when it is not there
+# the command fails and says so, instead of confirming a write that did not land.
+_recorded(){  # $1 = file -> 0 when it holds this component's line (`<digest> <name>`), CR aside
+  local l; [ -f "$1" ] || return 1
+  while IFS= read -r l || [ -n "$l" ]; do [ "${l%$'\r'}" = "$dg $ONE" ] && return 0; done < "$1"
+  return 1; }
+_confirm(){  # $1 = file, $2 = declined | trusted, $3 = what follows from it
+  _recorded "$1" || { echo "skill-trust: $ONE was NOT recorded — $1 does not hold its line after the write" >&2; exit 1; }
+  printf 'skill-trust: %s %s — recorded in .claude/%s (digest %s). %s\n' "$2" "$ONE" "${1##*/}" "${dg:0:12}" "$3"; }
 if [ "$MODE" = one ] || [ "$MODE" = decline ]; then
   _flag=trust; [ "$MODE" = decline ] && _flag=decline
   # Every refusal says why on stderr: the updater shows it. It used to exit 1 silently, and the updater discarded
@@ -89,6 +100,8 @@ if [ "$MODE" = one ] || [ "$MODE" = decline ]; then
     fi
     drop_name "$TRUST" "$ONE" 2>/dev/null || { echo "skill-trust: cannot write $TRUST" >&2; exit 1; }
     { drop_name "$DECL" "$ONE" && printf '%s %s\n' "$dg" "$ONE" >> "$DECL"; } 2>/dev/null || { echo "skill-trust: cannot write $DECL" >&2; exit 1; }
+    _recorded "$TRUST" && { echo "skill-trust: $ONE is still in $TRUST after the decline — the earlier yes was not dropped" >&2; exit 1; }
+    _confirm "$DECL" declined "It will not be used, and not asked about again. To trust it later: bash .claude/hooks/skill-trust.sh --trust-one $ONE (Bash tool, not PowerShell)"
     exit 0
   fi
   drop_name "$DECL" "$ONE" 2>/dev/null || { echo "skill-trust: cannot write $DECL" >&2; exit 1; }
@@ -96,8 +109,8 @@ if [ "$MODE" = one ] || [ "$MODE" = decline ]; then
     printf '# Components reviewed and accepted by the user. Regenerate with: bash skill-trust.sh --trust\n' > "$TRUST" 2>/dev/null \
       || { echo "skill-trust: cannot create $TRUST" >&2; exit 1; }
   fi
-  grep -qxF "$dg $ONE" "$TRUST" 2>/dev/null && exit 0
-  printf '%s %s\n' "$dg" "$ONE" >> "$TRUST" 2>/dev/null || { echo "skill-trust: cannot write $TRUST" >&2; exit 1; }
+  _recorded "$TRUST" || printf '%s %s\n' "$dg" "$ONE" >> "$TRUST" 2>/dev/null || { echo "skill-trust: cannot write $TRUST" >&2; exit 1; }
+  _confirm "$TRUST" trusted "A later change to it is reported again."
   exit 0
 fi
 
@@ -203,4 +216,6 @@ printf 'whether to trust it — one by one. Until they answer, do not use these 
 printf 'On a yes for a component, run the trust command listed under it (Bash tool, not PowerShell); it records that\n'
 printf 'one component only, and re-flags it if it is edited later. On a no, run the decline command listed under it: the\n'
 printf 'answer is then recorded, and neither a later session nor a Crewforth update asks or decides again.\n'
+printf 'Either command prints one line that starts with "skill-trust: trusted" or "skill-trust: declined" once the record\n'
+printf 'is read back from its file: pass that line to the user. No such line means the answer was NOT recorded.\n'
 exit 0

@@ -90,7 +90,7 @@ Crewforth kurulum sırasında `.claude/kit.conf` dosyasına hangi kurulum script
 | | Güncellemede |
 |:--|:--|
 | `.claude/` ajan · skill · komut · hook · eval · studio | yeni sürümden tazelenir |
-| `.claude/DISCIPLINE.md` | **üzerine yazılır**; Crewforth'a aittir, içinde kendinize ait hiçbir şey bırakmayın |
+| `.claude/DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md` | **yenilenir**; Crewforth'a aittir, içlerinde kendinize ait hiçbir şey bırakmayın; düzenlediğiniz bir kopya önce `.claude/.legacy-backup/` altında saklanır ve adıyla bildirilir |
 | `./CLAUDE.md` | hiç dokunulmaz; proje kurallarınız yazdığınız gibi kalır |
 | `.claude/settings.json` | şema farkındalığıyla birleştirilir; kendi hook'larınız ve izinleriniz korunur |
 | kendi ajan ve skill'leriniz (`crew-` öneki olmayanlar) | dokunulmaz |

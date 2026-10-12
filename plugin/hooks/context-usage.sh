@@ -100,7 +100,13 @@ if [ -n "${IN:-}" ] && [ -n "${PSID:-}" ]; then
         [ -f "$PMARK" ] && IFS= read -r WASM < "$PMARK" 2>/dev/null
         if [ "$WASM" != "$PM" ]; then
           printf '%s' "$PM" > "$PMARK" 2>/dev/null || true
-          echo "🔒 Permission mode: $PM. git commit/push fail closed in this mode (§4.4). Only when a commit or push comes up: say so before you ask for approval; a real yes still comes first, then the user switches mode (or exports CLAUDE_GIT_OK=1 in headless/CI). Otherwise do not mention it."
+          # In auto and dontAsk the user's own message is the approval (hooks/prompt-approval.sh); plan and
+          # bypassPermissions have no such route.
+          case "$PM" in
+            auto|dontAsk) PMHOW="stage the change, show the message in ONE code block and under it one line in the user's language, 'If you approve, send only this:' and then, on a line of its own, the command the gate's refusal names: /crew-approve (it approves what the gate just refused; spelled out it is /crew-approve commit, push or commit+push; the command stays as it is in every language, and only the user can type it); the user approves by sending that command alone. It covers what is staged at that moment, for 30 minutes, until their next message; never write it for them" ;;
+            *)            PMHOW="a real yes still comes first, then the user switches mode (or exports CLAUDE_GIT_OK=1 in headless/CI)" ;;
+          esac
+          echo "🔒 Permission mode: $PM. git commit/push fail closed in this mode (§4.4). Only when a commit or push comes up: say so before you ask for approval; $PMHOW. Otherwise do not mention it."
         fi
         ;;
     esac

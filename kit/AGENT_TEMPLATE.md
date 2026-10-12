@@ -14,7 +14,7 @@ Principle: **agent = thin trigger** ("who / when"), **skill = "how"**. Knowledge
   stays focused on WHEN to delegate, the field Claude reads. Keep the rationale here, not in every file — the
   comment is loaded with the body on every invocation.
 - `tools`: least-privilege principle. Read-only auditor → `Read, Grep, Glob (+Bash)`; writing expert → `+ Edit, Write`.
-- `model`: cost routing (table below). If the field is absent, the main session model is inherited (inherit).
+- `model`: normally ABSENT. The caller names the model on each call (section "Model routing" below); a field here is for an agent whose every task is one tier.
 
 ## Body sections (fixed order)
 1. **When** — triggering context.
@@ -32,24 +32,53 @@ Principle: **agent = thin trigger** ("who / when"), **skill = "how"**. Knowledge
 8. **Example delegation** — 1 ✅ triggers / 1 ❌ does-not-trigger line (delegation accuracy).
 9. **Constraints** — read-only or not, what it does not do, platform/policy limits.
 
-## Model routing (cost calibration)
-**Use a tier ALIAS, not a dated model ID** (`haiku`/`sonnet`/`opus`/`inherit`). An alias resolves automatically to the current tier; when a model is renamed/deprecated, agents do not silently break. Use a full ID (`claude-sonnet-…`) only if pinning to a specific version is required.
+## Model routing (chosen per call, by the task's card)
+The model is chosen **when the agent is called**, by the risk of the task. The caller opens the task with a card and
+names `model`; `hooks/guard-agent-model.sh` reads both and refuses a call it cannot place. So an agent file carries
+**no `model` field** as a rule: a pin in the file would be one answer for every task the agent is given.
 
-| Agent | Role | model | Why |
-|---|---|---|---|
-| crew-session-manager | assessment | `haiku` | lightweight, writes no code |
-| crew-security-expert | audit | `sonnet` | decision-heavy (auth/IDOR) |
-| crew-review-agent | audit | `haiku` | read-only findings |
-| crew-commit-agent | message generation | `haiku` | lightweight, writes no code |
-| crew-privacy-agent | audit | `sonnet` | decision-heavy (KVKK/GDPR) |
-| crew-planner | planning | `inherit` | wants stable reasoning |
-| crew-backend-expert | writing | `inherit` | complex code, main model |
-| crew-database-expert | writing | `inherit` | migration/schema risk |
-| crew-test-expert | writing | `inherit` | behavioral correctness |
-| crew-frontend-expert | writing | `inherit` | UI + native bridge |
+**The card** is the first three lines of the task:
 
-Pulling the read-only trio down to Haiku lowers token/cost; the writing experts stay at full power.
-(Aliases are valid in Claude Code frontmatter; if the field is empty, `inherit` is assumed.)
+```
+files:  src/orders/**, test/orders/**
+change: feature
+verify: npm test -- orders
+```
+
+`change` is one of `text` · `feature` · `fix-known` · `fix-unknown` · `refactor` · `migration` · `security` ·
+`architecture` · `test-run` · `test-write` · `audit`. `verify` is the command that proves the work, or `none`.
+
+**Risk class.** `critical` when the change is `migration`, `security`, `architecture` or `fix-unknown`, or a file is
+on a critical path (auth, payments, billing, migrations, security, crypto, secrets, `*.sql`, `schema.prisma`; the
+project's own are listed in `.claude/state/crew-critical-paths.auto`, and `.claude/crew-model-rules` adds or removes).
+Otherwise `normal`.
+
+| What the gate holds | `normal` | `critical` |
+|---|---|---|
+| any work | by the table in `CLAUDE.md` | `opus` |
+| `test-run` | `haiku` | `haiku` (running the tests is objective) |
+| `test-write`, `audit` | `sonnet` or above | `opus` |
+| `crew-review-agent`, `crew-privacy-agent`, `crew-planner`, `crew-database-expert` | `sonnet` or above | `opus` |
+| `crew-security-expert` | `opus` | `opus` |
+| `verify: none` | `sonnet` or above | `opus` |
+
+- **The referee follows the risk, not the author.** Tests, audits and reviews are what the work is judged by, so
+  their model is set by the risk of the work. In normal work an author on Opus does not pull the review up to Opus;
+  in critical work the review is on Opus whoever wrote the code.
+- **Verify, then escalate.** When the agent stops, `hooks/agent-outcome.sh` runs the card's `verify` command. Red
+  once: the agent is kept running and told to fix it. Red again: the agent ends, the session is told to repeat the
+  task once, one model up, and the gate refuses the same card on the same or a lower model. Red there too: the user
+  is asked; there is no third run.
+- **At write time.** An agent that is not on Opus cannot write to a critical path, whatever its card said. When that
+  refusal comes, stop and say so (the lines below).
+- **Use a tier ALIAS** (`haiku`/`sonnet`/`opus`), not a dated model ID. `fable` is refused for a crew agent unless
+  the user set `CREW_ALLOW_FABLE=1`. `CREW_MODEL_ROUTING=off` turns all of this off.
+- **A frontmatter `model` is the exception**, for an agent whose every task is the same tier (`crew-commit-agent`:
+  `haiku`). The call's own `model` is still required and is what runs.
+- **The last line of every report is exactly `confidence: high` or exactly `confidence: low`** (lower case, nothing
+  else on the line, nothing after it; the Studio panel reads it). `low` means the agent guessed, could not verify,
+  or the task was above the model it ran on. When a write was refused for the model, the line before it is
+  `escalate: <the file>`.
 
 ## Placement
 - Project-local (10): `./.claude/agents/` — crew-session-manager, backend/database/security/test/crew-frontend-expert, crew-review-agent, crew-commit-agent, crew-planner, crew-privacy-agent. Everything stays inside the repo; no dependency on home (`~/.claude`) (handover §3).

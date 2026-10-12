@@ -222,6 +222,7 @@ fi
 # slice against itself the moment the ladder disappears.
 # ---------------------------------------------------------------------------------------------------------
 { echo '#!/usr/bin/env bash'; echo 'INPUT="$(cat)"'
+  awk '/^_json_find\(\)/{f=1} f{print} f&&/^}$/{exit}' "$HOOK"
   awk '/^_json_slice\(\)/{f=1} f{print} f&&/^}$/{exit}' "$HOOK"
   awk '/^_json_unescape\(\)/{f=1} f{print} f&&/^}$/{exit}' "$HOOK"
   echo '_json_unescape "$(_json_slice "$INPUT" command)"'; } > "$W/dec.sh"

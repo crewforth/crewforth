@@ -1,81 +1,56 @@
-/* The panel's palette, light and dark. */
+/* Colour, type, space and radius come from tokens.css, which is generated from
+   the design system; this file holds no colour literal of its own. What the
+   design draws between two tokens is mixed from them here, by name, so a tone
+   exists in one place and follows both themes. */
 :root {
-  --bg: #f7f8fa;
-  --surface: #ffffff;
-  --surface-2: #eef0f4;
-  --line: #d9dde5;
-  --ink: #1a1d24;
-  --ink-dim: #5c6472;
-  --ink-faint: #8d95a3;
+  /* The dot grid behind the graph: quieter than a hairline, still on the page. */
+  --grid-dot: color-mix(in srgb, var(--line) 65%, var(--ground));
+  /* Depth under a lifted card. Navy rather than black, so it belongs to the
+     ground in both themes. */
+  --shade: color-mix(in srgb, var(--brand-navy) 45%, transparent);
+  --shade-soft: color-mix(in srgb, var(--brand-navy) 20%, transparent);
 
-  --busy: #26c6e6;
-  --waiting: #f2a65a;
-  --idle: #9aa7cc;
-  --good: #35c874;
-  --bad: #ff8a4d;
-  --accent: #5b8cff;
+  /* A branch that did not finish on its own terms is the one thing on this
+     canvas that must not be read as "some other agent colour". */
+  --cv-fail: var(--status-fail);
 
-  /* Edge tones. A branch that did not finish on its own terms is the one
-     thing on this canvas that must not be read as "some other agent colour",
-     so it gets a hue of its own rather than the node's.
-
-     The four weights are tokens and not literals because the same stroke sits
-     on white here and on near-black in the dark theme: 0.3 that reads as
-     "finished, out of the way" on #0d1017 reads as "barely drawn" on #f7f8fa. */
-  --cv-fail: #d92d3f;
-  --cv-edge-live: 1;
-  --cv-edge-wake: 0.52;
-  --cv-edge-done: 0.42;
-  --cv-edge-quiet: 0.24;
-
-  --radius: 10px;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
-
-:root:not([data-theme="light"]) {
-  --bg: #0d1017;
-  --surface: #141821;
-  --surface-2: #1b202b;
-  --line: #262c39;
-  --ink: #e6e9f0;
-  --ink-dim: #9aa7cc;
-  --ink-faint: #5c6472;
-
-  --cv-fail: #ff6b7a;
+  /* Edge weights. Tokens and not literals because the same stroke sits on
+     navy here and on near-white in the light theme: 0.3 that reads as
+     "finished, out of the way" on the dark ground reads as "barely drawn" on
+     the light one. The three blocks mirror the three in tokens.css. */
   --cv-edge-live: 0.95;
   --cv-edge-wake: 0.44;
-  --cv-edge-done: 0.3;
-  --cv-edge-quiet: 0.16;
+
+  /* The frame, in the spec's measures. */
+  --bar-h: 56px;
+  --nav-w: 272px;
+  --rail-w: 56px;
+  --toolbar-h: 48px;
+  --inspector-w: 344px;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f7f8fa;
-    --surface: #ffffff;
-    --surface-2: #eef0f4;
-    --line: #d9dde5;
-    --ink: #1a1d24;
-    --ink-dim: #5c6472;
-    --ink-faint: #8d95a3;
-
-    --cv-fail: #d92d3f;
     --cv-edge-live: 1;
     --cv-edge-wake: 0.52;
-    --cv-edge-done: 0.42;
-    --cv-edge-quiet: 0.24;
   }
+}
+
+:root[data-theme="light"] {
+  --cv-edge-live: 1;
+  --cv-edge-wake: 0.52;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--ground);
   color: var(--ink);
-  font-family: var(--sans);
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: var(--type-body-sm-size);
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   /* Fixed height, not min-height: the canvas sizes itself to its box, so a
      body that can grow past the window puts the bottom of the graph below the
      fold while the fit maths still believes everything is visible. */
@@ -85,64 +60,143 @@ body {
   flex-direction: column;
 }
 
-/* ---- top bar ---- */
+/* One focus ring everywhere: 2px of the accent, 2px off the control. A control
+   that draws its own focus state says so next to its rule. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- top bar ----
+   Left to right: the mark, where you are, what the session's agents are doing,
+   whether the panel is being fed, and the controls. */
 .bar {
+  flex: none;
+  height: var(--bar-h);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 20px;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--ground);
+  min-width: 0;
 }
+.bar-sep { flex: none; width: 1px; height: 24px; background: var(--line); }
+.bar-fill { flex: 1; min-width: 0; }
 
-.brand { display: flex; align-items: center; gap: 10px; }
-
+.brand { display: flex; align-items: center; gap: 10px; flex: none; color: inherit; text-decoration: none; border-radius: var(--radius-sm); }
 .brand h1 {
   margin: 0;
   font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
 }
 
-/* Crewforth's own mark, from assets/mark.svg: three chevrons (›››), drawn as
-   strokes. Two palettes: the light ones from the logo read on the dark panel,
-   the darker ones from mark.svg read on the light. Same geometry either way. */
-.brand-mark { width: 19px; height: 19px; flex: none; }
+/* Crewforth's own mark: three chevrons, rear to lead, each in its own token.
+   The lead one is the accent in both themes. Never recoloured, never reordered. */
+.brand-mark { width: 24px; height: 24px; flex: none; }
 .brand-mark polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.brand-mark .bar-1 { stroke: #C7CBFB; }
-.brand-mark .bar-2 { stroke: #9AA3F7; }
-.brand-mark .bar-3 { stroke: #7C3AED; }
+.brand-mark .bar-1 { stroke: var(--chevron-1); }
+.brand-mark .bar-2 { stroke: var(--chevron-2); }
+.brand-mark .bar-3 { stroke: var(--chevron-3); }
 
-:root:not([data-theme="light"]) .brand-mark .bar-1 { stroke: #E5E7FB; }
-:root:not([data-theme="light"]) .brand-mark .bar-2 { stroke: #B9BEF9; }
-:root:not([data-theme="light"]) .brand-mark .bar-3 { stroke: #A78BFA; }
+/* The product name carries the weight; "Studio" steps back beside it. */
+.brand-accent { color: var(--ink-dim); font-weight: 600; }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .brand-mark .bar-1 { stroke: #E5E7FB; }
-  :root:not([data-theme="light"]) .brand-mark .bar-2 { stroke: #B9BEF9; }
-  :root:not([data-theme="light"]) .brand-mark .bar-3 { stroke: #A78BFA; }
+/* Project, then session. The project is a control (it opens that project's
+   list); the session is where you already are, so it is only a name. */
+/* It gives way first, down to a floor; past that the summary folds (app.js, fitBar). */
+.crumb { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 120px; overflow: hidden; font-size: 13px; }
+.crumb-project {
+  flex: 0 1 auto; min-width: 0; max-width: 220px;
+  background: none; border: 0; padding: 2px 4px; margin: 0 -4px; border-radius: var(--radius-sm);
+  font: inherit; color: var(--ink-dim); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-:root[data-theme="dark"] .brand-mark .bar-1 { stroke: #E5E7FB; }
-:root[data-theme="dark"] .brand-mark .bar-2 { stroke: #B9BEF9; }
-:root[data-theme="dark"] .brand-mark .bar-3 { stroke: #A78BFA; }
+.crumb-project:hover { color: var(--ink); }
+.crumb-sep { width: 12px; height: 12px; flex: none; color: var(--ink-faint); }
+.crumb-session { flex: 0 1 auto; min-width: 40px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Two-tone, the way the wordmark does it. */
-.brand-accent { color: #A78BFA; }
-:root[data-theme="light"] .brand-accent { color: #7C3AED; }
+/* ---- shared small parts ---- */
 
-.bar-right { display: flex; align-items: center; gap: 12px; }
-
-.pulse {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+/* One-colour stroke icons, in the colour of the text beside them. */
+.ic {
+  width: 16px; height: 16px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
 }
-.pulse.on { color: var(--good); }
-.pulse.off { color: var(--bad); }
 
+/* A status dot. The tone is one of the status tokens; with none it is a hollow
+   ring — something that is over, or a state nobody gave a colour to. It never
+   stands alone: the word is always beside it. */
+.dot { width: 8px; height: 8px; border-radius: var(--radius-pill); flex: none; display: inline-block; }
+.dot[data-tone="busy"] { background: var(--status-busy); }
+.dot[data-tone="waiting"] { background: var(--status-waiting); }
+.dot[data-tone="idle"] { background: var(--status-idle); }
+.dot[data-tone="good"] { background: var(--status-good); }
+.dot[data-tone="bad"] { background: var(--status-bad); }
+.dot[data-tone="fail"] { background: var(--status-fail); }
+.dot[data-tone="none"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-dim); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid transparent;
+  font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink);
+  white-space: nowrap; flex: none;
+}
+
+.badge {
+  display: inline-flex; align-items: center; flex: none;
+  height: 20px; padding: 0 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: none;
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim);
+  white-space: nowrap;
+}
+.badge[hidden] { display: none; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  height: 36px; padding: 0 14px; flex: none;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  white-space: nowrap; cursor: pointer;
+}
+.btn:hover { background: var(--surface-raised); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn[hidden] { display: none; }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover { background: var(--surface-raised); }
+.btn.icon { width: 36px; padding: 0; color: var(--ink-dim); }
+.btn.icon:hover { color: var(--ink); }
+.btn.sm { height: 30px; padding: 0 10px; font-size: 12px; }
+.btn.icon.sm { width: 30px; padding: 0; }
+/* The one filled control on the page. */
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }
+.btn.on { color: var(--studio-accent); border-color: color-mix(in srgb, var(--studio-accent) 45%, transparent); }
+
+.seg {
+  display: flex; flex: none; padding: 3px; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.seg-btn {
+  flex: 1; height: 28px; padding: 0 var(--space-2);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; border-radius: 7px; background: none;
+  font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink-dim);
+  cursor: pointer; white-space: nowrap;
+}
+.seg-btn:hover { color: var(--ink); }
+.seg-btn[aria-selected="true"] { background: var(--surface-raised); color: var(--ink); }
+.seg-btn .badge { height: 18px; }
+
+/* The small bordered button the inspector still uses for copy and widen. */
 .ghost {
   background: transparent;
   border: 1px solid var(--line);
@@ -150,88 +204,49 @@ body {
   border-radius: 8px;
   padding: 4px 10px;
   cursor: pointer;
+  font-family: inherit;
   font-size: 13px;
 }
 .ghost:hover { color: var(--ink); border-color: var(--ink-faint); }
 
+/* ---- summary chips ----
+   Each chip is a count and a filter. Pressed, its frame is the selection
+   colour and the canvas steps every other agent back. */
+.chips { display: flex; align-items: center; gap: 6px; flex: none; }
+.chip { cursor: pointer; }
+.chip:hover { border-color: var(--line); }
+.chip[aria-pressed="true"] { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.chip-compact { display: none; gap: 5px; }
+.chip-compact .ic { width: 12px; height: 12px; color: var(--ink-dim); }
+.bar[data-compact] .chip, .bar[data-compact] .note-pill { display: none; }
+.bar[data-compact] .chip-compact { display: inline-flex; }
+/* Not a status and not a filter: a number that has to stay in view. */
+.note-pill { color: var(--status-waiting); background: color-mix(in srgb, var(--status-waiting) 12%, transparent); }
+
+/* ---- live indicator ---- */
+.live { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+.live strong { color: var(--ink); font-weight: 600; }
+.live[data-state="stale"] strong { color: var(--status-waiting); }
+.live[data-state="offline"] strong { color: var(--status-fail); }
+
 /* ---- layout ---- */
-.meta { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
-
-/* ---- fleet ---- */
-.fleet { display: grid; gap: 1px; background: var(--line); }
-
-.session {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 14px;
-  align-items: center;
-  padding: 14px 16px;
-  background: var(--surface);
-}
-
-.ring {
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  border: 2px solid var(--idle);
-  flex: none;
-}
-.ring[data-status="busy"] {
-  border-color: var(--busy);
-  background: color-mix(in srgb, var(--busy) 30%, transparent);
-  animation: breathe 1.6s ease-in-out infinite;
-}
-.ring[data-status="waiting"] {
-  border-color: var(--waiting);
-  border-style: dashed;
-}
-.ring[data-status="idle"] { border-color: var(--idle); }
+.meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 
 @keyframes breathe {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--busy) 45%, transparent); }
-  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--busy) 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-busy) 45%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-busy) 0%, transparent); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .ring[data-status="busy"] { animation: none; }
-}
-
-.who { min-width: 0; }
-.who .name { font-weight: 600; font-size: 14px; }
-.who .path {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--ink-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.who .waiting-for {
-  font-size: 12px;
-  color: var(--waiting);
-  margin-top: 3px;
-}
-
-.stat { text-align: right; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
-.stat .status { display: block; font-size: 12px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* ---- honest empty / unmeasured states ---- */
 .note {
-  padding: 28px 20px;
+  padding: var(--space-6) var(--space-3);
   text-align: center;
+  font-size: 13px;
   color: var(--ink-dim);
-  background: var(--surface);
 }
 .note strong { display: block; color: var(--ink); margin-bottom: 4px; font-weight: 600; }
-.note .why { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
-.note.unmeasured strong { color: var(--waiting); }
-
-.foot {
-  padding: 10px 20px;
-  border-top: 1px solid var(--line);
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  background: var(--surface);
-}
+.note .why { font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
+.note.unmeasured strong { color: var(--status-waiting); }
 
 /* ============================================================== shell === */
 
@@ -239,24 +254,29 @@ body {
   position: relative;
   flex: 1; min-height: 0;
   display: grid;
-  /* Five columns: the two dividers are real columns, so dragging one moves a
-     boundary rather than overlaying it. The conversation sits on the right,
-     beside the graph rather than under it — a reply is read next to the work
-     it is about, not below the fold. */
-  grid-template-columns: var(--side-w, 260px) 5px 1fr 5px var(--chat-w, 420px);
+  /* Six columns: navigator, divider, stage, inspector, divider, conversation.
+     The two dividers are real columns, so dragging one moves a boundary rather
+     than overlaying it. The inspector's column is `auto`: it is as wide as a
+     docked inspector and nothing at all when the inspector floats or is closed.
+     The conversation sits on the right, beside the graph rather than under it
+     — a reply is read next to the work it is about, not below the fold. */
+  grid-template-columns: var(--side-w, var(--nav-w)) 5px minmax(0, 1fr) auto 5px var(--chat-w, 480px);
 }
 /* Placed explicitly, never by auto-flow. A `display: none` child occupies no
-   grid cell, so hiding the sidebar slid every remaining column one to the left:
-   the graph was handed the 22px rail slot and the conversation took the rest. */
-.shell > .side      { grid-column: 1; }
-.shell > #resizer   { grid-column: 2; }
-.shell > .stage     { grid-column: 3; }
-.shell > #chat-split { grid-column: 4; }
-.shell > .chat      { grid-column: 5; }
+   grid cell, so hiding the navigator slid every remaining column one to the
+   left: the graph was handed the rail's slot and the conversation took the rest. */
+.shell > .side       { grid-column: 1; }
+.shell > #resizer    { grid-column: 2; }
+.shell > .stage      { grid-column: 3; }
+.shell > #chat-split { grid-column: 5; }
+.shell > .chat,
+.shell > .newpanel   { grid-column: 6; }
 
-.shell.no-chat { grid-template-columns: var(--side-w, 260px) 5px 1fr 0 0; }
-.shell.no-side { grid-template-columns: 0 0 1fr 5px var(--chat-w, 420px); }
-.shell.no-side.no-chat { grid-template-columns: 0 0 1fr 0 0; }
+/* Collapsed, the navigator leaves its rail behind, so the graph does not sit
+   under the control that brings it back. */
+.shell.no-chat { grid-template-columns: var(--side-w, var(--nav-w)) 5px minmax(0, 1fr) auto 0 0; }
+.shell.no-side { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) auto 5px var(--chat-w, 480px); }
+.shell.no-side.no-chat { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) auto 0 0; }
 .shell.no-side > .side, .shell.no-side > #resizer { display: none; }
 
 .resizer {
@@ -268,144 +288,731 @@ body {
   /* A 5px target is hard to hit; the hit area is wider than the line. */
   content: ''; position: absolute; inset: 0 -4px; z-index: 5;
 }
-.resizer:hover, .resizer:focus-visible, .resizer.dragging { background: var(--accent); outline: none; }
+.resizer:hover, .resizer.dragging { background: var(--studio-accent); }
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing .cv-root { pointer-events: none; }
 
+/* ---- navigator ---- */
 .side {
   border-right: 1px solid var(--line);
   background: var(--surface);
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-3);
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
-.side-block { border-bottom: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.side-block.grow { flex: 1; border-bottom: none; }
-.side-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-  padding: 10px 14px; flex: none;
+.nav-top { display: flex; align-items: center; gap: 6px; flex: none; }
+/* The input is the field, so the focus ring it gets is the field's; the icon
+   sits inside its left padding. */
+.nav-search { position: relative; flex: 1; min-width: 0; display: block; color: var(--ink-dim); }
+.nav-search .ic { position: absolute; left: 10px; top: 10px; pointer-events: none; }
+.nav-search input {
+  width: 100%; height: 36px; padding: 0 10px 0 34px;
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--ground);
+  color: var(--ink); font-family: inherit; font-size: 13px;
 }
-.side-head h2 {
-  margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--ink-faint);
-}
-.fleet, .sessions { overflow-y: auto; min-height: 0; }
-.fleet { max-height: 30vh; }
+.nav-search input::placeholder { color: var(--ink-faint); }
 
-.session, .srow {
-  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
-  padding: 8px 14px; border-top: 1px solid var(--line); background: var(--surface);
-}
-.srow { cursor: pointer; }
-.srow:hover { background: var(--surface-2); }
-.srow[aria-current="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
-.srow .sid { font-family: var(--mono); font-size: 12px; }
-.srow .sagents { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
-.srow .sbadge {
-  font-family: var(--mono); font-size: 10px; color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  border-radius: 4px; padding: 0 5px;
-}
-.who .name { font-size: 13px; }
-.who .path { font-size: 11px; }
-.stat { font-size: 10px; }
-.stat .status { font-size: 10px; }
+.nav-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; margin: 0 -4px; padding: 0 4px; }
+.nav-list[hidden] { display: none; }
 
-.bar-mid { flex: 1; text-align: center; }
+.proj { display: flex; flex-direction: column; gap: var(--space-1); flex: none; }
+.proj-head {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 2px var(--space-1); border-radius: var(--radius-sm); cursor: pointer;
+}
+.proj-head:hover .proj-name { color: var(--ink); }
+.proj-caret { width: 12px; height: 12px; color: var(--ink-faint); transition: transform 0.12s; }
+.proj-head[aria-expanded="true"] .proj-caret { transform: rotate(90deg); }
+.proj-name { min-width: 0; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-head.gone .proj-name { color: var(--ink-faint); text-decoration: line-through; }
+.row-fill { flex: 1; min-width: 4px; }
+
+/* The version badge. Grey when there is nothing to do; orange, and a button,
+   when the project is behind and a click copies the way to fix that. */
+.badge-old {
+  color: var(--status-waiting);
+  border-color: color-mix(in srgb, var(--status-waiting) 32%, var(--line));
+  cursor: pointer;
+}
+.badge-old:hover { background: color-mix(in srgb, var(--status-waiting) 12%, transparent); }
+.badge-ahead { color: var(--studio-accent); border-color: color-mix(in srgb, var(--studio-accent) 35%, transparent); }
+.badge-unknown, .badge-none { color: var(--ink-faint); }
+
+.srow {
+  display: flex; flex-direction: column; gap: 2px; flex: none; min-width: 0;
+  padding: var(--space-2) 6px var(--space-2) var(--space-3);
+  border-radius: var(--radius-md); border: 1px solid transparent;
+  cursor: pointer;
+}
+.srow:hover { background: var(--surface-raised); }
+.srow[aria-current="true"] { background: var(--surface-raised); border-color: var(--studio-accent); }
+.srow.remote { cursor: default; }
+.srow-top { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.nm {
+  min-width: 0; font-size: 13px; line-height: 18px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.srow[aria-current="true"] .nm { font-weight: 600; }
+.mname { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: none; }
+.srow-sub { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; }
+.srow.remote .srow-sub { padding-left: var(--space-6); }
+/* What the session spent, under its state: time, tokens and the estimate. */
+.srow-usage { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+.srow.remote .srow-usage { padding-left: var(--space-6); }
+.sub.bad, .nav-line.bad { color: var(--status-bad); }
+mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); color: inherit; border-radius: 2px; }
+
+.row-more {
+  flex: none; width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-faint); cursor: pointer;
+}
+.row-more .ic { stroke-width: 2.4; }
+.row-more:hover { background: var(--ground); color: var(--ink); }
+.srow-rename {
+  flex: 1; min-width: 0; height: 22px; padding: 0 6px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--ground); color: var(--ink); font-family: inherit; font-size: 13px;
+}
+
+.nav-line {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex: none;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  font-size: 12px; color: var(--ink-faint);
+}
+.link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+
+.nav-foot {
+  flex: none; display: flex; flex-direction: column; gap: var(--space-1);
+  border-top: 1px solid var(--line); padding-top: var(--space-3);
+}
+.nav-foot[hidden] { display: none; }
+.nav-foot-label {
+  align-self: flex-start; background: none; border: 0; padding: 0 var(--space-1); cursor: pointer;
+  font-family: inherit;
+  font-size: 11px; line-height: var(--type-label-line); font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking); text-transform: uppercase; color: var(--ink-dim);
+}
+.nav-foot-label:hover { color: var(--ink); }
+
+/* ---- menu and toast ---- */
+.menu {
+  position: fixed; z-index: 60; min-width: 190px; max-width: 272px;
+  display: flex; flex-direction: column; gap: 2px; padding: var(--space-1);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: 0 12px 30px -12px var(--shade);
+}
+.menu[hidden] { display: none; }
+.menu-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  height: 30px; padding: 0 10px; text-align: left;
+  border: 0; border-radius: 7px; background: none;
+  font-family: inherit; font-size: 13px; color: var(--ink); cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface-raised); }
+.menu-item.primary { color: var(--accent); font-weight: 600; }
+.menu-item[aria-checked="true"] { background: var(--surface-raised); box-shadow: inset 0 0 0 1px var(--studio-accent); }
+.menu-note {
+  padding: var(--space-1) 10px; font-size: 12px; line-height: 18px; color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+.menu-note + .menu-note { font-family: var(--font-mono); color: var(--ink); }
+
+.toast {
+  position: fixed; z-index: 70; left: 50%; bottom: var(--space-6); transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: 0 12px 30px -12px var(--shade);
+  font-size: 13px; color: var(--ink); overflow-wrap: anywhere;
+}
+.toast[hidden] { display: none; }
+/* The one action a toast can carry. The toast takes clicks only where that button is. */
+.toast-act { pointer-events: auto; border: 0; padding: 0; background: none; font: inherit; color: var(--studio-accent); cursor: pointer; text-decoration: underline; }
 
 /* ============================================================== stage === */
 
-.stage { position: relative; min-width: 0; display: flex; }
-.canvas { flex: 1; position: relative; overflow: hidden; background: var(--bg); }
+/* The toolbar on top, the canvas under it. A column, so the canvas is exactly
+   the box that is left and the fit maths measures what is drawn. */
+.stage { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
-/* A dot grid reads as a workspace rather than a void, and it makes panning
+.toolbar {
+  flex: none;
+  height: var(--toolbar-h);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--ground);
+}
+/* Which view this is: the graph, or the same session against time. */
+.tb-views { flex: none; }
+.tb-views .seg-btn { display: inline-flex; align-items: center; gap: 6px; }
+.tb-follow { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.tb-follow[hidden], .tb-range[hidden] { display: none; }
+.tb-range { cursor: default; display: inline-flex; align-items: center; justify-content: center; }
+/* An on/off control that reads as one. */
+.switch {
+  width: 32px; height: 18px; padding: 0; flex: none; position: relative; cursor: pointer;
+  border: 0; border-radius: var(--radius-pill); background: var(--line);
+}
+.switch > span {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: var(--radius-pill); background: var(--ink-dim);
+}
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"] > span { left: 16px; background: var(--on-accent); }
+.switch:disabled { opacity: 0.5; cursor: default; }
+/* Shown only at the step below at which the toolbar has dropped what it holds. */
+#tb-options { display: none; }
+.toolbar-fill { flex: 1; min-width: 0; }
+/* Group, Density, Show: the name of the choice in the quiet colour, the choice itself in the text colour. */
+.tb-menu { color: var(--ink-dim); gap: 6px; }
+.tb-menu > span { color: var(--ink); }
+/* The menu's own name is one run of text: split into two flex items, the gap was added to the space between its words. */
+.tb-menu > .tb-name { color: inherit; }
+.tb-menu .ic { width: 12px; height: 12px; }
+.tb-zoom {
+  width: 44px; height: 30px; padding: 0; flex: none;
+  background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); text-align: center;
+}
+.tb-zoom:hover { color: var(--ink); }
+/* What a toolbar that does not hold everything gives up, a step at a time. The step is measured by the page
+   (toolbar-fit.js) and written to data-fit; no width is assumed here, because how wide the words are depends on
+   the font and on the choices the menus are showing.
+   1: it keeps every control and drops the words of the ones that have an icon to stand on. */
+.toolbar:is([data-fit="1"], [data-fit="2"], [data-fit="3"]) .tb-words,
+.toolbar:is([data-fit="1"], [data-fit="2"], [data-fit="3"]) .toolbar-note { display: none; }
+/* 2: nothing is dropped without a way to reach it: "View options" holds what these did. */
+.toolbar:is([data-fit="2"], [data-fit="3"]) :is(#tb-group, #tb-density, #tb-show, #tb-expand, #tb-fold) { display: none; }
+.toolbar:is([data-fit="2"], [data-fit="3"]) #tb-options { display: inline-flex; }
+/* 3: the − and + stay; the figure between them goes. It is still on their labels. And "View options" is "View":
+   measured at 360 px, the width of a small phone, the full name ran 24 px over. */
+.toolbar[data-fit="3"] #tb-zoom,
+.toolbar[data-fit="3"] .tb-range,
+.toolbar[data-fit="3"] .tb-follow .sub,
+.toolbar[data-fit="3"] .tb-more { display: none; }
+/* …and the row closes up. At 320 px it was still 17 px over with its usual gaps. */
+.toolbar[data-fit="3"] { gap: var(--space-1); padding: 0 var(--space-2); }
+/* What the panel has to say about the stream or the last action: a reason, in
+   words, where the eye already is. Empty most of the time. */
+.toolbar-note {
+  min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; background: var(--ground); }
+.canvas[hidden] { display: none; }
+
+/* ---------------------------------------------------------- the stage ---
+   One line for what is true of the whole stage, a first-run state, and the look of a picture that is old. */
+.phone-head { display: none; }
+.stage-note {
+  display: flex; align-items: center; gap: var(--space-3); flex: none; min-width: 0;
+  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); font-size: 13px;
+  background: var(--surface); color: var(--ink-dim);
+}
+.stage-note[hidden], .stage-note [hidden] { display: none; }
+.stage-note[data-kind="offline"] {
+  color: var(--ink); background: color-mix(in srgb, var(--status-fail) 10%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--status-fail) 45%, var(--line));
+}
+.stage-note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The last picture stays while the server is away, and is drawn as what it is: old. */
+.stage[data-offline="true"] .canvas,
+.stage[data-offline="true"] .tl,
+.stage[data-offline="true"] .ls,
+.stage[data-offline="true"] .attention { opacity: 0.45; }
+.first-run {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);
+  padding: var(--space-6); text-align: center; color: var(--ink-dim);
+}
+.first-run[hidden] { display: none; }
+.first-run strong { font-size: 18px; color: var(--ink); }
+.first-run p { margin: 0; max-width: 46ch; line-height: 1.5; }
+.stage[data-first-run="true"] .canvas,
+.stage[data-first-run="true"] .tl,
+.stage[data-first-run="true"] .ls,
+.stage[data-first-run="true"] .toolbar { display: none; }
+/* Rows that are not there yet: the list is being read. */
+.skel { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.skel span { height: 44px; border-radius: var(--radius-md); background: var(--surface-raised); opacity: 0.6; }
+
+/* ------------------------------------------------------------ the list ---
+   One column, in the order of what needs the reader. */
+/* ------------------------------------------------------------- models ---
+   The fourth view: the project's record of which model each kind of task needs. One pane, a table that scrolls
+   sideways in a narrow window, and under it what could be lowered. */
+.mv { flex: 1; min-height: 0; min-width: 0; overflow: auto; background: var(--ground); padding: var(--space-4); }
+.mv[hidden] { display: none; }
+.mv-empty { padding: var(--space-6); color: var(--ink-dim); font-size: 13px; }
+.mv-pane { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
+.mv-head { display: flex; align-items: center; gap: var(--space-2); padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.mv-title { margin: 0; font-size: 15px; font-weight: 700; }
+.mv .sub { white-space: normal; flex: initial; min-width: 0; }
+.mv-scroll { overflow-x: auto; }
+.mv-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.mv-table th { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.mv-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.mv-table tbody tr:last-child td { border-bottom: 0; }
+.mv-table .mv-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mv-table td.mv-num { font-family: var(--font-mono); }
+.mv-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 700; white-space: nowrap; background: var(--surface-raised); color: var(--ink-dim); }
+.mv-tag[data-risk="critical"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
+.mv-tag[data-kind="raised"] { margin-left: 6px; color: var(--status-waiting); background: color-mix(in srgb, var(--status-waiting) 14%, transparent); }
+.mv-tag[data-kind="lowered"] { margin-left: 6px; color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
+.mv-raised .mv-tag[data-kind="lowered"] { margin-left: 0; }
+.mv-tag[data-tone="pass"] { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
+.mv-tag[data-tone="fail"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
+.mv-tag[data-kind="escalated"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
+.mv-table td[data-partial="true"] { color: var(--ink-dim); }
+.mv-meter { display: inline-block; width: 72px; height: 6px; margin-left: 8px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; vertical-align: middle; }
+.mv-meter-fill { display: block; height: 6px; }
+.mv-meter-fill[data-tone="good"] { background: var(--status-good); }
+.mv-meter-fill[data-tone="waiting"] { background: var(--status-waiting); }
+.mv-suggest { margin: 16px 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; border: 1px solid color-mix(in srgb, var(--studio-accent) 45%, var(--line)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--studio-accent) 9%, var(--surface)); }
+.mv-suggest-h { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--studio-accent); }
+.mv-suggest-text { margin: 0; font-size: 14px; line-height: 21px; }
+.mv-suggest-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.mv-cmd { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 12px; user-select: all; }
+.mv-raised { display: flex; align-items: baseline; gap: var(--space-2); padding: 0 18px 16px; }
+.mv-raised .mv-tag { margin-left: 0; flex: none; }
+
+/* The inspector's task card: the three lines as they were written, and under them how the work went. */
+.icard { margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; font-size: 12px; line-height: 18px; }
+.icard dt { color: var(--ink-faint); }
+.icard dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.isec-h .mv-tag { float: right; text-transform: none; letter-spacing: 0; }
+.isteps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 20px; }
+.isteps li { display: flex; gap: 10px; align-items: flex-start; }
+.istep-n { flex: none; width: 20px; height: 20px; border-radius: 999px; background: var(--surface-raised); color: var(--ink-dim); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.istep-says { min-width: 0; overflow-wrap: anywhere; }
+.istep-says .mv-tag { margin-left: 6px; }
+.istep-note { margin: 8px 0 0; font-size: 12px; line-height: 16px; color: var(--ink-dim); }
+
+.ls { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; background: var(--ground); padding: var(--space-3) var(--space-4) var(--space-6); }
+.ls[hidden] { display: none; }
+.ls-sec { max-width: 760px; margin: 0 auto var(--space-4); }
+.ls-head {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 36px; padding: 0 var(--space-1);
+  background: none; border: 0; color: var(--ink); font: inherit; text-align: left;
+}
+button.ls-head { cursor: pointer; }
+.ls-title { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-dim); }
+.ls-sec[data-tone="waiting"] .ls-title { color: var(--status-waiting); }
+.ls-sec[data-tone="fail"] .ls-title { color: var(--status-fail); }
+.ls-row {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; box-sizing: border-box;
+  padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);
+  color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.ls-row:hover { border-color: var(--studio-accent); }
+.ls-row.on { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.ls-row.dim { opacity: 0.35; }
+.ls-row .cv-tile { flex: none; }
+.ls-text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.ls-name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-line { font-size: 12px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-aside { font-family: var(--font-mono); }
+.ls-chev { display: inline-flex; color: var(--ink-faint); flex: none; }
+.ls-chev .ic { width: 14px; height: 14px; }
+/* A request: who wants what, the time left, and the three answers. */
+.ls-card {
+  display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); margin-bottom: var(--space-2);
+  border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--line));
+  background: color-mix(in srgb, var(--status-waiting) 8%, var(--surface));
+}
+.ls-card-head { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.ls-card-who { display: flex; flex-direction: column; min-width: 0; }
+.ls-clock { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--status-waiting); flex: none; font-variant-numeric: tabular-nums; }
+.ls-cmd {
+  margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--ground);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 120px; overflow-y: auto;
+}
+.ls-where { align-self: flex-start; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 12px; color: var(--accent); }
+.ls-acts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.ls-acts .btn { flex: 1 1 auto; justify-content: center; }
+.ls-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); color: var(--ink-dim); text-align: center; }
+.ls-empty strong { color: var(--ink); font-size: 15px; }
+/* The inspector's two ways out: a cross beside a panel, an arrow back from a page. */
+.ihead-back { display: none; }
+#menu-btn { display: none; }
+/* The List's first two sections are what the strip says; in that view it would say it twice. */
+.stage[data-view="list"] .attention { display: none; }
+
+/* ---------------------------------------------------------- timeline ---
+   A label column and a track. Rows scroll; the axis above them and the drawer below them stay. */
+.tl { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--ground); --tl-label-w: 280px; }
+.tl[hidden] { display: none; }
+.tl-axis { display: flex; height: 32px; flex: none; border-bottom: 1px solid var(--line); }
+.tl-axis[hidden], .tl-body[hidden], .tl-empty[hidden], .tl-note[hidden], .tl-drawer[hidden], .tl-now[hidden] { display: none; }
+.tl-axis-label {
+  width: var(--tl-label-w); flex: none; box-sizing: border-box; padding: 0 var(--space-3);
+  display: flex; align-items: center; background: var(--surface); border-right: 1px solid var(--line);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint);
+}
+.tl-axis-track { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+.tl-tick {
+  position: absolute; top: 0; bottom: 0; padding-left: 6px; display: flex; align-items: center;
+  border-left: 1px solid var(--line); font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); white-space: nowrap;
+}
+.tl-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; }
+.tl-rows { min-height: 100%; background: linear-gradient(to right, var(--surface) var(--tl-label-w), transparent var(--tl-label-w)); }
+.tl-row { display: flex; height: 34px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.tl-row.tl-group { height: 30px; background: color-mix(in srgb, var(--surface) 60%, var(--ground)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tl-row.tl-agent { cursor: pointer; }
+.tl-row.tl-agent:hover, .tl-row.on { background: color-mix(in srgb, var(--studio-accent) 9%, transparent); }
+.tl-row.on { box-shadow: inset 2px 0 0 var(--studio-accent); }
+.tl-row.dim .tl-lab, .tl-bar.dim { opacity: 0.3; }
+.tl-row.tl-more { height: 30px; }
+.tl-lab {
+  width: var(--tl-label-w); flex: none; box-sizing: border-box; min-width: 0;
+  display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3);
+  background: none; border: 0; border-right: 1px solid var(--line); color: var(--ink); font: inherit; text-align: left;
+}
+button.tl-lab { cursor: pointer; }
+.tl-lab.indent { padding-left: var(--space-6); }
+.tl-lab .cv-tile { flex: none; }
+.tl-lab .sub { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tl-lab .sub[data-tone="fail"] { color: var(--status-fail); }
+.tl-lab .sub[data-tone="wait"] { color: var(--status-waiting); }
+.tl-name { flex: 0 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-group .tl-name { flex-shrink: 0; max-width: 62%; }
+.tl-chev { display: inline-flex; color: var(--ink-dim); }
+.tl-chev .ic { width: 12px; height: 12px; }
+.tl-lab[aria-expanded="true"] .tl-chev { rotate: 90deg; }
+.tl-more-btn { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-more-btn:hover { text-decoration: underline; }
+.tl-track { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+/* A bar: where an agent was in time. Its colour is its status and nothing else. */
+.tl-bar {
+  position: absolute; top: 11px; height: 12px; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
+  background: var(--ink-faint);
+}
+.tl-group .tl-bar { top: 9px; }
+.tl-bar.thin { height: 6px; border-radius: 2px; top: 9px; }
+.tl-bar.thin[data-lane="1"] { top: 19px; }
+.tl-group .tl-bar.thin { top: 7px; }
+.tl-group .tl-bar.thin[data-lane="1"] { top: 17px; }
+.tl-bar[data-tone="busy"] { background: var(--status-busy); }
+.tl-bar[data-tone="done"] { background: color-mix(in srgb, var(--status-good) 55%, var(--ground)); }
+.tl-bar[data-tone="fail"] { background: var(--status-fail); }
+.tl-bar[data-tone="wait"] { background: var(--status-waiting); }
+.tl-bar[data-tone="quiet"] { background: color-mix(in srgb, var(--ink-dim) 45%, var(--ground)); }
+/* A bar that runs off the edge of what is shown is cut square there. */
+.tl-bar[data-cut-left] { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.tl-bar[data-cut-right] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tl-bar.on { outline: 2px solid var(--studio-accent); outline-offset: 1px; }
+.tl-x { position: absolute; top: 7px; margin-left: 3px; font-size: 14px; line-height: 20px; font-weight: 700; color: var(--status-fail); pointer-events: none; }
+.tl-untimed { position: absolute; left: var(--space-3); top: 0; bottom: 0; display: flex; align-items: center; font-size: 12px; color: var(--ink-faint); }
+.tl-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--studio-accent); pointer-events: none; z-index: 2; }
+.tl-now::before {
+  content: attr(data-label); position: sticky; top: 2px; display: block; width: max-content; translate: calc(-100% + 2px) 0;
+  padding: 0 6px; height: 20px; line-height: 20px; border-radius: var(--radius-sm);
+  background: var(--studio-accent); color: var(--ground); font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+}
+.tl-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); color: var(--ink-dim); text-align: center; padding: var(--space-6); }
+.tl-empty strong { color: var(--ink); font-size: 15px; }
+.tl-away { flex: none; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-dim); background: var(--surface); }
+.tl-away[hidden] { display: none; }
+.tl-note { flex: none; padding: 6px var(--space-3); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-faint); background: var(--surface); }
+.tl-note[data-measured="false"] { color: var(--status-waiting); }
+/* The drawer: the chosen agent, under the rows. */
+.tl-drawer {
+  flex: none; display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-8); align-items: flex-start; max-height: 40%; overflow-y: auto;
+  padding: var(--space-4); border-top: 1px solid var(--line); background: var(--surface);
+}
+.tl-d-main { flex: 0 1 360px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.tl-d-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.tl-d-name { font-family: var(--font-mono); font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-d-task { font-size: 15px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.tl-d-facts { white-space: normal; }
+/* The error is text to be read: it takes a line of its own before it is squeezed. With `flex: 1 1 0` and no wrap
+   it was the one thing that gave way, and in a 720 px window it was 26 px wide: a letter to a line. */
+.tl-d-error { flex: 1 1 320px; min-width: 0; }
+.tl-d-errtext {
+  margin: 0 0 var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  background: var(--ground); border: 1px solid var(--line); max-height: 96px; overflow-y: auto;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--status-fail);
+}
+.tl-d-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+
+/* ---- needs attention ----
+   A strip that exists only while something needs someone. Each chip goes to its
+   agent on the canvas. */
+.attention {
+  flex: none; height: 44px;
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+.attention[hidden] { display: none; }
+.cv-label, .attention-label {
+  flex: none;
+  font-size: 11px; line-height: var(--type-label-line); font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking); text-transform: uppercase; color: var(--ink-dim);
+}
+.attention-label { margin-right: var(--space-1); }
+.att {
+  display: inline-flex; align-items: center; gap: var(--space-2); flex: none;
+  height: 30px; padding: 0 10px;
+  border-radius: var(--radius-pill); border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink);
+  font-family: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+}
+.att:hover { background: var(--surface-raised); }
+.att-name { font-family: var(--font-mono); }
+.att-says { color: var(--ink-dim); }
+.attention-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* A session waiting on its own terminal: said where an approval would be, with no answers, because there are
+   none to give from here. */
+.terminal-wait {
+  flex: none; min-width: 0;
+  display: flex; align-items: baseline; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line); background: var(--surface);
+  font-size: 13px;
+}
+.terminal-wait[hidden] { display: none; }
+.terminal-wait-word { flex: none; font-weight: 600; color: var(--status-waiting); }
+.terminal-wait-what {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim);
+}
+.terminal-wait-note { flex: none; margin-left: auto; }
+
+/* A question the model asks, or a plan it wants approved: a form in the dock, or on a card in the List. */
+.ask { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin-top: var(--space-1); }
+.ask-q { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ask-head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
+.ask-tag { flex: none; padding: 0 6px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 11px; color: var(--ink-dim); }
+.ask-text { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-opt {
+  height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer;
+}
+.ask-opt:hover { border-color: var(--ink-faint); }
+.ask-opt[aria-checked="true"] { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.ask-opt:disabled, .ask-own:disabled { opacity: 0.5; cursor: default; }
+.ask-own {
+  height: 28px; padding: 0 8px; min-width: 0; max-width: 360px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--ground); color: var(--ink); font: inherit; font-size: 12px;
+}
+.ask-plan {
+  margin: 0; padding: var(--space-2) var(--space-3); max-height: 220px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--ground);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ask-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.dock-ask[hidden] { display: none; }
+/* The mode in the conversation's strip is a control: it looks like the text it sits among until it is hovered. */
+.pane-mode { border: 0; padding: 0 4px; margin: 0 -4px; border-radius: var(--radius-sm); background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.pane-mode:hover { background: var(--surface-raised); color: var(--ink); }
+/* With a form in it the dock is as tall as the form needs, and the countdown sits at its top. */
+.dock[data-ask="questions"], .dock[data-ask="plan"] { align-items: start; }
+
+/* -------------------------------------------------------------- dock ---
+   The approval dock: a row under the canvas, there only while a tool call is
+   waiting. It is part of the stage's column, so the canvas above it stays
+   whole and usable; nothing is covered and nothing is modal. */
+.dock {
+  flex: none; display: grid; align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-2) var(--space-4);
+  min-height: 72px; padding: var(--space-2) var(--space-4);
+  border-top: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--line));
+  background: color-mix(in srgb, var(--status-waiting) 8%, var(--surface));
+}
+/* `display: grid` outranks the UA's `[hidden]`; without these the dock and its parts would stay. */
+.dock[hidden], .dock [hidden] { display: none; }
+.dock:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dock-timer { position: relative; width: 36px; height: 36px; flex: none; }
+.dock-timer svg { width: 36px; height: 36px; rotate: -90deg; }
+.dock-ring-track, .dock-ring { fill: none; stroke-width: 3; }
+.dock-ring-track { stroke: var(--line); }
+.dock-ring { stroke: var(--status-waiting); stroke-linecap: round; }
+.dock-secs {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.dock-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-head { display: flex; align-items: baseline; gap: var(--space-2); font-size: 13px; min-width: 0; }
+.dock-word { font-weight: 600; color: var(--status-waiting); flex: none; }
+.dock[data-state="denied"] .dock-word, .dock[data-state="timed-out"] .dock-word { color: var(--status-bad); }
+.dock-who {
+  background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--ink);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dock-who:hover { text-decoration: underline; }
+.dock-tool { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); flex: none; }
+.dock-where { font-size: 12px; color: var(--ink-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The command: one line until it is asked for, then all of it. */
+.dock-cmd {
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%;
+}
+.dock-cmd.open { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: 30vh; }
+.dock-note { font-size: 12px; color: var(--ink-dim); }
+.dock-nav { display: flex; align-items: center; gap: 2px; flex: none; }
+.dock-count { font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dock-acts { display: flex; gap: var(--space-2); flex: none; }
+/* Two rows: what is asked, then the answers under it. app.js sets the form from the dock's own width, so a
+   dock squeezed between two open panels gets it too. */
+.dock[data-form="stacked"] { grid-template-columns: auto minmax(0, 1fr) auto; }
+.dock[data-form="stacked"] .dock-acts { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; }
+
+/* ============================================================== graph ===
+   A dot grid reads as a workspace rather than a void, and it makes panning
    legible — without it the canvas looks frozen while it moves. */
 .cv-root {
-  background-image: radial-gradient(var(--line) 1px, transparent 1px);
-  background-size: 22px 22px;
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.2px);
+  background-size: 20px 20px;
   cursor: grab;
   touch-action: none;
   user-select: none;
+
+  /* Two tones the design draws between tokens. A wire at rest is a hairline
+     that still reads on the ground; a group's well is the ground showing
+     through a card. */
+  --edge-rest: color-mix(in srgb, var(--line) 80%, var(--ink-dim));
+  --well: color-mix(in srgb, var(--surface) 55%, var(--ground));
 }
 .cv-root.cv-panning { cursor: grabbing; }
 
 .cv-viewport { position: absolute; inset: 0; transform-origin: 0 0; }
-.cv-edges { position: absolute; overflow: visible; pointer-events: none; }
+.cv-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .cv-nodes { position: absolute; inset: 0; }
 
 /* ------------------------------------------------------------- edge ---
-   Delegation drawn as motion. The dash travels out of the parent's port and
-   into the child's, because the question a glance has to answer is "where did
-   the work go", not "these two are related".
-
-   Every state is carried by at least two channels — weight, dash pattern,
-   tone — and motion is only ever the third. That is what makes the
-   reduced-motion path below a removal of speed rather than of information. */
+   A wire says the state of what it leads to, in the same colour that state has
+   everywhere else, and never in colour alone: weight and dash change with it.
+   Motion is only ever the third channel, and only a working wire has it. That
+   is what makes the reduced-motion path below a removal of speed rather than
+   of information. */
 
 .cv-edge {
   fill: none;
-  stroke-width: 1.6;
+  stroke: var(--edge-rest);
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-dasharray: none;
   stroke-dashoffset: 0;
-  opacity: var(--cv-edge-done);
   /* One dash period. The flow animation travels exactly this far per
      iteration, so a state can change its dash pattern without putting a seam
      in the loop. */
   --dash-period: 13px;
 }
 
-/* Working. The brightest, heaviest, fastest line on the canvas. */
+/* Working. The brightest and the only one that travels. */
+/* A wire that is an inference, not a call: dotted, still, and it can be hovered for what it means. A working wire
+   is dashed and moves; this one is neither. */
+.cv-edge[data-kind="inferred"] {
+  stroke: var(--ink-faint);
+  stroke-dasharray: 1.5 5;
+  pointer-events: stroke;
+}
+.cv-edge-label { font-size: 10px; fill: var(--ink-faint); pointer-events: none; }
+/* "#3 · 09:14": where a card stands in the order the session called its agents. */
+.cv-under { display: flex; align-items: baseline; min-width: 0; }
+/* The model a card ran on: a small badge, whole. What follows it gives way. */
+.cv-model {
+  flex: none; padding: 0 5px; border-radius: var(--radius-sm); background: var(--surface-raised);
+  font-size: 10px; line-height: 16px; color: var(--ink-dim); white-space: nowrap;
+}
+.cv-model[hidden] { display: none; }
+.cv-model[data-differs="true"] { color: var(--status-waiting); }
+.cv-third { gap: 6px; }
+.cv-facts { flex: 1 1 auto; min-width: 0; font-size: 11px; line-height: 16px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cv-totals { font-variant-numeric: tabular-nums; }
+/* The same badge outside the graph: a Timeline row, a List row, a delegation card. */
+.tl-model, .ls-model, .deleg-model {
+  flex: none; padding: 0 5px; margin-right: 6px; border-radius: var(--radius-sm); background: var(--surface-raised);
+  font-size: 10px; line-height: 16px; color: var(--ink-dim); white-space: nowrap;
+}
+.tl-model[hidden] { display: none; }
+.imodel { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
+.imodel dt { color: var(--ink-faint); }
+.imodel dd { margin: 0; word-break: break-word; }
+.ilink { border: 0; padding: 0; background: none; font: inherit; color: var(--studio-accent); cursor: pointer; text-decoration: underline; }
+.cv-mix { color: var(--ink-faint); }
+.cv-under .cv-task { flex: 1 1 auto; min-width: 0; }
+.cv-order { flex: none; margin-left: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cv-order[hidden] { display: none; }
+.cv-chip .cv-order, .cv-member .cv-order { margin-left: 0; margin-right: 6px; }
+
 .cv-edge[data-state="live"] {
+  stroke: var(--status-busy);
   opacity: var(--cv-edge-live);
-  stroke-width: 2.2;
+  stroke-width: 1.8;
   stroke-dasharray: 6px 7px;
   --dash-period: 13px;
   animation: cv-flow 0.9s linear infinite;
 }
 
-/* Spawned, nothing back yet. Same direction, half lit, and moving slowly:
+/* Spawned, nothing back yet. Same colour, shorter dash, moving slowly:
    something is on this wire, and it has not produced anything. */
 .cv-edge[data-state="waking"] {
+  stroke: var(--status-busy);
   opacity: var(--cv-edge-wake);
-  stroke-width: 1.6;
+  stroke-width: 1.5;
   stroke-dasharray: 2px 7px;
   --dash-period: 9px;
   animation: cv-flow 1.9s linear infinite;
 }
 
+/* Waiting on the viewer. Dashed like work, still like a question. */
+.cv-edge[data-state="waiting"] {
+  stroke: var(--status-waiting);
+  opacity: 1;
+  stroke-width: 1.8;
+  stroke-dasharray: 5px 4px;
+}
+
 /* Finished. Solid and pulled back, so live work stands out against it. */
 .cv-edge[data-state="done"] {
-  opacity: var(--cv-edge-done);
-  stroke-width: 1.6;
+  stroke: var(--edge-rest);
+  opacity: 1;
+  stroke-width: 1.5;
   stroke-dasharray: none;
 }
 
 /* Ended, stale. Still there, saying nothing. */
 .cv-edge[data-state="quiet"] {
-  opacity: var(--cv-edge-quiet);
-  stroke-width: 1.4;
+  stroke: var(--edge-rest);
+  opacity: var(--cv-edge-wake);
+  stroke-width: 1.5;
   stroke-dasharray: 2px 6px;
 }
 
-/* Wrong, and said in colour rather than in a label somewhere else. The stroke
-   itself is set to var(--cv-fail) rather than the child's palette colour. */
+/* Wrong, and said in the colour failure has everywhere. */
 .cv-edge[data-state="failed"] {
+  stroke: var(--cv-fail);
   opacity: 1;
-  stroke-width: 2.4;
-  stroke-dasharray: 1px 5px;
+  stroke-width: 2;
+  stroke-dasharray: none;
 }
 
-/* A workflow's members are one dispatch. They share a weight here and a hue
-   family in canvas.js, so twelve of them read as a bundle rather than as
-   twelve independent decisions. */
-.cv-edge[data-group="member"] { stroke-width: 1.4; }
-.cv-edge[data-group="member"][data-state="live"] { stroke-width: 1.8; }
+/* The way from the session to what is selected. */
+.cv-edge.cv-path { stroke: var(--studio-accent); stroke-width: 2.4; opacity: 1; }
 
-/* Arrival. The edge draws itself from the parent toward the node that just
+/* Arrival. The wire draws itself from the parent toward the card that just
    appeared. Both the pattern and the offset live in the keyframes, so with
-   the animation switched off the edge simply renders in its final state
+   the animation switched off the wire simply renders in its final state
    wearing its own status dash. */
 .cv-edge.cv-drawing { animation: cv-draw 0.3s ease-out; }
 
@@ -415,370 +1022,272 @@ body.resizing .cv-root { pointer-events: none; }
   to   { stroke-dasharray: var(--edge-len) var(--edge-len); stroke-dashoffset: 0; }
 }
 
-/* ------------------------------------------------------------- node --- */
+/* ------------------------------------------------------------- card ---
+   One frame for every kind of thing on the canvas. Its colour is the
+   surface's; what changes with status is the dot, its word, and — for the two
+   states that need someone — the frame. */
 
 .cv-node {
-  position: absolute;
-  width: 236px;
-  min-height: 104px;
+  position: absolute; left: 0; top: 0;
   box-sizing: border-box;
+  display: flex; flex-direction: column; gap: var(--space-1);
+  padding: 9px var(--space-3);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 14px 12px 18px;
-  cursor: grab;
-  transition: box-shadow 0.15s, border-color 0.15s, opacity 0.25s, scale 0.25s;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 20px -12px rgb(0 0 0 / 0.4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.15s, opacity 0.25s, scale 0.25s;
 }
-.cv-node:hover { border-color: color-mix(in srgb, var(--node-color) 55%, var(--line)); }
-.cv-node.cv-dragging { cursor: grabbing; z-index: 10; box-shadow: 0 12px 34px -10px rgb(0 0 0 / 0.55); }
-.cv-node.cv-selected {
-  border-color: var(--node-color);
-  box-shadow: 0 0 0 1px var(--node-color), 0 12px 30px -14px var(--node-color);
-}
-.cv-node.cv-born { opacity: 0; scale: 0.9; }
-
-.cv-accent {
-  position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px;
-  border-radius: 0 3px 3px 0; background: var(--node-color);
-}
+.cv-node:hover { border-color: var(--ink-faint); }
+.cv-node.cv-dragging { cursor: grabbing; z-index: 10; box-shadow: 0 12px 30px -12px var(--shade); }
+.cv-node.cv-selected { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.cv-node.cv-born { opacity: 0; scale: 0.94; }
+/* Only a card that IS one agent takes the frame of its state. A group's frame stays plain: one failed member is
+   said by its bar and by the member, not by reddening eleven others. */
+.cv-node[data-kind="agent"][data-state="failed"] { border-color: color-mix(in srgb, var(--cv-fail) 45%, var(--line)); }
+.cv-node[data-kind="agent"][data-state="waiting"] { border-color: color-mix(in srgb, var(--status-waiting) 50%, var(--line)); }
+.cv-node[data-kind="agent"][data-state="quiet"] > * { opacity: 0.72; }
 
 /* A running card, legibly alive when nothing else on the canvas is moving.
-   One pulse per card and no more: the accent bar used to breathe as well, and
-   two rhythms on one card is the wall of throbbing this is trying to avoid.
-
    The ring is drawn whether or not it breathes, so "running" survives with
    motion off; breathing is the only part the animation adds. Only opacity is
    animated — the shadow itself never changes, so nothing re-rasterises. */
-.cv-node[data-state="live"]::after {
+.cv-node[data-kind="agent"][data-state="live"]::after {
   content: '';
   position: absolute; inset: -2px;
-  border-radius: 14px;
+  border-radius: 12px;
   pointer-events: none;
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--node-color) 55%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--status-busy) 55%, transparent);
   animation: cv-pulse 2.4s ease-in-out infinite;
 }
 @keyframes cv-pulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.28; } }
 
-/* Failed, killed, stopped — one look, and not the look of a colour some agent
-   might legitimately own. */
-.cv-node[data-state="failed"] { border-color: var(--cv-fail); }
-.cv-node[data-state="failed"] .cv-accent { background: var(--cv-fail); }
-.cv-node[data-state="failed"] .cv-chip {
-  color: var(--cv-fail);
-  border-color: color-mix(in srgb, var(--cv-fail) 50%, transparent);
+.cv-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.cv-fill { flex: 1; min-width: 0; }
+.cv-indent { padding-left: 32px; }
+.cv-title { font-size: 13px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-name {
+  min-width: 0; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.cv-task {
+  min-width: 0; font-size: 13px; line-height: 18px; color: var(--ink-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Nothing a card says may run out of it. Every piece of text in a card is one line that gives way with an
+   ellipsis; the pieces that must stay whole (the status pill, the tile, the order tag) are short by construction
+   and do not shrink. */
+.cv-sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cv-sub[hidden] { display: none; }
+.cv-node > .cv-row, .cv-node > .cv-under, .cv-node > .cv-name, .cv-node > .cv-sub { max-width: 100%; }
+.cv-word { font-size: 11px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 
-.cv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.cv-type {
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.06em; text-transform: uppercase; color: var(--node-color);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* The tile says whose agent it is. Crewforth's mark keeps its own colours; the
+   mark for everything else is drawn in the quiet text colour. */
+.cv-tile {
+  width: 24px; height: 24px; flex: none; position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--surface-raised); color: var(--ink-dim);
 }
-.cv-type.cv-unknown::after {
-  content: '?'; margin-left: 5px; color: var(--ink-faint);
-  border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; font-size: 9px;
-}
+.cv-tile svg { width: 64%; height: 64%; display: block; }
+.cv-tile-sm { width: 18px; height: 18px; }
 
-.cv-chip {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
-  text-transform: uppercase; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--ink-faint); white-space: nowrap; flex: none;
+.cv-pill {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  height: 20px; padding: 0 6px;
+  border-radius: var(--radius-sm); background: var(--surface-raised);
+  font-size: 11px; font-weight: 600; color: var(--ink); white-space: nowrap;
 }
-.cv-chip[data-status="running"] { color: var(--busy); border-color: color-mix(in srgb, var(--busy) 45%, transparent); }
-.cv-chip[data-status="done"]    { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
-.cv-chip[data-status="stale"]   { color: var(--waiting); border-color: color-mix(in srgb, var(--waiting) 40%, transparent); }
-.cv-chip[data-status="starting"]{ color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.cv-pill[hidden] { display: none; }
+.cv-node[data-kind="agent"][data-state="failed"] .cv-pill { color: var(--cv-fail); }
 
-.cv-desc {
-  margin-top: 7px; font-size: 13px; line-height: 1.35; color: var(--ink);
-  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
-  -webkit-box-orient: vertical; overflow: hidden;
-}
-.cv-node[data-kind="session"] .cv-desc { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+/* An agent at compact density: one line. */
+.cv-node.cv-chip { flex-direction: row; align-items: center; gap: var(--space-2); padding: 0 10px; border-radius: 8px; }
+.cv-chip .cv-name { flex: 0 1 auto; }
+.cv-chip .cv-task { flex: 1 1 0; font-size: 12px; }
+/* On a chip the model is said in full and does not shrink; the task beside it does. */
+.cv-chip .cv-model { flex: none; }
 
-.cv-foot { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 5px; }
-.cv-bit {
-  font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
-  background: var(--surface-2); border-radius: 4px; padding: 1px 6px;
-}
-.cv-bit.cv-live { color: var(--busy); background: color-mix(in srgb, var(--busy) 14%, transparent); }
-.cv-bit.cv-err  { color: var(--bad);  background: color-mix(in srgb, var(--bad) 14%, transparent); }
-.cv-bit.cv-branch { color: var(--ink-dim); }
+/* The session: where everything starts. */
+.cv-session { cursor: pointer; }
 
-/* Ports sit on whichever axis the flow runs along. */
-.cv-port {
-  position: absolute; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--surface); border: 2px solid var(--node-color);
+/* A folded group is one card standing for several: a second card shows behind
+   it. Open, it is a well holding its members. */
+.cv-group { gap: var(--space-2); padding: 10px var(--space-3); }
+.cv-group:not(.cv-open) { box-shadow: 6px -6px 0 -1px var(--well), 6px -6px 0 0 var(--line); }
+.cv-group.cv-selected:not(.cv-open) { box-shadow: 0 0 0 1px var(--studio-accent), 6px -6px 0 -1px var(--well), 6px -6px 0 0 var(--line); }
+.cv-group.cv-open { background: var(--well); padding: 10px var(--space-2) var(--space-2); gap: 6px; cursor: default; }
+.cv-group-head { height: 20px; cursor: pointer; }
+.cv-group.cv-open .cv-group-head { padding: 0 var(--space-1); }
+.cv-fold {
+  width: 20px; height: 20px; padding: 0; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: var(--radius-sm); color: var(--ink-dim); cursor: pointer;
 }
-[data-flow="down"] .cv-port { left: 50%; transform: translateX(-50%); }
-[data-flow="down"] .cv-in   { top: -5px; }
-[data-flow="down"] .cv-out  { bottom: -5px; }
+.cv-fold .ic { width: 12px; height: 12px; }
+.cv-fold:hover { color: var(--ink); background: var(--surface-raised); }
+/* Open beside itself, the control points back at the card it would fold into. */
+.cv-group[data-aside="true"] .cv-fold .ic { rotate: 180deg; }
 
-[data-flow="right"] .cv-port { top: 50%; transform: translateY(-50%); }
-[data-flow="right"] .cv-in   { left: -5px; }
-[data-flow="right"] .cv-out  { right: -5px; }
-.cv-node[data-kind="session"] .cv-in { display: none; }
+/* How the group went: one segment per status, as wide as its share. The words
+   are beside it when the group is folded and in its title when it is open. */
+.cv-bar { display: flex; gap: 2px; height: 6px; flex: 1; min-width: 48px; }
+.cv-group.cv-open > .cv-bar { height: 4px; flex: none; margin: 0 var(--space-1); }
+.cv-bar span { display: block; border-radius: 2px; min-width: 2px; background: var(--ink-faint); }
+.cv-bar span[data-tone="good"] { background: var(--status-good); }
+.cv-bar span[data-tone="busy"] { background: var(--status-busy); }
+.cv-bar span[data-tone="waiting"] { background: var(--status-waiting); }
+.cv-bar span[data-tone="fail"] { background: var(--status-fail); }
+.cv-bar span[data-tone="idle"] { background: var(--status-idle); }
 
-/* --------------------------------------------------------------- hud --- */
+/* A member inside an open group: a row with its mark, or a chip in a grid. */
+.cv-member {
+  position: absolute; left: 0; top: 0; box-sizing: border-box;
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  cursor: pointer;
+}
+.cv-member:hover { border-color: var(--ink-faint); }
+.cv-member.cv-selected { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.cv-member[data-state="failed"] .cv-word { color: var(--cv-fail); }
+.cv-member-chip .cv-name { font-family: var(--font-sans); color: var(--ink-dim); flex: 1 1 0; }
 
-.cv-hud {
-  position: absolute; right: 14px; bottom: 14px; z-index: 20;
-  display: flex; align-items: center; gap: 6px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 9px; padding: 4px 8px;
-}
-.cv-btn {
-  background: transparent; border: none; color: var(--ink-dim);
-  cursor: pointer; font-size: 14px; line-height: 1; padding: 3px 5px; border-radius: 5px;
-}
-.cv-btn:hover { color: var(--ink); background: var(--surface-2); }
-.cv-zoom {
-  font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
-  min-width: 96px; text-align: right; white-space: nowrap;
-}
-/* Loud on purpose: it only appears when something went wrong. */
-.cv-btn.cv-alarm { color: var(--cv-fail); font-family: var(--mono); font-size: 11px; }
-.cv-btn.cv-alarm:hover { color: var(--cv-fail); background: color-mix(in srgb, var(--cv-fail) 16%, transparent); }
-.cv-btn[hidden] { display: none; }
+/* A status the filter did not ask for, stepped back. */
+.cv-node.cv-dim, .cv-member.cv-dim { opacity: 0.22; }
+.cv-edge.cv-dim { opacity: 0.08; }
 
 .cv-empty {
   position: absolute; inset: 0; display: grid; place-content: center;
   text-align: center; color: var(--ink-dim); padding: 24px; pointer-events: none;
 }
 .cv-empty strong { display: block; color: var(--ink); margin-bottom: 6px; font-size: 15px; }
+/* `display: grid` outranks the UA's `[hidden] { display: none }`. */
+.cv-empty[hidden] { display: none; }
+
+/* ---------------------------------------------------- map and legend ---
+   Zoomed out, a card's words stop being readable. What still has to be found
+   is where things are and which of them need someone, and the map keeps both:
+   every box, and the two colours that mean "look here". */
+.cv-minimap {
+  position: absolute; left: var(--space-6); bottom: var(--space-6); z-index: 20;
+  width: 200px; height: 88px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.cv-minimap[hidden] { display: none; }
+.cv-map-box { fill: var(--line); }
+.cv-map-box[data-tone="waiting"] { fill: var(--status-waiting); }
+.cv-map-box[data-tone="fail"] { fill: var(--status-fail); }
+.cv-map-box[data-tone="selected"] { fill: var(--studio-accent); }
+.cv-map-frame { fill: none; stroke: var(--studio-accent); stroke-width: 1.2; }
+
+.cv-legend {
+  position: absolute; right: var(--space-6); bottom: var(--space-6); z-index: 20;
+  width: 260px; box-sizing: border-box; padding: var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-2);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  cursor: default;
+}
+.cv-legend[hidden] { display: none; }
+/* The session's summary is the same kind of box, in the opposite corner. */
+.cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 240px; }
+.cv-spend-rows { display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
+.cv-spend-row {
+  display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; width: 100%;
+  padding: 2px 4px; margin: 0 -4px; border: 0; border-radius: var(--radius-sm);
+  background: none; font: inherit; color: inherit; text-align: left; cursor: default;
+}
+.cv-spend-label { flex: 1 1 auto; min-width: 0; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-spend-value { flex: none; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+/* A row that opens: it looks like something to press, and says so with a mark that turns. */
+.cv-spend-more { cursor: pointer; }
+.cv-spend-more:hover { background: var(--surface-raised); }
+.cv-spend-more .cv-spend-label::before { content: '\203A'; display: inline-block; width: 10px; color: var(--ink-faint); }
+.cv-spend-more[aria-expanded="true"] .cv-spend-label::before { rotate: 90deg; }
+.cv-spend-detail {
+  margin: 0 0 var(--space-1) 10px; padding-left: var(--space-2); border-left: 1px solid var(--line);
+  display: grid; grid-template-columns: 1fr auto; gap: 2px var(--space-3);
+}
+.cv-spend-detail[hidden] { display: none; }
+.cv-spend-detail dt { color: var(--ink-faint); }
+.cv-spend-detail dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-dim); }
+.cv-legend-head { display: flex; align-items: center; justify-content: space-between; }
+.cv-legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1) var(--space-2); }
+.cv-legend-item { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+.cv-legend-line { width: 28px; height: 0; flex: none; border-top: 1.5px solid var(--edge-rest); }
+.cv-legend-line[data-state="live"] { border-top: 1.5px dashed var(--status-busy); }
+.cv-legend-line[data-state="waiting"] { border-top: 1.5px dashed var(--status-waiting); }
+.cv-legend-line[data-state="failed"] { border-top-color: var(--cv-fail); }
+.cv-legend-line[data-state="inferred"] { border-top: 1.5px dotted var(--ink-faint); }
+.cv-x {
+  width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: var(--radius-sm); color: var(--ink-dim); cursor: pointer;
+}
+.cv-x .ic { width: 12px; height: 12px; }
+.cv-x:hover { color: var(--ink); background: var(--surface-raised); }
+
+.cv-tip {
+  position: absolute; z-index: 30; max-width: 300px; pointer-events: none;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: 0 12px 30px -12px var(--shade);
+  font-size: 12px; line-height: 18px; color: var(--ink);
+}
+.cv-tip[hidden] { display: none; }
+.cv-tip strong { font-family: var(--font-mono); font-weight: 600; }
+.cv-real { font-family: var(--font-mono); }
+/* "× 3": how many agents of one type a card stands for. */
+.cv-times { flex: none; padding: 0 6px; border-radius: 999px; background: var(--surface-raised); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* The small chip the inspector's gate summary is made of. */
+.cv-bit {
+  font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint);
+  background: var(--surface-raised); border-radius: 4px; padding: 1px 6px;
+}
 
 /* --------------------------------------------------------- inspector --- */
 
+/* Docked beside the canvas when there is room for it, floating over the canvas
+   when there is not. Room means: 1280px or more, and no conversation open —
+   navigator, inspector and conversation side by side leave no graph at all.
+   Floating is the base rule, so a width the queries below do not name gets the
+   form that never squeezes the canvas. */
 .inspector {
-  width: 300px; flex: none; border-left: 1px solid var(--line);
-  background: var(--surface); overflow-y: auto; padding: 16px;
+  width: var(--inspector-w);
+  min-height: 0;
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
 }
-.inspector h3 {
-  margin: 0 0 2px; font-family: var(--mono); font-size: 12px;
-  letter-spacing: 0.06em; text-transform: uppercase;
+/* No grid-column while it floats: an absolutely placed grid child that names a
+   column is positioned inside that column, and column 4 is empty then. */
+.shell > .inspector {
+  position: absolute; z-index: 30;
+  /* It stops above the approval dock: the answers are never under a panel. */
+  top: var(--toolbar-h); bottom: var(--dock-h, 0px);
+  right: calc(var(--chat-w, 480px) + 5px);
+  box-shadow: -12px 0 24px -18px var(--shade);
 }
-.inspector .isub { color: var(--ink-dim); font-size: 13px; margin-bottom: 14px; }
+.shell.no-chat > .inspector { right: 0; }
+/* `display: flex` outranks the UA's `[hidden] { display: none }`, so the hidden
+   panel kept its width. Restate it explicitly. */
+.inspector[hidden] { display: none; }
+/* A command the session left running in the background: what it is, cut to one line, and for how long. */
+.ibg-row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.ibg-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
+.ibg-row .sub { flex: none; }
+/* Its left edge is a handle, as the navigator's right edge is: drag to resize, double-click for the default. */
+.inspector-split {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 5px; z-index: 6;
+  background: transparent;
+}
+
 .inspector dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
 .inspector dt { font-size: 11px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; }
-.inspector dd { margin: 0; font-family: var(--mono); font-size: 12px; word-break: break-word; }
-.inspector .tools { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 5px; }
-
-@media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; }
-  .side, .resizer { display: none; }
-  .inspector { display: none; }
-}
-/* =================================================== three readings ===
-   One picture, read three ways, chosen by how much of a card would actually
-   survive on screen. Nothing moves between them: the layout metrics are
-   identical in all three, so the shape of the graph is the constant and only
-   what is written inside a card changes.
-
-   The idea is not "hide things at low zoom" — hiding alone still leaves an
-   unreadable title. What survives is drawn at a constant SCREEN size: a world
-   font-size of 11px/k is 11px after the canvas transform, whatever k is.
-   canvas.js publishes k as --k and the reading as data-lod on the root, and
-   every card responds through the cascade, so a band change costs nothing per
-   node and cannot move the world that decided the band.
-
-   Registered so that a malformed write falls back to 1 rather than blanking
-   250 cards. k is clamped to MIN_K = 0.06 in canvas.js, so no divisor here is
-   ever zero. (The selfcheck's CSS parser drops at-rules, so this registration
-   is invisible to the gate — it is verified in a browser.) */
-@property --k { syntax: '<number>'; initial-value: 1; inherits: true; }
-
-/* NEAR — k >= 0.70. The card exactly as it has always been drawn, so it has
-   no rules of its own here. */
-
-/* Blocks a smaller reading gives up fade rather than vanish, so the eye reads
-   a substitution instead of a loss. */
-.cv-desc, .cv-foot, .cv-chip { transition: opacity 120ms; }
-/* The same element is the 14px source glyph up close and the hue disc far
-   out; it travels there rather than being swapped. */
-.cv-mark { transition: transform 160ms ease, width 160ms ease, height 160ms ease; }
-
-/* MID — 0.20 <= k < 0.70, under the label budget. Short type, status chip,
-   mark, fold caret. The description and the foot bits are dropped not because
-   they are small but because they are DARK: the description fills the lower
-   half of the card in unreadable grey, and forty of those lower halves is the
-   noise floor that stops the type line reading. Removing them is what creates
-   the contrast the type needs. */
-[data-lod="mid"] .cv-desc,
-[data-lod="mid"] .cv-foot { opacity: 0; }
-
-/* The chip keeps its channel and loses its words. Its text is a 10px absolute
-   glyph, so at the bottom of this band it is 2px on screen — unreadable, and
-   measured in a browser it was eating the width the type line needed: SESSION
-   was clipping to SESSI and REVIEWER to REVIEWE. As a dot it still says the
-   status in colour and gives 45 world px back to the name. */
-[data-lod="mid"] .cv-chip {
-  font-size: 0;
-  padding: 0;
-  width: calc(7px / var(--k));           /* 7 SCREEN px at any k */
-  height: calc(7px / var(--k));
-  border-radius: 50%;
-  background: currentColor;
-  border-color: currentColor;
-}
-
-/* The real type line is taken out of the flow and redrawn counter-scaled, as
-   the short name: the crew- prefix and the -expert / -agent suffix dropped. */
-[data-lod="mid"] .cv-type,
-[data-lod="far"] .cv-type { font-size: 0; letter-spacing: 0; }
-[data-lod="mid"] .cv-type::after,
-[data-lod="far"] .cv-type::after { content: none; }
-[data-lod="mid"] .cv-type::before {
-  content: attr(data-short);
-  font-size: calc(11px / var(--k));      /* 11 SCREEN px at any k */
-  letter-spacing: 0.04em;
-  transition: font-size 120ms ease;
-}
-
-/* MID, THE LIVE EXEMPTION. `far` below already establishes this principle —
-   "with 250 strokes on screen the only bright ones must be the branches that
-   are alive" — and gives the live card its name, its mark and a z-index. It
-   was never applied to THIS band, which is the one a viewer actually sits in:
-   measured at 60% with fourteen agents, and there the running card is
-   distinguishable from thirteen finished ones only by the hue of a 7px disc.
-   The panel's own README promises "which agent is running, what it is doing
-   right now"; at mid it was keeping neither.
-   The description is dropped at mid because forty dark lower halves are a
-   noise floor that stops the type line reading. ONE is not a floor — it is
-   the signal, and it is the only field that says WHICH agent. It is drawn
-   counter-scaled like every other survivor in this block, so it clears the
-   same 9px screen floor that set the band rather than undercutting it, and
-   clamped to one line so it cannot reclaim the whole lower half. */
-[data-lod="mid"] .cv-node[data-state="live"] .cv-desc {
-  opacity: 1;
-  font-size: calc(11px / var(--k));      /* 11 SCREEN px at any k */
-  -webkit-line-clamp: 1; line-clamp: 1;
-}
-/* The chip keeps its WORD here instead of collapsing to a disc. The disc
-   exists because 10px of chip text is 2px on screen at the bottom of this
-   band and was clipping the type line; the running card is the one place that
-   trade is wrong, so its chip is counter-scaled instead of silenced. Every
-   property the disc rule set has to be undone explicitly, or the word renders
-   inside a 7px circle. */
-[data-lod="mid"] .cv-node[data-state="live"] .cv-chip {
-  font-size: calc(9px / var(--k));
-  padding: 0 calc(5px / var(--k));
-  width: auto; height: auto;
-  border-radius: calc(999px / var(--k));
-  background: transparent;
-  border-color: color-mix(in srgb, var(--busy) 45%, transparent);
-}
-/* Rides above its neighbours for the same reason it does at `far`: the words
-   it just kept must not sit under the next card. */
-[data-lod="mid"] .cv-node[data-state="live"] { z-index: 5; }
-
-/* FAR — k < 0.20, or more drawn nodes than the label budget. No text is
-   attempted for an ordinary node, because none would survive. Three things
-   still resolve at this size and each gets a channel: POSITION (which type
-   group, which depth — the layout already encodes it), HUE (--node-color, the
-   one place colour is decided) and a RING (status). */
-[data-lod="far"] {
-  /* Screen diameter of the disc: floored so it survives the tightest node
-     pitch, capped so it never outgrows its cell. Divided back out of k to get
-     the world size that draws it. */
-  --dot-screen: clamp(5px, calc(88 * var(--k) * 1px), 16px);
-  --dots: calc(var(--dot-screen) / var(--k));
-}
-
-/* The card body stops being a rectangle, because the rectangle is the wall. */
-[data-lod="far"] .cv-node {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  /* Pinned rather than left to min-height. A long description pushes the box
-     past 104px, and since the disc is centred on the box rather than on the
-     cell, cards with more text put their disc a few world px lower than their
-     neighbours — a lattice of dots that does not quite line up. Nothing
-     visible is clipped: what overflows here is already at opacity 0. */
-  height: 104px;
-}
-/* Except the one the user picked, which still has to be findable. */
-[data-lod="far"] .cv-node.cv-selected {
-  box-shadow: 0 0 0 calc(1.5px / var(--k)) var(--node-color);
-}
-[data-lod="far"] .cv-desc,
-[data-lod="far"] .cv-foot,
-[data-lod="far"] .cv-chip { opacity: 0; }
-[data-lod="far"] .cv-accent,
-[data-lod="far"] .cv-port,
-[data-lod="far"] .cv-fold { display: none; }
-/* The card ring is a 236x104 rectangle; the disc carries "running" instead. */
-[data-lod="far"] .cv-node[data-state="live"]::after { display: none; }
-
-/* .cv-mark becomes the disc, in place. */
-[data-lod="far"] .cv-mark {
-  position: absolute;
-  left: 18px;                            /* the padding it already sat behind */
-  top: 12px;
-  width: var(--dots);
-  height: var(--dots);
-  /* 93 and 33 carry a 14px mark from the head to the card's visual centre —
-     (236-14)/2 - 18 and (104-14)/2 - 12 — and the half-diameter term holds the
-     disc on that centre as it grows. */
-  transform: translate(calc(93px + 7px - var(--dots) / 2), calc(33px + 7px - var(--dots) / 2));
-  border-radius: 50%;
-  background: var(--node-color);
-  /* A screen-constant hairline around every agent circle. */
-  box-shadow: 0 0 0 calc(1.4px / var(--k)) color-mix(in srgb, var(--ink) 34%, transparent);
-}
-/* An 11-ray burst is mush at 7px. */
-[data-lod="far"] .cv-mark > * { display: none; }
-/* Source survives as SHAPE, which reads at 7px where a glyph does not. */
-[data-lod="far"] .cv-node[data-source="kit"] .cv-mark { border-radius: 3px; }
-/* Status survives as the ring — the chip's colour, moved. */
-[data-lod="far"] .cv-node[data-state="live"] .cv-mark {
-  box-shadow: 0 0 0 calc(2px / var(--k)) var(--busy);
-}
-[data-lod="far"] .cv-node[data-state="failed"] .cv-mark {
-  box-shadow: 0 0 0 calc(2px / var(--k)) var(--cv-fail);
-}
-
-/* Who keeps a label out here. This is what makes the far band a picture
-   rather than a field of anonymous dots, and it answers the question the panel
-   exists for — which agent is running, and what is it doing — without a click.
-   Running and failed branches keep their words whatever the budget says; the
-   session and the workflows keep theirs because they are few and they anchor
-   the picture.
-
-   POSITIVE SELECTORS ONLY. The selfcheck's matcher treats a pseudo-class it
-   does not model as a non-match, so a :not() rule here would resolve to "no
-   match" in the gate and pass green for a rule the browser is running and the
-   test never saw. */
-[data-lod="far"] .cv-node[data-state="live"] .cv-type::before,
-[data-lod="far"] .cv-node[data-state="failed"] .cv-type::before,
-[data-lod="far"] .cv-node[data-kind="session"] .cv-type::before,
-[data-lod="far"] .cv-node[data-kind="workflow"] .cv-type::before {
-  content: attr(data-far);
-  font-size: calc(11px / var(--k));
-  letter-spacing: 0.04em;
-  transition: font-size 120ms ease;
-}
-/* Centred under its own disc and allowed out of the card, because at this size
-   the card is no longer a box — the disc is the node. */
-[data-lod="far"] .cv-node[data-state="live"] .cv-type,
-[data-lod="far"] .cv-node[data-state="failed"] .cv-type,
-[data-lod="far"] .cv-node[data-kind="session"] .cv-type,
-[data-lod="far"] .cv-node[data-kind="workflow"] .cv-type {
-  position: absolute;
-  left: 50%;                             /* = 118px, the disc's centre */
-  top: calc(52px + var(--dots) * 0.62);
-  transform: translateX(-50%);
-  overflow: visible;
-  text-overflow: clip;
-}
-/* Their words ride above the field rather than under the next card. */
-[data-lod="far"] .cv-node[data-state="live"],
-[data-lod="far"] .cv-node[data-state="failed"] { z-index: 5; }
-
-/* With 250 strokes on screen the only bright ones must be the branches that
-   are alive and the branches that went wrong. */
-[data-lod="far"] .cv-edge[data-state="done"],
-[data-lod="far"] .cv-edge[data-state="quiet"] { opacity: var(--cv-edge-quiet); }
+.inspector dd { margin: 0; font-family: var(--font-mono); font-size: 12px; word-break: break-word; }
 
 /* ------------------------------------------------------- stillness ---
    Two ways the canvas stops moving, and one set of rules for both.
@@ -795,17 +1304,8 @@ body.resizing .cv-root { pointer-events: none; }
 
 [data-motion="still"] .cv-edge,
 [data-motion="still"] .cv-edge.cv-drawing,
-[data-motion="still"] .cv-node::after { animation: none; }
+[data-motion="still"] .cv-node[data-kind][data-state]::after { animation: none; }
 [data-motion="still"] .cv-node.cv-born { opacity: 1; scale: 1; }
-/* A reading change is motion too — the mark travels to the card's centre and
-   the label resizes. `.cv-node { transition: none }` does not reach a child;
-   that is specificity, not the media query, so each of these carries at least
-   the weight of the rule it cancels. */
-[data-motion="still"] .cv-mark,
-[data-motion="still"] .cv-type::before,
-[data-motion="still"] .cv-desc,
-[data-motion="still"] .cv-foot,
-[data-motion="still"] .cv-chip { transition: none; }
 
 /* A media query adds no specificity. `.cv-edge` alone loses to
    `.cv-edge[data-state="live"]` and the flow keeps running, so each selector
@@ -813,13 +1313,8 @@ body.resizing .cv-root { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .cv-edge[data-state],
   .cv-edge.cv-drawing,
-  .cv-node[data-state]::after { animation: none; }
+  .cv-node[data-kind][data-state]::after { animation: none; }
   .cv-node { transition: none; }
-  .cv-node .cv-mark,
-  .cv-node .cv-type::before,
-  .cv-node .cv-desc,
-  .cv-node .cv-foot,
-  .cv-node .cv-chip { transition: none; }
   /* The birth class comes off a frame later, which with no transition left is
      a blink from invisible to placed. Land it in its final state instead. */
   .cv-node.cv-born { opacity: 1; scale: 1; }
@@ -827,27 +1322,74 @@ body.resizing .cv-root { pointer-events: none; }
 
 /* ==================================================== inspector detail === */
 
-.inspector { width: 340px; transition: width 0.18s; display: flex; flex-direction: column; padding: 0; }
-.inspector.wide { width: min(760px, 55vw); }
 
-.ihead { display: flex; align-items: center; gap: 8px; padding: 14px 16px 0; }
-.ihead h3 { flex: 1; margin: 0; }
-.iwide { padding: 2px 8px; font-size: 12px; line-height: 1.2; }
-.inspector .isub { padding: 4px 16px 12px; margin: 0; }
+.ihead { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) 0 var(--space-4); flex: none; }
+.ihead .cv-tile { flex: none; }
+.iname { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imeta { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4) 0; flex: none; }
+.imeta .sub { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The agent's type as it is declared, beside the role it is shown as. */
+.imeta { flex-wrap: wrap; }
+.ireal { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The task in full: it is the one place the whole sentence is shown. */
+.itask { padding: var(--space-3) var(--space-4); font-size: 16px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; flex: none; max-height: 30%; overflow-y: auto; }
+.itask:empty { padding-bottom: 0; }
 
-.itabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); flex: none; }
+.itabs { display: flex; gap: var(--space-1); padding: 0 var(--space-3); border-bottom: 1px solid var(--line); flex: none; }
 .itab {
   background: none; border: none; cursor: pointer;
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--ink-faint); padding: 8px 10px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  font-family: inherit; font-size: 13px; font-weight: 500;
+  color: var(--ink-dim); padding: var(--space-2) 6px; border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
-.itab:hover { color: var(--ink-dim); }
-.itab.on { color: var(--ink); border-bottom-color: var(--accent); }
+.itab:hover { color: var(--ink); }
+.itab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 
-.ibody { flex: 1; overflow-y: auto; padding: 14px 16px 24px; min-height: 0; }
+.ibody { flex: 1; overflow-y: auto; padding: var(--space-4); min-height: 0; }
+.ifoot { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); flex: none; }
+.ifoot .btn:first-child { flex: 1; justify-content: center; }
+
+.isec { margin-top: var(--space-4); }
+.isec:first-child { margin-top: 0; }
+.isec-h {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  margin: 0 0 var(--space-2); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.itiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.itile { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--surface-raised); min-width: 0; }
+.itile-k { font-size: 11px; color: var(--ink-dim); }
+.itile strong { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.itile strong.bad { color: var(--status-bad); }
+/* Not measured is a sentence, not a number: it is set smaller and in the waiting tone, so it cannot pass for one. */
+.itile.unmeasured strong { font-size: 13px; color: var(--status-waiting); }
+.inow {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md); background: var(--surface-raised);
+  font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere;
+}
+.inow-tool { color: var(--studio-accent); }
+.inow-text { color: var(--ink-dim); }
+.ichips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ichip {
+  height: 24px; padding: 0 var(--space-2); border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--line); background: none; color: var(--ink);
+  font-family: var(--font-mono); font-size: 12px;
+}
+.ichip:hover { background: var(--surface-raised); }
+.ilink { background: none; border: none; padding: 0; cursor: pointer; color: var(--accent); font: inherit; font-size: 13px; text-align: left; }
+.ilink:hover { text-decoration: underline; }
+.ibanner {
+  padding: var(--space-3); margin-bottom: var(--space-4); border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--line));
+  background: color-mix(in srgb, var(--status-waiting) 8%, transparent);
+  font-size: 13px; line-height: 1.45;
+}
+.ibanner p { margin: 0 0 var(--space-3); }
+.ibanner-acts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.iallow-row { display: flex; align-items: center; gap: var(--space-2); padding: 6px 0; border-bottom: 1px solid var(--line); }
+.iallow-tool { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+.ihint .btn { margin-top: var(--space-2); }
 .ihint { color: var(--ink-faint); font-size: 13px; line-height: 1.5; padding: 6px 0; }
-.ibar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.ibar .ghost { font-family: var(--mono); font-size: 11px; padding: 2px 8px; }
 
 /* ------------------------------------------------------- activity list --- */
 
@@ -856,8 +1398,8 @@ body.resizing .cv-root { pointer-events: none; }
   display: grid; grid-template-columns: 22px 62px 1fr; gap: 8px; align-items: baseline;
   padding: 5px 0; border-bottom: 1px solid var(--line);
 }
-.istep-n { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); text-align: right; }
-.istep-tool { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+.istep-n { font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); text-align: right; }
+.istep-tool { font-family: var(--font-mono); font-size: 11px; color: var(--studio-accent); }
 .istep-label { font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; }
 .md-narration { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); opacity: 0.85; }
 
@@ -872,18 +1414,18 @@ h5.md-h, h6.md-h { font-size: 12px; color: var(--ink-dim); text-transform: upper
 .md-list { margin: 0 0 9px; padding-left: 20px; }
 .md-list li { margin-bottom: 3px; }
 .md code {
-  font-family: var(--mono); font-size: 0.9em;
-  background: var(--surface-2); border-radius: 4px; padding: 1px 4px;
+  font-family: var(--font-mono); font-size: 0.9em;
+  background: var(--surface-raised); border-radius: 4px; padding: 1px 4px;
 }
 .md-code {
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-raised); border: 1px solid var(--line); border-radius: 8px;
   padding: 10px 12px; overflow-x: auto; margin: 0 0 10px;
-  font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
 }
 .md-code code { background: none; padding: 0; }
 .md-quote {
   margin: 0 0 10px; padding: 6px 0 6px 12px;
-  border-left: 2px solid var(--accent); color: var(--ink-dim);
+  border-left: 2px solid var(--studio-accent); color: var(--ink-dim);
 }
 .md-hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
 .md-link { color: var(--accent); }
@@ -892,11 +1434,7 @@ h5.md-h, h6.md-h { font-size: 12px; color: var(--ink-dim); text-transform: upper
 .md-table th, .md-table td {
   border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top;
 }
-.md-table th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
-
-/* `display: flex` on .inspector outranks the UA's `[hidden] { display: none }`,
-   so the hidden panel kept its width. Restate it explicitly. */
-.inspector[hidden] { display: none; }
+.md-table th { background: var(--surface-raised); font-weight: 600; white-space: nowrap; }
 
 /* `overflow-wrap: anywhere` keeps long paths inside the panel, but inside a
    table it shreds every cell into one letter per line. Tables get their real
@@ -904,134 +1442,23 @@ h5.md-h, h6.md-h { font-size: 12px; color: var(--ink-dim); text-transform: upper
 .md-table th, .md-table td { overflow-wrap: normal; min-width: 76px; }
 .md-table td { hyphens: none; }
 
-/* ================================================= project sidebar === */
-
-.side-filter { padding: 0 12px 8px; flex: none; }
-.side-filter input {
-  width: 100%; box-sizing: border-box;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
-  color: var(--ink); font-family: var(--mono); font-size: 11px; padding: 5px 8px;
-}
-.side-filter input:focus { outline: none; border-color: var(--accent); }
-.side-filter input::placeholder { color: var(--ink-faint); }
-
-.pgroup {
-  display: grid; grid-template-columns: 14px 1fr auto; gap: 7px; align-items: center;
-  padding: 7px 14px; cursor: pointer; border-top: 1px solid var(--line);
-  background: var(--surface-2);
-}
-.pgroup:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); }
-.pgroup.current { box-shadow: inset 3px 0 0 var(--accent); }
-.pcaret { font-size: 9px; color: var(--ink-faint); }
-.plabel {
-  font-size: 12px; font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.pcount { display: flex; gap: 5px; align-items: center; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
-
-.srow {
-  display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
-  padding: 6px 14px 6px 28px; border-top: 1px solid var(--line);
-  background: var(--surface); cursor: pointer;
-}
-.srow:hover { background: var(--surface-2); }
-.srow[aria-current="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--good); }
-.sname {
-  font-size: 12px; color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.srow[aria-current="true"] .sname { font-weight: 600; }
-.sright { display: flex; gap: 5px; align-items: center; }
-.sagents { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
-.sbadge {
-  font-family: var(--mono); font-size: 9px; color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  border-radius: 4px; padding: 0 4px;
-}
-.ptrunc {
-  padding: 5px 14px 5px 28px; font-family: var(--mono); font-size: 10px;
-  color: var(--ink-faint); background: var(--surface); border-top: 1px solid var(--line);
-}
-
-/* ------------------------------------------------------- kit version --- */
-
-.kitbadge {
-  font-family: var(--mono); font-size: 9px; padding: 0 4px;
-  border-radius: 4px; border: 1px solid var(--line); color: var(--ink-faint);
-  white-space: nowrap;
-}
-.kitbadge.ok      { color: var(--good);    border-color: color-mix(in srgb, var(--good) 35%, transparent); }
-.kitbadge.old     { color: var(--waiting); border-color: color-mix(in srgb, var(--waiting) 50%, transparent);
-                    background: color-mix(in srgb, var(--waiting) 12%, transparent); }
-.kitbadge.ahead   { color: var(--accent);  border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-.kitbadge.unknown { color: var(--ink-faint); }
-
-.pgroup.gone .plabel { color: var(--ink-faint); text-decoration: line-through; }
-
-.kitline {
-  display: block; font-family: var(--mono); font-size: 10px;
-  color: var(--ink-faint); letter-spacing: 0.03em; margin-top: 1px;
-}
-.kitline.warn { color: var(--waiting); }
-
-.ptrunc.pmissing { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ptrunc.pmissing .ghost { font-family: var(--mono); font-size: 10px; padding: 1px 6px; }
-
-/* ------------------------------------------------------- fold control --- */
-
-.cv-fold {
-  background: transparent; border: 1px solid var(--line); border-radius: 5px;
-  color: var(--ink-dim); cursor: pointer; flex: none;
-  font-family: var(--mono); font-size: 9px; line-height: 1; padding: 2px 5px;
-}
-.cv-fold:hover { color: var(--ink); border-color: var(--node-color); }
-.cv-fold[hidden] { display: none; }
-
-/* A folded node is a container, so it reads as one: stacked edges behind the
-   card stand in for the children it is holding. */
-.cv-node.cv-folded { box-shadow: 0 1px 2px rgb(0 0 0 / 0.18), 6px 6px 0 -2px var(--surface-2), 6px 6px 0 -1px var(--line); }
-.cv-node[data-kind="workflow"] { border-style: dashed; }
-.cv-node[data-kind="workflow"] .cv-desc { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
-
-/* The fold control is an affordance, not decoration: when a node is holding
-   children back it says how many, in the node's own colour. */
-.cv-node.cv-folded .cv-fold {
-  color: var(--node-color);
-  border-color: color-mix(in srgb, var(--node-color) 45%, transparent);
-  background: color-mix(in srgb, var(--node-color) 12%, transparent);
-  font-weight: 600;
-}
-
 /* ---------------------------------------------------------- origins --- */
 
 /* Which machine a row came from, shown only once more than one is in view. */
 .origin {
   margin-left: 6px; padding: 0 4px; border-radius: 4px;
-  font-family: var(--mono); font-size: 9px; font-weight: 400;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  font-family: var(--font-mono); font-size: 9px; font-weight: 400;
+  color: var(--studio-accent);
+  border: 1px solid color-mix(in srgb, var(--studio-accent) 32%, transparent);
   vertical-align: 1px;
 }
-.meta.warn { color: var(--waiting); }
-.ptrunc.pdown { color: var(--bad); }
+.meta.warn { color: var(--status-waiting); }
 
 /* ================================================== conversation ====== */
 
-.stage { position: relative; min-width: 0; display: block; }
-.canvas { position: absolute; inset: 0; }
-
-/* The inspector floats over the canvas rather than taking a column of its own:
-   with the conversation on the right there is no third column to spare, and a
-   node's details are something you open and dismiss. */
-.inspector {
-  position: absolute; top: 0; right: 0; bottom: 0; z-index: 30;
-  border-left: 1px solid var(--line);
-  box-shadow: -12px 0 24px -18px rgb(0 0 0 / 0.7);
-}
-
 .hsplit { height: 5px; background: var(--line); cursor: row-resize; position: relative; }
 .hsplit::after { content: ''; position: absolute; inset: -4px 0; }
-.hsplit:hover, .hsplit:focus-visible, .hsplit.dragging { background: var(--accent); outline: none; }
+.hsplit:hover, .hsplit.dragging { background: var(--studio-accent); }
 .hsplit[hidden] { display: none; }
 body.vresizing { cursor: row-resize; user-select: none; }
 
@@ -1045,283 +1472,246 @@ body.vresizing { cursor: row-resize; user-select: none; }
 .chat[hidden] { display: none; }
 
 .chat-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 14px; border-bottom: 1px solid var(--line); flex: none;
+  display: flex; align-items: center; gap: var(--space-2);
+  height: var(--toolbar-h); padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--line); flex: none;
 }
-.chat-title {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--ink-faint);
-}
-.chat-state {
-  font-family: var(--mono); font-size: 10px; color: var(--ink-dim);
-  border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px;
-}
-.chat-state[data-state="working"] { color: var(--busy); border-color: color-mix(in srgb, var(--busy) 45%, transparent); }
-.chat-state[data-state="idle"]    { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, transparent); }
-.chat-state[data-state="exited"], .chat-state[data-state="failed"] { color: var(--bad); }
-.chat-cost { flex: 1; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
-.chat-stop { font-family: var(--mono); font-size: 11px; padding: 2px 8px; }
 
-.chat-log { flex: 1; overflow-y: auto; padding: 12px 14px; min-height: 0; }
+/* The strip above a conversation: what kind of session it is, how far it has gone, and Stop. */
+.pane-head {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 44px; padding: 6px var(--space-3); border-bottom: 1px solid var(--line); flex: none; min-width: 0;
+  /* On a narrow panel the strip takes a second line instead of pushing Stop out of reach. */
+  flex-wrap: wrap;
+}
+.pane-head .sub { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane-head .pane-cost { font-family: var(--font-mono); }
+.pane-ungated { color: var(--status-bad); background: color-mix(in srgb, var(--status-bad) 12%, transparent); }
+.chat-stop { flex: none; }
+.chat-stop .ic { fill: currentColor; stroke: none; }
 
-/* Who said it, read from which side it sits on. The role label stays, small,
-   because a bubble tells you the side but not the name — and once a session
-   spawns agents there is more than one voice in here. */
-.msg { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+.chat-log { flex: 1; overflow-y: auto; padding: var(--space-4); min-height: 0; }
+
+/* Who said it is read from the side it sits on: what the viewer wrote is a bubble on the right, what the session
+   said runs the width of the panel under its name. */
+.msg { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4); }
 .msg-user { align-items: flex-end; }
-.msg-assistant { align-items: flex-start; }
+.msg-assistant { align-items: stretch; }
 
-.msg-role {
-  font-family: var(--mono); font-size: 9px; text-transform: uppercase;
-  letter-spacing: 0.08em; color: var(--ink-faint); padding: 0 4px;
-}
-.msg-user .msg-role { color: var(--accent); }
+.msg-role { font-size: 12px; font-weight: 600; color: var(--ink-dim); }
 
-.msg-body {
-  max-width: 88%;
-  min-width: 0;
-  font-size: 13px; line-height: 1.55;
-  border-radius: 12px;
-  padding: 8px 12px;
-  overflow-wrap: anywhere;
-}
+.msg-body { min-width: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .msg-user .msg-body {
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
-  border-bottom-right-radius: 3px;
+  max-width: 88%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-raised));
 }
-.msg-assistant .msg-body {
-  background: var(--surface-2);
-  border-bottom-left-radius: 3px;
-}
+.msg-pending .msg-body { opacity: 0.6; }
 .msg-text { white-space: pre-wrap; }
 
-/* A reply carrying a table or a code block needs the room; a sentence does not. */
-.msg-assistant .msg-body:has(.md-table, .md-code) { max-width: 100%; }
-
 .msg-streaming .msg-body { color: var(--ink-dim); }
-.thinking { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+.thinking { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 .thinking::after { content: ''; animation: dots 1.2s steps(4, end) infinite; }
 @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
 
-/* Quick replies belong to the answer above them, so they sit on its side. */
-.msg-assistant .quick { justify-content: flex-start; }
-
-.tool-card {
-  display: flex; gap: 8px; align-items: baseline;
-  background: var(--surface-2); border-radius: 6px; padding: 4px 8px; margin: 4px 0;
+/* A tool call: one line that says what ran and how it ended. Its output opens under it. */
+.tool { margin: var(--space-2) 0; }
+.tool-row {
+  display: flex; align-items: baseline; gap: var(--space-2); width: 100%; min-width: 0;
+  padding: 6px var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: none; color: var(--ink); cursor: pointer; text-align: left;
+  font-family: var(--font-mono); font-size: 12px;
 }
-.tool-name { font-family: var(--mono); font-size: 10px; color: var(--accent); flex: none; }
-.tool-label { font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; }
+.tool-row:hover { background: var(--surface-raised); }
+.tool-name { color: var(--studio-accent); flex: none; }
+.tool-label { flex: 1 1 0; min-width: 0; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-sum { flex: 0 1 auto; min-width: 0; max-width: 45%; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-sum[hidden] { display: none; }
+.tool-row[data-state="ok"] .tool-sum { color: var(--status-good); }
+.tool-row[data-state="error"] .tool-sum { color: var(--status-bad); }
+.tool-row[data-state="refused"] { border-color: color-mix(in srgb, var(--status-bad) 50%, var(--line)); }
+.tool-row[data-state="refused"] .tool-sum { color: var(--status-bad); }
+.tool-out {
+  margin: var(--space-1) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  background: var(--ground); border: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto;
+}
+.tool-out[hidden] { display: none; }
 
-.chat-note { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); padding: 4px 0; }
-.chat-note.bad { color: var(--bad); }
+/* The session handing work to an agent: a card that goes to that agent on the graph. */
+.deleg {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; min-width: 0;
+  margin: var(--space-2) 0; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--surface-raised); color: var(--ink); cursor: pointer; text-align: left; font: inherit;
+}
+.deleg:hover:not(:disabled) { border-color: var(--studio-accent); }
+.deleg:disabled { cursor: default; }
+.deleg .cv-tile { flex: none; }
+.deleg-text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.deleg-type { font-family: var(--font-mono); font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deleg-task { font-size: 12px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.chat-form { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); flex: none; }
+/* A request waiting in this session, said where the conversation is being read. */
+.chat-remind {
+  display: flex; align-items: center; gap: var(--space-2); flex: none;
+  padding: var(--space-2) var(--space-3); font-size: 13px;
+  border-top: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--line));
+  background: color-mix(in srgb, var(--status-waiting) 8%, var(--surface));
+}
+.chat-remind[hidden] { display: none; }
+.chat-remind-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-review { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--accent); flex: none; }
+.chat-review:hover { text-decoration: underline; }
+
+.chat-note { font-size: 12px; line-height: 18px; color: var(--ink-faint); padding: 4px 0; overflow-wrap: anywhere; }
+.chat-note.bad { color: var(--status-bad); }
+
+.chat-form { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-top: 1px solid var(--line); flex: none; }
 .chat-form[hidden] { display: none; }
 .chat-input {
-  flex: 1; resize: none; box-sizing: border-box;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
-  color: var(--ink); font-family: inherit; font-size: 13px; line-height: 1.45; padding: 7px 10px;
+  resize: none; box-sizing: border-box; width: 100%;
+  background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-md);
+  color: var(--ink); font-family: inherit; font-size: 14px; line-height: 20px; padding: var(--space-2) var(--space-3);
 }
-.chat-input:focus { outline: none; border-color: var(--accent); }
 .chat-input:disabled { opacity: 0.5; }
-.chat-send {
-  background: var(--accent); border: none; border-radius: 8px; color: #fff;
-  cursor: pointer; font-size: 12px; font-weight: 600; padding: 0 16px; align-self: stretch;
-}
-.chat-send:hover { filter: brightness(1.1); }
-
-.ghost.primary {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  font-size: 12px;
-}
-.ghost.primary:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
-
-.srow.owned .sname::after {
-  content: 'owned'; margin-left: 6px; padding: 0 4px; border-radius: 4px;
-  font-family: var(--mono); font-size: 9px; color: var(--good);
-  border: 1px solid color-mix(in srgb, var(--good) 35%, transparent);
-}
-
-/* `display: grid` outranks the UA's `[hidden] { display: none }`, so the empty
-   note kept painting over a graph that had nodes. Same trap as .inspector. */
-.cv-empty[hidden] { display: none; }
-
-/* ------------------------------------------------------- permissions --- */
-
-.perm-queue { flex: none; border-top: 1px solid var(--line); padding: 10px 14px; max-height: 46vh; overflow-y: auto; }
-.perm-queue[hidden] { display: none; }
-
-.perm {
-  border: 1px solid color-mix(in srgb, var(--waiting) 45%, var(--line));
-  background: color-mix(in srgb, var(--waiting) 7%, transparent);
-  border-radius: 9px; padding: 9px 11px; margin-bottom: 8px;
-}
-.perm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.perm-tool {
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.05em; text-transform: uppercase; color: var(--waiting);
-}
-.perm-clock { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
-.perm-detail {
-  margin: 7px 0 0; padding: 7px 9px; border-radius: 6px;
-  background: var(--surface-2); font-family: var(--mono); font-size: 11.5px;
-  line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
-  max-height: 140px; overflow-y: auto;
-}
-.perm-acts { display: flex; gap: 7px; margin-top: 9px; flex-wrap: wrap; }
-.perm-btn {
-  background: transparent; border: 1px solid var(--line); border-radius: 7px;
-  color: var(--ink-dim); cursor: pointer; font-size: 12px; padding: 4px 11px;
-}
-.perm-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-faint); }
-.perm-btn:disabled { opacity: 0.4; cursor: default; }
-.perm-btn.ok  { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
-.perm-btn.bad { color: var(--bad);  border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
-
-.chat-state.ungated { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+.chat-form-foot { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.chat-form-foot .sub { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* ------------------------------------------------------ quick replies --- */
 
-.quick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
-.quick-hint {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
-  text-transform: uppercase; color: var(--ink-faint);
-}
-.quick-btn {
-  background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
-  border-radius: 999px; color: var(--accent); cursor: pointer;
-  font-size: 12px; padding: 3px 12px; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.quick-btn:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.quick { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
+.quick-btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.quick-hint { flex-basis: 100%; }
 
 /* --------------------------------------------------------- session tabs --- */
 
-.panes { flex: 1; min-height: 0; display: flex; }
-.pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* `min-width: 0` on both: a flex item is as wide as its longest unbreakable line unless told otherwise, and a
+   conversation is full of them — a path, a command. Without it one long line widened the panel past the window. */
+.panes { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 .pane[hidden] { display: none; }
 
 .tabs { display: flex; gap: 3px; flex: 1; overflow-x: auto; align-items: center; }
 .tab {
   display: flex; align-items: center; gap: 6px;
-  background: transparent; border: 1px solid var(--line); border-radius: 7px;
-  color: var(--ink-dim); cursor: pointer; font-family: var(--mono); font-size: 11px;
-  padding: 3px 7px; white-space: nowrap; flex: none;
+  height: 30px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--ink-dim); cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600;
+  padding: 0 var(--space-2); white-space: nowrap; flex: none;
 }
 .tab:hover { color: var(--ink); }
-.tab.on { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.tab[aria-selected="true"] { color: var(--ink); background: var(--surface-raised); border-color: var(--line); }
 
-.tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); flex: none; }
-.tab-dot[data-state="working"] { background: var(--busy); animation: breathe 1.6s ease-in-out infinite; }
-.tab-dot[data-state="idle"]    { background: var(--good); }
-.tab-dot[data-state="starting"]{ background: var(--accent); }
-.tab-dot[data-state="exited"], .tab-dot[data-state="failed"] { background: var(--bad); }
+.tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status-idle); flex: none; }
+.tab-dot[data-state="working"] { background: var(--status-busy); animation: breathe 1.6s ease-in-out infinite; }
+.tab-dot[data-state="idle"]    { background: var(--status-good); }
+.tab-dot[data-state="starting"]{ background: var(--studio-accent); }
+.tab-dot[data-state="exited"], .tab-dot[data-state="failed"] { background: var(--status-fail); }
 
 .tab-badge {
-  background: var(--surface-2); border-radius: 999px; padding: 0 5px;
+  background: var(--surface-raised); border-radius: 999px; padding: 0 5px;
   font-size: 9px; color: var(--ink-faint);
 }
-.tab-badge.warn { background: color-mix(in srgb, var(--waiting) 22%, transparent); color: var(--waiting); }
+.tab-badge.warn { background: color-mix(in srgb, var(--status-waiting) 22%, transparent); color: var(--status-waiting); }
 .tab-x { color: var(--ink-faint); font-size: 13px; line-height: 1; padding: 0 1px; }
-.tab-x:hover { color: var(--bad); }
+.tab-x:hover { color: var(--status-bad); }
 
 @media (prefers-reduced-motion: reduce) { .tab-dot[data-state="working"] { animation: none; } }
 
 /* -------------------------------------------------------- kit telemetry --- */
 
 .kit-sum { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
-.kit-sum .cv-bit[data-verdict="BLOCK"] { color: var(--bad); }
-.kit-sum .cv-bit[data-verdict="ASK"]   { color: var(--waiting); }
-.kit-sum .cv-bit[data-verdict="ALLOW"] { color: var(--good); }
+.kit-sum .cv-bit[data-verdict="BLOCK"] { color: var(--status-bad); }
+.kit-sum .cv-bit[data-verdict="ASK"]   { color: var(--status-waiting); }
+.kit-sum .cv-bit[data-verdict="ALLOW"] { color: var(--status-good); }
 
 .gate-row {
   display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline;
   padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12px;
 }
-.gate-when { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.gate-when { font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); }
 .gate-name { color: var(--ink-dim); overflow-wrap: anywhere; }
-.gate-sec { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.gate-sec { font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); }
 .gate-verdict {
-  font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.05em;
   border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; white-space: nowrap;
 }
-.gate-verdict[data-verdict="BLOCK"] { color: var(--bad);     border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
-.gate-verdict[data-verdict="ASK"]   { color: var(--waiting); border-color: color-mix(in srgb, var(--waiting) 40%, transparent); }
-.gate-verdict[data-verdict="ALLOW"] { color: var(--good);    border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+.gate-verdict[data-verdict="BLOCK"] { color: var(--status-bad);     border-color: color-mix(in srgb, var(--status-bad) 40%, transparent); }
+.gate-verdict[data-verdict="ASK"]   { color: var(--status-waiting); border-color: color-mix(in srgb, var(--status-waiting) 40%, transparent); }
+.gate-verdict[data-verdict="ALLOW"] { color: var(--status-good);    border-color: color-mix(in srgb, var(--status-good) 35%, transparent); }
 
-.inspector dd.bad { color: var(--bad); }
-.ihint strong { display: block; color: var(--waiting); margin-bottom: 3px; }
+.inspector dd.bad { color: var(--status-bad); }
+.ihint strong { display: block; color: var(--status-waiting); margin-bottom: 3px; }
 
-/* A node that holds others opens on click, so it says so before you try. */
-.cv-node.cv-container { cursor: zoom-in; }
-.cv-node.cv-container:not(.cv-folded) { cursor: zoom-out; }
-.cv-node.cv-container.cv-folded .cv-desc::after {
-  content: ' — click to open';
-  color: var(--ink-faint);
-  font-size: 11px;
-}
-
-/* --------------------------------------------------- reachable elsewhere --- */
-
-.reach-head { border-top: 1px solid var(--line); padding-top: 10px; }
-.reach-head[hidden] { display: none; }
-#reach { max-height: 24vh; }
-/* Listed, not openable: the transcript is on the other machine. */
-.reach-row { cursor: default; opacity: 0.92; }
-.reach-row .name { font-size: 13px; }
 
 /* ------------------------------------------------ history and read-only --- */
 
 /* The seam between what was said before a fork and what is being said now. */
 .chat-seam {
   display: flex; align-items: center; gap: 10px;
-  margin: 14px 0; font-family: var(--mono); font-size: 10px;
+  margin: 14px 0; font-family: var(--font-mono); font-size: 10px;
   letter-spacing: 0.05em; color: var(--ink-faint); text-transform: uppercase;
 }
 .chat-seam::before, .chat-seam::after {
   content: ''; flex: 1; height: 1px; background: var(--line);
 }
 
+/* The foot of a conversation Studio only reads: why there is no message box, and the two ways on. */
 .chat-ro {
-  flex: none; padding: 9px 14px; border-top: 1px solid var(--line);
-  font-size: 12px; line-height: 1.45; color: var(--ink-dim);
-  background: var(--surface-2);
+  flex: none; display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-3); border-top: 1px solid var(--line); font-size: 13px; line-height: 1.45;
 }
 .chat-ro[hidden] { display: none; }
-.chat-ro strong { color: var(--accent); font-weight: 600; }
+.chat-ro-lead { margin: 0; color: var(--ink-dim); }
+.chat-ro-lead strong { color: var(--ink); font-weight: 600; }
+.chat-ro-row { display: flex; align-items: flex-start; gap: var(--space-3); }
+.chat-ro-row .btn { flex: none; min-width: 132px; justify-content: center; }
+.chat-ro-row .sub { white-space: normal; flex: 1 1 0; min-width: 0; line-height: 18px; }
+.chat-ro-cmd { font-family: var(--font-mono); font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
 
-.chat-state[data-state="observed"] { color: var(--ink-dim); }
-
-/* --------------------------------------------------- panel controls --- */
-
-.ghost.pin { padding: 1px 6px; font-size: 11px; line-height: 1.4; }
-.side-head { position: relative; }
-.side-head h2 { flex: 1; }
+/* ----------------------------------------------------- new session ---
+   The same column the conversation takes, and the same width. */
+.newpanel {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  background: var(--surface); border-left: 1px solid var(--line);
+}
+.newpanel[hidden] { display: none; }
+.np-head { display: flex; align-items: center; height: var(--toolbar-h); padding: 0 var(--space-2) 0 var(--space-4); border-bottom: 1px solid var(--line); flex: none; }
+.np-title { margin: 0; font-size: 16px; font-weight: 700; }
+.np-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+.np-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.np-label { font-size: 13px; font-weight: 600; color: var(--ink); padding: 0; }
+.np-field .sub, .np-modes > .sub, .np-note .sub { white-space: normal; line-height: 18px; }
+.np-field code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
+.np-select, .np-first {
+  box-sizing: border-box; width: 100%;
+  background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-md); color: var(--ink);
+}
+.np-select { height: 40px; padding: 0 var(--space-3); font-family: var(--font-mono); font-size: 13px; }
+.np-first { resize: none; padding: var(--space-2) var(--space-3); font-family: inherit; font-size: 14px; line-height: 20px; }
+.np-modes { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.np-modes legend { margin-bottom: var(--space-2); }
+.np-mode {
+  display: flex; gap: var(--space-2); padding: var(--space-3); cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--ground);
+}
+.np-mode.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--ground)); }
+.np-mode input { margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.np-mode-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.np-mode-text .sub { white-space: normal; line-height: 18px; }
+.np-mode-word { font-size: 13px; font-weight: 600; }
+.np-note { display: flex; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--ground); }
+.np-note .ic { color: var(--ink-dim); margin-top: 1px; }
+.np-note .sub { flex: 1 1 0; min-width: 0; }
+.np-error { font-size: 13px; color: var(--status-bad); }
+.np-error[hidden] { display: none; }
+.np-foot { display: flex; gap: var(--space-2); justify-content: flex-end; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); flex: none; }
 
 /* The chat divider only exists while there is a conversation beside it. */
 #chat-split[hidden] { display: none; }
 
 .chat-wide { position: relative; }
-.chat-head .chat-grow { margin-left: 2px; }
-
-@media (max-width: 1100px) {
-  /* Two side panels and a graph do not fit; the conversation wins because it is
-     the thing being read. */
-  .shell { grid-template-columns: 0 0 1fr 5px var(--chat-w, 420px); }
-  .shell > .side, .shell > #resizer { display: none; }
-}
-@media (max-width: 760px) {
-  .shell, .shell.no-chat, .shell.no-side { grid-template-columns: 1fr; }
-  .shell > .side, .shell > #resizer, .shell > #chat-split { display: none; }
-  .inspector { display: none; }
-}
-
-/* A live session is opened from the fleet the same way it is from the list. */
-.fleet-row.clickable { cursor: pointer; }
-.fleet-row.clickable:hover { background: var(--surface-2); }
-.fleet-row[aria-current="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--good); }
+.chat-head .chat-grow { flex: none; }
 
 /* ============================================================ scrollbars === */
 
@@ -1349,63 +1739,35 @@ body.vresizing { cursor: row-resize; user-select: none; }
 /* Where two scrollable panes meet, the bar should not read as a third border. */
 .side *::-webkit-scrollbar, .chat *::-webkit-scrollbar, .inspector *::-webkit-scrollbar { width: 8px; }
 
-/* ------------------------------------------------------- sidebar rail --- */
+/* ------------------------------------------------------- navigator rail --- */
 
-/* The control that brings the sidebar back sits where the sidebar was. It
-   started in the header beside the theme toggle — the far corner from the edge
-   it acts on — and was, fairly, hard to find. */
+/* What the navigator leaves behind when it is collapsed: its three tabs as
+   icons, and at the foot the control that opens it again. It sits where the
+   navigator was, on the edge it acts on. */
 .side-rail {
   position: absolute; left: 0; top: 0; bottom: 0; z-index: 25;
-  width: 22px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px;
+  width: var(--rail-w);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: var(--space-3) 0;
   background: var(--surface);
-  border: none; border-right: 1px solid var(--line);
-  color: var(--ink-faint);
-  cursor: pointer;
-  padding: 0;
+  border-right: 1px solid var(--line);
 }
 .side-rail[hidden] { display: none; }
-.side-rail:hover { background: var(--surface-2); color: var(--ink); border-right-color: var(--accent); }
-.side-rail:focus-visible { outline: none; border-right-color: var(--accent); color: var(--ink); }
-
-.side-rail-arrow { font-size: 15px; line-height: 1; }
-/* Turned along the rail, so the strip says what it opens rather than being an
-   unlabelled sliver. */
-.side-rail-label {
-  writing-mode: vertical-rl;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
-  text-transform: uppercase;
+.rail-btn {
+  width: 40px; height: 40px; padding: 0; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--radius-md); background: none;
+  color: var(--ink-dim); cursor: pointer;
 }
-
-/* The rail takes the space the sidebar left, so the graph does not sit under it. */
-.shell.no-side { grid-template-columns: 22px 0 1fr 5px var(--chat-w, 420px); }
-.shell.no-side.no-chat { grid-template-columns: 22px 0 1fr 0 0; }
-
-@media (max-width: 760px) { .side-rail { display: none; } }
+.rail-btn:hover, .rail-btn.on { background: var(--surface-raised); color: var(--ink); }
+.rail-fill { flex: 1; }
 
 /* --------------------------------------------------------- full screen --- */
 
-#fullscreen.on {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-/* In full screen the window chrome is gone, so the panel's own top edge is the
-   only frame left; it should not look like a floating bar. */
-:fullscreen .bar { border-top: none; }
-
-
-/* ---------------------------------------------------------- node mark --- */
-
-.cv-mark { width: 14px; height: 14px; flex: none; color: var(--node-color); }
-/* Both logos carry their own colours; only the generic glyphs take the node's. */
-.cv-node[data-source="kit"] .cv-mark,
-.cv-node[data-source="builtin"] .cv-mark { color: inherit; }
-/* A type the palette does not know keeps a neutral mark, like its colour. */
-.cv-mark.cv-mark-unknown { color: var(--ink-faint); opacity: 0.7; }
-.cv-node[data-source="kit"] .cv-mark { opacity: 1; }
-.cv-node[data-source="builtin"] .cv-mark { opacity: 0.85; }
+/* Full screen takes the browser away and nothing of the panel: the navigator,
+   the inspector and the conversation stay where they were, and open and close
+   as they do in a window. A rule here used to remove them, and with them the
+   only way to an agent's details or to a conversation that was waiting. */
 
 /* ------------------------------------------------- tab bar that fits --- */
 
@@ -1420,34 +1782,112 @@ body.vresizing { cursor: row-resize; user-select: none; }
 .tab-dot, .tab-x, .tab-badge { flex: none; }
 
 /* The status and the controls keep their size; the tabs are what scrolls. */
-.chat-state, .chat-cost, .chat-stop, .chat-grow { flex: none; }
-.chat-cost { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
-/* Below this the status text is what has to go, not the way out of a tab. */
-@media (max-width: 1400px) {
-  .chat-head .chat-cost { display: none; }
+
+/* ======================================================== breakpoints ===
+   Four widths, one frame. Each query names only what changes at that width;
+   everything it does not name is the frame as drawn above.
+
+     >= 1280      everything open, the inspector docked beside the canvas
+     1024 - 1279  the inspector floats over the canvas, which keeps its width
+     640 - 1023   the navigator is its rail; opened, it floats over the canvas
+     < 640        one column: the stage, and whatever is opened covers it
+
+   app.js collapses the navigator on entering the third band and restores the
+   viewer's own choice on leaving it, so the rail is what a narrow window opens
+   on without the remembered state being overwritten. */
+
+@media (min-width: 1280px) {
+  /* Docked: back in the grid, in the column kept for it. */
+  .shell.no-chat > .inspector { position: relative; top: auto; bottom: auto; right: auto; grid-column: 4; box-shadow: none; }
 }
 
-/* ------------------------------------------------ foldable side sections */
-
-.twisty {
-  flex: none; width: 16px; height: 16px; padding: 0; margin-right: -2px;
-  display: grid; place-items: center;
-  background: none; border: 0; cursor: pointer; border-radius: 4px;
-  font-size: 10px; line-height: 1; color: var(--ink-faint);
-  transition: background 0.12s, color 0.12s;
+@media (max-width: 1279px) {
+  /* Beside the navigator the conversation takes two fifths of the window at most. At 1024 the design's 480px
+     left the graph 262px (measured); this leaves it 332. */
+  .shell { grid-template-columns: var(--side-w, var(--nav-w)) 5px minmax(0, 1fr) auto 5px min(var(--chat-w, 480px), 40vw); }
+  .shell.no-side { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) auto 5px min(var(--chat-w, 480px), 40vw); }
+  /* The dock goes to two rows: what is asked, then the answers under it. */
+  .dock { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .dock-acts { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; }
+  /* Below this the status text is what has to go, not the way out of a tab. */
+  .pane-head .pane-cost { display: none; }
+  /* The mark stays and the word beside it goes: the room is the breadcrumb's. */
+  .brand h1, .brand + .bar-sep { display: none; }
 }
-.twisty:hover { background: var(--surface-2); color: var(--ink); }
-.twisty:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.side-head [data-fold-for] { cursor: pointer; user-select: none; }
-.side-head [data-fold-for]:hover { color: var(--ink); }
+@media (max-width: 1023px) {
+  /* The bar keeps the mark and drops the word beside it; the session keeps its
+     name and drops its project; New session keeps its plus. */
+  .bar { gap: var(--space-3); }
+  .bar-sep, .crumb-project, .crumb-sep, .live-detail { display: none; }
+  .bar .btn.primary > span { display: none; }
+  .bar .btn.primary { width: 36px; padding: 0; }
 
-/* Two selector classes, so this outranks the `display` these bodies get from
-   .fleet / .sessions / .side-filter. A single .is-folded would tie and lose. */
-[data-fold-body].is-folded { display: none; }
+  .shell,
+  .shell.no-side { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) auto 5px min(var(--chat-w, 480px), 50vw); }
+  .shell.no-chat,
+  .shell.no-side.no-chat { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) auto 0 0; }
+  .shell > #resizer { display: none; }
+  .shell > .side {
+    grid-column: auto;
+    position: absolute; z-index: 40;
+    left: 0; top: 0; bottom: 0;
+    width: min(var(--side-w, var(--nav-w)), 86vw);
+    box-shadow: 12px 0 24px -18px var(--shade);
+  }
+  .shell > .inspector { right: calc(min(var(--chat-w, 480px), 50vw) + 5px); }
+  .shell.no-chat > .inspector { right: 0; }
+}
 
-/* A folded section stops competing for the leftover height: without this the
-   sidebar keeps a tall blank gap where the project tree used to be. */
-.side-block.folded { flex: none; }
-.side-block.grow.folded { border-bottom: 1px solid var(--line); }
+@media (max-width: 639px) {
+  /* The Timeline keeps its track: the label column gives up its width, and the drawer stacks. */
+  .tl { --tl-label-w: 148px; }
+  .tl-lab .sub { display: none; }
+  .tl-drawer { flex-direction: column; gap: var(--space-3); max-height: 55%; }
+  .tl-d-main, .tl-d-error { flex: none; width: 100%; }
+  /* The bar keeps the mark, the word "Studio" and the controls that act on a
+     session. Full screen is the one that goes: a phone has no window to leave. */
+  .bar { gap: var(--space-2); padding: 0 var(--space-3); }
+  .bar .crumb, .bar .chips, .bar #fullscreen { display: none; }
+  /* The session's name and its summary sit under the bar, above the view. */
+  .phone-head { display: flex; flex-direction: column; gap: var(--space-2); flex: none; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); min-width: 0; }
+  .phone-head:empty { display: none; }
+  .phone-head .crumb { min-width: 0; }
+  .phone-head .chips { flex-wrap: wrap; }
+  /* The menu button opens the navigator as a drawer over the stage. */
+  #menu-btn { display: inline-flex; }
+  .shell.side-open > .side {
+    display: flex; grid-column: auto; position: absolute; z-index: 45; left: 0; top: 0; bottom: 0;
+    width: min(86vw, 320px); box-shadow: 12px 0 24px -18px var(--shade);
+  }
+  /* A request's three answers are thumb-sized, one under the other. */
+  .ls { padding: var(--space-3); }
+  .ls-acts { flex-direction: column; }
+  .ls-acts .btn { height: 44px; }
+  /* The inspector is a page here: back, not a cross. */
+  .ihead-back { display: inline-flex; }
+  .ihead-close { display: none; }
+  /* The map and the legend are for a canvas with room around the graph; here they would cover it. */
+  .cv-minimap, .cv-legend { display: none; }
+  /* "Studio" comes back beside the mark, as the phone design has it. */
+  .brand h1 { display: block; font-size: 0; }
+  .brand-accent { font-size: 15px; font-weight: 700; color: var(--ink); }
+
+  .shell,
+  .shell.no-chat,
+  .shell.no-side,
+  .shell.no-side.no-chat { grid-template-columns: 0 0 minmax(0, 1fr) auto 0 0; }
+  .shell > .side,
+  .shell > .side-rail,
+  .shell > #chat-split { display: none; }
+  /* The conversation and the inspector each take the whole stage: there is no
+     second column to put them in. */
+  /* They stop above the approval dock, as the inspector does: a request can be answered while a conversation
+     covers the rest of the stage. */
+  .shell > .chat,
+  .shell > .newpanel { grid-column: auto; position: absolute; z-index: 35; inset: 0 0 var(--dock-h, 0px) 0; border-left: none; }
+  .shell > .inspector,
+  .shell.no-chat > .inspector { left: 0; right: 0; top: 0; width: auto; border-left: none; }
+  .inspector-split { display: none; }
+}

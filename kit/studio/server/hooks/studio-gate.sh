@@ -35,10 +35,99 @@ _field() {                                 # _field <key>  -> value on stdout
   printf '%s' "${r%%\"*}"
 }
 
+# ---- what "allowed" says to Claude Code --------------------------------------
+# Exit 0 with nothing on stdout is not an approval: the harness reads it as "no
+# decision" and sends the call through its own permission flow, and a headless
+# session has nobody to ask. Measured in real sessions (Claude Code 2.1.284): in
+# `default` mode Edit, Write and a writing Bash were all refused AFTER the viewer
+# allowed them here, and in `acceptEdits` the Bash was. So an allowance given in
+# the panel is said out loud, as the JSON decision the harness documents.
+#
+# Never in plan mode. The mode is an allow-list of two, and it has to agree with
+# what the harness itself reports for the session: a hook configured for
+# `default` that finds the session in `plan` stays silent, and so does one with
+# no mode, or with a mode this file does not name. Silence leaves plan's own
+# blocks, and every other check the harness makes, exactly where they were.
+#
+# This approves the call the viewer was shown. It does not unblock anything:
+# another hook that exits 2 still blocks, and this hook's own denials are exit 2.
+# The mode is the spool's `mode` file when there is one, and the mode the hook was configured with otherwise. The
+# file starts as the mode the session started in and changes in exactly one way: the viewer approves a plan, in
+# the panel, into acceptEdits or default (permissions.js `decide`). A session that started in plan mode could not
+# otherwise ever have an allowance said out loud, plan approved or not. The check against what the harness itself
+# reports, below, stays: a file that says `default` approves nothing while the session is still in `plan`.
+_grant() {
+  local gm="${CREW_GATE_MODE:-}"
+  if [ -f "$SPOOL/mode" ]; then
+    read -r gm < "$SPOOL/mode" 2>/dev/null || gm=""
+  fi
+  case "$gm" in
+    acceptEdits|default) ;;
+    *) exit 0 ;;
+  esac
+  case "$(_field permission_mode || true)" in
+    ''|acceptEdits|default) ;;
+    *) exit 0 ;;
+  esac
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"allowed in Crewforth Studio"}}'
+  exit 0
+}
+
 TOOL="$(_field tool_name || true)"
 TUID="$(_field tool_use_id || true)"
 SID="$(_field session_id || true)"
 [ -n "$TOOL" ] || exit 0                   # nothing to ask about
+
+# ---- two calls the viewer is not asked about ---------------------------------
+# Silence here is not an approval. The hook says nothing, and Claude Code decides the call as it would with no
+# panel: its own mode rules and every other hook still apply.
+#
+# ToolSearch looks up a tool's definition and changes nothing. A session reaches for it before the tools it has
+# to load first, ExitPlanMode among them, and asking the viewer to allow a lookup taught them to click through.
+[ "$TOOL" = "ToolSearch" ] && exit 0
+
+# The plan file. In plan mode Claude Code writes its plan to a file of its own before it asks to leave the mode,
+# and plan mode lets it write that file and no other. The viewer could only refuse it, and a plan they have not
+# been shown yet is not something to refuse: the plan itself comes to the panel with ExitPlanMode.
+#
+# Every condition has to hold, and anything that cannot be checked is asked about as before:
+#   - the session is in plan mode, by Claude Code's own report in this call
+#   - the tool is Write (an Edit is asked about)
+#   - the file is named *.md (as written: not .MD, not "x.md/" or "x.md."), and the path has no ".." in it
+#   - the path is spelled the way this platform spells one: "\" separates directories on Windows (MSYS, Cygwin)
+#     and nowhere else, so on any other system a path with a "\" in it is asked about
+#   - the file is not a symbolic link
+#   - the directory it is in, resolved, IS Claude Code's plans directory, resolved: not a directory under it
+# The two directories are resolved by the same builtin (cd -P) and compared as it reports them, so how a path is
+# spelled (C:\… or /c/…, a link on the way) does not matter. No process is started.
+_plan_file() {
+  [ "$TOOL" = "Write" ] || return 1
+  [ "$(_field permission_mode || true)" = "plan" ] || return 1
+  local fp; fp="$(_field file_path || true)"
+  [ -n "$fp" ] || return 1
+  case "$fp" in *..*) return 1 ;; esac
+  case "$fp" in *.md) ;; *) return 1 ;; esac
+  local dir
+  case "${OSTYPE:-}" in
+    msys*|cygwin*)
+      fp="${fp//\\\\/\\}"                   # JSON writes one backslash as two
+      dir="${fp%[/\\]*}" ;;
+    *)
+      case "$fp" in *\\*) return 1 ;; esac    # not a separator here: a name with one in it is not the plan file
+      dir="${fp%/*}" ;;
+  esac
+  [ "$dir" != "$fp" ] && [ -n "$dir" ] || return 1
+  [ -L "$fp" ] && return 1
+  [ -e "$fp" ] && [ ! -f "$fp" ] && return 1
+  local plans="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/plans" was="$PWD" at want
+  cd -P -- "$dir" 2>/dev/null || return 1
+  at="$PWD"
+  if ! cd -P -- "$plans" 2>/dev/null; then cd -- "$was" 2>/dev/null; return 1; fi
+  want="$PWD"
+  cd -- "$was" 2>/dev/null
+  [ -n "$at" ] && [ "$at" = "$want" ]
+}
+_plan_file && exit 0
 
 # Ids become filenames; anything unexpected is refused rather than sanitised
 # into something that might escape the spool.
@@ -47,9 +136,29 @@ case "$TUID" in
 esac
 
 REQ="$SPOOL/req"; ANS="$SPOOL/ans"; ALWAYS="$SPOOL/always"
+
+# The two tools that need a person. Claude Code offers them in a headless session only because Studio names a
+# permission host for it (studio-host.mjs); what answers them is this hook, from what the viewer chose in the
+# panel. A question and a plan take longer to read than one command, so they wait longer before the denial.
+ASK=0
+case "$TOOL" in
+  AskUserQuestion|ExitPlanMode) ASK=1; WAIT="${CREW_GATE_WAIT_ASK:-$WAIT}" ;;
+esac
+# The hook is wired twice: once for every tool, with the harness's ordinary limit, and once for these two alone,
+# with the longer one they need. Each copy answers its own and leaves the other's at once, in silence: silence is
+# no decision, so the copy that does answer decides. With no role (a settings file from before there were two)
+# this copy answers everything.
+case "${CREW_GATE_ROLE:-}:$ASK" in
+  general:1|ask:0) exit 0 ;;
+esac
 mkdir -p "$REQ" "$ANS" "$ALWAYS" 2>/dev/null || exit 0
 
 # A tool the panel already blanket-approved for this session skips the round trip.
+# It is NOT approved out loud: nobody saw this call. The hook stays silent and the
+# harness decides as it would have without a panel, so a call it wants a person
+# for — a commit, anything a project's settings mark `ask` — is still refused in
+# a headless session instead of running unseen. _grant is for a call a person
+# answered, and only for that one.
 case "$TOOL" in
   *[!A-Za-z0-9_-]*) ;;                     # odd tool name: never treated as approved
   *) [ -f "$ALWAYS/$TOOL" ] && exit 0 ;;
@@ -153,10 +262,21 @@ esac
 START=$SECONDS
 while :; do
   if [ -f "$ANS/$TUID" ]; then
-    read -r VERDICT < "$ANS/$TUID" 2>/dev/null || VERDICT=deny
+    VERDICT=deny; OUT=""
+    # Two lines at most: the verdict, and for an answered question or an approved plan the output to print.
+    { IFS= read -r VERDICT; IFS= read -r OUT; } < "$ANS/$TUID" 2>/dev/null || :
     rm -f "$ANS/$TUID" "$REQ/$TUID.json" 2>/dev/null
-    case "$VERDICT" in
-      allow|always) exit 0 ;;
+    case "$ASK:$VERDICT" in
+      0:allow|0:always) _grant ;;
+      # The viewer's answers, or their approval of the plan, exactly as the server wrote them: `allow` with the
+      # tool's input, which is how the hooks reference says a hook answers these two tools. Printed only for them,
+      # and only when there is something to print.
+      1:output) [ -n "$OUT" ] || { printf 'studio: the answer could not be read — denied\n' >&2; exit 2; }
+                printf '%s\n' "$OUT"; exit 0 ;;
+      # A plan approved with a change of mode. The hook cannot change the mode, so it says nothing and the
+      # permission host, which can, answers from what the viewer chose.
+      1:host) [ "$TOOL" = ExitPlanMode ] && exit 0
+              printf 'studio: denied in the panel\n' >&2; exit 2 ;;
       *) printf 'studio: denied in the panel\n' >&2; exit 2 ;;
     esac
   fi

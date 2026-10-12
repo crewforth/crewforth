@@ -10,7 +10,7 @@ set -euo pipefail
 # match here is written in ASCII. Measured under tr_TR.UTF-8 with the locale left as it came:
 #   GNU grep 3.11 / bash 5.2 on Linux: `grep -i init` does not find INIT (-F, -E and plain alike);
 #     bash's nocasematch does not match GIT against git; `[A-Za-z]` in a regex does not hold I; awk's tolower
-#     turns GIT into gıt. The suite, run whole under that locale, went from 2 failures to 23: a recursive
+#     turns GIT into gıt. The suite, run whole under that locale, went from 4 failures to 30: a recursive
 #     Remove-Item, a write to a gate file, `git config --remove-section core`, a read of a nested .env and a
 #     staged key all passed.
 #   GNU grep 3.0 in Git Bash on Windows: `grep -iF` with an ASCII pattern aborts (exit 134), and the pre-commit
@@ -36,7 +36,9 @@ export LC_ALL=C
 # the first look finds nothing and the match ignores case: in the C locale such a letter has no other case.
 _crew_scan(){  # $1 = grep's flags after -q (iE, E, iF) · $2 = pattern · $3 = file
   local r=0
-  grep -q"$1" -- "$2" "$3" 2>/dev/null || r=$?
+  # The first look is in the C locale, SAID ON THE CALL and not left to the export at the top of the file: under
+  # tr_TR `grep -iE` does not abort, it answers "no match" for i against I (measured in Git Bash), which is silent.
+  LC_ALL=C grep -q"$1" -- "$2" "$3" 2>/dev/null || r=$?
   if [ "$r" = 1 ] && [ -n "$_CREW_LOCALE" ]; then
     case "$1" in *i*) case "$2" in *[!$'\t'\ -~]*) r=0; LC_ALL="$_CREW_LOCALE" grep -q"$1" -- "$2" "$3" 2>/dev/null || r=$? ;; esac ;; esac
   fi

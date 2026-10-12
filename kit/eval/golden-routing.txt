@@ -23,6 +23,13 @@ the page layout is broken on mobile|frontend-design
 requests are timing out under load|crew-performance-expert
 add client routing to the app|crew-frontend-expert
 add a new rn screen with expo router|frontend-rn-expo
+# The Flutter layer answers to what only a Flutter project says: its tools, its files, its packages. A request that
+# names Flutter itself goes to the frontend owner, who then applies this layer (agent over skill, as for any stack).
+add a riverpod provider for the cart total|frontend-flutter
+pubspec'e paket ekle ve go_router ile yeni rota tanımla|frontend-flutter
+write a widget test for the login form|frontend-flutter
+analysis_options.yaml uyarılarını temizle|frontend-flutter
+write a flutter widget test for the login form|crew-frontend-expert
 # The client side is stack-neutral (3.0.1): a mobile request on another stack goes to the frontend owner, never to
 # the React Native layer. Turkish as typed in the field, and English.
 flutter ekranı ekle|crew-frontend-expert
@@ -103,6 +110,12 @@ choose a database for this service|backend-architecture
 flutter ekranı ekle|!frontend-rn-expo
 add a SwiftUI view for the profile|!frontend-rn-expo
 build a Jetpack Compose screen for settings|!frontend-rn-expo
+# The Flutter layer must stay as quiet as the React Native one on another stack, and on the generic word "widget".
+add a new rn screen with expo router|!frontend-flutter
+add a SwiftUI view for the profile|!frontend-flutter
+build a Jetpack Compose screen for settings|!frontend-flutter
+add a home screen widget for iOS|!frontend-flutter
+the dashboard widget overflows on small screens|!frontend-flutter
 # Field case (3.0.1, P2 case A): a user handing work over to another team named the area in passing — the bare word
 # "frontend" and a project called <x>_ui each routed it to the frontend skill. Turkish as it was typed, and in English.
 acme_ui için yapılacak iş varsa aktarır mısın? frontend tarafından o sorumlu|!frontend

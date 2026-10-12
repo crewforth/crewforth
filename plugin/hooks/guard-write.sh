@@ -36,7 +36,7 @@ set -uo pipefail
 # match here is written in ASCII. Measured under tr_TR.UTF-8 with the locale left as it came:
 #   GNU grep 3.11 / bash 5.2 on Linux: `grep -i init` does not find INIT (-F, -E and plain alike);
 #     bash's nocasematch does not match GIT against git; `[A-Za-z]` in a regex does not hold I; awk's tolower
-#     turns GIT into gıt. The suite, run whole under that locale, went from 2 failures to 23: a recursive
+#     turns GIT into gıt. The suite, run whole under that locale, went from 4 failures to 30: a recursive
 #     Remove-Item, a write to a gate file, `git config --remove-section core`, a read of a nested .env and a
 #     staged key all passed.
 #   GNU grep 3.0 in Git Bash on Windows: `grep -iF` with an ASCII pattern aborts (exit 134), and the pre-commit
@@ -73,13 +73,41 @@ _gate_main(){
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
-INPUT="$(cat)"
+# Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
+# of this hook. `read` returns 1 at end of input; the text is read regardless.
+IFS= read -r -d '' INPUT || true
 
 # The two helpers below are a byte-identical copy of guard-bash.sh's block. A shared file would have to be
 # added to build-plugin.sh's explicit copy list and a miss there breaks the plugin channel silently — the same
 # reasoning as the CREW-TRANSCRIPT-DIR resolver, which is duplicated for the same reason. Two copies are only
 # safe while they cannot drift, so smoke-test pins these markers byte-identical rather than trusting it.
 # ---- CREW-JSON-PARSE ------------------------------------------------------------------------------------
+_json_find(){  # $1 = text, $2 = a literal -> _JF = the offset of its first occurrence, -1 when there is none
+  # `${text%%"$literal"*}` gives the same offset and costs the DISTANCE to the occurrence times the length of the
+  # text (bash measures the remaining string at every position it tries), so with no occurrence at all it is the
+  # square of the size. That was the whole cost of a large Write: the path key is found near the front, and the
+  # look for a SECOND one then ran over the content -- measured on macOS, 1 MB: 9.6 s for each of the two key
+  # counts, against 0.02 s for one `case`; a 6 MB Write to a gate file was refused after 636 s, past the 600 s
+  # timeout, which means not refused. Here the text is walked a piece at a time, each piece long enough to hold an
+  # occurrence that starts in it, and the expansion only ever runs inside a piece that `case` says holds one.
+  # Two sizes of piece, because taking a piece out of the text costs the length of the text as well: a block is
+  # taken from the whole text, and the small pieces from the block.
+  local LC_ALL=C
+  local i=0 j n=${#1} kl=${#2} B=262144 C=4096 b bn c pre
+  _JF=-1
+  while [ "$i" -lt "$n" ]; do
+    b="${1:i:B+kl-1}"
+    case "$b" in *"$2"*)
+      j=0; bn=${#b}
+      while [ "$j" -lt "$bn" ]; do
+        c="${b:j:C+kl-1}"
+        case "$c" in *"$2"*) pre="${c%%"$2"*}"; _JF=$((i+j+${#pre})); return 0 ;; esac
+        j=$((j+C))
+      done ;;
+    esac
+    i=$((i+B))
+  done
+}
 _json_slice(){  # $1 = whole payload, $2 = key -> the raw (still JSON-escaped) string value, "" if absent
   local LC_ALL=C   # FIRST, so every expansion below -- the key search included -- counts and cuts in bytes.
                    # Lengths from ${#x} are used as offsets into ${y:n}; with the locale set before any of
@@ -103,8 +131,7 @@ _json_slice(){  # $1 = whole payload, $2 = key -> the raw (still JSON-escaped) s
   #     payload is still moving (`effort` is absent from the field list recorded on 2.1.246).
   #   * `${tail#"$seg"\"}` stepped past each escaped quote: 16.8s for a single 100 KB step on Git Bash,
   #     against 0.002s for `${tail:${#seg}+1}` doing exactly the same thing.
-  # `${hay%%"$k"*}` finds the FIRST occurrence -- the longest suffix that starts with the key starts at the
-  # earliest one. THAT ALONE IS NOT ENOUGH, and the sentence that used to stand here said it was: it claimed a
+  # _json_find gives the FIRST occurrence. THAT ALONE IS NOT ENOUGH, and the sentence that used to stand here said it was: it claimed a
   # command "containing the literal text `\"command\":\"` still cannot relocate the parse", which is true of
   # that byte sequence and irrelevant, because this search is for `"command"` WITHOUT the colon. A JSON VALUE
   # equal to the key name is exactly those bytes between two unescaped quotes. Measured on the shipped hook:
@@ -128,7 +155,7 @@ _json_slice(){  # $1 = whole payload, $2 = key -> the raw (still JSON-escaped) s
   # empty input). Broken twins -- the run not carried across a window, a byte skipped after a quote -- prove
   # the battery sees both.
   # THE NUMBER OF PASSES IS CAPPED, for the same reason guard-write caps the path length: an unbounded cost on
-  # a PreToolUse hook is a gate with an off switch, because a hook killed at its 60s timeout emits no exit 2.
+  # a PreToolUse hook is a gate with an off switch, because a hook killed at its timeout emits no exit 2.
   # Each decoy costs one more `%%` scan over the remainder, so the work is quadratic in the number of decoys.
   # Measured on macOS/bash, single call, `"k<i>":"command"` decoys in front of the real key:
   #      50 decoys    844 B    12 ms        800 decoys   13544 B    126 ms
@@ -144,14 +171,14 @@ _json_slice(){  # $1 = whole payload, $2 = key -> the raw (still JSON-escaped) s
   # raising or removing it later is not a tidy-up.
   # The bound is on the LOOP, not on the payload, so an ordinary command pays nothing: the same 56572 B flood
   # is refused in 93-94 ms with jq/python3 present and 168-169 ms on the slice path this paragraph is about,
-  # both far inside the 60s timeout, while a 46 KB legitimate command is 325 ms on macOS -- a figure that
+  # both far inside the 60s timeout these hooks had when this was measured, while a 46 KB legitimate command is 325 ms on macOS -- a figure that
   # predates this change and belongs to the walk, not to the cap.
   local _cap=64 _seen=0
   while :; do
-    pre="${hay%%"$k"*}"                        # everything before the next `"key"`
-    [ "$pre" != "$hay" ] || return 0           # no further occurrence: emit nothing
+    _json_find "$hay" "$k"                     # where the next `"key"` starts
+    [ "$_JF" -ge 0 ] || return 0               # no further occurrence: emit nothing
     _seen=$((_seen+1)); [ "$_seen" -le "$_cap" ] || return 0
-    rest="${hay:${#pre}+${#k}}"                # past `"key"`
+    rest="${hay:_JF+${#k}}"                    # past `"key"`
     while [ -n "$rest" ] && [[ "${rest:0:1}" == [$' \t\n\r'] ]]; do rest="${rest:1}"; done
     case "$rest" in
       :*) rest="${rest:1}"; break ;;           # whitespace then `:` -- this occurrence IS the key
@@ -191,7 +218,7 @@ _json_unescape(){  # left-to-right, a chunk at a time; a two-pass sed would corr
   # CHARACTER at a time, which is O(n^2) twice over: `${s%"${s#?}"}` matches a pattern the length of the
   # entire remainder just to read one character, and `out="$out$c"` recopies the output for each one.
   #
-  # That was not a comfort question. This hook's timeout is 60s -- set in settings.json, NOT Claude Code's
+  # That was not a comfort question. This hook's timeout was 60s then -- set in settings.json (600s since 3.1.0), NOT Claude Code's
   # default, and reading the default instead is how a first pass at this got the consequence wrong. A
   # PreToolUse hook KILLED at its timeout emits no exit 2, so every rule below is simply skipped. Measured on
   # the tier-3 path with jq and python3 both shadowed, the old shape crossed 60s at ~4.3 KB. And 4.3 KB is
@@ -243,7 +270,7 @@ _json_unescape(){  # left-to-right, a chunk at a time; a two-pass sed would corr
   # the gate cases.
   local LC_ALL=C
   local s="$1" pre w c h n base=0 j=0 cl lim chunk C=4096 W=256; local -a acc=("")
-  case "$s" in *\\*) ;; *) printf '%s' "$s"; return 0 ;; esac   # no escapes: the common case pays nothing
+  case "$s" in *\\*) ;; *) _JU="$s"; printf '%s' "$s"; return 0 ;; esac   # no escapes: the common case pays nothing
   n=${#s}; chunk="${s:0:C}"; cl=${#chunk}
   while :; do
     lim=$((cl - j))
@@ -273,12 +300,17 @@ _json_unescape(){  # left-to-right, a chunk at a time; a two-pass sed would corr
          # `?`, which is only ever a display concern because this value is used for MATCHING, never to write.
          case "$h" in
            00[2-7][0-9a-fA-F]) printf -v c "\\x${h#00}"; acc+=("$c") ;;
+           # The three dashes PowerShell accepts in front of a parameter name, as themselves: as `?` they hid
+           # `\u2013Recurse \u2013Force` from the delete rule, while the same bytes sent raw were caught.
+           2013) acc+=("–") ;; 2014) acc+=("—") ;; 2015) acc+=("―") ;;
            *)                  acc+=("?") ;;
          esac ;;
       *) acc+=("$c") ;;
     esac
   done
-  local IFS=''; printf '%s' "${acc[*]}"
+  # ALSO sets `_JU`, for the same reason `_json_slice` sets `_JS`: a caller on the hot path reads the value from it
+  # and sends this printf to /dev/null, instead of paying a `$( )` — a fork — on every tool call.
+  local IFS=''; _JU="${acc[*]}"; printf '%s' "$_JU"
 }
 _json_keycount(){  # $1 = payload, $2 = key -> sets _KC to how many times it occurs AS A KEY
   # IT SETS A VARIABLE INSTEAD OF PRINTING, and that is not a style choice. Written as `n="$(_json_keycount
@@ -311,16 +343,16 @@ _json_keycount(){  # $1 = payload, $2 = key -> sets _KC to how many times it occ
   # over settings.json, a commit message quoting the word, commands ending in `"command` -- every count <= 1.
   # Same pass cap as the slice, and over-cap reports AMBIGUOUS rather than a true count: the callers refuse on
   # `> 1`, so a payload built to outrun the loop is refused instead of being timed out past the gate.
-  local LC_ALL=C hay="$1" k="\"$2\"" pre rest c=0 _cap=64 _seen=0
+  local LC_ALL=C hay="$1" k="\"$2\"" rest c=0 _cap=64 _seen=0
   _KC=0; _KC_CAPPED=0
   while :; do
-    pre="${hay%%"$k"*}"
-    [ "$pre" != "$hay" ] || { _KC=$c; return 0; }
+    _json_find "$hay" "$k"
+    [ "$_JF" -ge 0 ] || { _KC=$c; return 0; }
     # OVER-CAP IS ITS OWN ANSWER, not a large count. `_KC_CAPPED` lets the caller say what actually happened:
     # the occurrences it stopped at are candidate positions, key-form or not, so calling them "65 keys" was a
     # sentinel dressed up as a measurement and the remedy it offered ("send one key") was already satisfied.
     _seen=$((_seen+1)); [ "$_seen" -le "$_cap" ] || { _KC=$((_cap+1)); _KC_CAPPED=$_cap; return 0; }
-    rest="${hay:${#pre}+${#k}}"
+    rest="${hay:_JF+${#k}}"
     while [ -n "$rest" ] && [[ "${rest:0:1}" == [$' \t\n\r'] ]]; do rest="${rest:1}"; done
     case "$rest" in :*) c=$((c+1)) ;; esac
     hay="$rest"
@@ -355,13 +387,16 @@ block(){  # $1 = rule name for the log (must keep the `gate-file edit` prefix �
 WHY_SCRIPT="This file is a gate script — rewriting it would disarm the trace/secret/approval gates."
 WHY_DISC="This file is Crewforth's discipline document — it IS the text of §4.1-§4.5, so editing it empties the rules the gates enforce."
 WHY_LINK="A parent directory of this path is a symlink and it resolves into a gate directory, so the write would land on a gate file."
+WHY_MODEL="This file is what model routing decides from: the user's rules, a class's floor, the critical paths, or the record of a call and its result. Only the user and Crewforth's own hooks write it, so a session cannot lower its own floor or erase its own failure."
+WHY_APPR="This file records the user's own approval for a commit or a push (§4.4). Only the user's message writes it, so a session cannot approve its own commit."
+WHY_GITCFG="This file holds core.hooksPath: writing it can switch the git hooks off without touching one of them. Settings go through git config, which the Bash guard reads."
 WHY_LONG="The path in this payload is longer than any filesystem accepts. It is refused rather than parsed, because parsing it is the slow path an attacker would aim at."
 # Sized from the cost curve, not from PATH_MAX. Tier 3 walks the value character by character and bash string
 # append is O(n) each time, so the walk is quadratic: measured 0.09s at 512 raw bytes, 0.52s at 1,024, 3.7s at
 # 2,048, ~30s at 4,096. Real paths are nowhere near: measured on a Windows install, actual `file_path` values
 # average ~60 bytes and Windows itself stops at 260 without the long-path opt-in (macOS PATH_MAX is 1,024).
 # 2,048 therefore keeps every path anyone can really produce and bounds the worst case at a few seconds,
-# well inside this hook's 60s timeout — the number that matters, because a hook killed at its timeout emits
+# well inside the 60s timeout this hook had then — the number that mattered, because a hook killed at its timeout emits
 # no exit 2 and the write proceeds.
 MAXPATH=2048
 
@@ -399,14 +434,15 @@ fi
 # Microsoft Store redirector stub named python3 on PATH by default, `command -v` finds it, it exits 49 with an
 # empty stdout, FP came back "" and `[ -z "$FP" ] && exit 0` let the model rewrite .claude/hooks/guard-bash.sh
 # with its Write tool. Pure parameter expansion cannot fail that way.
-_raw="$(_json_slice "$INPUT" file_path)"
-[ -n "$_raw" ] || _raw="$(_json_slice "$INPUT" notebook_path)"
+# Through `_JS` / `_JU`, not `$( )`: no fork on the path every Write and Edit takes (3.1.0).
+_json_slice "$INPUT" file_path >/dev/null; _raw="$_JS"
+[ -n "$_raw" ] || { _json_slice "$INPUT" notebook_path >/dev/null; _raw="$_JS"; }
 # THE CAP GOES BEFORE THE UNESCAPER, and the cost it bounds is one the shared reader INTRODUCED — worth saying
 # plainly rather than dressing up as a pre-existing bug. What it replaced was a single `sed`, which is linear
 # and was never slow; it was replaced because it truncated the value at the first escaped quote and never
 # looked at `notebook_path`. The parser that fixes those walks character by character, which is quadratic in
 # bash, and on Windows every separator is a backslash, i.e. an escape, so the "no escapes" fast path never
-# fires. Uncapped, that is a gate with an off switch: a hook killed at its 60s timeout emits no exit 2 and the
+# fires. Uncapped, that is a gate with an off switch: a hook killed at its timeout emits no exit 2 and the
 # write proceeds. Refusing above the cap is safe in the direction that matters, and the cap sits far above any
 # path a filesystem will accept.
 # ONE cap, not two. The second check used to follow the unescaper because the jq tier reached the fold with no
@@ -414,7 +450,7 @@ _raw="$(_json_slice "$INPUT" file_path)"
 # measured over 23 escape forms including a surrogate pair and a 4900-byte run of `€` across the chunk
 # edge, with a deliberately-growing stand-in as the calibration, so the check could be seen to fail.
 [ "${#_raw}" -le "$MAXPATH" ] || { FP="(oversized path: ${#_raw} bytes)"; block "gate-file edit (oversized path)" "$WHY_LONG"; }
-FP="$(_json_unescape "$_raw")"
+_json_unescape "$_raw" >/dev/null; FP="$_JU"
 
 # Nothing extractable. Exiting 0 unconditionally is what a future field rename turns into a silent bypass, so
 # look at the RAW payload instead: refuse only when the text itself names a gate tree. A payload that mentions
@@ -422,7 +458,7 @@ FP="$(_json_unescape "$_raw")"
 # block on a file whose own path says `.claude/…hooks`, which is the trade this gate exists to make.
 if [ -z "$FP" ]; then
   case "$INPUT" in
-    *.claude*hooks*|*.git*hooks*|*DISCIPLINE.md*) FP="(unparsed payload naming a gate path)"; block "gate-file edit (unparsed payload)" "$WHY_SCRIPT" ;;
+    *.claude*hooks*|*.git*hooks*|*DISCIPLINE.md*|*crewforth-approval*|*.git/config*|*.git\\config*|*git-shim*|*.gitconfig*|*.config/git/config*) FP="(unparsed payload naming a gate path)"; block "gate-file edit (unparsed payload)" "$WHY_SCRIPT" ;;
   esac
   exit 0
 fi
@@ -489,6 +525,9 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
       GATE_RULE="gate-file edit (Write/Edit tools)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
     */.[Gg][Ii][Tt]/[Hh][Oo][Oo][Kk][Ss]/*|.[Gg][Ii][Tt]/[Hh][Oo][Oo][Kk][Ss]/*)
       GATE_RULE="gate-file edit (Write/Edit tools)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
+    # .claude/git-shim is where core.hooksPath points when Crewforth shares the hooks with a project's own chain.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]/*|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]/*|*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm])
+      GATE_RULE="gate-file edit (Write/Edit tools)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
     # The gates SOURCE eval/lib/crew-env.sh on every call, so it is part of them: overwritten with `exit 0`, every
     # rule stopped firing (3.0.1 review). Same file in the plugin edition, below.
     */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh])
@@ -501,6 +540,27 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
     # `hooks/` directory is untouched.
     */[Hh][Oo][Oo][Kk][Ss]/[Gg][Uu][Aa][Rr][Dd]-*.[Ss][Hh]|*/[Hh][Oo][Oo][Kk][Ss]/[Ss][Ee][Ss][Ss][Ii][Oo][Nn]-[Gg][Uu][Aa][Rr][Dd].[Ss][Hh])
       GATE_RULE="gate-file edit (Crewforth gate script)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
+    # The record of the user's approval for a commit or a push (§4.4, hooks/prompt-approval.sh). It sits in the git
+    # directory and is written from the user's own message only; a session that writes it approves its own commit.
+    # Matched by name wherever it is: a linked worktree keeps its git directory elsewhere.
+    */[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll]|[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll])
+      GATE_RULE="approval-record edit (Write/Edit tools)"; GATE_WHY="$WHY_APPR"; return 0 ;;
+    # What model routing decides from (hooks/guard-agent-model.sh, hooks/agent-outcome.sh): the user's own rules,
+    # the floors raised from the record of outcomes, the list of critical paths, and the records of calls and
+    # results. A session that writes one lowers its own floor or wipes its own failure.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Cc][Rr][Ee][Ww]-[Mm][Oo][Dd][Ee][Ll]-[Rr][Uu][Ll][Ee][Ss]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Cc][Rr][Ee][Ww]-[Mm][Oo][Dd][Ee][Ll]-[Rr][Uu][Ll][Ee][Ss]\
+    |*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-*|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-*\
+    |*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Mm][Oo][Dd][Ee][Ll]-[Oo][Uu][Tt][Cc][Oo][Mm][Ee][Ss].[Tt][Ss][Vv]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Mm][Oo][Dd][Ee][Ll]-[Oo][Uu][Tt][Cc][Oo][Mm][Ee][Ss].[Tt][Ss][Vv])
+      GATE_RULE="gate-file edit (model routing record)"; GATE_WHY="$WHY_MODEL"; return 0 ;;
+  esac
+  # core.hooksPath lives in git's configuration files: the repository's (.git/config, with a linked worktree's and a
+  # submodule's own) and the user's (~/.gitconfig, ~/.config/git/config). Writing one switches the git hooks off without
+  # touching a hook. guard-bash.sh carries the same list for the shell. The path gets a slash in front, so one pattern
+  # serves both `<dir>/.git/config` and a bare `.git/config`; matched by name, not against $HOME — on Windows the
+  # payload says C:\Users\… where the shell says /c/Users/…, and two spellings of one path never compare equal.
+  case "/$1" in
+    */.[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]|*/.[Gg][Ii][Tt]/[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]|*/.[Gg][Ii][Tt]/[Mm][Oo][Dd][Uu][Ll][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Cc][Oo][Nn][Ff][Ii][Gg]/[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg])
+      GATE_RULE="git-config edit (Write/Edit tools)"; GATE_WHY="$WHY_GITCFG"; return 0 ;;
   esac
   # ...and not only the gate scripts it knew by name: everything under the plugin root's hooks/ (hooks.json, the
   # blocklists, the git hooks, every hook), .claude-plugin/ and the sourced crew-env.sh is the plugin's equivalent of
@@ -549,6 +609,29 @@ while case "$_anc" in */*) true ;; *) false ;; esac; do
     break
   fi
 done
+
+# ---- model routing: an agent that is not on opus does not write to a critical path ------------------------------
+# The card a crew agent is called with can leave a file out, so the files it names are not the last word: the
+# write itself is checked. Asked only of a call that comes from inside an agent (the payload then carries agent_id;
+# measured on Claude Code 2.1.294), so the session's own writes pay one test of the payload's text and nothing else.
+# One definition of "critical path" and of "which model is this agent on": hooks/guard-agent-model.sh, sourced.
+case "$INPUT" in *'"agent_id"'*)
+  if [ "${CREW_MODEL_ROUTING:-}" != off ]; then
+    _gwm="${BASH_SOURCE%/*}"; [ "$_gwm" = "${BASH_SOURCE}" ] && _gwm=.
+    if [ -f "$_gwm/guard-agent-model.sh" ]; then
+      . "$_gwm/guard-agent-model.sh"
+      declare -F _am_write_check >/dev/null 2>&1 && _am_write_check "$INPUT" "$FP"
+      # An agent does not write the settings files either: a Bash(...) rule in permissions.allow is one of the two
+      # ways the USER allows a verify command by name, and an agent that could add one would allow its own.
+      case "${FP//\\//}" in
+        */.claude/settings.json|.claude/settings.json|*/.claude/settings.local.json|.claude/settings.local.json)
+          declare -F _am_log >/dev/null 2>&1 && _am_log "a settings file written from inside an agent"
+          echo "GUARD (agent model): an agent does not write ${FP##*/}: a permission rule there decides which verify command a hook may run, and that is the user's to give. Stop, say what you wanted to change, and end your report with confidence: low" >&2
+          exit 2 ;;
+      esac
+    fi
+  fi ;;
+esac
 
 # ---- team board: you may not start work nobody knows you started -----------------------------------------------
 # The claim lock already makes it impossible for two people to HOLD the same item — a losing claim is refused in

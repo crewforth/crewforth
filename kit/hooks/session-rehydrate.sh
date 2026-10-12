@@ -18,6 +18,7 @@
 #     bare command has no word to take the language from. An English install adds nothing (English is the default).
 #   - CLAUDE.md itself reloads on /compact and /clear on its own, so this hook does NOT re-inject the discipline —
 #     only the session-specific state the reload can't recover.
+#   - THE GIT HOOKS LINE. Where the hooks are installed but git is not pointed at them, the session is told (below).
 #   - Fails OPEN and SILENT: no handover file, no output. It never blocks the session (always exits 0).
 set -uo pipefail
 IN="$(cat 2>/dev/null || true)"
@@ -50,6 +51,23 @@ if [ "$SRC" != startup ] && [ -s "$STATE" ]; then
 MSG="A session handover from before this context boundary exists at docs/SESSION_STATE.md. If the user's request continues that work, read it first — it holds the in-progress task state, open decisions, and the intended next step — and do not restart from scratch. If the request is about something else, do not bring it up."
 fi
 [ -n "$LANGMSG" ] && MSG="${MSG:+$MSG }$LANGMSG"
+
+# THE GIT HOOKS ARE NOT CONNECTED. pre-commit and commit-msg run only when core.hooksPath points at them (or at
+# .claude/git-shim, which runs them and then the project's own). An install made before `git init`, and every clone of
+# a repository that shares .claude/, starts without that setting (measured: a field project, and v3.0.0 again in three
+# orders). The tool-level gates still judge a commit made through Claude Code; a commit typed in a terminal is scanned
+# by nothing. Crewforth does not change git's configuration by itself, so the session is told, once at each start,
+# and the user decides. Only where the hooks are installed and this is a repository; two git calls, at session start.
+HOOKMSG=""
+if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  _hp="$(git -C "$ROOT" config --get core.hooksPath 2>/dev/null || true)"; _hp="${_hp%$'\r'}"; _hp="${_hp//\\//}"
+  case "${_hp%/}" in
+    .claude/hooks|*/.claude/hooks|.claude/git-shim|*/.claude/git-shim) ;;
+    '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: git config core.hooksPath .claude/hooks, or the Crewforth update when the repository has hooks of its own. /crew-doctor shows the state." ;;
+    *)  HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at another hook directory, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update keeps that directory's hooks and runs Crewforth's before them. /crew-doctor shows the state." ;;
+  esac
+fi
+[ -n "$HOOKMSG" ] && MSG="${MSG:+$MSG }$HOOKMSG"
 [ -n "$MSG" ] || exit 0   # no handover to offer and nothing to say about language -> stay silent
 
 # hookSpecificOutput.additionalContext is the documented channel that injects text into the model's context.

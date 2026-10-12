@@ -1,0 +1,6 @@
+ts	agent_id	agent	change	risk	card	model	verify	fixes	escalated_from	ran_on	confidence
+2026-10-10T06:51:01Z	f1	crew-backend-expert	feature	normal	idem	sonnet	fail	1	-	-	-
+2026-10-10T06:51:02Z	f2	crew-backend-expert	feature	normal	idem	opus	pass	0	sonnet	-	-
+2026-10-10T06:51:03Z	f3	crew-test-expert	test-run	normal	suite	haiku	pass	0	-	-	-
+2026-10-10T06:51:03Z	f4	crew-frontend-expert	feature	normal	banner	sonnet	none	0	-	-	-
+2026-10-10T06:51:03Z	f5	crew-performance-expert	audit	critical	batch	opus	blocked	0	-	-	-

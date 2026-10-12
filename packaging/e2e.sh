@@ -3,6 +3,11 @@
 # so a release can never ship while the e2e is red — the gap that once let a green release sit on top of a red CI.
 # Run from anywhere; it resolves the repo root itself. Uses $RUNNER_TEMP in CI, a mktemp dir locally.
 set -euo pipefail
+# NOTHING HERE READS THE CALLER'S STDIN. Every case hands its own input to what it runs (a pipe, a here-string, a
+# pty of its own). A call that inherits this script's stdin and waits on it would sit until the job's time limit:
+# a Windows e2e hung for three hours in this script and the log of a hung job cannot be read. No such call was
+# found; this closes the class instead of the one case: whatever inherits stdin from here on reads end-of-file.
+exec </dev/null
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 WORK="${RUNNER_TEMP:-$(mktemp -d)}"
 # Several assertions grep the installers' English output. A Turkish locale (or an exported CREW_LANG=tr) turns
@@ -197,9 +202,13 @@ case "$DOUT" in *"enforces the §4.6 review gate"*) ;;
 fork_words(){   # $1 = xtrace file, $2 = the traced script (for its function names) -> one line per external command
   { compgen -b; compgen -k; echo '(('
     grep -hoE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\(\)' "$2" | tr -d ' ()' | sort -u; } > "$1.excl"
-  sed -n 's/^++*[[:space:]]*//p' "$1" | awk '{print $1}' | sed "s/^'//; s/'\$//" \
-    | { grep -vE '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=' || true; } \
-    | { grep -vxF -f "$1.excl" || true; }
+  # Read as BYTES (LC_ALL=C). An xtrace is not always valid text: bash 3.2 prints a four-byte character it assigns
+  # half escaped (`_l=$'\xf0\237\xa4\226'` for the robot emoji of the trace blocklist, which doctor now reads line by
+  # line), and BSD sed under a UTF-8 locale stops on it with "RE error: illegal byte sequence". Measured: this e2e
+  # failed that way on the macOS runner and passed where LANG was unset. A command word is ASCII either way.
+  LC_ALL=C sed -n 's/^++*[[:space:]]*//p' "$1" | LC_ALL=C awk '{print $1}' | LC_ALL=C sed "s/^'//; s/'\$//" \
+    | { LC_ALL=C grep -vE '^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=' || true; } \
+    | { LC_ALL=C grep -vxF -f "$1.excl" || true; }
 }
 fork_count(){ fork_words "$@" | wc -l | tr -d ' '; }
 # The counter is measured before it measures doctor, on a script whose answer is known and which carries every
@@ -249,25 +258,77 @@ run_adopt "$G" --yes
 grep -q '^stack=generic' "$G/.claude/kit.conf"          || die "Node project not recorded as generic" adopt-generic "$G"
 [ ! -d "$G/.claude/skills/cqrs-aop-module" ]             || die "the removed .NET pattern skill was installed" adopt-generic "$G"
 echo "[adopt-generic] stack=generic · no pattern skill"
-# .claude/README.md describes the installed version. start.sh copied it and adopt/update never did (RC-1 field: both
-# projects still described 3.0.0 after updating). Refreshed on every run now; a copy that differs is kept first.
-cmp -s kit/README.md "$G/.claude/README.md" || die "adopt did not write .claude/README.md" adopt-readme "$G"
+# THE FLAT FILES CREWFORTH OWNS: .claude/README.md, AGENT_TEMPLATE.md and DISCIPLINE.md are rewritten on every run.
+# README was not written at all by adopt/update before 3.0.1 (RC-1 field: both projects still described 3.0.0), and
+# the other two were rewritten with no look at what was there: an edit was lost without a word. One rule for the
+# three: a copy that is not this version's and not one an earlier release shipped is kept first and named.
+of_want(){  # $1 = name -> the file holding this version's content, in $WORK/of-want
+  if [ "$1" = DISCIPLINE.md ]; then awk '/^<!-- KIT:DISCIPLINE-END/{exit} {print}' kit/CLAUDE.md > "$WORK/of-want"; else cp "kit/$1" "$WORK/of-want"; fi; }
+for _of in README.md AGENT_TEMPLATE.md DISCIPLINE.md; do
+  of_want "$_of"; cmp -s "$WORK/of-want" "$G/.claude/$_of" || die "adopt did not write .claude/$_of" owned-files "$G"
+done
 ( cd "$G" && git add -A && git commit -qm adopt1 ) >/dev/null 2>&1
-printf '# the README an older Crewforth wrote, or the user edited\n' > "$G/.claude/README.md"
+for _of in README.md AGENT_TEMPLATE.md DISCIPLINE.md; do printf '# %s as the user edited it\n' "$_of" >> "$G/.claude/$_of"; cp "$G/.claude/$_of" "$WORK/of-edited-$_of"; done
 cp adopt.sh "$G/"; cp -R kit "$G/"; run_adopt "$G" --yes
-cmp -s kit/README.md "$G/.claude/README.md" || die "the update left a stale .claude/README.md" adopt-readme "$G"
 _rbk="$(ls -d "$G"/.claude/.legacy-backup/*/ 2>/dev/null | tail -1)"
-[ -n "$_rbk" ] && grep -qx '# the README an older Crewforth wrote, or the user edited' "${_rbk}README.md" 2>/dev/null \
-  || die "the old README was overwritten without a copy" adopt-readme "$G"
-case "$ADOPT_OUT" in *"README.md differed from this version's — the old one is kept in"*) ;; *) die "the update kept the old README without saying where" adopt-readme "$G" ;; esac
-# Twins: the same README (and the same one with CRLF line endings) is refreshed silently, with no backup.
+[ "$(ls -d "$G"/.claude/.legacy-backup/*/ 2>/dev/null | grep -c .)" = 1 ] || die "the three edited files were not kept in ONE backup directory" owned-files "$G"
+for _of in README.md AGENT_TEMPLATE.md DISCIPLINE.md; do
+  of_want "$_of"; cmp -s "$WORK/of-want" "$G/.claude/$_of" || die "the update left a stale .claude/$_of" owned-files "$G"
+  [ -n "$_rbk" ] && cmp -s "$WORK/of-edited-$_of" "${_rbk}$_of" 2>/dev/null || die "the edited $_of was overwritten without a copy of its bytes" owned-files "$G"
+  case "$ADOPT_OUT" in *"$_of is not a copy Crewforth shipped before this version — it is kept in ${_rbk#"$G"/}$_of"*) ;;
+    *) die "the update kept the edited $_of without saying where" owned-files "$G" ;; esac
+done
+# Twins: this version's own content (and the same with CRLF line endings) is refreshed silently, with no backup.
 rm -rf "$G/.claude/.legacy-backup"; cp adopt.sh "$G/"; cp -R kit "$G/"; run_adopt "$G" --yes
-case "$ADOPT_OUT" in *"README.md differed"*) die "an unchanged README was backed up" adopt-readme/same "$G" ;; esac
-awk '{ printf "%s\r\n", $0 }' kit/README.md > "$G/.claude/README.md"
+case "$ADOPT_OUT" in *"is not a copy Crewforth shipped"*) die "an unchanged owned file was backed up" owned-files/same "$G" ;; esac
+for _of in README.md AGENT_TEMPLATE.md DISCIPLINE.md; do of_want "$_of"; awk '{ printf "%s\r\n", $0 }' "$WORK/of-want" > "$G/.claude/$_of"; done
+[ "$(tr -dc '\r' < "$G/.claude/DISCIPLINE.md" | wc -c | tr -d ' ')" -gt 0 ] || die "FIXTURE: the CRLF twin has no CR" owned-files/crlf "$G"
 cp adopt.sh "$G/"; cp -R kit "$G/"; run_adopt "$G" --yes
-case "$ADOPT_OUT" in *"README.md differed"*) die "a CRLF copy of the same README was backed up" adopt-readme/crlf "$G" ;; esac
-[ ! -d "$G/.claude/.legacy-backup" ] || [ -z "$(ls "$G/.claude/.legacy-backup")" ] || die "a backup appeared for an unchanged README" adopt-readme/twins "$G"
-echo "[adopt-readme] written on adopt · a differing one kept in .legacy-backup and named, then refreshed · same / CRLF-same: no backup"
+case "$ADOPT_OUT" in *"is not a copy Crewforth shipped"*) die "a CRLF copy of this version's file was backed up" owned-files/crlf "$G" ;; esac
+[ ! -d "$G/.claude/.legacy-backup" ] || [ -z "$(ls "$G/.claude/.legacy-backup")" ] || die "a backup appeared for an unchanged owned file" owned-files/twins "$G"
+for _of in README.md AGENT_TEMPLATE.md DISCIPLINE.md; do of_want "$_of"; cmp -s "$WORK/of-want" "$G/.claude/$_of" || die "a CRLF copy of $_of was not refreshed to this version's bytes" owned-files/crlf "$G"; done
+# No copy can be backed up: the file stays as it is, and the run says so. (A FILE in the backup directory's place.)
+printf '# mine\n' >> "$G/.claude/AGENT_TEMPLATE.md"; cp "$G/.claude/AGENT_TEMPLATE.md" "$WORK/of-mine"
+rm -rf "$G/.claude/.legacy-backup"; : > "$G/.claude/.legacy-backup"
+cp adopt.sh "$G/"; cp -R kit "$G/"; run_adopt "$G" --yes
+cmp -s "$WORK/of-mine" "$G/.claude/AGENT_TEMPLATE.md" || die "an edited file that could not be backed up was overwritten" owned-files/no-backup "$G"
+case "$ADOPT_OUT" in *"AGENT_TEMPLATE.md is not a copy Crewforth shipped before this version and could not be backed up — left as it is"*) ;;
+  *) die "an edited file that could not be backed up was left without a word" owned-files/no-backup "$G" ;; esac
+case "$ADOPT_OUT" in *"AGENT_TEMPLATE.md written"*) die "the run says it wrote a file it left as it was" owned-files/no-backup "$G" ;; esac
+rm -f "$G/.claude/.legacy-backup"; cp kit/AGENT_TEMPLATE.md "$G/.claude/"
+echo "[owned-files] README, AGENT_TEMPLATE, DISCIPLINE written on adopt · each edited one kept byte for byte in one .legacy-backup and named, then refreshed · this version's content and its CRLF copy: no backup · no place for a backup: left as it is, and said"
+
+# ---- a project with a hook chain of its own keeps it through every update ----
+# The first run puts .claude/git-shim in front of the project's chain and points git at it. The SECOND run then read
+# core.hooksPath=.claude/git-shim as "Crewforth's own, no chain", and pointed git straight at .claude/hooks: the
+# project's own pre-commit never ran again, and nothing was said (measured with core.hooksPath=myhooks; a project
+# with .husky was found again by its directory, but as `.husky`, not the `.husky/_` it had). The chain is read back
+# from the shim now. Checked by what git RUNS: a commit after each update must run the project's hook, and a staged
+# key must be stopped by Crewforth's.
+sh_commit(){  # $1 = project, $2 = file to add -> rc of the commit; the project's hook appends a line to own.log
+  ( cd "$1" && git add "$2" && git commit -qm "feat: $2" ) >/dev/null 2>&1; }
+for _shc in myhooks .husky/_; do
+  SH="$WORK/shim-$(printf '%s' "$_shc" | tr -c 'A-Za-z0-9\n' '-')"; rm -rf "$SH"; mkdir -p "$SH/$_shc"
+  cp adopt.sh "$SH/"; cp -R kit "$SH/"; cp VERSION "$SH/"; printf '{"name":"x"}' > "$SH/package.json"
+  printf '#!/bin/sh\necho ran >> "$(git rev-parse --show-toplevel)/own.log"\n' > "$SH/$_shc/pre-commit"; chmod +x "$SH/$_shc/pre-commit"
+  ( cd "$SH" && git init -q && git config user.email t@t.t && git config user.name t && git add -A \
+    && git commit -qm init && git config core.hooksPath "$_shc" ) >/dev/null 2>&1
+  : > "$SH/own.log"
+  for _shn in 1 2 3; do
+    cp adopt.sh "$SH/"; cp -R kit "$SH/"; run_adopt "$SH" --yes --here
+    [ "$(cd "$SH" && git config --get core.hooksPath)" = .claude/git-shim ] || die "run $_shn: core.hooksPath is '$(cd "$SH" && git config --get core.hooksPath)', not the shim — the project's chain ($_shc) was dropped" shim-kept "$SH"
+    grep -qF "P=\"\$ROOT/$_shc/\$H\"" "$SH/.claude/git-shim/pre-commit" || die "run $_shn: the shim does not name the project's chain $_shc any more" shim-kept "$SH"
+    _shb="$(grep -c ran "$SH/own.log" || true)"; echo "$_shn" > "$SH/f$_shn.txt"; sh_commit "$SH" "f$_shn.txt" || die "run $_shn: an ordinary commit was refused" shim-kept "$SH"
+    [ "$(grep -c ran "$SH/own.log")" = $((_shb+1)) ] || die "run $_shn: the project's own pre-commit ($_shc) did not run on a commit" shim-kept "$SH"
+  done
+  printf 'aws_key = "%s%s"\n' AKIA IOSFODNN7EXAMPLQ > "$SH/k.py"
+  sh_commit "$SH" k.py && die "with the shim a staged key was committed — Crewforth's pre-commit is not running" shim-kept "$SH"
+  # Read from a capture, not through `| grep -q`: under pipefail a grep that leaves early kills the writer and the
+  # pipeline answers 141 (this case failed that way when it was written).
+  _shd="$( cd "$SH" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null || true )"
+  case "$_shd" in *"✅ core.hooksPath -> .claude/git-shim (Crewforth's hooks run first"*) ;; *) die "doctor does not report the shim as Crewforth's" shim-kept "$SH" ;; esac
+done
+echo "[shim-kept] core.hooksPath=myhooks and =.husky/_: three runs each, git stays on .claude/git-shim, the shim keeps naming that chain, the project's pre-commit runs on every commit, a staged key is stopped by Crewforth's, doctor reports the shim ✅"
 
 # CSK_CORRECT_STACK used to flip a recorded 'generic' to 'dotnet'. 3.0 has one shape, so the variable does
 # nothing — and says so, rather than being silently ignored by an automation that still sets it.
@@ -748,7 +809,7 @@ else
   CMDN=0; for kf in $(grep -l '^  kind: command' kit/skills/crew-*/SKILL.md); do CMDN=$((CMDN+1)); kn="${kf%/SKILL.md}"; kn="${kn##*/}"
     [ -f "$MG/.claude/skills/$kn/SKILL.md" ] || { echo "FAIL: the update did not bring /$kn to skills/$kn/SKILL.md"; exit 1; }
   done
-  [ "$CMDN" = 11 ] || { echo "FAIL: FIXTURE — expected 11 command skills in the payload, found $CMDN"; exit 1; }
+  [ "$CMDN" = 13 ] || { echo "FAIL: FIXTURE — expected 13 command skills in the payload, found $CMDN"; exit 1; }   # 11 came from 2.x; /crew-approve and /crew-loosen are new in 3.1.0
   KLEFT="$(cd "$MG/.claude" && { ls commands 2>/dev/null | grep -v '^my-cmd\.md$' || true; } | tr '\n' ' ')"   # grep -v finding nothing is the pass
   [ -z "$KLEFT" ] || { echo "FAIL: kit command files were left in .claude/commands/: $KLEFT"; exit 1; }
   cmp -s "$MG/.claude/commands/my-cmd.md" "$WORK/my-cmd.before" || { echo "FAIL: the move touched the user's own .claude/commands/my-cmd.md"; exit 1; }
@@ -1219,10 +1280,10 @@ _bounded(){                     # $1 = seconds, rest = command; prints BLOCKED o
     sleep 1; i=$((i+1))
   done
   # THE REAPING IS BOUNDED TOO. This line used to be `kill -9 "$p"; wait "$p"`, and `wait` has no limit of its own:
-  # a Windows e2e stopped printing at the case that uses this helper and sat for 2 h 40 min until the job was
-  # cancelled. The loop above cannot run past its seconds, so the wait for a process that did not die of the signal
-  # is what is left. A process still there after 10 more seconds is left to the runner's own cleanup, and the case
-  # reports BLOCKED.
+  # a Windows e2e stopped printing right after the case before this helper's next use and sat for 2 h 40 min until
+  # the job was cancelled (c16469f; the last line was "[wizard] --yes returns on open-but-empty stdin"). The loop
+  # above cannot run past its seconds, so the wait for a process that did not die of the signal is what is left.
+  # A process still there after 10 more seconds is left to the runner's own cleanup, and the case reports BLOCKED.
   kill -9 "$p" 2>/dev/null
   i=0; while kill -0 "$p" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 1; i=$((i+1)); done
   kill -0 "$p" 2>/dev/null || wait "$p" 2>/dev/null
@@ -1662,6 +1723,71 @@ else
   read -r n m miss <<< "$(lb_check "$LB2")"
   [ "$n" = "$m" ] || { echo "FAIL: a CRLF copy of an untouched legacy file did not match through its CR-stripped id ($m of $n; '$miss')"; exit 1; }
   echo "[legacy-blobs] real installers vs kit/legacy-blobs.tsv:$_lbsum twin: edited file falls out · CRLF twin ($_lbcr CRs) still matches"
+
+  # ---- kit/owned-blobs.tsv against what the real old installers wrote, and the update of such an install ----
+  # The updater refreshes AGENT_TEMPLATE.md, README.md and DISCIPLINE.md without keeping the old copy only when its
+  # bytes are an id the list holds for that file. That is right only if an old installer wrote exactly those bytes —
+  # and DISCIPLINE.md is not a file of the payload but the top of CLAUDE.md, so nothing but an install shows it.
+  ob_in(){  # $1 = project, $2 = name -> 0 when the installed file's bytes are in the list for it
+    local h; h="$(git hash-object --no-filters "$1/.claude/$2")"
+    awk -F'\t' -v p=".claude/$2" -v a="$h" '!/^#/ && $1 == p && $2 == a { f = 1 } END { exit !f }' kit/owned-blobs.tsv; }
+  _obn=0
+  for _ob in "$LB1 AGENT_TEMPLATE.md" "$LB1 README.md" "$LB2 AGENT_TEMPLATE.md" "$LB2 README.md" "$LB2 DISCIPLINE.md"; do
+    _obd="${_ob% *}"; _obf="${_ob##* }"
+    [ -f "$_obd/.claude/$_obf" ] || { echo "FAIL: FIXTURE — the old installer left no .claude/$_obf in $_obd"; exit 1; }
+    ob_in "$_obd" "$_obf" || { echo "FAIL: .claude/$_obf as $(basename "$_obd")'s installer wrote it is not in kit/owned-blobs.tsv — the updater would keep Crewforth's own untouched file as if it were the user's"; exit 1; }
+    _obn=$((_obn+1))
+  done
+  [ ! -e "$LB1/.claude/DISCIPLINE.md" ] || { echo "FAIL: FIXTURE — $LBV1 wrote a DISCIPLINE.md; the list assumes releases before v1.1.0 wrote none"; exit 1; }
+  # Twin: an edit falls out of the list.
+  cp "$LB2/.claude/DISCIPLINE.md" "$WORK/ob-keep"; printf '\n# my own rule\n' >> "$LB2/.claude/DISCIPLINE.md"
+  ob_in "$LB2" DISCIPLINE.md && { echo "FAIL: twin — an edited DISCIPLINE.md still matched kit/owned-blobs.tsv"; exit 1; }
+  cp "$WORK/ob-keep" "$LB2/.claude/DISCIPLINE.md"
+  # The update of the real v2.13.0 install: three untouched old files, refreshed, nothing kept, nothing said about them.
+  OB="$WORK/owned-v2"; rm -rf "$OB"; cp -R "$LB2" "$OB"
+  ( cd "$OB" && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm install ) >/dev/null 2>&1
+  for _obf in AGENT_TEMPLATE.md README.md DISCIPLINE.md; do of_want "$_obf"; cmp -s "$WORK/of-want" "$OB/.claude/$_obf" && { echo "FAIL: FIXTURE — $LBV2's $_obf equals this version's; the case would prove nothing"; exit 1; }; done
+  cp adopt.sh "$OB/"; cp -R kit "$OB/"; cp VERSION "$OB/"; run_adopt "$OB" --yes --here
+  case "$ADOPT_OUT" in *"is not a copy Crewforth shipped"*|*"could not be checked against what Crewforth shipped (git or the shipped list"*) die "an untouched $LBV2 file was kept as if it were edited" owned-blobs/untouched "$OB" ;; esac
+  for _obf in AGENT_TEMPLATE.md README.md DISCIPLINE.md; do
+    of_want "$_obf"; cmp -s "$WORK/of-want" "$OB/.claude/$_obf" || die "the untouched $LBV2 $_obf was not refreshed" owned-blobs/untouched "$OB"
+    [ -z "$(find "$OB/.claude/.legacy-backup" -name "$_obf" 2>/dev/null)" ] || die "the untouched $LBV2 $_obf was copied to the backup" owned-blobs/untouched "$OB"
+  done
+  # Twin, same install: one edited, one turned CRLF, one untouched. Only the edited one is kept.
+  OB="$WORK/owned-v2-mixed"; rm -rf "$OB"; cp -R "$LB2" "$OB"
+  ( cd "$OB" && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm install ) >/dev/null 2>&1
+  printf '\n# my own rule\n' >> "$OB/.claude/DISCIPLINE.md"; cp "$OB/.claude/DISCIPLINE.md" "$WORK/ob-edited"
+  awk '{ printf "%s\r\n", $0 }' "$LB2/.claude/AGENT_TEMPLATE.md" > "$OB/.claude/AGENT_TEMPLATE.md"
+  cp adopt.sh "$OB/"; cp -R kit "$OB/"; cp VERSION "$OB/"; run_adopt "$OB" --yes --here
+  _obk="$(find "$OB/.claude/.legacy-backup" -type f \( -name AGENT_TEMPLATE.md -o -name README.md -o -name DISCIPLINE.md \) 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+  case "$_obk" in *"/DISCIPLINE.md ") case "$_obk" in *AGENT_TEMPLATE*|*README*) die "more than the edited file was kept: $_obk" owned-blobs/mixed "$OB" ;; esac ;;
+    *) die "the edited DISCIPLINE.md was not the one file kept (kept: ${_obk:-none})" owned-blobs/mixed "$OB" ;; esac
+  cmp -s "$WORK/ob-edited" ${_obk% } || die "the kept DISCIPLINE.md is not the edited bytes" owned-blobs/mixed "$OB"
+  case "$ADOPT_OUT" in *"DISCIPLINE.md is not a copy Crewforth shipped before this version — it is kept in"*) ;; *) die "the edited DISCIPLINE.md was kept without a word" owned-blobs/mixed "$OB" ;; esac
+  case "$ADOPT_OUT" in *"AGENT_TEMPLATE.md is not a copy"*|*"README.md is not a copy"*) die "an untouched file (one of them CRLF) was reported as not shipped" owned-blobs/mixed "$OB" ;; esac
+  # Twin: Git for Windows' grep 3.0. It answers "no" to `grep -q $'\r'` on a CRLF file (measured there: rc 1 on a file
+  # where `grep -c` counts 107 — only -q is blind), and the first version asked exactly that before it looked up the
+  # CR-stripped id: an untouched copy checked out with core.autocrlf=true was kept as if edited. A grep that behaves
+  # that way is put first on PATH, so the case can fail on every platform and not only there.
+  mkdir -p "$WORK/wgrep"; _obg="$(command -v grep)"
+  printf '#!/bin/sh\ncr=$(printf "\\r")\n[ "$1" = -q ] && [ "$2" = "$cr" ] && exit 1\nexec "%s" "$@"\n' "$_obg" > "$WORK/wgrep/grep"; chmod +x "$WORK/wgrep/grep"
+  printf 'a\r\n' > "$WORK/ob-crlf"
+  ( PATH="$WORK/wgrep:$PATH"; grep -q $'\r' "$WORK/ob-crlf" ) && { echo "FAIL: FIXTURE — the grep that is blind to a CR with -q found one"; exit 1; }
+  [ "$(PATH="$WORK/wgrep:$PATH" grep -c $'\r$' "$WORK/ob-crlf")" = 1 ] || { echo "FAIL: FIXTURE — the shadow grep does not count the CR with -c"; exit 1; }
+  OB="$WORK/owned-v2-wgrep"; rm -rf "$OB"; cp -R "$LB2" "$OB"
+  ( cd "$OB" && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm install ) >/dev/null 2>&1
+  for _obf in AGENT_TEMPLATE.md README.md DISCIPLINE.md; do awk '{ printf "%s\r\n", $0 }' "$LB2/.claude/$_obf" > "$OB/.claude/$_obf"; done
+  cp adopt.sh "$OB/"; cp -R kit "$OB/"; cp VERSION "$OB/"; PATH="$WORK/wgrep:$PATH" run_adopt "$OB" --yes --here
+  case "$ADOPT_OUT" in *"is not a copy Crewforth shipped"*) die "with a grep that does not see a line-end CR under -q, an untouched CRLF copy was kept as if edited" owned-blobs/wgrep "$OB" ;; esac
+  [ -z "$(find "$OB/.claude/.legacy-backup" -type f \( -name AGENT_TEMPLATE.md -o -name README.md -o -name DISCIPLINE.md \) 2>/dev/null)" ] || die "with that grep an untouched CRLF copy went to the backup" owned-blobs/wgrep "$OB"
+  # Twin: the list is missing from the payload. Nothing can be told, so the old copy is kept and the line says why.
+  OB="$WORK/owned-v2-nolist"; rm -rf "$OB"; cp -R "$LB2" "$OB"
+  ( cd "$OB" && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm install ) >/dev/null 2>&1
+  cp adopt.sh "$OB/"; cp -R kit "$OB/"; cp VERSION "$OB/"; rm -f "$OB/kit/owned-blobs.tsv"; run_adopt "$OB" --yes --here
+  case "$ADOPT_OUT" in *"DISCIPLINE.md could not be checked against what Crewforth shipped (git or the shipped list is missing) — the old copy is kept in"*) ;;
+    *) die "with no list the untouched old DISCIPLINE.md was refreshed without a copy, or without the reason" owned-blobs/nolist "$OB" ;; esac
+  cmp -s "$LB2/.claude/DISCIPLINE.md" "$(find "$OB/.claude/.legacy-backup" -name DISCIPLINE.md | head -1)" || die "with no list the kept DISCIPLINE.md is not the old bytes" owned-blobs/nolist "$OB"
+  echo "[owned-blobs] real installers vs kit/owned-blobs.tsv: $_obn of $_obn files in the list ($LBV1: 2, no DISCIPLINE.md · $LBV2: 3) · edit falls out · update of the real $LBV2 install: 3 untouched files refreshed, none kept, nothing said · mixed: only the edited one kept, the CRLF one not · three CRLF copies under a grep blind to CR with -q (Git for Windows): none kept · no list: kept, with the reason"
 fi
 
 # ---- the pattern skill's trust: vouched for only when it is a copy Crewforth shipped ----

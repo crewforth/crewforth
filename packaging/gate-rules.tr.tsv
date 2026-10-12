@@ -40,4 +40,31 @@ commit takes content from the working tree	içeriği çalışma ağacından alan
 no review-pass record	inceleme kaydı yok
 review-pass does not match this diff	inceleme kaydı bu diff ile eşleşmiyor
 review-pass matches the staged diff	inceleme kaydı staged diff ile eşleşiyor
+commit/push with no matching approval from the user	kullanıcının eşleşen bir onayı olmadan commit/push
+the approval record named in a command (only the user's own message writes it)	bir komutta onay kaydının adı geçiyor (kaydı yalnız kullanıcının kendi mesajı yazar)
+the user's own approval message covers this command	kullanıcının kendi onay mesajı bu komutu kapsıyor
+the approval hook fed by a command (only Claude Code runs it, with the user's message)	onay hook'u bir komutla besleniyor (onu yalnız Claude Code, kullanıcının mesajıyla çalıştırır)
+a Claude Code session started from a command to continue this one (it could approve for it)	bu oturumu sürdürmek için komutla başlatılan bir Claude Code oturumu (bu oturum adına onay verebilirdi)
+hook skip by -n or an abbreviated --no-verify	hook atlama (-n ya da kısaltılmış --no-verify)
+abbreviated git commit --amend	git commit --amend (kısaltılmış)
+git commit under a GIT_ variable set in the command	komutta ayarlanmış bir GIT_ değişkeni altında git commit
+git commit option the gate cannot read	kapının okuyamadığı bir git commit seçeneği
+git commit inside a nested shell	iç içe kabukta git commit
+git commit in a command too large to read	okunamayacak kadar büyük bir komutta git commit
+git subcommand the shell fills in	alt komutunu kabuğun doldurduğu git çağrısı
+git call with an expansion in a command too large to read	okunamayacak kadar büyük bir komutta genişletme içeren git çağrısı
+PowerShell call too large to read	okunamayacak kadar büyük bir PowerShell çağrısı
 a match that could not run	koşamayan bir eşleştirme (komut değerlendirilmedi)
+git started through System.Diagnostics.Process	System.Diagnostics.Process üzerinden başlatılan git
+tool call too large to read	okunamayacak kadar büyük bir araç çağrısı
+commit after a change of directory	dizin değiştirdikten sonra commit
+git config include.path (another file read as configuration)	git config include.path (başka bir dosya yapılandırma olarak okunur)
+core.hooksPath through GIT_CONFIG_ variables (disarms the git hooks)	GIT_CONFIG_ değişkenleriyle core.hooksPath (git hook'larını devre dışı bırakır)
+git-config edit (Write/Edit tools)	git yapılandırma dosyasını düzenleme (Write/Edit araçları)
+git commit under a setting given in the command	komutta verilen bir ayar altında git commit
+git commit written so that it is not recognised	tanınmayacak biçimde yazılmış git commit
+git commit argument the shell expands	kabuğun genişlettiği bir git commit argümanı
+git config --edit (the configuration file opened for writing)	git config --edit (yapılandırma dosyası yazmak için açılır)
+git commit through a command the shell fills in	kabuğun doldurduğu bir komutla git commit
+a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)	bir Claude Code oturumuna istem olarak onay veren bir komut (yalnız kullanıcının kendi mesajı onaylar)
+a model routing record named in a command (the user and Crewforth's hooks write it)	komutta adı geçen bir model yönlendirme kaydı (onu kullanıcı ve Crewforth'un hook'ları yazar)

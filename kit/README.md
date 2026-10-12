@@ -36,7 +36,7 @@ summarizes what lives under `.claude/` and how it works.
   comes back. Silent when nothing is new, and silent without a `kit-manifest.txt` rather than guessing.
 - **settings.json** — permissions and the hook chain (PreToolUse · UserPromptSubmit · Stop · SessionStart).
 - **`DISCIPLINE.md`** — behavior, four principles, workflow, definition of done, token discipline, and prohibitions.
-  Crewforth-owned: an update **overwrites** it, so keep nothing of your own here. Your `./CLAUDE.md` pulls it in with a
+  Crewforth-owned: an update **refreshes** it, so keep nothing of your own here (a copy you edited is kept in `.claude/.legacy-backup/` first, and named). Your `./CLAUDE.md` pulls it in with a
   single `@.claude/DISCIPLINE.md` line and holds your project rules, which win on conflict; in DISCIPLINE.md §4 they can only tighten, never loosen (its §4.1 names the one exception).
 - **`kit.conf`** — which installer ran and at what version. `stack=` is always `generic` since 3.0 (kept for older
   updaters); the project's stack itself lives in the `## Stack` section of `./CLAUDE.md`.

@@ -9,7 +9,7 @@ Verify Crewforth is actually *active* in this project (not just present on disk)
 1. Run `bash .claude/eval/doctor.sh` (Bash tool, not PowerShell).
 2. Read its report. It checks: VERSION present · every hook executable · the required git hooks (pre-commit,
    commit-msg) present · **guard-bash actually blocks a force-push** (catches a hook that is present but neutered) ·
-   `core.hooksPath` points at `.claude/hooks` (else the §4.1/§4.2 commit trace + secret/bloat scan never runs) ·
+   `core.hooksPath` points at `.claude/hooks`, or at `.claude/git-shim` when the project has hooks of its own (else the §4.1/§4.2 commit trace + secret/bloat scan never runs) ·
    `settings.json` valid and wiring the PreToolUse / UserPromptSubmit / Stop gates to **non-empty** hook arrays
    (an empty `[]` wires nothing); SessionStart (rehydration) is reported as a warning if absent · **`./CLAUDE.md`
    actually imports `.claude/DISCIPLINE.md`** — without that line the discipline sits on disk and never loads, which
@@ -44,7 +44,7 @@ PowerShell and Crewforth's gates do not run. The full install's doctor runs the 
 `bash "${CLAUDE_PLUGIN_ROOT}/eval/lib/git-bash.sh"` (Bash tool, not PowerShell). Pass its lines to the user verbatim;
 a ❌ is a failure with its fix. If this session has **no Bash tool at all**, that is the finding itself — Claude Code
 found no Git Bash: tell the user the gates do not run and that the fix is Git for Windows in its default folder, or
-`CLAUDE_CODE_GIT_BASH_PATH` set to its `bin\bash.exe`. Do not run the script through PowerShell.
+`CLAUDE_CODE_GIT_BASH_PATH` set to its `bin\bash.exe`, and then the terminal and Claude Code closed and opened again (an open terminal keeps the old value). Do not run the script through PowerShell.
 
 **The eval scripts are installer-only, by decision.** `eval/` — `doctor.sh`, `smoke-test.sh`, `routing-eval.sh`,
 `scan-skill.sh`, `utilization.sh` — ships with `start.sh` and `adopt.sh` and NOT with the plugin edition; `eval/lib/`

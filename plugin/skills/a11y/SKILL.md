@@ -35,6 +35,7 @@ Stack-agnostic (web/React/RN); do a web search when needed for framework-specifi
 ## React / RN note
 - Web React: semantic element in JSX + `htmlFor`/`aria-*`; use `button` instead of a clickable `div`.
 - React Native: `accessible`, `accessibilityLabel`, `accessibilityRole`, `accessibilityState` (coordinate with `frontend-rn-expo`).
+- Flutter: the guideline test (`meetsGuideline` with the tap-target, label and contrast guidelines) on every new screen (coordinate with `frontend-flutter`).
 
 ## Invariant rules
 1. **Semantics first, ARIA second** — wrong ARIA does harm.

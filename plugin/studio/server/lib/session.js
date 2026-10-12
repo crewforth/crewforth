@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 
-import { prepare, pending, watch, cleanup } from './permissions.js';
+import { prepare, pending, watch, cleanup, alwaysList, logApprovals, writeMode } from './permissions.js';
 import { getFleet } from './fleet.js';
 
 export const ALLOWED_MODES = ['plan', 'acceptEdits', 'default'];
@@ -49,12 +49,17 @@ class OwnedSession {
     // The gate is prepared before the child exists, so its very first tool call
     // is already covered. A missing hook is reported, never worked around: a
     // panel that silently ran ungated would be worse than one that cannot run.
-    this.gate = prepare(this.id);
+    this.gate = prepare(this.id, this.permissionMode);
     this.pendingPermissions = [];
     this.gateEvents = [];      // hook lifecycle, newest last
+    // What was asked of the viewer in this session, when, and what became of it. Kept from the moment Studio
+    // started the session, in memory: it is what the Timeline's waiting periods are drawn from.
+    this.approvals = [];
+    this.decisions = new Map();
     this.unwatch = this.gate
       ? watch(this.id, (reqs) => {
         this.pendingPermissions = reqs;
+        logApprovals(this.approvals, reqs, this.decisions, Date.now(), this.gate.waitSeconds);
         this.#emit({ type: 'permissions', pending: reqs });
       })
       : null;
@@ -97,6 +102,9 @@ class OwnedSession {
     // Our own settings file in our own directory. The user's settings are never
     // read, written or merged.
     if (this.gate) args.push('--settings', this.gate.settingsPath);
+    // The permission host: with one, Claude Code offers the two tools that need a person (a question, leaving
+    // plan mode). It denies every prompt that reaches it; the dock is where a call is allowed.
+    if (this.gate?.host) args.push('--mcp-config', this.gate.host.mcpPath, '--permission-prompt-tool', this.gate.host.tool);
 
     this.child = spawn('claude', args, {
       cwd: this.cwd,
@@ -163,6 +171,8 @@ class OwnedSession {
       this.gateEvents.push(ev);
       if (this.gateEvents.length > 500) this.gateEvents.shift();
     }
+    // The mode the session is in is what Claude Code says it is in: at the start, and each time it changes.
+    if (rec?.type === 'system' && typeof rec.permissionMode === 'string') this.#seeMode(rec.permissionMode);
     if (rec?.type === 'system' && rec.subtype === 'init') this.state = 'idle';
     else if (rec?.type === 'stream_event' && rec.event?.type === 'message_start') this.state = 'working';
     else if (rec?.type === 'result') {
@@ -179,6 +189,33 @@ class OwnedSession {
     for (const fn of this.subscribers) {
       try { fn(ev); } catch { /* a dead subscriber must not stall the stream */ }
     }
+  }
+
+  /** The panel recorded an answer to a request. Remembered until the request is seen to have gone. */
+  noteDecision(toolUseId, verdict) { this.decisions.set(toolUseId, verdict); }
+
+  /**
+   * Claude Code reported the session's mode. That is the mode: the header shows it, and the gate's hook is told it,
+   * so an allowance in the dock is said out loud in the mode the session is really in and in no other.
+   */
+  #seeMode(mode) {
+    if (mode === this.permissionMode) return;
+    this.permissionMode = mode;
+    if (this.gate) writeMode(this.gate.spool, mode);
+    this.#emit({ type: 'mode', permissionMode: mode });
+  }
+
+  /**
+   * Ask Claude Code to put the session in another mode: one of the modes a session may be started in, and no
+   * other. It is asked the way the Agent SDK's `setPermissionMode()` asks, as a control request on the session's
+   * input; nothing here is changed until Claude Code reports the new mode on its stream (`#seeMode`).
+   */
+  requestMode(mode) {
+    if (!ALLOWED_MODES.includes(mode)) return { ok: false, reason: `the mode is one of ${ALLOWED_MODES.join(', ')}` };
+    if (this.state === 'exited' || this.state === 'failed') return { ok: false, reason: `session has ${this.state}` };
+    const line = `${JSON.stringify({ type: 'control_request', request_id: randomUUID(), request: { subtype: 'set_permission_mode', mode } })}\n`;
+    try { this.child.stdin.write(line); } catch (e) { return { ok: false, reason: String(e?.message ?? e) }; }
+    return { ok: true, requested: mode };
   }
 
   /** Replay from `after`, then follow. Returns an unsubscribe function. */
@@ -235,6 +272,12 @@ class OwnedSession {
       gated: Boolean(this.gate),
       gateWaitSeconds: this.gate?.waitSeconds ?? null,
       pendingPermissions: this.pendingPermissions,
+      // Tools the viewer allowed for the rest of this session, so they can be listed and taken back.
+      alwaysAllowed: this.gate ? alwaysList(this.id) : [],
+      approvals: this.approvals,
+      // This machine's clock. A countdown is `askedAt + wait - now`, and all three have to come from one clock:
+      // a viewer on another machine has a different one.
+      now: Date.now(),
       gateEvents: this.gateEvents.slice(-40),
     };
   }
@@ -289,6 +332,9 @@ export async function createSession({ cwd, model, permissionMode, resume } = {})
 
 export function getSession(id) { return sessions.get(id) ?? null; }
 
+// For the selfcheck: what a session writes to Claude Code when a mode is asked for, without starting one.
+export const _internals = { OwnedSession };
+
 export function listSessionsOwned() {
   return [...sessions.values()].map((s) => s.summary());
 }
@@ -306,4 +352,12 @@ export function stopAll() {
   for (const s of sessions.values()) {
     if (s.state !== 'exited' && s.state !== 'failed') s.stop();
   }
+}
+
+/**
+ * Remove the spool of every session this server started. For the server's own way out: it stops its sessions and
+ * leaves before their exits are seen, and the exit is where a spool is otherwise removed.
+ */
+export function dropSpools() {
+  for (const s of sessions.values()) cleanup(s.id);
 }
