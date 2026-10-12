@@ -10140,6 +10140,13 @@ TL
 # No hook looks for anything with -iF: a code line of a gate that calls grep with both flags is the defect itself.
 _thf="$(for _f in "$HOOKS"/*.sh "$HOOKS/pre-commit" "$HOOKS/commit-msg"; do grep -nE '^[^#]*(grep[[:space:]][^|;#]*-[A-Za-z]*(i[A-Za-z]*F|F[A-Za-z]*i)|_crew_(scan|any)[^#]*[[:space:]](iF|Fi)([[:space:]]|$))' "$_f" 2>/dev/null | sed "s#^#${_f##*/}:#"; done)"
 [ -z "$_thf" ] || _thbad="$_thbad [a hook calls grep with -i and -F together: $(printf '%s' "$_thf" | head -2 | cut -c1-140)]"
+# ...and the look itself names the C locale on the call (3 calls: _crew_scan in both git hooks, _crew_any): under
+# tr_TR `grep -iE` answers "no match" for i against I without aborting, so a look left to the session's locale
+# would miss a term in capitals, silently.
+_thc="$(grep -cE '^[[:space:]]*LC_ALL=C grep -q' "$HOOKS/pre-commit" "$HOOKS/commit-msg" | tr '\n' ' ')"
+_thu="$(grep -nE '^[[:space:]]*grep -q("\$1"|\$3) -- ' "$HOOKS/pre-commit" "$HOOKS/commit-msg" | head -2)"
+case "$_thc" in *"pre-commit:2 "*"commit-msg:1 "*) ;; *) _thbad="$_thbad [the first look does not name the C locale on the call: $_thc]" ;; esac
+[ -z "$_thu" ] || _thbad="$_thbad [a first look runs in whatever locale is exported: $(printf '%s' "$_thu" | cut -c1-120)]"
 printf 'x() { grep -qiF -- "$a" "$b"; }\n_crew_scan iF "$t" "$f"\n# grep -iF in a comment\n' > "$_TH/pin.sh"
 [ "$(grep -cE '^[^#]*(grep[[:space:]][^|;#]*-[A-Za-z]*(i[A-Za-z]*F|F[A-Za-z]*i)|_crew_(scan|any)[^#]*[[:space:]](iF|Fi)([[:space:]]|$))' "$_TH/pin.sh")" = 2 ] || _thbad="$_thbad [FIXTURE: the -iF pin does not see the two lines it is for]"
 # and for the diff itself: the grep that picks the added lines aborting must not leave an empty file to scan
@@ -10154,7 +10161,7 @@ _th_hook "$_TH/b" pre-commit ""; { [ "$_thr" = 0 ] && grep -q 'is not a valid re
   || _thbad="$_thbad [pre-commit with a pattern that does not compile: rc=$_thr, want 0 and the warning]"
 _th_hook "$_TH/b" commit-msg "" "" msg.txt; { [ "$_thr" = 0 ] && grep -q 'is not a valid regular expression' "$_TH/out"; } \
   || _thbad="$_thbad [commit-msg with a pattern that does not compile: rc=$_thr, want 0 and the warning]"
-[ -z "$_thbad" ] && pass "a scan that could not run stops the commit: with grep aborting for -iE (the scan by pattern and the look for a private string), or while the added lines are collected, pre-commit and commit-msg exit 1 and say so; a pattern that does not compile still only warns, in both; a grep that aborts for -iF changes nothing, since no hook calls it (pinned, with a twin the pin sees); a private term is a literal: 7 terms with . \\ [ ] + ( ) | \$ ^ * { } ? are found as written, in another case, and match nothing else" \
+[ -z "$_thbad" ] && pass "a scan that could not run stops the commit: with grep aborting for -iE (the scan by pattern and the look for a private string), or while the added lines are collected, pre-commit and commit-msg exit 1 and say so; a pattern that does not compile still only warns, in both; a grep that aborts for -iF changes nothing, since no hook calls it (pinned, with a twin the pin sees); the first look names the C locale on the call, in both git hooks; a private term is a literal: 7 terms with . \\ [ ] + ( ) | \$ ^ * { } ? are found as written, in another case, and match nothing else" \
                  || fail "a scan that could not run:$_thbad"
 
 # The command shown in the approval prompt is cut to 300 bytes a line and goes into JSON. `cut -c` did it: GNU cut
