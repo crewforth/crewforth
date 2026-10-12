@@ -358,7 +358,7 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 
 # ---- WHICH TEXT IS AN APPROVAL: one function, asked here of the user's prompt and by guard-schedule.sh of a
 # prompt a tool is about to schedule ---------------------------------------------------------------------------
-_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | loosen, or "" when the text is neither
+_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen, or "" when the text is none
   # `loosen` is the other thing only the user's own message does: `/crew-loosen <agent> <change> <risk>` lowers a
   # floor that model routing raised (3.1.0). It is matched HERE so that everything that refuses to hand a session
   # an approval (a scheduled prompt, a `claude -p` call) refuses to hand it this as well: one question, one answer.
@@ -374,7 +374,11 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | lo
     # THE COMMAND: `/crew-approve <what>`, or `/<plugin>:crew-approve <what>` as a plugin names its commands. Measured
     # on Claude Code 2.1.284: a command the user types reaches UserPromptSubmit with `prompt` as typed, and a skill
     # the model starts with the Skill tool raises PreToolUse and PostToolUse only, never that event.
-    /*) _k="${P%%[$' \t']*}"; [ "$_k" != "$P" ] || return 0
+    # With NOTHING after it, `/crew-approve` approves what this session was last refused (3.1.0): OP is `pending`
+    # here, and the hook's own flow looks up what that is. It is an approval like the others to everything that
+    # asks this function, so a scheduled or handed-over `/crew-approve` is refused the same way.
+    /*) _k="${P%%[$' \t']*}"
+        if [ "$_k" = "$P" ]; then _k="${_k#/}"; [ "${_k##*:}" = crew-approve ] && OP=pending; return 0; fi
         _v="${P:${#_k}}"; _vr="$_v"; _k="${_k#/}"; _k="@${_k##*:}" ;;      # `@`: a command, so `crew-approve: commit` as text is not one
     # The text form of 3.1.0's release candidates, kept: `approve: <what>` and `onay: <what>`.
     *:*) _k="${P%%:*}"; _v="${P#*:}" ;;
@@ -483,6 +487,35 @@ if [ "$OP" = loosen ]; then
       "The user lowered the calibration floor of $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO with their own command. The card's own rules still hold (critical work on opus, no verify command on sonnet or above, the agent's floor). If the class fails its first try too often again, the floor rises again."
 fi
 
+# ---- `/crew-approve` with nothing after it: what this session was last refused ---------------------------------
+# guard-bash.sh, when it refuses a commit or a push in auto / dontAsk, writes down what it refused
+# (.claude/state/crew-approval-pending: the session, commit | push | commit+push, the second). The bare command
+# approves THAT and nothing else: the same session's, not older than 30 minutes. What is approved is therefore
+# never read from the message and never from the model: the gate wrote it, from the command it refused. From here
+# on the flow is the one a spelled-out approval takes, with every proof it asks for (the mode, a session that is
+# attended, a transcript on disk) and the same record at the end.
+BARE=0
+if [ "$OP" = pending ]; then
+  BARE=1
+  _json_slice "$INPUT" permission_mode >/dev/null
+  case "$_JS" in auto|dontAsk) ;; *) exit 0 ;; esac          # elsewhere the gate asks the user itself; nothing waits here
+  _json_slice "$INPUT" session_id >/dev/null; _bsid="$_JS"
+  _bp="${CLAUDE_PROJECT_DIR:-$CWD}"; _bp="${_bp//\\//}"; _bp="${_bp%/}/.claude/state/crew-approval-pending"
+  _bs=""; _bo=""; _bt=""
+  if [ -f "$_bp" ]; then
+    while IFS= read -r _bl || [ -n "$_bl" ]; do
+      case "$_bl" in sid=*) _bs="${_bl#sid=}" ;; op=*) _bo="${_bl#op=}" ;; ts=*) _bt="${_bl#ts=}" ;; esac
+    done < "$_bp"
+  fi
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _bn '%(%s)T' -1; else _bn="$(date +%s)"; fi
+  OP="a commit or a push"
+  case "$_bo" in commit|push|commit+push) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
+  { [ -n "$_bsid" ] && [ "$_bs" = "$_bsid" ]; } || no "what is waiting for approval was refused in another session, not this one. Nothing is approved; have it tried here first."
+  case "$_bt$_bn" in *[!0-9]*|'') no "the time of what is waiting could not be read." ;; esac
+  [ $((_bn - _bt)) -ge 0 ] && [ $((_bn - _bt)) -le 1800 ] || no "what was waiting for approval ($_bo) is more than 30 minutes old. Nothing is approved; have it tried again first."
+  OP="$_bo"                                                 # used up further down, once the approval is on record
+fi
+
 _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
 case "$PM" in
   auto|dontAsk) ;;
@@ -559,6 +592,9 @@ case "$TS" in ''|*[!0-9]*) no "the clock could not be read." ;; esac
 
 { printf 'v=1\nop=%s\ntree=%s\nhead=%s\nbranch=%s\nremote=%s\nurl=%s\nsid=%s\nts=%s\n' "$OP" "$TREE" "$HEAD_NOW" "$BR" "$RM" "$URL" "$SID" "$TS" > "$REC"; } 2>/dev/null \
   || no "the record could not be written in the git directory."
+# What was waiting has been approved: it is not approved a second time. Only here, after every proof and the record
+# itself: a bare command that recorded nothing (a headless session, a first message) leaves it for the user.
+[ "$BARE" = 1 ] && { : > "$_bp"; } 2>/dev/null
 
 _h="${HEAD_NOW:0:7}"; _d="${TREE:0:7}"
 # THE ADDRESS IS SHOWN TO THE USER, not only compared: a rewrite set BEFORE the approval (`url.<x>.insteadOf`) is
@@ -577,5 +613,6 @@ case "$OP" in
                HOW="Run git commit -m with the message, alone in its call (no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained; single-quote the message; §4.6 still applies), then in a separate call exactly: git push $RM $BR" ;;
 esac
 [ -n "$_u" ] && _u=" ($RM pushes to $_u)"
-say "Crewforth: approval recorded - $WHAT$_u. Valid for 30 minutes; your next message ends it." \
+_bw=""; [ "$BARE" = 1 ] && _bw="approved: $OP (what this session was refused). "
+say "Crewforth: ${_bw}approval recorded - $WHAT$_u. Valid for 30 minutes; your next message ends it." \
     "The user approved this in their own message and Crewforth recorded it: $WHAT. $HOW The approval covers what was staged and where HEAD was at that moment, in this session: if either changes it no longer applies and the user approves again. It ends in 30 minutes or at the user's next message. Force-push and the rest of §4.5 are not opened by it."

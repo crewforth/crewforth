@@ -14,7 +14,7 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 12 specialist agents that each own a domain,<br>
-40 skills that hold the method, 10 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 12 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/ce17e971-c447-4147-8b33-6f4bda419821
 
@@ -81,7 +81,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 | Rule | Enforced by |
 |:--|:--|
-| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is a command you type, `/crew-approve commit`. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
+| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is a command you type: `/crew-approve`, which approves the commit or push that was just refused (or spell it out: `/crew-approve commit`, `push`, `commit+push`). If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
 | A commit needs a clean review of that exact diff | `guard-bash.sh` and the record `crew-review-agent` writes |
 | Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused | `guard-bash.sh` |
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |
