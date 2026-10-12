@@ -7902,9 +7902,11 @@ sec "== 12h3) model routing v2: the card, the risk class, verify-then-escalate, 
 # three events it is wired to. Measured on Claude Code 2.1.294 before any of it was written: an agent's Edit carries
 # agent_id; it is the id SubagentStart was given and the agentId PostToolUse(Agent) returns; a SubagentStop that
 # answers "block" keeps the agent working; PostToolUse's additionalContext reaches the session; an Agent call that
-# leaves run_in_background out started in the background.
+# leaves run_in_background out started in the background. Measured on 2.1.296 as well: with background tasks off
+# (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1) the Agent tool has no run_in_background at all, the call arrives with
+# description, prompt and subagent_type, and it runs in the foreground (status completed).
 _V2G="$HOOKS/guard-agent-model.sh"; _V2O="$HOOKS/agent-outcome.sh"
-if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 26
+if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 27
 elif [ ! -f "$_V2O" ] || [ ! -f "$_V2G" ]; then fail "hooks/agent-outcome.sh or guard-agent-model.sh is missing — nothing verifies an agent's work or holds the model to the risk"
 else
 _v2="$(mktemp -d)"; _v2="$(cd -P "$_v2" && pwd)"; _v2p="$_v2/p"
@@ -7965,8 +7967,10 @@ done <<'V2'
 0|crew-review-agent|opus|src/payments/**|audit|none|
 2|crew-security-expert|sonnet|src/ui/**|audit|none|
 0|crew-security-expert|opus|src/ui/**|audit|none|
-2|crew-backend-expert|opus|src/payments/p.ts|feature|true|
+0|crew-backend-expert|opus|src/payments/p.ts|feature|true|
+0|crew-backend-expert|opus|src/payments/p.ts|feature|true|fg
 2|crew-backend-expert|opus|src/payments/p.ts|feature|true|bg
+0|crew-backend-expert|opus|src/a.ts|security|true|
 0|crew-backend-expert|opus|src/payments/p.ts|feature|none|bg
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|true|bg
 2|crew-backend-expert|sonnet|src/ui/a.ts|tidy|true|
@@ -7976,9 +7980,37 @@ done <<'V2'
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|git commit -m x|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|rm -rf /|
 V2
-if [ "$_v2n" != 45 ]; then fail "FIXTURE: the card table has $_v2n rows, not 45"
-elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; verify none is refused on haiku; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused in the background and when the field is left out; a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) (45 rows)"
+if [ "$_v2n" != 47 ]; then fail "FIXTURE: the card table has $_v2n rows, not 47"
+elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; verify none is refused on haiku; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) (47 rows)"
 else fail "card table:$_v2b"; fi
+# The refusal names the way forward that exists (the field was sent, so it can be sent as false), and a call that
+# left the field out and was launched in the background is told so when the launch comes back.
+_v2new; _v2b=""
+_v2call crew-backend-expert opus 'src/payments/p.ts' feature true ',"run_in_background":true'
+{ [ "$_v2rc" = 2 ] && grep -q 'is not sent to the background' "$_v2/err" && grep -q 'run_in_background set to false' "$_v2/err"; } || _v2b="$_v2b [true: rc $_v2rc, $(cut -c1-80 "$_v2/err")]"
+grep -q 'left out' "$_v2/err" && _v2b="$_v2b [the refusal still tells the session what happens when the field is left out]"
+_v2call crew-backend-expert opus 'src/payments/p.ts' feature true ',"run_in_background": true'; [ "$_v2rc" = 2 ] || _v2b="$_v2b [true after a space: rc $_v2rc]"
+_v2call crew-backend-expert opus 'src/payments/p.ts' feature true ',"run_in_background":"true"'; [ "$_v2rc" = 0 ] || _v2b="$_v2b [a string, which is not the boolean: rc $_v2rc]"
+# $1 agent id, $2 status -> what the hook prints
+# $3 = the call's tool_use_id (default: one no record is named after)
+_v2launch(){ printf '{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"prompt":"p"},"tool_response":{"status":"%s","agentId":"%s","isAsync":true},"tool_use_id":"%s"}' "$2" "$1" "${3:-tu-none}" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
+# The order a real session has (measured on Claude Code 2.1.296): the launch is answered BEFORE SubagentStart, so the
+# record is still the call's own, named after its tool_use_id.
+_v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature true
+_tid="$(sed -n 's/.*"tool_use_id":"\([^"]*\)".*/\1/p' "$_v2/c.json")"
+_o="$(_v2launch la0 async_launched "$_tid")"; case "$_o" in *'launched in the background'*'(true)'*) ;; *) _v2b="$_v2b [a launch answered before the agent started is not told: ${_o:0:80}]" ;; esac
+_o="$(_v2launch la0 async_launched tu-of-another-call)"; [ -z "$_o" ] || _v2b="$_v2b [told from a record of another call]"
+_v2start la0; _v2stop la0 >/dev/null; [ -n "$(_v2row la0)" ] || _v2b="$_v2b [the launch notice used up the call's record: no line for the agent]"
+# ...and the other order: the agent has its record already.
+_v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature true; _v2start la1
+_o="$(_v2launch la1 async_launched)"; case "$_o" in *'"additionalContext":"Crewforth: this critical work was launched in the background'*'run the verify command yourself with the Bash tool (true)'*) ;; *) _v2b="$_v2b [a background launch of critical work is not told: ${_o:0:80}]" ;; esac
+printf '%s' "$_o" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{JSON.parse(s)})' 2>/dev/null || { command -v node >/dev/null 2>&1 && _v2b="$_v2b [what it prints is not JSON]"; }
+_o="$(_v2launch la1 completed)"; [ -z "$_o" ] || _v2b="$_v2b [a call that is not a launch is told it was one]"
+_v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature none; _v2start la2; _o="$(_v2launch la2 async_launched)"; [ -z "$_o" ] || _v2b="$_v2b [told for a card with no verify command]"
+_v2new; _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature true; _v2start la3; _o="$(_v2launch la3 async_launched)"; [ -z "$_o" ] || _v2b="$_v2b [told for normal work]"
+_o="$(_v2launch nobody async_launched)"; [ -z "$_o" ] || _v2b="$_v2b [told for an agent with no record]"
+[ -z "$_v2b" ] && pass "run_in_background on critical work with a verify command: true is refused with the way forward (set it to false), in both spellings of the JSON; a string is not the boolean; a call that left the field out and came back as a background launch is told to run the verify command itself when the agent ends, whether the launch is answered before the agent starts (what Claude Code 2.1.296 does) or after, and the agent still gets its line; nothing is said for a finished call, a card with no verify command, normal work or an agent with no record" \
+               || fail "run_in_background, critical work:$_v2b"
 # "In normal work an author on Opus does not pull the review up": the one deliberate change of an instruction.
 _v2call crew-backend-expert opus 'src/ui/a.ts' feature true; _r1=$_v2rc; _v2call crew-review-agent sonnet 'src/ui/a.ts' audit none; _r2=$_v2rc
 [ "$_r1/$_r2" = 0/0 ] && pass "normal work written on opus is reviewed on sonnet: the gate allows both calls (the instruction 'audit ≥ author' is gone; no gate held it)" \

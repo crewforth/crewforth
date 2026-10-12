@@ -24,8 +24,9 @@
 #                        Only ever up: lowering a floor is the user's decision and nothing here does it.
 #   PostToolUse (Agent)  a foreground call has come back. If its verify failed, or its report closed with
 #                        confidence: low, the session is told to repeat the task once, one model up, and to ask
-#                        the user if that fails too. A background call comes back before its agent has finished,
-#                        so nothing is said then; the record and the gate still hold.
+#                        the user if that fails too. A background call comes back before its agent has finished:
+#                        for critical work with a verify command the session is told to run that command itself
+#                        when the agent ends; the record and the gate still hold.
 #   SessionStart, --scan the project's critical paths are listed in .claude/state/crew-critical-paths.auto, when the
 #                        list of files has changed. A generated file: the gate does not read it, it reads the paths.
 #
@@ -389,7 +390,27 @@ case "$EV" in
         fi
       fi
     fi
-    R="$_AMD/results/$AID"; [ -f "$R" ] || exit 0
+    R="$_AMD/results/$AID"
+    if [ ! -f "$R" ]; then
+      # No result yet: the agent was launched in the background (measured, 2.1.294 and 2.1.296: an Agent call that
+      # leaves run_in_background out, where the tool has the field, answers status async_launched). For critical
+      # work with a verify command the session is told now, since this hook will not be asked again when it ends.
+      # Measured on 2.1.296: the answer to a launch comes BEFORE SubagentStart, so the call's record is still where the
+      # gate left it, named after the call (tool_use_id); after SubagentStart it is under the agent's id.
+      A="$_AMD/agents/$AID"
+      if [ ! -f "$A" ]; then
+        _json_slice "$INPUT" tool_use_id >/dev/null; TID="$_JS"; A=""
+        case "$TID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+        for f in "$_AMD/pending"/*-"$TID"; do [ -f "$f" ] && A="$f"; done
+        [ -n "$A" ] || exit 0
+      fi
+      case "$INPUT" in *'"status":"async_launched"'*|*'"status": "async_launched"'*) ;; *) exit 0 ;; esac
+      _am_rec_get "$A" risk; [ "$_AMV" = critical ] || exit 0
+      _am_rec_get "$A" verify; VCMD="$_AMV"; case "$VCMD" in ''|none) exit 0 ;; esac
+      _ao_json "Crewforth: this critical work was launched in the background, so whether its verify command passed will not be told to you here. When the agent has finished, run the verify command yourself with the Bash tool ($VCMD) and judge the result before you build on the work or report it done."
+      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+      exit 0
+    fi
     _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
     _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"
     case "$RES" in fail|blocked|timeout) ;; *) [ "$CONF" = low ] || exit 0 ;; esac
