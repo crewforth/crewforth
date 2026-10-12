@@ -1,6 +1,6 @@
 # Studio
 
-Üç kademe derine inen bir delegasyon, terminalde çoktan kaybettiğiniz bir kaydırma geçmişidir. **Crewforth Studio** onu çizen yerel bir panel: her ajana bir kart düşüyor; kart, ajan doğduğu anda beliriyor ve ajanın durumunu ve aldığı görevi taşıyor. Karta tıklayınca ajanın en son hangi aracı kullandığı, ne harcadığı ve geri ne bildirdiği açılıyor. Aynı oturum üç biçimde okunuyor: kimin kimi başlattığını gösteren bir grafik, saate karşı bir zaman çizelgesi ve kime ihtiyaç olduğuna göre sıralı bir liste.
+Üç kademe derine inen bir delegasyon, terminalde çoktan kaybettiğiniz bir kaydırma geçmişidir. **Crewforth Studio** onu çizen yerel bir panel: her ajana bir kart düşüyor; kart, ajan doğduğu anda beliriyor ve ajanın durumunu, aldığı görevi ve koştuğu modeli taşıyor. Karta tıklayınca ajanın en son hangi aracı kullandığı, ne harcadığı ve geri ne bildirdiği açılıyor. Aynı oturum üç biçimde okunuyor: kimin kimi başlattığını gösteren bir grafik, saate karşı bir zaman çizelgesi ve kime ihtiyaç olduğuna göre sıralı bir liste. Dördüncü görünüm, **Models**, oturumu değil projeyi okuyor: her iş türüne hangi model gerekmiş.
 
 Panel `~/.claude/projects` dizinini okuyor; Claude Code bu makinedeki bütün oturumları orada tutuyor. Dolayısıyla çalışan tek bir panel hepsini birden görüyor: projede Crewforth kurulu olsun ya da olmasın, panelin o projenin içinde başlatılmış olması da gerekmiyor.
 
@@ -8,19 +8,23 @@ Panel `~/.claude/projects` dizinini okuyor; Claude Code bu makinedeki bütün ot
 /crew-studio                                       # Crewforth kurulu her projede
 node .claude/studio/server/index.js --open        # aynısı, komut menüsü olmadan
 npx crewforth studio                              # hiçbir şey kurmadan
+# `node` PATH'te yok mu? Crewforth PATH'e dokunmama sözünü tutuyor — indirdiğini ondan isteyin:
+#   NODE="$(bash .claude/studio/ensure-node.sh)" && "$NODE" .claude/studio/server/index.js --open
 ```
 
 | Panelde ne var | Neye dayanıyor |
 |:--|:--|
 | Herhangi bir oturumun delegasyonu, canlı; **Graph**, **Timeline** ya da **List** olarak (`g`, `t`, `l`) | diskteki transcript ağacı; 700 ms'de bir boyut imzası okunuyor, imza değiştiyse ağaç yeniden kuruluyor. Üç görünüm de bu tek okumadan çiziliyor |
+| **Models** (`m`): bu projede her iş türüne hangi model gerekmiş | `.claude/state/model-outcomes.tsv`; bir crew ajanı durduğunda Crewforth'un hook'larının yazdığı kayıt. Studio onu okuyor, hiçbir şey yazmıyor |
 | Panelin başlattığı oturumlar, konuşma panelinden sürülüyor | stream-json biçiminde bir `claude -p`; komut da cevap da alt sürecin stdin ve stdout'undan geçiyor |
-| O oturumlardaki her araç çağrısı siz cevaplayana kadar onay dock'unda bekletiliyor | panelin kendi ayar dosyası üzerinden enjekte edilen ve `*` ile eşleşen bir `PreToolUse` hook'u. Harness'ın 90 sn'sine karşılık 45 sn'de karar veriyor; **sessizlik ret demek**, yani kapalı bir panel izin yerine geçmiyor |
+| O oturumlardaki bir araç çağrısı siz cevaplayana kadar onay dock'unda bekletiliyor; soru ve plan da orada cevaplanıyor | panelin kendi ayar dosyası üzerinden enjekte edilen bir `PreToolUse` hook'u. Bir araç çağrısına harness'ın 90 sn'sine karşılık 45 sn'de, bir soruya ya da plana 300 sn'de karar veriyor; **sessizlik ret demek**, yani kapalı bir panel izin yerine geçmiyor |
 | Oturumu kopyalamak yerine gerçekten sürdürmek | oturumu tutan bir süreç yoksa çıplak `--resume`; oturumun kimliği korunuyor, yazılanlar aynı transcript'in sonuna ekleniyor. Tutan bir süreç varsa fork ediliyor, çünkü tek bir transcript'e iki yazar onu bozar |
+| Oturumun harcadığı: süre, token ve tahmini maliyet | transcript'teki her cevabın taşıdığı kullanım; API liste fiyatıyla fiyatlanıyor. Bu bir tahmin ve hep öyle yazılıyor (`~$3.22`); abonelikte size faturalanan tutar değil |
 | Kapı kaydı, oturum istatistikleri ve pano | Crewforth'un mevcut script'leri; hiçbiri yeniden hesaplanmıyor, hepsi okunuyor. Kapı kaydı satırları "zaman damgası taşımıyor" diye etiketleniyor, çünkü o biçimde zaman damgası yok |
 
 <div align="center">
-  <img src="../../../assets/studio-panels.gif" alt="Panel kullanılırken: gezginden bir oturum açılıyor, bir ajanın inspector'ı grafiğin yanında açılıyor, Timeline aynı oturumu zamana karşı gösteriyor ve düşen ajanın son hatası alttaki çekmecede duruyor, List ajanları duruma göre sıralıyor, başka bir oturumdan gelen araç çağrısı onay dock'una düşüyor ve izin veriliyor, New session paneli açılıyor" width="900">
-  <br><sub>Aynı panel, kullanılırken: grafik ve bir ajanın inspector'ı, Timeline, List, dock'ta cevaplanan bir istek, New session paneli.</sub>
+  <img src="../../../assets/studio-panels.gif" alt="Panel kullanılırken: gezginden bir oturum açılıyor, bir ajanın inspector'ı grafiğin yanında açılıyor, Timeline aynı oturumu zamana karşı gösteriyor ve düşen ajanın son hatası alttaki çekmecede duruyor, List ajanları duruma göre sıralıyor, Models görünümü her iş türüne hangi modelin gerektiğini listeliyor, başka bir oturumdan gelen araç çağrısı onay dock'una düşüyor ve izin veriliyor, New session paneli açılıyor" width="900">
+  <br><sub>Aynı panel, kullanılırken: grafik ve bir ajanın inspector'ı, Timeline, List, Models görünümü, dock'ta cevaplanan bir istek, New session paneli.</sub>
 </div>
 
 ## Tek oturum, üç görünüm
@@ -29,21 +33,71 @@ npx crewforth studio                              # hiçbir şey kurmadan
 - **Timeline**: aynı ajanlar saate karşı, her birine bir satır; seçili ajanın son hatası alttaki çekmecede. Bir ajanın sizi beklediği süre yalnızca Studio'nun başlattığı oturumda ve yalnızca panel açıldığından beri çiziliyor, çünkü o kayıt bellekte tutuluyor. Başka her oturumda Timeline, kimsenin beklemediği bir oturum çizmek yerine `Not measured: this session's approvals are not seen by Studio` yazıyor.
 - **List**: ajanlar, kime ihtiyaç olduğuna göre sıralı. Önce sizi bekleyen istekler, sonra düşenler ve çalışanlar; bitenler ve sona erenler katlı duruyor.
 
-Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört sekmesi var: **Overview** (araç çağrıları, token, geçen süre, hatalar, son araç, uyguladığı skill'ler, onu kimin görevlendirdiği ve raporu), **Conversation**, **Gates** ve **Stats**.
+Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört sekmesi var: **Overview** (araç çağrıları, token, geçen süre, hatalar, iş kartı ve işin nasıl gittiği, koştuğu model, son araç, uyguladığı skill'ler, onu kimin görevlendirdiği ve raporu), **Conversation**, **Gates** ve **Stats**. **Report**, ajanın kendisini başlatana geri verdiği metin; transcript'teki teslim kaydından okunuyor. Henüz bir şey teslim etmemiş ajan bunu söylüyor.
+
+## Grafiği okumak
+
+**Gruplama.** Group menüsü aynı ajanları beş biçimde çiziyor: **Workflow run**, **Agent type**, **Parent**, **Order** ya da **None**. Aynı ebeveynin altındaki aynı türden ajanlar tek kart olarak duruyor (`Frontend ×4`) ve kart kendi yanına açılıyor. Araç çubuğundaki **Expand all** ve **Fold all** bütün grupları, iç içe olanlar dahil, bir kerede açıp katlıyor; Timeline ve List'te de çalışıyor.
+
+**Sıra.** Her ajan başlatıldığı sıra numarasını taşıyor (`#3`). **Order** gruplaması oturumu dalgalar hâlinde diziyor: birlikte başlatılan ajanların her dalgası bir sütun. Bir ajandan sonraki dalgaya giden noktalı çizgi, o dalganın *o ajan rapor verdikten sonra* çağrıldığını söylüyor. Bu, olayların sırasından çıkarılıyor ve o yüzden bir çağrıdan farklı çiziliyor: her ajanı oturum çağırıyor, hiçbir ajan bir sonrakini çağırmıyor.
+
+**Yoğunluk.** **Auto**'da kartlar, resim okunabilir bir yakınlaştırmada (%75) bölmeye sığdığı sürece kart kalıyor; sığmayınca tek satırlık çiplere dönüşüyor. Düğme o zaman **Auto · compact** yazıyor ve ipucu nedenini söylüyor. Pencere uzayınca kartlar geri geliyor. Çip modelini yine tam yazıyor; kompakt grup kartı da ajanlarının koştuğu modelleri koruyor (`3 Sonnet · 2 Opus`). **Comfortable** ve **Compact** seçimi sabitliyor.
+
+**Yerleşim.** Kart sürüklenebiliyor ve bırakıldığı yerde kalıyor. **Reset layout** (`r`) taşınan her kartı yerleşimin koyacağı yere geri götürüyor; ardından çıkan bildirim **Undo** sunuyor.
+
+**Ajan kimin.** Bunu kartın işareti söylüyor: Crewforth'un kurduğu ajanda Crewforth'un üç oku, diğer her ajanda Claude işareti. İkincisinin ipucu **Claude Code agent** yazıyor ve altında ajanın nerede tanımlandığını söylüyor: `Defined in this project: .claude/agents/<dosya>`, `Defined in your own agents: ~/.claude/agents/<dosya>`, `Defined in the plugin "<ad>"` ya da `No definition file found`; yerleşik bir tür bu sonuncusunu alıyor. Studio, Claude Code'un yerleşik ajanlarının listesini tutmuyor; yarın eklenen bir tür bugünkülerle aynı çiziliyor.
+
+**Model.** Her kart, ajanının koştuğu modeli taşıyor (`Sonnet 5`); ajanın kendi transcript'inden okunuyor. Inspector'ın **Model** bölümünde iki taraf da var: **Ran on** ve **Asked for**, yani çağrının adını verdiği model, ya da hiç ad vermediği ve ajanın varsayılanını aldığı. Bir işi bir üst modelde tekrarlayan ajan bu adımı kartında söylüyor (`Sonnet → Opus`). Show menüsü yalnız tek bir modelin ajanlarını yanık bırakabiliyor.
+
+**Oturumun harcadığı.** Oturumun kartı kısa bir tablo açıyor: ne kadardır koştuğu, **Tokens** (yeni olanlar: girdi, çıktı ve önbelleğe yazılanlar), **From cache** (geri okunan aynı bağlam; ayrı sayılıyor, çünkü yoksa sayının neredeyse tamamı o olurdu) ve oturum ile ajanları için **Cost**. Maliyet, her cevabın kullanımının API liste fiyatıyla karşılığı. Fiyat tablosunda satırı olmayan bir modelin fiyatı yok: satır o zaman onu sıfır saymak yerine `No estimate` yazıyor ve modelin adını veriyor.
+
+<div align="center">
+  <img src="../../../assets/studio-graph.png" alt="Tek bir oturumun Graph görünümü: solda oturum kartı, sağında durumları, görevleri ve modelleriyle ajanları, Crewforth'un olmayan ajanlarda Claude işareti, dört ajanlık tek bir grup olarak bir workflow koşusu ve tuvalin üstündeki şeritte adıyla yazılı düşen ajan" width="900">
+  <br><sub>Kim çalışıyor, kim bitirdi, kim düştü ve hangi modelde. Düşen ajan tuvalin üstündeki şeritte adıyla yazılı; bir tıkla ona gidiliyor.</sub>
+</div>
+
+## Models: her iş türüne hangi model gerekiyor
+
+Crewforth'un model seçimi her crew ajanının işine bir kart veriyor (dokunabileceği dosyalar, değişikliğin türü, işi kanıtlayan komut) ve ajan durduğunda işin nasıl gittiğini kaydediyor. **Models** görünümü (`m`) o kayıt; ekrandaki oturumun ait olduğu proje için okunuyor. Sınıf başına bir satır: bir ajan, bir değişiklik türü ve bir risk.
+
+| Sütun | Ne söylüyor |
+|:--|:--|
+| **Agent · change**, **Risk** | sınıf. Risk `critical` ya da `normal`; işi hook böyle sınıflandırmış |
+| **Model** | sınıfın koştuğu modeller, her biri için sayısıyla. Crewforth'un bir üst modelde tuttuğu sınıf **raised** taşıyor; sizin yeniden indirdiğiniz sınıf **lowered** |
+| **Tasks** | sınıfın kayıtta kaç işi olduğu |
+| **First try** | *doğrulanmış* işlerden, verify komutu ajan hiç düzeltme yapmadan geçenlerin oranı. Komutu olmayan, komutunun koşmasına izin verilmeyen ya da süresi dolan iş hüküm almamış sayılıyor ve hiçbir orana girmiyor; doğrulanmış işi olmayan sınıf %0 değil, çizgi gösteriyor |
+| **Escalated** | kaç işin, bir alt modelde düşmüş bir kartı tekrarladığı |
+| **Est. cost** | sınıfın ajanlarının API liste fiyatıyla tutarı. İşlerin yalnız bir kısmı fiyatlanabildiyse hücre bir alt sınır ve bunu söylüyor: `≥$0.75 · 2/7`, yedi işten ikisinin toplamı |
+
+**Raised ve lowered.** Bir sınıfın ilk denemesi bir modelde fazla sık düşerse Crewforth sınıfı bir üst modelde tutuyor. Bu otomatik; tablonun altındaki satır neyin yükselttiğini söylüyor. İndirme hiçbir zaman otomatik değil. Tutulan bir sınıf o zamandan beri son on doğrulanmış işini ilk denemede geçtiyse görünüm indirmeyi tek düğmeli bir **Suggestion** olarak sunuyor: **Copy command**. Düğme `/crew-loosen <agent> <change> <risk>` komutunu kopyalıyor ve başka hiçbir şey yapmıyor: taban, o komutu kendi oturumunuzda gönderdiğinizde iniyor; bir kademe, her yükseltme için bir kez. **Studio burada hiçbir şey yazmıyor.** Panelden gelen bir isteği sizin adınıza koşan her süreç gönderebilir, o yüzden paneldeki bir düğme sizin yerinize geçemez; komut yalnız sizin yazdığınız bir mesajdan kaydediliyor.
+
+**Inspector'da iş kartı.** Kart verilmiş bir ajan onu Overview'da gösteriyor: yazıldıkları gibi `files`, `change` ve `verify`, başlığın yanında da risk. Altındaki **Model and verify** işi adımlar hâlinde anlatıyor: o kartın her çağrısının hangi modelde koştuğu, verify komutunun ne dediği (`pass` ya da `fail` etiket olarak; başka her şey sözle, çünkü hüküm değil), ajanın içinde yapılan bir düzeltme ve **escalated** işaretiyle bir üst modeldeki yeniden koşu.
+
+Görünümün göstermediği: kayıtta yalnız crew ajanları var. Model seçimi türü `crew-` ile başlayan ajanlara uygulanıyor; `Explore`, `general-purpose` ve projenin kendi ajanları ana oturumun modelinde koşuyor ve burada satır bırakmıyor. Kayıtta Crewforth'un hook'larının yazmış olamayacağı bir satır sayılmıyor; başlık kaç satırın okunmadığını söylüyor.
+
+<div align="center">
+  <img src="../../../assets/studio-models.png" alt="Models görünümü: her iş sınıfı için bir satırlık tablo; riski, koştuğu modeller, iş sayısı, çubuğuyla ilk deneme oranı, kaç işin yükseltildiği ve tahmini maliyet. Tablonun altında bir tabanı indirme önerisi ve Copy command düğmesi; yanında bir ajanın inspector'ı, iş kartı ve işinin adımlarıyla" width="900">
+  <br><sub>Her iş türüne bir satır. Öneri bir komut kopyalıyor; tabanı indirmek sizde kalıyor.</sub>
+</div>
 
 ## Onay dock'u
 
 Studio'nun başlattığı bir oturumdaki araç çağrısı, ekranda hangi oturum ve hangi görünüm olursa olsun, panelin altındaki dock'ta bekliyor. Dock isteyen ajanı, aracı ve girdisini gösteriyor; üç cevap var: **Allow once**, **Allow _araç_ this session** ve **Deny** (`a`, `s`, `d`). Cevap gelmezse çağrı 45 saniyede reddediliyor. Oturum izni inspector'ın Gates sekmesinde listeleniyor ve oradan geri alınabiliyor.
 
+**Soru ve plan da dock'ta cevaplanıyor.** Oturum size bir şey sorduğunda dock soruyu bir form olarak gösteriyor: sorulduğu gibi tek seçim ya da birkaç seçim, ve **Send answers**. Oturumun bir planı olup plan kipinden çıkmak istediğinde dock planı üç cevapla gösteriyor: **Keep planning**, **Approve · accept edits** ve **Approve · ask each time**. İkisi de 300 saniye bekliyor, çünkü bir soruyu ve bir planı okumak bir komutu okumaktan uzun sürüyor; kimse cevaplamazsa ikisi de reddediliyor.
+
 Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 
 - Accept edits ve Default kiplerinde Allow, Claude Code'a açık bir izin veriyor. Plan kipinde hiçbir şey söylemiyor; kararı Claude Code'un kendi plan kuralları veriyor.
-- Bir Crewforth kapısı ya da projenin ayarlarındaki bir `deny` kuralı, siz izin verseniz de çağrıyı reddediyor (Windows'ta, gerçek oturumda ölçüldü). Konuşmada o zaman çağrıya burada izin verildiğini ve kimin reddettiğini söyleyen bir satır çıkıyor.
+- Bir Crewforth kapısı ya da projenin ayarlarındaki bir `deny` kuralı, siz izin verseniz de çağrıyı reddediyor (Windows'ta, gerçek oturumda ölçüldü). Konuşmada o zaman çağrıya burada izin verildiğini ve kimin reddettiğini söyleyen bir satır çıkıyor. Studio'daki bir tık, Crewforth'un sizden yazmanızı istediği bir onayın yerine hiçbir zaman geçmiyor: `/crew-approve` göndermek yine sizde.
 - Studio'nun hook'u projenin diğer hook'larından sonra değil, onlarla yan yana koşuyor. O yüzden dock, başka bir kapının zaten reddedeceği bir çağrıyı da sorabiliyor. Bu bilinen bir sınır.
+- İki çağrı size sorulmuyor, çünkü içlerinde yargılanacak bir şey yok: bir aracın tanımına bakılması ve, yalnız plan kipinde, Claude Code'un kendi plan dosyasının plans dizinine yazılması. Dock bunlarda sessiz kalıyor; bu bir onay değil: kararı Claude Code, panel yokmuş gibi veriyor. Planın kendisi yine dock'a geliyor.
 
 ## Oturum başlatmak
 
 **New session** sağda bir panel açıyor: oturumun koşacağı proje, izin kipi ve isteğe bağlı ilk mesaj. Üç kip sunuluyor. **Plan** varsayılan: okuyor ve planlıyor, dosya değiştiremiyor. **Accept edits** ve **Default** dosya düzenliyor ve komut koşturuyor; her çağrı, siz dock'ta izin verdikten sonra. Crewforth'un kapılarını atlayan kipler sunulmuyor. Böyle bir oturum koşarken Studio kapalıysa istekleri reddediliyor.
+
+**Kip, konuşmanın üstündeki şeritte duruyor ve bir kontrol.** `mode: plan` aynı üç kipin menüsünü açıyor; şimdiki işaretli. Etiket siz tıkladığınızda değil, Claude Code yeni kipi kendisi bildirdiğinde değişiyor; kapıları atlayan bir kipi sunucu, kim isterse istesin, reddediyor.
 
 ## Dar pencere
 
@@ -59,8 +113,3 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 Üç kanal da paneli taşıyor. Tek bir komut dosyası iki edisyona birden hizmet ediyor: Claude Code plugin'in kendi kurulum yolunu o metnin içine yazıyor, dolayısıyla panel gerçekte neredeyse orada bulunuyor. Davranış iki edisyonda aynı; tek dürüst boşluk şu: panelin telemetrisi açıldığı projeyi okuyor ve plugin kurulumu projeye Crewforth dosyası koymuyor. O yüzden Gates ve Stats sekmeleri ile pano yanıltıcı bir sıfır yerine "ölçülmedi" diyor, sebebiyle birlikte. Gates sekmesi yine de plugin'in kapılarının o projenin `.claude/gate-log.tsv` dosyasına kaydettiği kapı kararlarını listeliyor.
 
 Panel `~/.claude/projects` dizinini okuyor; orada bu makinedeki **her** Claude Code oturumu duruyor. Proje kökünden başlatmak yalnızca hangi projeyle açılacağını belirliyor.
-
-<div align="center">
-  <img src="../../../assets/studio-graph.png" alt="Tek bir oturumun Graph görünümü: solda oturum kartı, sağında durumları ve görevleriyle ajanları, dört ajanlık tek bir grup olarak bir workflow koşusu ve tuvalin üstündeki şeritte adıyla yazılı düşen ajan" width="900">
-  <br><sub>Kim çalışıyor, kim bitirdi, kim düştü. Düşen ajan tuvalin üstündeki şeritte adıyla yazılı; bir tıkla ona gidiliyor.</sub>
-</div>

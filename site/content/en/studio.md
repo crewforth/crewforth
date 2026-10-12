@@ -1,6 +1,6 @@
 # Studio
 
-A delegation three levels deep is, in a terminal, a scrollback you have already lost. **Crewforth Studio** is a local panel that draws it instead: one card per agent, appearing as they spawn, each carrying its status and the task it was given. Selecting a card opens what the agent last reached for, what it has spent and what it reported back. The same session can be read three ways: as a graph of who started whom, as a timeline against the clock, and as a list sorted by what needs someone.
+A delegation three levels deep is, in a terminal, a scrollback you have already lost. **Crewforth Studio** is a local panel that draws it instead: one card per agent, appearing as they spawn, each carrying its status, the task it was given and the model it ran on. Selecting a card opens what the agent last reached for, what it has spent and what it reported back. The same session can be read as a graph of who started whom, as a timeline against the clock, and as a list sorted by what needs someone; a fourth view, **Models**, reads the project instead of the session: which model each kind of task has needed.
 
 It reads `~/.claude/projects` — where Claude Code keeps every session on this machine — so one running panel sees all of them at once, whether or not a project has Crewforth installed, and without being started inside any of them.
 
@@ -15,14 +15,16 @@ npx crewforth studio                              # without installing anything
 | In the panel | What it rests on |
 |:--|:--|
 | The delegation of any session, live, as a **Graph**, a **Timeline** or a **List** (`g`, `t`, `l`) | the transcript tree on disk, re-read on a size signature every 700 ms; the three views are drawn from that one reading |
+| **Models** (`m`): which model each kind of task has needed in this project | `.claude/state/model-outcomes.tsv`, the record Crewforth's hooks write when a crew agent stops. Studio reads it and writes nothing |
 | Sessions the panel starts, driven from the conversation panel | `claude -p` in stream-json, over the child's stdin and stdout |
-| Every tool call in one of those parked in the approval dock until you answer | a `PreToolUse` hook injected through the panel's own settings file, matching `*`. It answers at 45 s against the harness's 90 s, and **silence is a denial** — a panel that is closed does not become permission |
+| A tool call in one of those parked in the approval dock until you answer; a question and a plan answered there too | a `PreToolUse` hook injected through the panel's own settings file. It answers a tool call at 45 s against the harness's 90 s, a question or a plan at 300 s, and **silence is a denial** — a panel that is closed does not become permission |
 | Continuing a session rather than copying it | a bare `--resume` when no process holds that session, which keeps its id and appends to its transcript; a fork when one does, because two writers on one transcript corrupt it |
+| What a session spent: time, tokens and an estimated cost | the usage each response carries in the transcript, priced at API list price. It is an estimate and is always written as one (`~$3.22`); on a subscription it is not what you are billed |
 | The gate log, session stats and board | Crewforth's existing scripts, read rather than recomputed — and gate-log entries are labelled as carrying no timestamp, because that format has none |
 
 <div align="center">
-  <img src="../../../assets/studio-panels.gif" alt="Using the panel: a session opens from the navigator, an agent's inspector opens beside the graph, the Timeline shows the same session against time with the failed agent's last error in a drawer, the List sorts the agents by status, a tool call from another session arrives in the approval dock and is allowed, and the New session panel opens" width="900">
-  <br><sub>The same panel, driven: the graph and an agent's inspector, the Timeline, the List, a request answered in the dock, the New session panel.</sub>
+  <img src="../../../assets/studio-panels.gif" alt="Using the panel: a session opens from the navigator, an agent's inspector opens beside the graph, the Timeline shows the same session against time with the failed agent's last error in a drawer, the List sorts the agents by status, the Models view lists which model each kind of task has needed, a tool call from another session arrives in the approval dock and is allowed, and the New session panel opens" width="900">
+  <br><sub>The same panel, driven: the graph and an agent's inspector, the Timeline, the List, the Models view, a request answered in the dock, the New session panel.</sub>
 </div>
 
 ## Three views of one session
@@ -31,21 +33,71 @@ npx crewforth studio                              # without installing anything
 - **Timeline**: the same agents against the clock, one row each, and a drawer with the selected agent's last error. The time an agent spent waiting for you is drawn only for a session Studio started, and only since the panel started, because that record is kept in memory. For any other session the Timeline says `Not measured: this session's approvals are not seen by Studio` instead of drawing a session in which nobody waited.
 - **List**: the agents sorted by what needs someone. Requests waiting for you come first, then failed and running; done and ended are folded.
 
-Selecting an agent in any view opens the inspector, with four tabs: **Overview** (tool calls, tokens, elapsed time, errors, the last tool, the skills it applied, who delegated it, and its report), **Conversation**, **Gates** and **Stats**.
+Selecting an agent in any view opens the inspector, with four tabs: **Overview** (tool calls, tokens, elapsed time, errors, its task card and how its work went, the model it ran on, the last tool, the skills it applied, who delegated it, and its report), **Conversation**, **Gates** and **Stats**. The **Report** is what the agent handed back to whoever started it, read from the hand-back record in the transcript; an agent that has not handed anything back says so.
+
+## Reading the graph
+
+**Grouping.** The Group menu draws the same agents five ways: by **Workflow run**, by **Agent type**, by **Parent**, in **Order**, or with **None**. Agents of one type under one parent stand as one card (`Frontend ×4`) that opens beside itself; **Expand all** and **Fold all**, in the toolbar, open and fold every group at once, groups inside groups included, and work on the Timeline and the List too.
+
+**Order.** Every agent carries the number it was started with (`#3`). The **Order** grouping lays the session out in waves, one column per wave of agents started together. A dotted line from an agent to a later wave says that wave was called *after that agent reported*. It is inferred from the order of events and is drawn differently from a call for that reason: the session calls every agent, and no agent called the next.
+
+**Density.** At **Auto**, cards stay cards while the picture fits the pane at a readable zoom (75%), and become one-line chips when it does not; the button then reads **Auto · compact** and its tooltip says why. A taller window gets its cards back. A chip still says its model in full, and a compact group card keeps the models its agents ran on (`3 Sonnet · 2 Opus`). **Comfortable** and **Compact** fix the choice.
+
+**Layout.** A card can be dragged, and stays where it is put. **Reset layout** (`r`) puts every moved card back where the layout would have it, and the notice that follows offers **Undo**.
+
+**Whose agent it is.** A card's mark says it: Crewforth's three chevrons for an agent that Crewforth installed, and the Claude mark for every other agent. The tooltip of the second kind reads **Claude Code agent** and, under it, where the agent is defined: `Defined in this project: .claude/agents/<file>`, `Defined in your own agents: ~/.claude/agents/<file>`, `Defined in the plugin "<name>"`, or `No definition file found`, which is what a built-in type gets. Studio keeps no list of Claude Code's built-in agents; a type added tomorrow is drawn like the ones there today.
+
+**The model.** Each card carries the model its agent ran on (`Sonnet 5`), read from the agent's own transcript. The inspector's **Model** section has both sides: **Ran on**, and **Asked for**, the model its call named, or that it named none and took the agent's default. An agent that repeats a task one model up says the step on its card (`Sonnet → Opus`). The Show menu can keep only the agents of one model lit.
+
+**What the session spent.** The session's card opens a short table: how long it has run, **Tokens** (new ones: input, output and cache writes), **From cache** (the same context read back, counted apart because it would otherwise be nearly all of the number), and **Cost** for the session and for its agents. Cost is each response's usage at API list price. A model the price table has no row for has no price: the row then says `No estimate` and names the model, rather than counting it as zero.
+
+<div align="center">
+  <img src="../../../assets/studio-graph.png" alt="The Graph view of one session: the session card on the left, its agents to the right with their status, task and model, agents that are not Crewforth's carrying the Claude mark, a workflow run as one group of four, and the failed agent named in the strip above the canvas" width="900">
+  <br><sub>Who is running, who finished and who failed, and on which model. The failed agent is named in the strip above the canvas, one click away.</sub>
+</div>
+
+## Models: which model each kind of task needs
+
+Crewforth's model routing gives every crew agent's task a card (the files it may touch, the kind of change, the command that proves it) and records how the work went when the agent stops. The **Models** view (`m`) is that record, read for the project the session on screen belongs to. One line per class: an agent, a kind of change and a risk.
+
+| Column | What it says |
+|:--|:--|
+| **Agent · change**, **Risk** | the class. The risk is `critical` or `normal`, as the hook classified the task |
+| **Model** | what the class ran on, with a count for each model. A class Crewforth holds one model up carries **raised**; one you lowered again carries **lowered** |
+| **Tasks** | how many tasks of the class are on record |
+| **First try** | the share of *verified* tasks whose verify command passed with no fix by the agent. A task whose command was not there, was not allowed to run or ran out of time got no verdict and is in no rate; a class with no verified task shows a dash, not 0% |
+| **Escalated** | how many tasks repeated a card that had failed one model down |
+| **Est. cost** | what the class's agents come to at API list price. Where only some of its tasks could be priced, the cell is a floor and says so: `≥$0.75 · 2/7` is the sum of two tasks out of seven |
+
+**Raised and lowered.** When the first try of a class fails too often on one model, Crewforth holds the class one model up. That is automatic, and the line under the table says what raised it. Lowering is never automatic. When a held class has since passed its last ten verified tasks first time, the view offers the lowering as a **Suggestion** with one button, **Copy command**. It copies `/crew-loosen <agent> <change> <risk>` and does nothing else: the floor is lowered when you send that command in your own session, one model down, once for each raise. **Studio writes nothing here.** A request from the panel can be sent by any process running as you, so a button in it cannot stand for you; the command is recorded only from a message you typed.
+
+**The task card in the inspector.** An agent that was given a card shows it in its Overview: `files`, `change` and `verify` as they were written, with the risk beside the title. Under it, **Model and verify** tells the work as steps: what each call of that card ran on, what its verify command said (`pass` or `fail` as a tag; anything else in words, because it is no verdict), a fix made inside the agent, and the re-run one model up, marked **escalated**.
+
+What the view does not show: the record holds crew agents only. Model routing applies to agents whose type begins `crew-`; `Explore`, `general-purpose` and a project's own agents run on the main session's model and leave no line here. A line of the record that Crewforth's hooks could not have written is not counted, and the header says how many were not read.
+
+<div align="center">
+  <img src="../../../assets/studio-models.png" alt="The Models view: a table with one line per class of task, its risk, the models it ran on, how many tasks, the first-try rate with a bar, how many were escalated and the estimated cost; under the table a suggestion to lower a floor with a Copy command button; beside it the inspector of one agent with its task card and the steps its work took" width="900">
+  <br><sub>One line per kind of task. The suggestion copies a command; lowering a floor stays yours.</sub>
+</div>
 
 ## The approval dock
 
 A tool call in a session Studio started waits in a dock along the bottom of the panel, whichever session and view are on screen. It shows the agent that asked, the tool and its input, and three answers: **Allow once**, **Allow _tool_ this session** and **Deny** (`a`, `s`, `d`). Unanswered, the call is denied at 45 s. A session allowance is listed in the inspector's Gates tab and can be revoked there.
 
+**A question and a plan are answered in the dock too.** When the session asks you something, the dock shows the question as a form: one choice or several, as it was asked, and **Send answers**. When it has a plan and asks to leave plan mode, the dock shows the plan with three answers: **Keep planning**, **Approve · accept edits** and **Approve · ask each time**. Both wait 300 s, because a question and a plan take longer to read than a command, and both are refused when nobody answers.
+
 Allow is an answer to Claude Code. It does not go around anything:
 
 - In the Accept edits and Default modes, Allow hands Claude Code an explicit allow. In Plan it says nothing, and Claude Code's own plan rules decide.
-- A Crewforth gate or a `deny` rule in the project's settings still refuses a call you allowed (measured on Windows, in a real session). The conversation then carries a line saying the call was allowed here and who refused it.
+- A Crewforth gate or a `deny` rule in the project's settings still refuses a call you allowed (measured on Windows, in a real session). The conversation then carries a line saying the call was allowed here and who refused it. A click in Studio never stands in for an approval Crewforth asks you to type: `/crew-approve` is still yours to send.
 - Studio's hook runs beside the project's other hooks, not after them, so the dock can ask about a call that another gate refuses anyway. That is a known limit.
+- Two calls are not put to you, because there is nothing in them to judge: a lookup of a tool's definition, and, in plan mode only, the write of Claude Code's own plan file in its plans directory. The dock stays silent for them, which is not an approval: Claude Code decides them as it would with no panel. The plan itself still comes to the dock.
 
 ## Starting a session
 
 **New session** opens a panel on the right: the project the session runs in, its permission mode, and an optional first message. Three modes are offered. **Plan** is the default: it reads and plans, and cannot change files. **Accept edits** and **Default** edit files and run commands, each call after you allow it in the dock. Modes that skip Crewforth's gates are not offered. If Studio is closed while such a session runs, its requests are denied.
+
+**The mode is in the strip above the conversation, and it is a control.** `mode: plan` opens a menu of the same three, with the current one marked. The label changes when Claude Code itself reports the new mode, not when you click; a mode that skips the gates is refused by the server, whoever asks.
 
 ## A narrow window
 
@@ -61,8 +113,3 @@ Below 640 px the panel is one column. The navigator becomes a drawer, the inspec
 All three channels carry it. One command file serves both editions: Claude Code substitutes the plugin's own install path into it, so the panel is found wherever it actually is. The panel behaves identically in both, with one honest gap — its telemetry reads the project you opened it from, and a plugin install puts no Crewforth files into a project, so the Gates and Stats tabs and the board report "not measured" with the reason rather than a misleading zero. The Gates tab still lists the gate decisions the plugin's guards logged to that project's `.claude/gate-log.tsv`.
 
 It reads `~/.claude/projects`, which holds **every** Claude Code session on the machine. Starting it from a project root only decides which project it opens on.
-
-<div align="center">
-  <img src="../../../assets/studio-graph.png" alt="The Graph view of one session: the session card on the left, its agents to the right with their status and task, a workflow run as one group of four, and the failed agent named in the strip above the canvas" width="900">
-  <br><sub>Who is running, who finished and who failed. The failed agent is named in the strip above the canvas, one click away.</sub>
-</div>

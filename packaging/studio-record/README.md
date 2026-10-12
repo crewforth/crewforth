@@ -4,12 +4,13 @@ Re-records the Studio pictures after a change to the panel:
 
 | File | Where it is shown | What it shows |
 |:--|:--|:--|
-| `assets/studio-panels.gif` | the Studio page | the panel in use: the graph and an agent's inspector, the Timeline, the List, a request answered in the approval dock, the New session panel |
+| `assets/studio-panels.gif` | the Studio page | the panel in use: the graph and an agent's inspector, the Timeline, the List, the Models view, a request answered in the approval dock, the New session panel |
 | `assets/studio-graph.png` | the Studio page | the Graph view of the finished session |
+| `assets/studio-models.png` | the Studio page | the Models view of the session's project, with the task card of one agent in the inspector |
 | `site/media/crewforth-hero.mp4` | the front page, and the README by its own copy | two scenes of the overview video: the Studio scene (40.4 s – 47.8 s), and the version and skill count the install scene prints (8.8 s – 12.2 s). Every other frame and the sound are left as they were |
 
 ```bash
-bash packaging/studio-record/record.sh                    # the two pictures, and the take the video uses
+bash packaging/studio-record/record.sh                    # the three pictures, and the take the video uses
 python3 packaging/studio-record/scene.py --video OLD.mp4 --film <take> --out NEW.mp4   # the scene in the video
 node packaging/studio-record/install-render.mjs --out <dir> --was "3.0.0,39" --now "3.1.0,40"
 python3 packaging/studio-record/install_scene.py --video OLD.mp4 --drawn <dir> --out NEW.mp4   # the numbers the install scene prints
@@ -20,7 +21,9 @@ The file names stay the same, so the site picks up a new recording without an ed
 ## What `record.sh` does
 
 1. `fixture.mjs` writes a synthetic transcript tree: four demo projects, their sessions, twelve agents and a
-   workflow. Every project, path, session id and sentence is invented. The projects themselves are created under
+   workflow. Every project, path, session id and sentence is invented. The session's project also gets a record of
+   outcomes (`.claude/state/model-outcomes.tsv`, the raised floors and one lowering), written in the hooks' own format,
+   and its crew agents get a task card: that is what the Models view and the inspector's task card are drawn from. The projects themselves are created under
    `/Users/Shared/dev`, because the panel reads each project's `.claude/VERSION` from its working directory and shows
    a path under `/Users/<name>` as `~/…`. The transcripts go to `/Users/Shared/.claude/projects` for the same
    reason: the panel shows where a transcript is, and a root under the user's home would put the user's name in the
