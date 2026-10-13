@@ -50,9 +50,22 @@ CHANGELOG heading may still read `## [Unreleased] — X.Y.Z`. The workflow publi
 `X.Y.Z-rc.N` under the `next` dist-tag (the version is set in the workflow's checkout only). `latest`, the plugin
 channel and the site do not move. Try it with `npx crewforth@next`.
 
-**One-time secrets** (repo → Settings → Secrets and variables → Actions → New repository secret):
+**npm publishes without a token (Trusted Publishing).** The release job proves who it is to npm with a short-lived
+OIDC token from GitHub Actions, so the repository holds no `NPM_TOKEN`. npm also attaches a provenance statement to
+each version by itself. What makes it work is one setting on npmjs.com (package `crewforth` → Settings → Trusted
+Publisher → GitHub Actions), and every field is case-sensitive:
 
-- `NPM_TOKEN` — an npm **Automation** access token (npmjs.com → Access Tokens → Generate New Token → *Automation*). Automation tokens bypass 2FA, which an interactive `--otp` cannot do in CI.
+| Field | Value |
+|:--|:--|
+| Organization or user | `crewforth` |
+| Repository | `crewforth` |
+| Workflow filename | `release.yml` |
+| Environment name | `release` |
+| Allowed actions | `npm publish` and **Allow npm dist-tag** (a final moves `next`) |
+
+Renaming the workflow file or the environment breaks the match: an entry cannot be edited, so delete it and add a
+new one. The job pins Node 24 and npm 11.21.0, the lowest npm that moves a dist-tag over OIDC. The 2.x forwarder
+below is still published by hand, from a logged-in terminal.
 
 ## The 2.x package name (launch day, once)
 
