@@ -3476,6 +3476,27 @@ done
 # are now cut out and the rest goes to the old rule, so nothing unproven is skipped — all pinned above.
 [ -z "$_hp_bad" ] && pass "core.hooksPath: value-less reads pass, every write form stays blocked ($_hp_n of 48 shapes)" \
                   || fail "core.hooksPath read/write split is wrong:$_hp_bad"
+# crewforth.hookschain IS JUDGED BY THE SAME READER. The key holds the path of a project hook chain that lives outside
+# the repository; the shim reads it on every commit. Reads pass, every write form is refused, exactly 0 or 2.
+_hc_bad=""; _hc_n=0
+for _c in 'git config crewforth.hookschain' 'git config --get crewforth.hookschain' 'git config --local crewforth.hookschain' \
+          'git -C /r config --get crewforth.hookschain' 'git config get crewforth.hookschain' 'git config --get crewforth.hookschain | cat' \
+          'git status; echo crewforth.hookschain' 'git config --remove-section crewforth.foo' 'git config crewforth.other x'; do
+  gj auto "$_c" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; _r=$?; _hc_n=$((_hc_n+1)); [ "$_r" = 0 ] || _hc_bad="$_hc_bad [$_c -> $_r, want 0]"
+done
+for _c in 'git config crewforth.hookschain /tmp/x' 'git config --local crewforth.hookschain x' 'git config --unset crewforth.hookschain' \
+          'git config --unset-all crewforth.hookschain' 'git config --add crewforth.hookschain x' 'git config --replace-all crewforth.hookschain x' \
+          'git config set crewforth.hookschain x' 'git config unset crewforth.hookschain' 'git config crewforth.hookschain \"\"' \
+          'git config --get crewforth.hookschain && git config crewforth.hookschain x' 'git config crewforth.HooksChain /tmp/x' \
+          'git config crewforth.hooks\"c\"hain x' 'git config crewforth.hookschain \r' 'git -C /r config crewforth.hookschain /tmp/x' \
+          'git config --remove-section crewforth' 'git config --rename-section crewforth x' \
+          'git -c crewforth.hookschain=/tmp/x commit -m x' "git -c 'crewforth.hookschain=/tmp/x' commit -m x" \
+          'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=crewforth.hookschain GIT_CONFIG_VALUE_0=/tmp/x git commit -m x'; do
+  gj auto "$_c" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; _r=$?; _hc_n=$((_hc_n+1)); [ "$_r" = 2 ] || _hc_bad="$_hc_bad [$_c -> $_r, want 2]"
+done
+if [ "$_hc_n" != 28 ]; then fail "FIXTURE: the crewforth.hookschain table ran $_hc_n rows, not 28"
+elif [ -z "$_hc_bad" ]; then pass "crewforth.hookschain: 9 reads and neighbours pass, 19 write forms are refused — a value, unset, add, set, the section removed or renamed, -c, GIT_CONFIG_ ($_hc_n rows)"
+else fail "crewforth.hookschain read/write split is wrong:$_hc_bad"; fi
 # THE SAME SPLIT UNDER A WINDOWS PAYLOAD. A read is not proven when the payload holds an escape the reader drops
 # (`\r`, `\f`, `\b`, `\v`, `\u`). That was asked of the WHOLE payload, and a Windows `cwd` is full of them once
 # JSON-encoded: `C:\\repos\\app` holds a backslash and an r. So in such a directory `git config --get core.hooksPath`

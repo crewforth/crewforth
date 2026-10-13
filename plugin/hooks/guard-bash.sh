@@ -1303,15 +1303,20 @@ case "$CMD" in *[Ii][Cc][Aa][Cc][Ll][Ss]*) : ;; *) false ;; esac && _grep "$CMD"
 _HP_B=$' \t'   # blank = space or TAB only; a literal `\t` inside [ ] is a backslash and a t to ERE
 _HP_OPT="(--local|--global|--system|--worktree|--show-origin|--show-scope|--includes|--no-includes|-z|--null|--name-only|--bool|--int|--path|--bool-or-int|--expiry-date|--all|--type=[A-Za-z-]+|--file=[^${_HP_B}]+|--blob=[^${_HP_B}]+|(--file|-f|--blob|--type)[${_HP_B}]+[^${_HP_B}]+)"
 _HP_PRE="^[${_HP_B}]*git([${_HP_B}]+(-C[${_HP_B}]+[^${_HP_B}]+|--git-dir=[^${_HP_B}]+|--work-tree=[^${_HP_B}]+))*[${_HP_B}]+config([${_HP_B}]+${_HP_OPT})*[${_HP_B}]+"
-_hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core]
-  local bsnl=$'\\\n' c="$1" t seg r n=0 nc=0
-  local bare="${_HP_PRE}core\\.hooksPath[${_HP_B}]*\$"
+# THE SAME RULE FOR crewforth.hookschain. When a project's own hook chain lives OUTSIDE the repository, adopt.sh
+# keeps its path in this clone's git config under that key and the shim reads it on every commit. A write to it
+# drops the project's chain or points the shim at another directory, so it is judged by the reader above, key for
+# key: reads pass, every write form is refused, and so is removing or renaming the [crewforth] section.
+_HP_G='*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*'; _HC_G='*[Hh][Oo][Oo][Kk][Ss][Cc][Hh][Aa][Ii][Nn]*'
+_hp_blocks() {  # $1 = command, $2 = key as an ERE, $3 = glob of the key's name, $4 = its section -> 0 when it writes the key or drops the section
+  local bsnl=$'\\\n' c="$1" key="$2" kg="$3" sec="$4" t seg r n=0 nc=0
+  local bare="${_HP_PRE}${key}[${_HP_B}]*\$"
   local verb="${_HP_PRE}(--get|--get-all|--get-regexp|--get-urlmatch|--list|-l|get|list)([${_HP_B}]|\$)"
   local wr="[${_HP_B}](--unset|--unset-all|--add|--replace-all|--edit|-e|set|unset|--rename-section|--remove-section|rename-section|remove-section)([${_HP_B}]|\$)"
   local -a reads=()
   case "$c" in *"$bsnl"*) _gsub "$c" '\\'$'\n' ' ' bs; c="$_GS" ;; esac   # backslash-newline -> a space
   _unquoted "$c"; t="$_GS"
-  case "$t" in *[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*|*[Ss][Ee][Cc][Tt][Ii][Oo][Nn]*) ;; *) return 1 ;; esac   # after unquoting: hooks"P"ath
+  [[ $t == $kg || $t == *[Ss][Ee][Cc][Tt][Ii][Oo][Nn]* ]] || return 1   # after unquoting: hooks"P"ath
   shopt -q nocasematch && nc=1; shopt -s nocasematch
   # The payload reader decodes JSON escapes lossily — `\r` arrives as nothing, so `git config core.hooksPath <CR>`
   # would look value-less here while git sets the path to a CR byte (verified in review). With any such escape in
@@ -1327,7 +1332,7 @@ _hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core
   case "$raw" in *'\r'*|*'\f'*|*'\b'*|*'\v'*|*'\u'*) ;; *)
     _split_segs "$c"
     for seg in ${_SPL[@]+"${_SPL[@]}"}; do
-      [[ $seg == *[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]* ]] || continue
+      [[ $seg == $kg ]] || continue
       n=$((n+1)); [ "$n" -gt 64 ] && { reads=(); break; }   # past 64, no read is argued: the old rule judges it all
       # A write flag anywhere in the segment disproves the read (`--list --unset core.hooksPath`): git 2.54 refuses
       # those pairs, but the gate does not lean on another tool's option parser.
@@ -1339,14 +1344,15 @@ _hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core
   # Leftover text of a read still matches the rule below, so cutting the wrong copy can only over-block.
   for r in ${reads[@]+"${reads[@]}"}; do c="${c/"$r"/ }"; done
   _unquoted "$c"; t="$_GS"
-  _ere i "$t" 'git([^|]*[^[:alnum:]_|])?config[^[:alnum:]_|][^|]*core\.hooksPath' '*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*' && return 0
-  _ere i "$t" 'config[^;&|]*[[:space:]](--remove-section|--rename-section|remove-section|rename-section)[[:space:]]+(--[[:space:]]+)?([^;&|[:space:]]+[[:space:]]+)?core([^A-Za-z0-9_.-]|$)' '*[Ss][Ee][Cc][Tt][Ii][Oo][Nn]*' && return 0   # [core] as the old name OR the new one
+  _ere i "$t" 'git([^|]*[^[:alnum:]_|])?config[^[:alnum:]_|][^|]*'"$key" "$kg" && return 0
+  _ere i "$t" 'config[^;&|]*[[:space:]](--remove-section|--rename-section|remove-section|rename-section)[[:space:]]+(--[[:space:]]+)?([^;&|[:space:]]+[[:space:]]+)?'"$sec"'([^A-Za-z0-9_.-]|$)' '*[Ss][Ee][Cc][Tt][Ii][Oo][Nn]*' && return 0   # the section as the old name OR the new one
   return 1
 }
 # Inline config override: `git -c core.hooksPath=…` / `git --config-env core.hooksPath=…` turns the hooks off for
 # that one command WITHOUT the word `config` (so the rule above misses it) — the exact equivalent of --no-verify.
 [ "$HAS_GIT" = 1 ] && _ere i "$CMD" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+core\.hooksPath' '*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*' && block "git -c core.hooksPath (disarms the git hooks)" "4.5" tamper
-[ "$HAS_GIT" = 1 ] && _hp_blocks "$CMD" && block "git config core.hooksPath (disarms the git hooks)" "4.5" tamper
+[ "$HAS_GIT" = 1 ] && _hp_blocks "$CMD" 'core\.hooksPath' "$_HP_G" core && block "git config core.hooksPath (disarms the git hooks)" "4.5" tamper
+[ "$HAS_GIT" = 1 ] && _hp_blocks "$CMD" 'crewforth\.hookschain' "$_HC_G" crewforth && block "git config crewforth.hookschain (the project's own hook chain, dropped or pointed elsewhere)" "4.5" tamper
 # The same setting by two side doors. `git config include.path f` (or includeIf.<cond>.path) makes git read ANOTHER
 # file as configuration, and that file can carry hooksPath; GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n
 # hand git a setting through the environment (measured: with them a commit skipped its hooks). Both are refused by
@@ -1359,6 +1365,8 @@ if [ "$HAS_GIT" = 1 ]; then
   # key right after `-c` (measured, 3.1.0 review).
   _ere i "$_t" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+core\.hooksPath' '*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*' \
     && block "git -c core.hooksPath (disarms the git hooks)" "4.5" tamper
+  _ere i "$_t" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+crewforth\.hookschain' "$_HC_G" \
+    && block "git -c crewforth.hookschain (the project's own hook chain, dropped or pointed elsewhere)" "4.5" tamper
   _ere i "$_t" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+include(if)?\.' '*[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*' \
     && block "git config include.path (another file read as configuration)" "4.5" tamper
   _ere i "$_t" 'git([^|;&]*[^[:alnum:]_|;&])?config[^[:alnum:]_|;&][^|;&]*(include\.path|includeif\.)' '*[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*' \
@@ -1367,6 +1375,7 @@ if [ "$HAS_GIT" = 1 ]; then
   _ere i "$_t" 'git([^|;&]*[^[:alnum:]_|;&])?config[^[:alnum:]_|;&]([^|;&]*[[:space:]])?(--edit|-e)([[:space:]]|$)' '*[Cc][Oo][Nn][Ff][Ii][Gg]*' \
     && block "git config --edit (the configuration file opened for writing)" "4.5" tamper
   case "$_t" in *GIT_CONFIG_*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*) block "core.hooksPath through GIT_CONFIG_ variables (disarms the git hooks)" "4.5" tamper ;; esac
+  case "$_t" in *GIT_CONFIG_*[Hh][Oo][Oo][Kk][Ss][Cc][Hh][Aa][Ii][Nn]*) block "crewforth.hookschain through GIT_CONFIG_ variables (the project's own hook chain, dropped or pointed elsewhere)" "4.5" tamper ;; esac
 fi
 # A write to a gate path (hook script, settings.json, or .git/hooks) via ANY common mechanism — writer verbs, the
 # in-place editors, and the interpreters an evasion reaches for (perl/python/ruby/node/ed) — plus the variable-
@@ -2669,7 +2678,7 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
             if [ "$_WX" = 1 ]; then _C47_CFG="a -c setting the shell expands first"
             else
               shopt -q nocasematch && i=1 || i=0; shopt -s nocasematch
-              case "$_W" in *hookspath*|include.*|includeif.*|alias.*|core.worktree*|core.fsmonitor*) _C47_CFG="-c ${_W%%=*}" ;; esac
+              case "$_W" in *hookspath*|*hookschain*|include.*|includeif.*|alias.*|core.worktree*|core.fsmonitor*) _C47_CFG="-c ${_W%%=*}" ;; esac
               [ "$i" = 0 ] && shopt -u nocasematch
             fi ;;
           -C|--git-dir|--work-tree|--namespace|--exec-path|--super-prefix) shift ;;
