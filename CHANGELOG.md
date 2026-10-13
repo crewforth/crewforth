@@ -5,6 +5,19 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.1.1] — 2026-10-12
+
+### Fixed
+
+- **An update could write this machine's path into `.claude/git-shim`, a file projects commit.** The updater knew
+  the kit's own hooks directory only when `core.hooksPath` was spelled `.claude/hooks`. Spelled as an absolute path
+  (seen in a real project) it was taken for a hook chain of the project's own, and the shim named
+  `$ROOT//Users/<name>/…/.claude/hooks`: a path that does not exist, so nothing ran twice, but the user name and
+  the folder layout went into the repository. `core.hooksPath` is now read for what it names (the same directory,
+  whatever the spelling), a chain inside the repository is named from the root, and a chain outside it is kept in
+  the clone's git config (`crewforth.hookschain`) and read by the shim when it runs. A shim an earlier update
+  wrote for that case is removed by the next update.
+
 ## [3.1.0] — 2026-10-12
 
 ### Security
