@@ -1960,8 +1960,119 @@ function paintMachines() {
     });
     frag.append(note);
   }
+  if (role === 'owner') frag.append(remoteSection());
   el.reach.replaceChildren(frag);
   paintOtherMachines();
+}
+
+/* ------------------------------------------------------- remote viewers
+   A viewer is a second token that reads and changes nothing: the way to watch
+   this panel from another device without handing that device the panel. The
+   server refuses a viewer's writes itself; what is hidden here for a viewer is
+   only what would be refused anyway. */
+
+let role = null;              // 'owner' or 'viewer', once the server has said which
+let remote = null;            // the server's list of viewers, or null before it has answered
+let handed = null;            // the link of the viewer just added: the server says a token once
+
+async function pollRemote() {
+  if (role !== 'owner') return;
+  try { remote = await getJson('/api/remote'); } catch { return; }
+  paintMachines();
+}
+
+async function remoteWrite(method, path, body) {
+  try {
+    const r = await fetch(api(path), {
+      method,
+      headers: { ...writeHeaders, ...(body ? { 'content-type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return await r.json();
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+async function addViewer(button) {
+  button.disabled = true;
+  const res = await remoteWrite('POST', '/api/remote', {});
+  if (!res.ok) {
+    toast(`No viewer added — ${res.reason ?? 'no reason given'}`);
+    button.disabled = false;
+    return;
+  }
+  remote = { ...(remote ?? {}), viewers: res.viewers ?? [] };
+  handed = { id: res.viewer.id, label: res.viewer.label, url: `${location.origin}/?token=${encodeURIComponent(res.viewer.token)}` };
+  paintMachines();
+}
+
+async function revokeViewer(v, button) {
+  button.disabled = true;
+  const res = await remoteWrite('DELETE', `/api/remote/${encodeURIComponent(v.id)}`);
+  if (!res.ok) {
+    toast(`Not revoked — ${res.reason ?? 'no reason given'}`);
+    button.disabled = false;
+    return;
+  }
+  remote = { ...(remote ?? {}), viewers: res.viewers ?? [] };
+  if (handed?.id === v.id) handed = null;
+  toast(res.revoked ? `${v.label} can no longer read this panel` : `${v.label} was already revoked`);
+  paintMachines();
+}
+
+function viewerRow(v) {
+  const row = node('div', 'srow remote');
+  const top = node('span', 'srow-top');
+  const revoke = node('button', 'btn sm ghost', 'Revoke');
+  revoke.type = 'button';
+  revoke.setAttribute('aria-label', `Revoke ${v.label}`);
+  revoke.addEventListener('click', () => revokeViewer(v, revoke));
+  top.append(icon(ICON.machine), node('span', 'mname', v.label), node('span', 'row-fill'), revoke);
+  row.append(top);
+  const seen = v.lastSeenAt
+    ? `${seenAgo(v.lastSeenAt, Date.now())} · ${v.requests} request${v.requests === 1 ? '' : 's'}${v.open ? ' · watching now' : ''}`
+    : 'link not opened yet';
+  row.append(node('div', 'sub srow-sub', seen));
+  return row;
+}
+
+function remoteSection() {
+  const box = node('div', 'nav-foot rv');
+  const head = node('div', 'rv-head');
+  const add = node('button', 'btn sm', 'Add viewer');
+  add.type = 'button';
+  const list = remote?.viewers ?? [];
+  if (remote?.max != null && list.length >= remote.max) {
+    add.disabled = true;
+    add.title = `${remote.max} viewers already; revoke one first`;
+  }
+  add.addEventListener('click', () => addViewer(add));
+  head.append(node('span', 'rv-title', 'Remote viewers'), node('span', 'row-fill'), add);
+  box.append(head);
+
+  if (handed) {
+    const give = node('div', 'rv-give');
+    give.append(node('div', 'sub rv-say', `Link for ${handed.label}. Shown once; open it on the other device, through your tunnel.`));
+    const url = node('code', 'rv-url', handed.url);
+    const copy = node('button', 'btn sm', 'Copy link');
+    copy.type = 'button';
+    copy.addEventListener('click', () => copyText(handed.url, 'Link copied'));
+    const done = node('button', 'btn sm ghost', 'Done');
+    done.type = 'button';
+    done.addEventListener('click', () => { handed = null; paintMachines(); });
+    const acts = node('div', 'rv-acts');
+    acts.append(copy, done);
+    give.append(url, acts);
+    box.append(give);
+  }
+
+  for (const v of list) box.append(viewerRow(v));
+  if (!list.length) {
+    box.append(node('div', 'sub rv-say',
+      'A viewer reads this panel from another device and changes nothing. The server stays on 127.0.0.1; the link opens through a tunnel you run.'));
+  }
+  return box;
 }
 
 /** The short form under the project list: the first two, and the way to the rest. */
@@ -2619,7 +2730,16 @@ applyPhoneBand(true);
   setView(defaultView(stored, phoneBand.matches), null, Boolean(stored));
 }
 pollFleet(); pollSessions(); pollOwned();
+// Who this page is to the server. A viewer's page says so and offers no way to start a session; the server
+// would refuse it either way.
+getJson('/api/health').then((h) => {
+  role = h.role === 'viewer' ? 'viewer' : 'owner';
+  document.body.dataset.role = role;
+  document.getElementById('role').hidden = role !== 'viewer';
+  if (role === 'owner') pollRemote(); else paintMachines();
+}).catch(() => { /* the Live indicator says the server is unreachable */ });
 setInterval(() => { nextPollAt = Date.now() + FLEET_POLL_MS; pollFleet(); }, FLEET_POLL_MS);
+setInterval(pollRemote, FLEET_POLL_MS);
 nextPollAt = Date.now() + FLEET_POLL_MS;
 setInterval(pollOwned, FLEET_POLL_MS);
 setInterval(pollSessions, SESSION_POLL_MS);

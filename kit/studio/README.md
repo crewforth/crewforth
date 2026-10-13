@@ -198,6 +198,18 @@ reported as unreachable, never as empty.
 Nothing listens on a network interface in this arrangement: both Studios stay on
 loopback and the tunnel does the crossing.
 
+## Remote viewers
+
+A viewer is a second token that reads and changes nothing, for watching the
+panel from another device without handing that device the panel. Add one in the
+Machines tab; its link is shown once. The server refuses a viewer's every
+request that is not a `GET`, and its reads of `/api/remote`, with 403 before any
+handler runs (`server/lib/remote.js`). Revoke ends the token and closes a
+stream it holds open. Viewers live in memory and end with the server.
+
+The server still binds to loopback. Reaching it from a phone is a tunnel the
+user runs, an ssh forward or `tailscale serve 7777`; Studio starts none.
+
 ## What Crewforth already measured
 
 The panel does not recompute any of it. Selecting the session node opens what

@@ -402,6 +402,24 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 }
 .nav-foot-label:hover { color: var(--ink); }
 
+/* Remote viewers, under the machines: who holds a read-only link, and the way to take it back. */
+.rv { margin-top: var(--space-3); }
+.rv-head { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-1); }
+.rv-title {
+  font-size: 11px; line-height: var(--type-label-line); font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking); text-transform: uppercase; color: var(--ink-dim);
+}
+.rv-say { white-space: normal; padding: 0 var(--space-1); }
+.rv-give {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised);
+}
+.rv-give .rv-say { padding: 0; }
+.rv-url { font-size: 12px; line-height: 16px; overflow-wrap: anywhere; user-select: all; color: var(--ink); }
+.rv-acts { display: flex; gap: var(--space-2); }
+/* A viewer's page offers no way to start a session: the server refuses it, and a button that only fails is noise. */
+body[data-role="viewer"] #new-session { display: none; }
+
 /* ---- menu and toast ---- */
 .menu {
   position: fixed; z-index: 60; min-width: 190px; max-width: 272px;

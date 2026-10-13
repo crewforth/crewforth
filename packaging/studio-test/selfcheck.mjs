@@ -18,7 +18,9 @@ import { palette, _internals as paletteInternals } from '../../kit/studio/server
 import { renderMarkdown } from '../../kit/studio/web/md.js';
 import { ALLOWED_MODES } from '../../kit/studio/server/lib/session.js';
 import { parsePeers } from '../../kit/studio/server/lib/peers.js';
-import { writeAllowed, signature } from '../../kit/studio/server/index.js';
+import { writeAllowed, signature, handle as studioHandle, _internals as serverInternals } from '../../kit/studio/server/index.js';
+import { addViewer, revokeViewer, noteRequest, viewerMay, viewerByToken, listViewers, MAX_VIEWERS, _reset as resetViewers } from '../../kit/studio/server/lib/remote.js';
+import http from 'node:http';
 import { prepare, decide, pending, cleanup, revoke, alwaysList, _internals as permInternals } from '../../kit/studio/server/lib/permissions.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -1769,7 +1771,104 @@ check('a request with no Origin at all still needs the header',
 check('a token always exists, generated when none was supplied',
   /CREW_STUDIO_TOKEN \|\| randomUUID\(\)/.test(idxSrc));
 check('the token gate covers every /api/ path',
-  /url\.pathname\.startsWith\('\/api\/'\) && !authorised/.test(idxSrc));
+  /url\.pathname\.startsWith\('\/api\/'\) && !who\)/.test(idxSrc));
+
+/* -- remote viewers: a second token that reads and changes nothing -------------------
+   Asked of a real server on a loopback port the system picks, as the owner and as a viewer. The refusal is
+   read from the status the server sends, not from the source: a pin on the words would pass with the check
+   deleted. node:http and not fetch, because the DOM stub this suite installs owns `fetch`. */
+{
+  resetViewers();
+  const srv = http.createServer((q, r) => { studioHandle(q, r).catch(() => { if (!r.headersSent) { r.writeHead(500); } r.end(); }); });
+  await new Promise((done) => srv.listen(0, '127.0.0.1', done));
+  const port = srv.address().port;
+  const call = (method, p, { token, write = false, body } = {}) => new Promise((resolve) => {
+    const headers = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    if (write) headers['x-crew-studio'] = '1';
+    if (body) headers['content-type'] = 'application/json';
+    const q = http.request({ host: '127.0.0.1', port, path: p, method, headers, timeout: 5000 }, (r) => {
+      let raw = '';
+      r.setEncoding('utf8');
+      r.on('data', (c) => { raw += c; });
+      r.on('end', () => { let json = null; try { json = JSON.parse(raw); } catch { /* not JSON */ } resolve({ status: r.statusCode, json }); });
+    });
+    q.on('timeout', () => q.destroy());
+    q.on('error', (e) => resolve({ status: 0, json: null, error: e.message }));
+    q.end(body ? JSON.stringify(body) : undefined);
+  });
+  const owner = serverInternals.token;
+
+  const none = await call('GET', '/api/health');
+  check('an /api/ request with no token is refused with 403', none.status === 403, `status ${none.status}`);
+  const wrong = await call('GET', '/api/health', { token: 'not-a-token' });
+  check('an /api/ request with an unknown token is refused with 403', wrong.status === 403, `status ${wrong.status}`);
+  const asOwner = await call('GET', '/api/health', { token: owner });
+  check('the owner is told it is the owner', asOwner.status === 200 && asOwner.json?.role === 'owner', `status ${asOwner.status}, role ${asOwner.json?.role}`);
+
+  const bare = await call('POST', '/api/remote', { token: owner, body: {} });
+  check('adding a viewer needs the write header, like every other write', bare.status === 403 && listViewers().length === 0, `status ${bare.status}`);
+  const made = await call('POST', '/api/remote', { token: owner, write: true, body: { label: '  phone \n on the sofa ' } });
+  const vt = made.json?.viewer?.token;
+  check('the owner adds a viewer and is handed its token',
+    made.status === 201 && typeof vt === 'string' && vt.length >= 32 && vt !== owner && made.json.viewer.label === 'phone on the sofa',
+    `status ${made.status}, label ${JSON.stringify(made.json?.viewer?.label)}`);
+
+  const asViewer = await call('GET', '/api/health', { token: vt });
+  check('a viewer reads, and is told it is a viewer', asViewer.status === 200 && asViewer.json?.role === 'viewer', `status ${asViewer.status}, role ${asViewer.json?.role}`);
+  const byQuery = await call('GET', `/api/health?token=${vt}`);
+  check('a viewer token in the link works as the owner token does', byQuery.status === 200 && byQuery.json?.role === 'viewer', `status ${byQuery.status}`);
+
+  // The directory does not exist ON PURPOSE. If this refusal ever regresses, the request reaches createSession,
+  // and with a real directory that starts a `claude` process on whoever runs the suite. Measured once, by
+  // mutation: status 201 and a session. With no such directory the regression still reads red (400, not 403)
+  // and starts nothing.
+  const vPost = await call('POST', '/api/owned', { token: vt, write: true, body: { cwd: path.join(os.tmpdir(), `crew-no-such-dir-${process.pid}`) } });
+  const ownedAfter = await call('GET', '/api/owned', { token: owner });
+  check('a viewer cannot start a session: refused as read-only with 403, before the request is looked at',
+    vPost.status === 403 && /read-only/.test(vPost.json?.reason ?? '') && ownedAfter.json?.sessions?.length === 0,
+    `status ${vPost.status}, reason ${JSON.stringify(vPost.json?.reason)}`);
+  const vList = await call('GET', '/api/remote', { token: vt });
+  check('a viewer cannot read the list of viewers', vList.status === 403, `status ${vList.status}`);
+  const vAdd = await call('POST', '/api/remote', { token: vt, write: true, body: {} });
+  const vDel = await call('DELETE', `/api/remote/${made.json?.viewer?.id}`, { token: vt, write: true });
+  check('a viewer can neither add a viewer nor revoke one',
+    vAdd.status === 403 && vDel.status === 403 && listViewers().length === 1,
+    `add ${vAdd.status}, delete ${vDel.status}, viewers ${listViewers().length}`);
+
+  const seen = await call('GET', '/api/remote', { token: owner });
+  const row = seen.json?.viewers?.[0];
+  check('the owner sees the viewer, how often it asked and when, and never its token again',
+    seen.status === 200 && row?.requests >= 2 && typeof row?.lastSeenAt === 'number' && !('token' in row) && !JSON.stringify(seen.json).includes(vt),
+    `requests ${row?.requests}`);
+
+  // A stream the viewer holds open is closed by the revoke, not left to run on a token that no longer exists.
+  const held = { destroyed: false, on() {}, destroy() { this.destroyed = true; } };
+  const live = addViewer('held');
+  noteRequest(viewerByToken(live.viewer.token), { headers: {} }, held);
+  const closed = revokeViewer(live.viewer.id);
+  check('a revoke closes what the viewer holds open, and forgets its token',
+    closed.revoked === true && held.destroyed === true && viewerByToken(live.viewer.token) === null,
+    `revoked ${closed.revoked}, destroyed ${held.destroyed}`);
+  const gone = await call('DELETE', `/api/remote/${made.json?.viewer?.id}`, { token: owner, write: true });
+  const after = await call('GET', '/api/health', { token: vt });
+  check('a revoked viewer is refused from the next request', gone.json?.revoked === true && after.status === 403, `revoked ${gone.json?.revoked}, then status ${after.status}`);
+  const again = await call('DELETE', `/api/remote/${made.json?.viewer?.id}`, { token: owner, write: true });
+  check('revoking twice says the second did nothing', again.status === 200 && again.json?.revoked === false, `revoked ${again.json?.revoked}`);
+
+  resetViewers();
+  for (let i = 0; i < MAX_VIEWERS; i += 1) addViewer();
+  const full = await call('POST', '/api/remote', { token: owner, write: true, body: {} });
+  check('the number of viewers is capped', full.status === 409 && listViewers().length === MAX_VIEWERS, `status ${full.status}, viewers ${listViewers().length}`);
+  resetViewers();
+
+  check('a viewer may GET and nothing else',
+    viewerMay('GET', '/api/fleet').ok === true && viewerMay('POST', '/api/fleet').ok === false
+    && viewerMay('DELETE', '/api/owned/x/permissions/Bash').ok === false && viewerMay('HEAD', '/api/fleet').ok === false
+    && viewerMay('GET', '/api/remote').ok === false && viewerMay('GET', '/api/remote/abc').ok === false);
+
+  await new Promise((done) => srv.close(done));
+}
 
 const sessSrc = read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? '';
 check('owned sessions are spawned with an id we chose, so the transcript lands where the graph reads it',

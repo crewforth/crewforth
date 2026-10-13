@@ -35,6 +35,7 @@ import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
 import { remoteRoster } from './lib/roster.js';
+import { addViewer, listViewers, viewerByToken, revokeViewer, noteRequest, viewerMay, MAX_VIEWERS } from './lib/remote.js';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
@@ -108,15 +109,28 @@ function sendJson(res, status, value) {
 const TOKEN = process.env.CREW_STUDIO_TOKEN || randomUUID();
 const TOKEN_GENERATED = !process.env.CREW_STUDIO_TOKEN;
 
+/** For the self-check, which asks a real server as the owner and as a viewer. */
+export const _internals = { token: TOKEN };
+
 // Peers are other machines running Studio, reached over a forwarded port. This
 // server still listens on loopback only; a peer never widens that.
 let PEERS = [];
 let SELF_NAME = 'this machine';
 
-function authorised(req, url) {
+/**
+ * Whose request this is: the owner's, a read-only viewer's (lib/remote.js), or nobody's.
+ * The token is read from the same two places for both, so a viewer's link works exactly as the owner's does.
+ */
+function whoAsks(req, url) {
   const header = req.headers['authorization'];
-  if (header === `Bearer ${TOKEN}`) return true;
-  return url.searchParams.get('token') === TOKEN;
+  const bearer = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null;
+  const given = [bearer, url.searchParams.get('token')].filter(Boolean);
+  if (given.includes(TOKEN)) return { role: 'owner' };
+  for (const t of given) {
+    const viewer = viewerByToken(t);
+    if (viewer) return { role: 'viewer', viewer };
+  }
+  return null;
 }
 
 /**
@@ -214,20 +228,29 @@ async function serveStatic(res, urlPath) {
   }
 }
 
-async function handle(req, res) {
+export async function handle(req, res) {
   const url = new URL(req.url, `http://${LOOPBACK}`);
 
   // The token guards data and actions, not the app shell. A browser does not
   // carry the page's query string into its sub-resource requests, so demanding
   // it for /style.css served an unstyled page and protected nothing: the shell
   // holds no secrets, and every /api/ path below is still gated.
-  if (url.pathname.startsWith('/api/') && !authorised(req, url)) {
+  const who = url.pathname.startsWith('/api/') ? whoAsks(req, url) : null;
+  if (url.pathname.startsWith('/api/') && !who) {
     return sendJson(res, 403, { ok: false, reason: 'token required' });
+  }
+  // A viewer is refused HERE, before any handler: no route below has to remember that a viewer exists, and a
+  // route added tomorrow is read-only for a viewer without anyone writing a line for it.
+  if (who?.role === 'viewer') {
+    const may = viewerMay(req.method, url.pathname);
+    if (!may.ok) return sendJson(res, 403, { ok: false, reason: may.reason });
+    noteRequest(who.viewer, req, res);
   }
 
   if (url.pathname === '/api/health') {
     return sendJson(res, 200, {
       ok: true,
+      role: who.role,
       node: process.version,
       pid: process.pid,
       uptimeMs: Math.round(process.uptime() * 1000),
@@ -461,6 +484,30 @@ async function handle(req, res) {
 
   if (url.pathname === '/api/stream') {
     return stream(req, res, url);
+  }
+
+  /* --------------------------------------------------------- remote ---
+     Read-only viewers: who holds a link, and the way to take it back. Only
+     the owner reaches this far; a viewer was refused above. */
+
+  if (url.pathname === '/api/remote' && req.method === 'GET') {
+    return sendJson(res, 200, { measured: true, viewers: listViewers(), max: MAX_VIEWERS, now: Date.now() });
+  }
+
+  const remoteMatch = url.pathname.match(/^\/api\/remote(?:\/([^/]+))?$/);
+  if (remoteMatch) {
+    const gate = writeAllowed(req);
+    if (!gate.ok) return sendJson(res, 403, { ok: false, reason: gate.reason });
+    if (req.method === 'POST' && !remoteMatch[1]) {
+      const body = await readBody(req);
+      if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
+      const made = addViewer(body.label);
+      return sendJson(res, made.ok ? 201 : 409, { ...made, viewers: listViewers() });
+    }
+    if (req.method === 'DELETE' && remoteMatch[1]) {
+      return sendJson(res, 200, { ...revokeViewer(decodeURIComponent(remoteMatch[1])), viewers: listViewers() });
+    }
+    return sendJson(res, 405, { ok: false, reason: 'POST to add a viewer, or DELETE a viewer id' });
   }
 
   /* ---------------------------------------------------------- owned ---
@@ -877,6 +924,9 @@ async function main() {
         '  --help       this text\n\n' +
         'Set CREW_STUDIO_TOKEN to require a bearer token, CREW_STUDIO_PEERS for a\n' +
         'comma-separated peer list.\n\n' +
+        'To watch from another device, add a viewer under Machines in the panel\n' +
+        'and open its link through a tunnel of your own. A viewer reads and\n' +
+        'changes nothing, and the server stays on loopback.\n\n' +
         'Peers are normally reached over a forwarded port, which keeps every\n' +
         'Studio on loopback:\n' +
         '  ssh -N -L 7778:127.0.0.1:7777 other-machine\n' +

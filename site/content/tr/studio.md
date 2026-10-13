@@ -103,6 +103,33 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 
 640 px'in altında panel tek sütun. Gezgin bir çekmeceye dönüşüyor, inspector ve konuşma sahnenin tamamını alıp dock'un üstünde bitiyor ve panel List ile açılıyor; orada bir isteğin üç cevabı alt alta duruyor. Graph ve Timeline yine açılıyor ve `Best on a wider screen` diyor. Telefon boyutundaki bir pencerenin aldığı düzen bu. Dar bir masaüstü tarayıcı penceresinde denendi, telefonda ölçülmedi; panel yine yalnızca `127.0.0.1`'i dinliyor.
 
+## Başka bir cihazdan izlemek
+
+Panelin bağlantısı, oturum başlatan ve araç çağrılarını cevaplayan token'ı taşıyor; yani telefona verilecek bir bağlantı değil. **Viewer**, okuyan ve hiçbir şeyi değiştirmeyen ikinci bir token. Gezginin **Machines** sekmesinde, **Remote viewers** altında, **Add viewer** bir tane üretiyor ve bağlantısını bir kez gösteriyor; yanında **Copy link** duruyor.
+
+| | |
+|:--|:--|
+| Viewer ne yapabilir | panelin yaptığı her `GET`: oturumlar, üç görünüm, Models, konuşmalar, dock'ta bekleyen istekler |
+| Ne yapamaz | bunun dışındaki her şey. Oturum başlatmayı, bir isteği cevaplamayı, kip değiştirmeyi ve mesaj göndermeyi sunucu, isteğe hiç bakmadan `403` ile reddediyor. Viewer listesini okumayı da |
+| Siz ne görürsünüz | her viewer'ın adını, en son ne zaman sorduğunu ve kaç istek yaptığını; canlı bir akışı açık tuttuğu sürece de `watching now` |
+| **Revoke** | token bir sonraki istekten itibaren çalışmıyor ve viewer'ın açık tuttuğu akış kapatılıyor |
+| Ne kadar yaşar | onu üreten sunucu kadar. Viewer'lar, panelin kendi token'ı gibi bellekte tutuluyor; yeniden başlatma hepsini bitiriyor. En fazla sekiz tane |
+
+**Sunucu yine yalnızca `127.0.0.1`'i dinliyor ve viewer bunu değiştirmiyor.** Başka bir cihazdan içeri giden yol, kendi çalıştırdığınız bir tünel; Studio tünel başlatmıyor ve port açmıyor. Sunucuyu loopback'te bırakan iki yol:
+
+```bash
+# ssh: portu öbür cihazdan yönlendirin, sonra bağlantıyı kopyalandığı gibi açın
+ssh -N -L 7777:127.0.0.1:7777 siz@bu-makine
+
+# Tailscale: portu tailnet'inizin içinde sunun, sonra bağlantıyı bu makinenin tailnet adıyla açın
+tailscale serve 7777
+#   https://<bu-makine>.<tailnet-iniz>.ts.net/?token=<viewer'ın token'ı>
+```
+
+Kopyalanan bağlantı `127.0.0.1` diyor. Aynı porttaki bir ssh yönlendirmesinden olduğu gibi çalışıyor; tailnet üzerinden `?token=…` kısmını tutun ve öncesini tünelinizin verdiği adresle değiştirin. Viewer'ın sayfası üst çubukta **Read-only** yazıyor ve **New session** düğmesi yok. Öbür kontroller yine çiziliyor; birine basmak sunucunun reddini getiriyor.
+
+Neyin denendiği ve neyin denenmediği: retler, panelin kendi test süitinde çalışan bir sunucuya karşı doğrulanıyor; bir viewer bağlantısı aynı makinedeki bir tarayıcıda açıldı ve iptal edilince akışı kapandı. Telefondan, ssh ya da Tailscale üzerinden ölçülmedi.
+
 **Studio, Crewforth ile birlikte kuruluyor.** `start.sh` ve `adopt.sh` `.claude/` altında altı dizin açıyor, Studio da altıncısı. Yani Crewforth kurulu her projede **`/crew-studio`** ile açıyorsunuz; komut menüsü olmadan `node .claude/studio/server/index.js --open`. Hiç npm bağımlılığı yok, Node 18+ istiyor, yalnızca `127.0.0.1`'e bağlanıyor ve her API yolunda o koşuya özel bir token arıyor. **Makinede Node yoksa Crewforth onu kendi getiriyor.** `.claude/studio/ensure-node.sh --plan` ne indireceğini olduğu gibi gösteriyor: nodejs.org'daki güncel LTS, yayımlanmış SHA-256'ya karşı doğrulanıyor ve `~/.claude/studio-runtime` altına açılıyor. Siz evet demeden hiçbir şey kurmuyor. Yönetici hakkı istemiyor, paket yöneticisine dokunmuyor, PATH'i değiştirmiyor; o tek dizini silmek yaptığı her şeyi geri alıyor.
 
 | Kanal | Studio |
