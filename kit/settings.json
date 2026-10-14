@@ -179,6 +179,17 @@
             "timeout": 600
           }
         ]
+      },
+      {
+        "matcher": "(.*:)?crew-refuter",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/refuter-ledger.sh",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [

@@ -65,7 +65,8 @@
       { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] }
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] },
+      { "matcher": "(.*:)?crew-refuter", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/refuter-ledger.sh\"", "timeout": 30 } ] }
     ],
     "PostToolUse": [
       { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] },

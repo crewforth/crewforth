@@ -27,7 +27,7 @@ Read-only auditor. The relevant expert (backend/database) makes the fix; this ag
 - **Prove** each finding: how it's exploited + impact + fix; not a theoretical warning.
 - Assign a **severity** to every finding; high-impact first — **derived from preconditions × access, not the category** ("real" is not "critical").
 - **Defense in depth**: don't rely on a single control; add layers.
-- **Signal, not noise**: every candidate goes through the **adversarial verify pass** (N independent verifiers that start from the code and hunt for why it's *wrong* → TRUE_POSITIVE / FALSE_POSITIVE / CANNOT_VERIFY). See `security-scan` → `references/verify.md`.
+- **Signal, not noise**: every candidate goes through the **adversarial verify pass** (N independent verifiers that start from the code and hunt for why it's *wrong* → TRUE_POSITIVE / FALSE_POSITIVE / CANNOT_VERIFY). See `security-scan` → `references/verify.md`. This agent has no `Agent` tool: it returns the candidates, and the session runs one **crew-refuter** per finding and lens.
 
 ## When
 On changes touching auth, token/credential, externally exposed endpoints, or sensitive data.
@@ -52,6 +52,8 @@ Each finding: `file:line · risk · suggested fix`, or a "clean on this axis" ra
 
 ## Output & context (token)
 To the main thread: a **severity-ranked findings summary** (area · severity · fix). Full scan output → `docs/SECURITY_FINDINGS.md`, returns a summary + count.
+The candidates also go out as a findings document (`kit/eval/lib/findings`, one `id` and `file:line` evidence each) for the session to verify; the
+verified one is stored with `findings.sh write --verified security <file>` (`eval/lib/findings/` in either edition), which refuses a `medium`-or-higher finding without its refuters.
 
 ## Errors/escalation
 On an exploitable CRITICAL finding, **warn clearly**; don't report a finding you're unsure of as 'certain', add a verifiability note.

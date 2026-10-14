@@ -225,3 +225,7 @@ we picked the wrong language for this service, write an adr|!i18n-integrity
 write the README in english for the public repo|!i18n-integrity
 the connection strings are missing from appsettings|!i18n-integrity
 add language support for kotlin to the parser|!i18n-integrity
+try to refute this finding: the token check at src/auth.js:42 can be bypassed|crew-refuter
+disprove this claim before it goes in the report|crew-refuter
+run a security audit of the login flow|!crew-refuter
+review my diff before I commit|!crew-refuter

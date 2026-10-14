@@ -12,3 +12,4 @@ crew-review-agent	Kod inceleme uzmanı: önemsiz olmayan bir diff'in sistemin ko
 crew-security-expert	Güvenlik inceleme uzmanı: auth, token akışları, sır sızıntısı, injection, zayıf kripto, IDOR ve rate limit gibi yüzeylere dokunulduğunda bulgu ve düzeltme üretir.
 crew-session-manager	Oturum sağlığı denetçisi: aşama sınırında bağlam doluluğunu değerlendirir ve devri önerir; kod yazmaz.
 crew-test-expert	Test uzmanı: yeni davranış eklendikten sonra birim ve entegrasyon testlerini yazar, koşturur ve Definition of Done'daki "testler yeşil" şartını güvenceye alır.
+crew-refuter	Bağımsız çürütücü: orta ve üstü her bulgu rapora girmeden önce yalnız iddia ve dosya:satır ile çağrılır, iddiayı koddan çürütmeye çalışır
