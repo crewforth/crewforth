@@ -3,7 +3,13 @@ name: ci
 on:
   push:
     branches: [main, next]
+  # `labeled` so that adding the full-ci label runs the whole matrix on a pull request without a new commit.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  # Every night, the whole matrix on next. GitHub runs a schedule from the DEFAULT branch's copy of this file, so
+  # this starts once this file reaches main; the checkouts below then take next.
+  schedule:
+    - cron: '17 2 * * *'
 
 # Every gate below is defined ONCE, in packaging/verify.sh, and invoked here by name. The commands used to
 # live in this file and nowhere else, which meant a developer's "green" was a strictly smaller claim than
@@ -20,8 +26,11 @@ env:
 # A new commit on a pull request makes the run for the previous one worthless, and on Windows that run is the
 # longest job we have. Cancel it. Pushes to main and next are NOT cancelled: each one is a state that shipped,
 # and every one of them keeps its own verdict.
+# A push or a nightly run is grouped by its commit, not its branch: GitHub cancels a run still WAITING in a group when
+# another arrives, whatever cancel-in-progress says, and two merges in a row left one of them with no verdict at all
+# (measured: next @ 6109a8d, cancelled). One commit, one group, nothing to cancel.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -39,9 +48,11 @@ jobs:
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
       site: ${{ steps.scope.outputs.site }}
+      cross: ${{ steps.cross.outputs.cross }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0
       - name: Documentation-only pull request?
         id: scope
@@ -60,6 +71,17 @@ jobs:
           echo "scope: $scope · site: $site"
           echo "scope=$scope" >> "$GITHUB_OUTPUT"
           echo "site=$site" >> "$GITHUB_OUTPUT"
+      # macOS and Windows on a pull request only when asked: they took 40-48 minutes of a 50-minute wait (measured on
+      # next @ b7ca06c) and a pull request is merged on the Linux verdict. They run on every push to main and next and
+      # every night, so what a pull request did not run is run after it lands. The full-ci label asks for them early.
+      - name: Cross-platform on this run?
+        id: cross
+        env:
+          FULL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ] || [ "$FULL" = true ]; then cross=yes; else cross=no; fi
+          echo "cross: $cross"
+          echo "cross=$cross" >> "$GITHUB_OUTPUT"
       # Nothing in this repository is signed by a tool. The title and body come from the event payload, through env,
       # so the description is read as data; no request leaves the runner. A description edited after the last push
       # is read on the next push.
@@ -78,6 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 
       - name: Syntax — shell scripts
@@ -136,6 +159,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
       - uses: actions/setup-node@v5
         with:
           node-version-file: site/.nvmrc
@@ -157,7 +182,7 @@ jobs:
   # clock the longer of the two instead of their sum.
   verify-cross-smoke:
     needs: changes
-    if: needs.changes.outputs.scope == 'code'
+    if: needs.changes.outputs.scope == 'code' && needs.changes.outputs.cross == 'yes'
     strategy:
       fail-fast: false
       matrix:
@@ -170,6 +195,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 
       - name: Syntax — shell scripts
@@ -228,22 +254,32 @@ jobs:
       - name: i18n audit — the bilingual tables hold their invariants
         run: bash packaging/verify.sh i18n
 
+  # Windows in three shards (packaging/e2e.sh holds the map and checks it holds every block once): one run was 48
+  # minutes there. macOS runs every block in one job; it took 14.
   verify-cross-e2e:
     needs: changes
-    if: needs.changes.outputs.scope == 'code'
+    if: needs.changes.outputs.scope == 'code' && needs.changes.outputs.cross == 'yes'
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - { os: windows-latest, shard: 1/3 }
+          - { os: windows-latest, shard: 2/3 }
+          - { os: windows-latest, shard: 3/3 }
+          - { os: macos-latest, shard: '' }
+    name: verify-cross-e2e (${{ matrix.os }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 
       - name: e2e rehearsal — installer + non-interactive self-heal (with/without jq·python)
+        env:
+          CREW_E2E_SHARD: ${{ matrix.shard }}
         run: bash packaging/verify.sh e2e

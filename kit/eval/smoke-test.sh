@@ -10537,6 +10537,15 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       # gate that only runs when someone remembers to run it, which is how the catalogue check went unnoticed.
       [ -z "$UNRUN" ] && pass "every gate verify.sh defines is wired into ci.yml" \
                       || fail "verify.sh defines gates ci.yml never runs: $UNRUN — they hold only when run by hand"
+      # The Windows e2e runs as shards of packaging/e2e.sh's map. A shard the matrix does not list is a third of the
+      # rehearsals that runs nowhere while every listed job is green; e2e.sh checks its own map, not the matrix. So
+      # the matrix lists exactly 1/N … N/N, N read from e2e.sh.
+      _e2n="$(sed -n 's/^E2E_SHARDS=\([0-9][0-9]*\)$/\1/p' "$SGR/packaging/e2e.sh" 2>/dev/null)"
+      _e2m="$(grep -oE "shard: [0-9]+/[0-9]+" "$SGR/.github/workflows/ci.yml" | awk '{print $2}' | LC_ALL=C sort -u | tr '\n' ' ')"
+      _e2w=""; if [ -n "$_e2n" ]; then _i=1; while [ "$_i" -le "$_e2n" ]; do _e2w="$_e2w$_i/$_e2n "; _i=$((_i+1)); done; fi
+      if [ -z "$_e2n" ]; then fail "FIXTURE: E2E_SHARDS was not read from packaging/e2e.sh — the shard pin cannot compare"
+      elif [ "$_e2m" = "$_e2w" ]; then pass "ci.yml runs every e2e shard the map has ($_e2w)"
+      else fail "ci.yml's e2e matrix lists shards [$_e2m], packaging/e2e.sh has [$_e2w] — a shard it does not list runs nowhere"; fi
     fi
 
     # EVERY JOB OF EVERY WORKFLOW HAS A TIME LIMIT. A job without one runs for GitHub's default of 360 minutes: a
