@@ -225,10 +225,15 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   else {
     const lone = path.join(TMP, 'lone'); fs.mkdirSync(lone);
     fs.copyFileSync(path.join(LIB, 'crew-map.sh'), path.join(lone, 'crew-map.sh'));
-    const bin = path.join(TMP, 'nonode'); fs.mkdirSync(bin);
-    const bashPath = spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).stdout.trim() || 'bash';
-    const r3 = spawnSync(bashPath, [path.join(lone, 'crew-map.sh'), '--root', root, '--stdout'], { encoding: 'utf8', env: { ...process.env, PATH: bin } });
-    check('crew-map.sh: with no Node it says so and exits 3', r3.status === 3 && /not a pass/.test(r3.stderr), `rc=${r3.status} ${r3.stderr}`);
+    // The Store-stub shape: a `node` that resolves first on PATH and exits 49 without running anything. bash is found
+    // the usual way: a POSIX path asked of bash (/usr/bin/bash) is not one Node can start on Windows.
+    const stub = path.join(TMP, 'stub'); fs.mkdirSync(stub);
+    fs.writeFileSync(path.join(stub, 'node'), '#!/bin/sh\necho "Python was not found" >&2\nexit 49\n', { mode: 0o755 });
+    const stubEnv = { ...process.env, PATH: stub + path.delimiter + process.env.PATH };
+    const shadowed = spawnSync('bash', ['-c', 'node --version'], { encoding: 'utf8', env: stubEnv });
+    const r3 = spawnSync('bash', [path.join(lone, 'crew-map.sh'), '--root', root, '--stdout'], { encoding: 'utf8', env: stubEnv });
+    if (shadowed.status !== 49) skip('crew-map.sh with a node that resolves and does not run', `the stub did not shadow node here (rc=${shadowed.status})`);
+    else check('crew-map.sh: with a node that resolves and does not run, it says so and exits 3', r3.status === 3 && /not a pass/.test(r3.stderr), `rc=${r3.status} ${r3.stderr}`);
     const r0 = spawnSync('bash', [path.join(LIB, 'crew-map.sh'), '--root', root, '--stdout'], { encoding: 'utf8' });
     check('crew-map.sh twin: with Node it hands over (rc 0, a document)', r0.status === 0 && r0.stdout.startsWith('{'), `rc=${r0.status} ${r0.stderr}`);
   }
