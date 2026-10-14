@@ -7,10 +7,10 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 18 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 19 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 18 hook'un tamamı
+## 19 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
@@ -19,6 +19,7 @@
 | `guard-question.sh` | Onay sorusunun (`auto` modunda tek tık) bir hook'a değil size ulaşmasını sağlar: yalnız sabit soruya `ask` der, başka bir ifadeyi ya da cevabı önceden doldurulmuş soruyu reddeder, bir `PermissionRequest` hook'u bağlı olabilirse soruyu kapatır |
 | `guard-agent-model.sh` | Bir `crew-*` ajanının çağrıldığı iş kartını (dosyalar, değişiklik türü, verify komutu) okur ve modeli karta uymayan çağrıyı reddeder: kart ya da model yoksa; kritik iş (migration, güvenlik, mimari, nedeni bilinmeyen hata ya da kritik yoldaki dosya) `opus`'un altındaysa; test yazımı, denetim ve inceleme `sonnet`'in altındaysa; verify komutu olmayan iş `haiku`'daysa; verify'ı düşmüş kart aynı ya da daha düşük modelle tekrar çağrılırsa; kritik ve verify'lı iş arka plandaysa. Çağrıyı yeniden yazmaz. `fable` için `CREW_ALLOW_FABLE=1` gerekir; `CREW_MODEL_ROUTING=off` kapatır |
 | `agent-outcome.sh` | Crew ajanı durduğunda kartındaki verify komutunu koşar: ilk kırmızıda ajan düzeltmesi için çalışır tutulur; ikincide oturuma işi bir üst modelle tekrarlaması söylenir. Her çağrı için `.claude/state/model-outcomes.tsv` dosyasına bir satır yazar, ilk denemesi çok sık düşen sınıfın tabanını yükseltir ve projenin kritik yollarını listeler. Kapı değildir: ajanın yazdığını geri alamaz. Verify komutu yalnız adıyla izin verdiyseniz çalışır (`.claude/crew-model-rules` içinde bir `verify` satırı, `permissions.allow` içinde bir `Bash(...)` kuralı) ya da `auto` ve `bypassPermissions` modunda, seçeneksiz bilinen bir test ya da build çalıştırıcısıysa. Bilinen sınırlar: test çalıştırıcı ajanın yazdığı kodu çalıştırır (test dosyaları, `package.json` betikleri, `conftest.py`, `Makefile`), yani liste komutu sınırlar, testlerin ne yaptığını değil; düşmüş bir kart, kart değişene kadar düşmüş kalır; yönlendirme dosyalarını koruyan kabuk kuralı dosya adına bakar; kritik yol listesi kurulumda değil ilk oturumda yazılır; yönetilen politika yalnız managed ayar dosyasından okunur, macOS MDM, Windows registry ya da sunucudan değil. Yükseltilmiş bir tabanı `/crew-loosen <agent> <change> <risk>` indirir; bu komutu yalnız siz gönderebilirsiniz: bir kademe, her yükseltme için bir kez. Model seçimi yalnız `crew-*` ajanlarında uygulanır: Explore, general-purpose ve projenin kendi ajanları ana oturumun modelinde koşar ve kayda düşmez. Kapı taban zorlar, tavan zorlamaz: sıradan bir işin Opus'a verilmesini hiçbir şey engellemez. Oturumun o kaydı yazmasını engelleyen kabuk kuralı, parçalardan kurulan bir adla, bir yorumlayıcıyla ya da üst klasörü taşıyarak aşılabilir; böyle bir yazma indirimi yalnız kaldırmakla kalmaz, ekleyebilir de |
+| `refuter-ledger.sh` | Bir `crew-refuter` ajanı durduğunda, bir bulgu hakkındaki kararını ajanın kendi görevinden ve cevabından okuyup `.claude/state/crew-refuter.tsv`'ye yazar; yalnız ikisi aynı bulguyu ve aynı açıyı adlandırıyorsa. `findings.sh write --verified` bir bulgu belgesini bu deftere tutar; oturum defteri yazamaz |
 | `route-hint.sh` | Her isteğin yanına o işin sahibi ajanı yazar; uzmanlar siz istemeden devreye girer |
 | `guard-bash.sh` | Araç seviyesinde komut kapısı: commit/push onayı, commit öncesi inceleme, yıkıcı işlemler, uzaktan kod çalıştırma, hook kurcalama |
 | `guard-write.sh` | Aynı korumanın Write/Edit tarafı. Sessizce silinebilen bir kapı, kapı değildir. Hedef yolu eşleştirmeden önce sadeleştirir, böylece bir kapı dosyasına farklı bir yazımla ulaşılamaz. |

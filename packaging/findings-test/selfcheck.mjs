@@ -13,7 +13,7 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { validate, stamp, write, serialize, loadSchema, SCHEMA_ID, OUT_DIR, SHAPE_KEYWORDS }
+import { validate, stamp, write, serialize, loadSchema, SCHEMA_ID, OUT_DIR, SHAPE_KEYWORDS, LEDGER, verdictOf }
   from '../../kit/eval/lib/findings/findings.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -199,10 +199,60 @@ const good = JSON.stringify(doc()); const bad = JSON.stringify(ev({ line: 1 }));
 { const r = run(['schema']); let j = null; try { j = JSON.parse(r.stdout); } catch { /* below */ }
   check('schema: prints the shipped schema', r.status === 0 && j && j.$id === SCHEMA_ID, `rc=${r.status}`); }
 
+/* -- 9b. verification: refuters, and the ledger only the hook writes ------------------------------------- */
+{
+  // A ledger in the fixture project, where --verified looks for it, written here the way the hook writes it.
+  const ledgerAt = path.join(ROOT, LEDGER);
+  fs.mkdirSync(path.dirname(ledgerAt), { recursive: true });
+  const row = (agent, finding, lens, verdict) => `2026-10-14T00:00:00Z\ts1\t${agent}\t${finding}\t${lens}\t${verdict}\n`;
+  const ID = 'endpoint-no-handler:users';
+  fs.writeFileSync(ledgerAt, 'ts\tsession\tagent_id\tfinding\tlens\tverdict\n'
+    + row('a1', ID, 'protection', 'TRUE_POSITIVE') + row('a2', ID, 'reachability', 'TRUE_POSITIVE') + row('a3', ID, 'reproduction', 'TRUE_POSITIVE')
+    + row('b1', ID, 'protection', 'FALSE_POSITIVE') + row('c1', 'other:id', 'reachability', 'TRUE_POSITIVE'));
+  const vf = (r) => ({ verdict: verdictOf(r.map((x) => x[2])), verifiers: r.map(([agent, lens, verdict]) => ({ agent, lens, verdict })) });
+  const V = (d) => validate(d, ROOT, { verified: true });
+  const vholds = (name, d) => { const r = V(d); check(name, r.ok, `${codes(r)} ${r.problems[0]?.message ?? ''}`); };
+  const vfails = (name, d, code) => { const r = V(d); check(name, !r.ok && r.problems.every((p) => p.code === code),
+    `wanted ${code}, got ${r.ok ? 'a pass' : r.problems.map((p) => `${p.code}@${p.at}: ${p.message}`).join('; ')}`); };
+  const one = [['a1', 'protection', 'TRUE_POSITIVE']];
+  const three = [['a1', 'protection', 'TRUE_POSITIVE'], ['a2', 'reachability', 'TRUE_POSITIVE'], ['a3', 'reproduction', 'TRUE_POSITIVE']];
+  vfails('verified: a medium finding with no verification is refused', doc([finding({ severity: 'medium' })]), 'unverified');
+  check('verified twin: without --verified the same document holds', validate(doc([finding({ severity: 'medium' })]), ROOT).ok);
+  vholds('verified: a medium finding with one ledger-backed verifier holds', doc([finding({ severity: 'medium', verification: vf(one) })]));
+  vholds('verified: a low finding needs no verifier (not in the x-verifiers table)', doc([finding({ severity: 'low' })]));
+  vfails('verified: a high finding with one verifier is refused (needs 3)', doc([finding({ severity: 'high', verification: vf(one) })]), 'unverified');
+  vholds('verified: a high finding with three ledger-backed verifiers on three lenses holds', doc([finding({ severity: 'high', verification: vf(three) })]));
+  vfails('verified: a verifier the ledger does not have is refused', doc([finding({ severity: 'medium', verification: vf([['zz', 'protection', 'TRUE_POSITIVE']]) })]), 'ledger');
+  vfails('verified: a ledger line for another finding does not count', doc([finding({ severity: 'medium', verification: vf([['c1', 'reachability', 'TRUE_POSITIVE']]) })]), 'ledger');
+  vfails('verified: the ledger said FALSE_POSITIVE, the document says TRUE_POSITIVE: refused',
+    doc([finding({ severity: 'medium', verification: vf([['b1', 'protection', 'TRUE_POSITIVE']]) })]), 'ledger');
+  fails('verification: a verdict its verifiers do not give is refused',
+    doc([finding({ verification: { verdict: 'TRUE_POSITIVE', verifiers: [{ agent: 'a1', lens: 'protection', verdict: 'TRUE_POSITIVE' }, { agent: 'b1', lens: 'reachability', verdict: 'FALSE_POSITIVE' }] } })]), 'verification');
+  fails('verification: one agent counted twice is refused', doc([finding({ verification: vf([['a1', 'protection', 'TRUE_POSITIVE'], ['a1', 'reachability', 'TRUE_POSITIVE']]) })]), 'verification');
+  fails('verification: one lens twice is refused', doc([finding({ verification: vf([['a1', 'protection', 'TRUE_POSITIVE'], ['a2', 'protection', 'TRUE_POSITIVE']]) })]), 'verification');
+  fails('verification: a FALSE_POSITIVE that keeps its severity is refused', doc([finding({ severity: 'medium', verification: vf([['b1', 'protection', 'FALSE_POSITIVE']]) })]), 'verification');
+  vholds('verification twin: the same FALSE_POSITIVE without a severity holds, and stays on record', doc([finding({ verification: vf([['b1', 'protection', 'FALSE_POSITIVE']]) })]));
+  check('verdictOf: one FALSE_POSITIVE outweighs, then CANNOT_VERIFY, then TRUE_POSITIVE',
+    verdictOf(['TRUE_POSITIVE', 'FALSE_POSITIVE', 'CANNOT_VERIFY']) === 'FALSE_POSITIVE' && verdictOf(['TRUE_POSITIVE', 'CANNOT_VERIFY']) === 'CANNOT_VERIFY' && verdictOf(['TRUE_POSITIVE']) === 'TRUE_POSITIVE');
+  // The ledger is read from the project, at one fixed path. Elsewhere, or absent, is no ledger at all.
+  const moved = ledgerAt + '.away'; fs.renameSync(ledgerAt, moved);
+  vfails('verified: with no ledger in the project a verifier cannot be backed', doc([finding({ severity: 'medium', verification: vf(one) })]), 'ledger');
+  fs.renameSync(moved, ledgerAt);
+  const d1 = JSON.stringify(doc([finding({ severity: 'medium', verification: vf(one) })]));
+  const c1 = run(['validate', '--root', ROOT, '--verified', '-'], d1);
+  check('cli: validate --verified reads the project\'s ledger (rc 0)', c1.status === 0, c1.stdout + c1.stderr);
+  const c2 = run(['validate', '--root', ROOT, '--ledger', ledgerAt, '-'], d1);
+  check('cli: there is no --ledger: a path the caller names is one the caller could write (usage, rc 2)', c2.status === 2, `rc=${c2.status}`);
+  const c3 = run(['write', '--root', ROOT, '--verified', 'v-bad', '-'], JSON.stringify(doc([finding({ severity: 'high', verification: vf(one) })])));
+  check('cli: write --verified refuses an under-verified document and writes nothing', c3.status === 1 && !fs.existsSync(path.join(ROOT, OUT_DIR, 'v-bad.json')), `rc=${c3.status}`);
+  fs.rmSync(path.dirname(path.dirname(ledgerAt)), { recursive: true, force: true });
+}
+
 /* -- 10. one definition of the shape ---------------------------------------------------------------------- */
 {
   const schema = loadSchema();
-  const NOTES = ['$schema', '$id', 'title', 'description', '$defs'];
+  // x-verifiers is not a shape keyword: it is the verification rule's table, read and enforced by validate --verified.
+  const NOTES = ['$schema', '$id', 'title', 'description', '$defs', 'x-verifiers'];
   const unknown = new Set();
   // A keyword is a key of a schema object; the keys of "properties" and "$defs" are names, not keywords.
   (function walk(s) {

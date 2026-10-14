@@ -388,6 +388,7 @@ WHY_SCRIPT="This file is a gate script — rewriting it would disarm the trace/s
 WHY_DISC="This file is Crewforth's discipline document — it IS the text of §4.1-§4.5, so editing it empties the rules the gates enforce."
 WHY_LINK="A parent directory of this path is a symlink and it resolves into a gate directory, so the write would land on a gate file."
 WHY_MODEL="This file is what model routing decides from: the user's rules, a class's floor, the critical paths, or the record of a call and its result. Only the user and Crewforth's own hooks write it, so a session cannot lower its own floor or erase its own failure."
+WHY_REFUTER="This file is the refuter ledger: what crew-refuter concluded about a finding, written by Crewforth's hook from the agent's own task and answer. A findings document is held to it, so a session that writes it would verify its own findings."
 WHY_APPR="This file records the user's own approval for a commit or a push (§4.4). Only the user's message writes it, so a session cannot approve its own commit."
 WHY_GITCFG="This file holds core.hooksPath: writing it can switch the git hooks off without touching one of them. Settings go through git config, which the Bash guard reads."
 WHY_LONG="The path in this payload is longer than any filesystem accepts. It is refused rather than parsed, because parsing it is the slow path an attacker would aim at."
@@ -545,6 +546,10 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
     # Matched by name wherever it is: a linked worktree keeps its git directory elsewhere.
     */[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll]|[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll])
       GATE_RULE="approval-record edit (Write/Edit tools)"; GATE_WHY="$WHY_APPR"; return 0 ;;
+    # The refuter ledger (hooks/refuter-ledger.sh): what crew-refuter concluded, as the hook read it from the agent's
+    # own task and answer. findings.mjs --ledger trusts it; a session that writes it verifies its own findings.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-[Rr][Ee][Ff][Uu][Tt][Ee][Rr].[Tt][Ss][Vv]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-[Rr][Ee][Ff][Uu][Tt][Ee][Rr].[Tt][Ss][Vv])
+      GATE_RULE="gate-file edit (refuter ledger)"; GATE_WHY="$WHY_REFUTER"; return 0 ;;
     # What model routing decides from (hooks/guard-agent-model.sh, hooks/agent-outcome.sh): the user's own rules,
     # the floors raised from the record of outcomes, the list of critical paths, and the records of calls and
     # results. A session that writes one lowers its own floor or wipes its own failure.

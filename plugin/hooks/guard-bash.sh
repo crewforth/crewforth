@@ -1991,6 +1991,12 @@ _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
   fi
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
 _mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it)" "4.5" tamper
+# The refuter ledger (hooks/refuter-ledger.sh) by its file name: the agent's name alone is not refused, so a command
+# that greps for crew-refuter still runs. The same honest scope as the rule above.
+_rf_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$CMD_UQ" in *crew-refuter.tsv*) rc=0 ;; esac
+  [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
+_rf_named && block "the refuter ledger named in a command (only Crewforth's hook writes it)" "4.5" tamper
 _appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper
 
 # §4.5-adjacent: a .env file holds secrets. The settings.json Read-tool deny does NOT cover the Bash tool, so a

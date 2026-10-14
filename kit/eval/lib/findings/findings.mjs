@@ -2,9 +2,9 @@
 // findings.mjs — the evidence-backed findings core: one document shape, and a validator that holds every
 // finding to the lines it cites.
 //
-//   node findings.mjs validate [--root DIR] [--json] FILE|-    rc 0 = every entry verified · 1 = at least one problem
-//   node findings.mjs stamp    [--root DIR] [--redact] FILE|-  the document on stdout with a sha256 on each verified entry
-//   node findings.mjs write    [--root DIR] NAME FILE|-        validate, then write DIR/.crewforth/NAME.json
+//   node findings.mjs validate [--root DIR] [--verified] [--json] FILE|-    rc 0 = every entry verified · 1 = at least one problem
+//   node findings.mjs stamp    [--root DIR] [--verified] [--redact] FILE|-  the document on stdout with a sha256 on each verified entry
+//   node findings.mjs write    [--root DIR] [--verified] NAME FILE|-        validate, then write DIR/.crewforth/NAME.json
 //   node findings.mjs schema                                   the schema, as shipped
 //       rc 2 = usage, or a document that could not be read as a JSON object. Nothing is written on a non-zero rc.
 //
@@ -22,6 +22,12 @@
 //   range     line..endLine exist in it
 //   stale     the anchor still matches: sha256 of the cited lines, and/or the quoted text is in them
 //   machine-path   no string in the document carries this machine's project or home directory
+//   verification   a finding's verdict is the one its verifiers' verdicts give, its verifiers are distinct agents on
+//                  distinct lenses, and only a TRUE_POSITIVE keeps a severity
+//   --verified     every finding of a severity in the schema's x-verifiers table has that many verifiers, and every
+//                  verifier is a line of the refuter ledger, .claude/state/crew-refuter.tsv under --root, which only
+//                  Crewforth's SubagentStop hook writes. The path is fixed on purpose: a ledger the caller could name
+//                  is one the caller could write.
 //
 // A document is either standalone ("schema": "crewforth.findings/1", held to the whole schema) or a host
 // document with its own "schema": "crewforth.<name>/<n>" and a "findings" array in the same shape. In both,
@@ -203,7 +209,7 @@ function machinePaths(rootGiven, rootReal) {
 }
 
 // { ok, schema, counts: { findings, evidence, verified }, problems: [{ at, code, message }], held: [entry…] }
-export function validate(doc, root = '.') {
+export function validate(doc, root = '.', opts = {}) {
   const problems = [];
   const counts = { findings: 0, evidence: 0, verified: 0 };
   const held = [];
@@ -246,14 +252,68 @@ export function validate(doc, root = '.') {
       if (p) problems.push({ at, ...p }); else { counts.verified++; held.push(ev); }
     });
   }
+  if (Array.isArray(doc.findings)) verification(doc.findings, schema, project, opts, problems);
   return report();
+}
+
+// ---- verification: what refuters concluded, and the ledger it must come from -------------------------------
+export const LEDGER = path.join('.claude', 'state', 'crew-refuter.tsv');
+// The verdict a set of verifiers gives: one that shows the claim wrong outweighs the rest, an open question
+// outweighs agreement. The producer writes it down; it does not get to choose it.
+export function verdictOf(verdicts) {
+  if (verdicts.includes('FALSE_POSITIVE')) return 'FALSE_POSITIVE';
+  if (verdicts.includes('CANNOT_VERIFY')) return 'CANNOT_VERIFY';
+  return 'TRUE_POSITIVE';
+}
+// { rows: [{ agent, finding, lens, verdict }] } or { error }
+export function readLedger(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return { error: `no refuter ledger at ${LEDGER.split(path.sep).join('/')}` }; }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    const c = line.replace(/\r$/, '').split('\t');
+    if (c.length < 6 || c[0] === 'ts') continue;
+    rows.push({ agent: c[2], finding: c[3], lens: c[4], verdict: c[5] });
+  }
+  return { rows };
+}
+function verification(findings, schema, project, opts, problems) {
+  const table = opts.verified ? (schema['x-verifiers'] || {}) : {};
+  let ledger = null;
+  findings.forEach((f, i) => {
+    if (!f || typeof f !== 'object') return;
+    const at = `findings[${i}]`;
+    const v = f.verification;
+    const ok = v && typeof v === 'object' && Array.isArray(v.verifiers) && v.verifiers.every((x) => x && typeof x === 'object');
+    if (ok) {
+      const want = verdictOf(v.verifiers.map((x) => x.verdict));
+      if (v.verdict !== want) problems.push({ at: `${at}.verification.verdict`, code: 'verification', message: `is ${show(v.verdict)}; its verifiers give ${want}` });
+      const agents = v.verifiers.map((x) => x.agent); const lenses = v.verifiers.map((x) => x.lens);
+      if (new Set(agents).size !== agents.length) problems.push({ at: `${at}.verification.verifiers`, code: 'verification', message: 'names one agent twice: one context counted as two verifiers' });
+      if (new Set(lenses).size !== lenses.length) problems.push({ at: `${at}.verification.verifiers`, code: 'verification', message: 'repeats a lens: the same method twice is repetition, not confirmation' });
+      if (f.severity !== undefined && v.verdict !== 'TRUE_POSITIVE') problems.push({ at: `${at}.severity`, code: 'verification', message: `a finding judged ${v.verdict} carries no severity` });
+    }
+    if (!opts.verified) return;
+    const need = typeof f.severity === 'string' ? table[f.severity] : undefined;
+    if (typeof need === 'number' && need > 0) {
+      if (!ok) { problems.push({ at, code: 'unverified', message: `a ${f.severity} finding needs ${need} verifier(s) from the refuter ledger, and has none` }); return; }
+      if (v.verifiers.length < need) problems.push({ at: `${at}.verification.verifiers`, code: 'unverified', message: `a ${f.severity} finding needs ${need} verifier(s), has ${v.verifiers.length}` });
+    }
+    if (!ok) return;
+    if (ledger === null) ledger = readLedger(opts.ledger || path.join(project.root, LEDGER));
+    if (ledger.error) { problems.push({ at: `${at}.verification`, code: 'ledger', message: ledger.error }); return; }
+    v.verifiers.forEach((x, k) => {
+      const hit = ledger.rows.some((r) => r.agent === x.agent && r.finding === f.id && r.lens === x.lens && r.verdict === x.verdict);
+      if (!hit) problems.push({ at: `${at}.verification.verifiers[${k}]`, code: 'ledger', message: `no ledger line says agent ${show(x.agent)} judged ${show(f.id)} on ${show(x.lens)} as ${show(x.verdict)}` });
+    });
+  });
 }
 
 // The document with the cited lines' sha256 written onto every entry that verifies. An entry that does not
 // verify is never given a hash: stamping would turn an unchecked claim into one that looks checked.
 // `redact` then drops "text" from those entries, for lines that should not be quoted (a secret, personal data).
-export function stamp(doc, root = '.', { redact = false } = {}) {
-  const r = validate(doc, root);
+export function stamp(doc, root = '.', { redact = false, ...opts } = {}) {
+  const r = validate(doc, root, opts);
   const project = openProject(root);
   for (const ev of r.held) {
     ev.sha256 = rangeOf(project, ev).sha256;
@@ -272,9 +332,9 @@ export function serialize(doc) {
 
 // Validate, then write <root>/.crewforth/<name>.json. An unverified document is never written. Returns the
 // validation report with `file` (relative to the root) when it was.
-export function write(doc, root, name) {
+export function write(doc, root, name, opts = {}) {
   if (!OUT_NAME.test(name)) throw new Error(`the name must match ${OUT_NAME}, is ${show(name)}`);
-  const r = validate(doc, root);
+  const r = validate(doc, root, opts);
   if (!r.ok) return r;
   const real = fs.realpathSync(root);
   const dir = path.join(real, OUT_DIR);
@@ -289,9 +349,9 @@ export function write(doc, root, name) {
 // ---- command line -----------------------------------------------------------------------------------------
 function usage(msg) {
   if (msg) console.error(`findings: ${msg}`);
-  console.error('usage: findings.mjs validate [--root DIR] [--json] FILE|-\n'
-    + '       findings.mjs stamp    [--root DIR] [--redact] FILE|-\n'
-    + '       findings.mjs write    [--root DIR] NAME FILE|-\n'
+  console.error('usage: findings.mjs validate [--root DIR] [--verified] [--json] FILE|-\n'
+    + '       findings.mjs stamp    [--root DIR] [--verified] [--redact] FILE|-\n'
+    + '       findings.mjs write    [--root DIR] [--verified] NAME FILE|-\n'
     + '       findings.mjs schema');
   return 2;
 }
@@ -305,12 +365,13 @@ export function main(argv) {
   const [op, ...rest] = argv;
   if (op === 'schema' && rest.length === 0) { process.stdout.write(JSON.stringify(loadSchema(), null, 2) + '\n'); return 0; }
   if (!['validate', 'stamp', 'write'].includes(op)) return usage(op ? `no such operation: ${op}` : '');
-  let root = '.'; let json = false; let redact = false; const pos = [];
+  let root = '.'; let json = false; let redact = false; let verified = false; const pos = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--root') { root = rest[++i]; if (root === undefined) return usage('--root needs a directory'); }
     else if (a === '--json' && op === 'validate') json = true;
     else if (a === '--redact' && op === 'stamp') redact = true;
+    else if (a === '--verified') verified = true;
     else if (a !== '-' && a.startsWith('-')) return usage(`${op} has no option ${a}`);
     else pos.push(a);
   }
@@ -324,20 +385,20 @@ export function main(argv) {
   catch (e) { console.error(`findings: ${src === '-' ? 'stdin' : src} could not be read as JSON: ${e.message}`); return 2; }
 
   if (op === 'validate') {
-    const r = validate(doc, root);
+    const r = validate(doc, root, { verified });
     if (json) { const { held, ...pub } = r; process.stdout.write(JSON.stringify(pub, null, 2) + '\n'); }
     else summary(r, (l) => console.log(l));
     return r.ok ? 0 : 1;
   }
   if (op === 'stamp') {
-    const r = stamp(doc, root, { redact });
+    const r = stamp(doc, root, { redact, verified });
     summary(r, (l) => console.error(l));
     if (!r.ok) return 1;
     process.stdout.write(serialize(doc));
     return 0;
   }
   let r;
-  try { r = write(doc, root, pos[0]); } catch (e) { return usage(e.message); }
+  try { r = write(doc, root, pos[0], { verified }); } catch (e) { return usage(e.message); }
   summary(r, (l) => console.error(l));
   if (!r.ok) { console.error('findings: nothing was written'); return 1; }
   console.log(r.file);

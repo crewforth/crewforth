@@ -19,9 +19,12 @@ audit). Each verifier:
 Three passes inside one context window are not three verifiers. The second pass has already read the first one's
 reasoning; the blindness above is then a wish, not a property, and the agreement it produces is one argument
 counted three times. So:
-- **Each verifier is its own subagent** (`Agent`, one call per verifier, run in parallel). A subagent has its own
-  context window: it cannot see what the others concluded, which is the whole point. Read-only work, so no
-  `worktree` is needed — nothing is being written.
+- **Each verifier is its own `crew-refuter` call** (one call per verifier and lens, run in parallel). A subagent
+  has its own context window: it cannot see what the others concluded, which is the whole point. Read-only work,
+  so no `worktree` is needed — nothing is being written. Its task is the card, then `finding:`, `lens:`, `cite:`
+  and `claim:` (its agent file has the exact form); when it stops, `hooks/refuter-ledger.sh` records the verdict
+  in the refuter ledger, and `findings.sh write --verified` refuses a `medium`-or-higher finding whose verifiers
+  are not there. The ledger is the gate; the prompt that carries no reasoning is still discipline.
 - **Give it the finding and the file:line, never your reasoning.** Not "I think X is exploitable because Y" —
   just "claim: X at file:line. Try to refute it."
 - **If you did not isolate, say so.** Write `verifiers: 1 (single pass, not isolated)` in the verdict block. A

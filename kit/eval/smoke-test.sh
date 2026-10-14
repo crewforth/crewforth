@@ -8917,6 +8917,61 @@ rm -rf "$_v2"
 fi
 # Wired where it has to be, in both editions: the four events of agent-outcome.sh, and the gate on Agent.
 _pawf2="$ROOT/settings.json"; [ "$IS_KIT" = 1 ] && _pawf2="$_pawf2 $(cd "$ROOT/.." && pwd)/plugin/hooks/hooks.json"
+# ---- the refuter ledger: what crew-refuter concluded, written by the hook from the agent's own task and answer ----
+# findings.mjs --verified trusts this file, so what writes it is the gate: a line only when the TASK (the first record
+# of the agent's transcript) and the ANSWER (last_assistant_message) name the same finding and lens, only for a
+# crew-refuter (plugin-namespaced too), once per agent, whatever CREW_MODEL_ROUTING says, and never a refusal.
+_RL="$HOOKS/refuter-ledger.sh"
+if [ ! -f "$_RL" ]; then fail "hooks/refuter-ledger.sh is missing — no verdict of crew-refuter is ever recorded, so --verified can back nothing"
+else
+  _rlt="$(mktemp -d)"; mkdir -p "$_rlt/p"
+  printf '%s\n' '{"type":"user","content":"files: src/a.js\nchange: audit\nverify: none\nfinding: sec-idor-1\nlens: protection\ncite: src/a.js:3\nclaim: anyone reads any order"}' > "$_rlt/t.jsonl"
+  _rl(){  # $1 agent id, $2 agent type, $3 answer (JSON-escaped), [$4 extra env] -> rows in the ledger after
+    printf '{"hook_event_name":"SubagentStop","session_id":"s1","agent_id":"%s","agent_type":"%s","agent_transcript_path":"%s","last_assistant_message":"%s"}' \
+      "$1" "$2" "$_rlt/t.jsonl" "$3" | env CLAUDE_PROJECT_DIR="$_rlt/p" ${4:-} bash "$_RL" >/dev/null 2>&1
+    _rlrc=$?
+    _rln=0; [ -f "$_rlt/p/.claude/state/crew-refuter.tsv" ] && _rln=$(($(wc -l < "$_rlt/p/.claude/state/crew-refuter.tsv") - 1))
+  }
+  _rlb=""
+  _rl a1 crew-refuter 'checked\nFINDING: sec-idor-1\nLENS: protection\nVERDICT: FALSE_POSITIVE\nREASON: guard at src/a.js:2\nconfidence: high'
+  [ "$_rlrc" = 0 ] && [ "$_rln" = 1 ] || _rlb="$_rlb match(rc=$_rlrc,rows=$_rln)"
+  _rl a1 crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb resumed-agent-counted-twice"
+  _rl a2 crew-refuter 'FINDING: sec-idor-1\nLENS: reachability\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb answer-on-another-lens-recorded"
+  _rl a3 crew-refuter 'FINDING: sec-other\nLENS: protection\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb answer-on-another-finding-recorded"
+  _rl a4 crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: PROBABLY'
+  [ "$_rln" = 1 ] || _rlb="$_rlb verdict-outside-the-three-recorded"
+  _rl a5 crew-security-expert 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb another-agent-type-recorded"
+  _rl a6 crewforth:crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: CANNOT_VERIFY'
+  [ "$_rln" = 2 ] || _rlb="$_rlb plugin-namespaced-type-not-recorded"
+  _rl a7 crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: TRUE_POSITIVE' CREW_MODEL_ROUTING=off
+  [ "$_rln" = 3 ] || _rlb="$_rlb not-recorded-with-routing-off"
+  _o="$(printf 'not json' | env CLAUDE_PROJECT_DIR="$_rlt/p" bash "$_RL" 2>/dev/null; echo "rc=$?")"
+  [ "$_o" = rc=0 ] || _rlb="$_rlb unreadable-payload:$_o"
+  _rlrow="$(sed -n 2p "$_rlt/p/.claude/state/crew-refuter.tsv" 2>/dev/null | cut -f3-6 | tr '\t' ' ')"
+  [ "$_rlrow" = "a1 sec-idor-1 protection FALSE_POSITIVE" ] || _rlb="$_rlb row:[$_rlrow]"
+  [ -z "$_rlb" ] && pass "refuter-ledger.sh: one line when task and answer agree (9 cases: resumed, other lens, other finding, bad verdict, other agent, plugin name, routing off, bad payload)" \
+                 || fail "refuter-ledger.sh:$_rlb"
+  # Its guards: the ledger's file name is refused to the shell and to the file tools; the agent's name is not.
+  _rlg(){ printf '{"hook_event_name":"PreToolUse","tool_name":"%s","permission_mode":"default","tool_input":%s}' "$1" "$2" \
+    | env CLAUDE_PROJECT_DIR="$_rlt/p" bash "$HOOKS/$3" >/dev/null 2>&1; echo $?; }
+  _g1="$(_rlg Bash '{"command":"echo x >> .claude/state/crew-refuter.tsv"}' guard-bash.sh)"
+  _g2="$(_rlg Bash '{"command":"grep -rn crew-refuter agents"}' guard-bash.sh)"
+  _g3="$(_rlg Write "{\"file_path\":\"$_rlt/p/.claude/state/crew-refuter.tsv\",\"content\":\"x\"}" guard-write.sh)"
+  _g4="$(_rlg Write "{\"file_path\":\"$_rlt/p/notes.md\",\"content\":\"x\"}" guard-write.sh)"
+  [ "$_g1" = 2 ] && [ "$_g2" = 0 ] && [ "$_g3" = 2 ] && [ "$_g4" = 0 ] \
+    && pass "the refuter ledger is refused by name to the shell (rc 2) and the file tools (rc 2); a grep for the agent and a plain file are not (rc 0)" \
+    || fail "refuter ledger guards: shell write $_g1 (want 2), grep $_g2 (want 0), Write $_g3 (want 2), plain Write $_g4 (want 0)"
+  rm -rf "$_rlt"
+fi
+# Wired in both editions: SubagentStop, matched on the agent type.
+_rlw=""; for _pf in $_pawf2; do
+  json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "SubagentStop" && $2 ~ /crew-refuter/ && $3 ~ /refuter-ledger\.sh/ { f = 1 } END { exit !f }' || _rlw="$_rlw ${_pf##*/}"
+done
+[ -z "$_rlw" ] && pass "refuter-ledger.sh is wired to SubagentStop, matched on crew-refuter, in every edition read" || fail "refuter-ledger.sh is not wired to SubagentStop on crew-refuter in:$_rlw"
 for _pf in $_pawf2; do
   _wo=""; for _ev in SubagentStart SubagentStop PostToolUse SessionStart; do
     json_hooks "$_pf" | LC_ALL=C awk -F'\t' -v e="$_ev" '$1 == e && $3 ~ /agent-outcome\.sh/ { f = 1 } END { exit !f }' || _wo="$_wo $_ev"; done
@@ -10513,7 +10568,9 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
     # An empty answer must mean "nothing unpinned", never "git listed nothing": two files every checkout has must
     # be in the listing first. Symlinks and submodules are not regular files; git leaves their i/ field empty.
     SLIST="$(git -C "$SGR" ls-files -- start.sh adopt.sh VERSION LICENSE README.md bin kit plugin 2>/dev/null)"
-    if ! printf '%s\n' "$SLIST" | grep -qx 'start.sh' || ! printf '%s\n' "$SLIST" | grep -qx 'kit/CLAUDE.md'; then
+    # Here-strings, not a pipe: `grep -q` exits on its first match, a printf still writing gets SIGPIPE, and under
+    # pipefail that read as "not listed" once the list grew long enough to outlast the match (Linux runner).
+    if ! grep -qx 'start.sh' <<< "$SLIST" || ! grep -qx 'kit/CLAUDE.md' <<< "$SLIST"; then
       fail "git did not list Crewforth's shipped files (start.sh and kit/CLAUDE.md are missing), so the eol pin check measured nothing"
     else
     UNPIN="$(git -C "$SGR" ls-files --eol -- start.sh adopt.sh VERSION LICENSE README.md bin kit plugin 2>/dev/null \
