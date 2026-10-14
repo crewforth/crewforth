@@ -4652,6 +4652,33 @@ DOC="$(mktemp -d)"
   chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg
   git config core.hooksPath .claude/hooks )
 bash "$ROOT/eval/doctor.sh" "$DOC" >/dev/null 2>&1 && pass "doctor: healthy install -> exit 0" || fail "doctor flagged a healthy install"
+# Two editions at once, and the advisor (doctor 9c). Driven through a stub `claude` that prints a plugin list, a
+# config dir of its own, and the provider and advisor variables cleared, so the machine running this decides
+# nothing. Advisory: every case keeps the healthy verdict (exit 0).
+_d9="$(mktemp -d)"; mkdir -p "$_d9/bin" "$_d9/cfg"
+_d9stub(){ printf '#!/bin/sh\ncase "$1" in --version) echo "2.1.299 (Claude Code)" ;; plugin) cat <<J\n%s\nJ\n;; esac\n' "$1" > "$_d9/bin/claude"; chmod +x "$_d9/bin/claude"; }
+_d9run(){ _d9o="$( cd "$DOC" && env -u CLAUDE_CODE_DISABLE_ADVISOR_TOOL -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
+  CREW_LANG=en CLAUDE_CONFIG_DIR="$_d9/cfg" PATH="$_d9/bin:$PATH" "$@" bash "$ROOT/eval/doctor.sh" 2>&1 )"; _d9rc=$?; }
+_d9b=""
+_d9stub '[{"id":"crewforth@crewforth","enabled":true},{"id":"other@market","enabled":true}]'; _d9run
+case "$_d9o" in *"every hook runs twice"*) ;; *) _d9b="$_d9b both-on-not-seen" ;; esac; [ "$_d9rc" = 0 ] || _d9b="$_d9b both-on-changed-the-verdict($_d9rc)"
+_d9stub '[{"id": "crewforth@crewforth", "enabled": false}]'; _d9run
+case "$_d9o" in *"one edition: the Crewforth plugin is not enabled"*) ;; *) _d9b="$_d9b plugin-off-not-one-edition" ;; esac
+rm -f "$_d9/bin/claude"; _d9run env PATH="$_d9/bin:/usr/bin:/bin"
+case "$_d9o" in *"two editions at once: not measured (no claude CLI"*) ;; *) _d9b="$_d9b no-cli-not-said" ;; esac
+_d9stub '[]'
+_d9run; case "$_d9o" in *"advisor: off (no advisorModel set"*) ;; *) _d9b="$_d9b advisor-unset" ;; esac
+printf '{"advisorModel":"opus"}' > "$_d9/cfg/settings.json"; _d9run
+case "$_d9o" in *"advisor: on, opus"*) ;; *) _d9b="$_d9b advisor-opus" ;; esac; case "$_d9o" in *"below the critical tier"*) _d9b="$_d9b opus-called-below-critical" ;; esac
+printf '{"advisorModel":"sonnet"}' > "$_d9/cfg/settings.json"; _d9run
+case "$_d9o" in *"advisor (sonnet) is below the critical tier"*) ;; *) _d9b="$_d9b sonnet-not-below" ;; esac
+_d9run env CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
+case "$_d9o" in *"CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off"*) ;; *) _d9b="$_d9b env-off-not-seen" ;; esac
+_d9run env CLAUDE_CODE_USE_BEDROCK=1
+case "$_d9o" in *"needs the Anthropic API"*) ;; *) _d9b="$_d9b bedrock-not-seen" ;; esac; [ "$_d9rc" = 0 ] || _d9b="$_d9b bedrock-changed-the-verdict($_d9rc)"
+rm -rf "$_d9"
+[ -z "$_d9b" ] && pass "doctor 9c: both editions on is named, one is ok, no CLI is not measured; the advisor off, on, below the critical tier, env-disabled and on Bedrock each read right; none changes the verdict" \
+               || fail "doctor 9c:$_d9b"
 # THE MANIFEST'S LINE ENDINGS MUST NOT CHANGE WHO OWNS A SKILL. Measured before the fix: the same install with
 # one project skill counted 1 on an LF manifest and 2 on a CRLF one, because `grep -qxF` wants a whole line and
 # `skills/handoff\r` is not `skills/handoff` — so every KIT skill read as project-owned. A Windows checkout with

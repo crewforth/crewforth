@@ -98,6 +98,17 @@ _mt() {
       'settings.json is invalid JSON') s='settings.json geçersiz JSON' ;;
       "Claude Code %s is older than 2.1.293 — the model alias haiku may not resolve to Haiku 5.5 there, so an agent called with model haiku can run on an older model (update Claude Code)") s="Claude Code %s, 2.1.293'ten eski — orada haiku model takma adı Haiku 5.5'e çözülmeyebilir; model haiku ile çağrılan bir ajan eski bir modelde koşabilir (Claude Code'u güncelleyin)" ;;
       'approval by your own message is wired (auto / dontAsk: /crew-approve commit)') s='kendi mesajınızla onay bağlı (auto / dontAsk: /crew-approve commit)' ;;
+      'the published Crewforth version is not measured: no update check has run here yet (.claude/.state/update-check)') s='yayınlanmış Crewforth sürümü ölçülmedi: burada henüz hiç güncelleme denetimi koşmadı (.claude/.state/update-check)' ;;
+      'two editions at once: not measured (the plugin list could not be read)') s='iki edisyon birden: ölçülmedi (plugin listesi okunamadı)' ;;
+      'two editions at once: not measured (no claude CLI here to list the plugins)') s='iki edisyon birden: ölçülmedi (pluginleri listeleyecek claude CLI burada yok)' ;;
+      'the %s plugin is enabled and this project has Crewforth installed in .claude/ — every hook runs twice; turn one off (claude plugin disable %s, or remove the install)') s="%s plugin'i etkin ve bu projede Crewforth .claude/ altında da kurulu — her hook iki kez koşuyor; birini kapatın (claude plugin disable %s ya da kurulumu kaldırın)" ;;
+      'one edition: the Crewforth plugin is not enabled beside this install') s="tek edisyon: Crewforth plugin'i bu kurulumun yanında etkin değil" ;;
+      'advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)') s='advisor: kapalı (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)' ;;
+      "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
+      'advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off') s="advisorModel %s (%s içinde), ama CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 advisor'ı kapatıyor" ;;
+      'advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used') s="advisorModel %s (%s içinde), ama %s ayarlı ve advisor Anthropic API ister — kullanılmıyor" ;;
+      "advisor: on, %s (from %s); its tokens are in /usage, not in Crewforth's records") s="advisor: açık, %s (%s içinden); token'ları /usage'da, Crewforth'un kayıtlarında değil" ;;
+      'the advisor (%s) is below the critical tier (opus): on critical work it would advise a stronger model than itself') s="advisor (%s) kritik seviyenin (opus) altında: kritik işte kendisinden güçlü bir modele danışmanlık eder" ;;
       "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
@@ -208,6 +219,8 @@ if [ -f .claude/VERSION ] && [ -f .claude/.state/update-check ]; then
        for(i=1;i<=3;i++){if(x[i]+0>y[i]+0)exit 0; if(x[i]+0<y[i]+0)exit 1} exit 1}'; then
     warn "Crewforth v%s installed, v%s published — update with /crew-update" "$DCUR" "$DLATEST"
   fi
+elif [ -f .claude/VERSION ]; then
+  skip "the published Crewforth version is not measured: no update check has run here yet (.claude/.state/update-check)"
 fi
 
 # 1c) Install trace. An update leaves VERSION, the install manifest and the components on disk agreeing; when they do
@@ -684,6 +697,61 @@ EOF_CCV
     fi ;;
   esac
 fi
+# 9c) Two editions at once, and the advisor. Advisory, never a failure.
+#     PLUGIN AND INSTALL BOTH ON: the plugin edition and this .claude/ install each wire every hook, so with both
+#     enabled each gate runs twice on every call (and a gate's own refusal is printed twice). Asked of the CLI —
+#     `claude plugin list --json`, whose `enabled` is "enabled in your merged settings" — because the settings files
+#     alone cannot say what a managed or a --plugin-dir layer added. No CLI: not measured, and said so.
+#     THE ADVISOR (advisorModel; documented: fable, opus, sonnet or a full model id, unset = off; Anthropic API only;
+#     CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns it off). Crewforth never sets it. What is reported is whether it is on
+#     and on what, read from the same three settings files as the skill-listing budget above (a managed layer is not
+#     read), and a note when it sits below the critical tier, where it would advise a stronger model than itself.
+#     Its usage is not reported: Claude Code shows it in /usage, and nothing a hook or a transcript field carries.
+if [ -f .claude/hooks/guard-bash.sh ]; then
+  if command -v claude >/dev/null 2>&1 && _pl="$(claude plugin list --json 2>/dev/null)" && [ -n "$_pl" ]; then
+    _pon=""; _pn="$(printf '{"p":%s}' "$_pl" | awk -v op=len -v path=p -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)" || _pn=""
+    case "$_pn" in ''|*[!0-9]*) skip "two editions at once: not measured (the plugin list could not be read)" ;;
+      *) _pi=0
+         while [ "$_pi" -lt "$_pn" ]; do
+           _pid="$(printf '{"p":%s}' "$_pl" | awk -v op=get -v path="p.$_pi.id" -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)"
+           case "$_pid" in '"crewforth@'*)
+             _pen="$(printf '{"p":%s}' "$_pl" | awk -v op=get -v path="p.$_pi.enabled" -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)"
+             [ "$_pen" = true ] && _pon="${_pid//\"/}" ;;
+           esac
+           _pi=$((_pi+1))
+         done
+         if [ -n "$_pon" ]; then
+           warn "the %s plugin is enabled and this project has Crewforth installed in .claude/ — every hook runs twice; turn one off (claude plugin disable %s, or remove the install)" "$_pon" "$_pon"
+         else ok "one edition: the Crewforth plugin is not enabled beside this install"; fi ;;
+    esac
+  else
+    skip "two editions at once: not measured (no claude CLI here to list the plugins)"
+  fi
+fi
+_adv=""; _advf=""
+for sf in .claude/settings.local.json .claude/settings.json "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
+  [ -f "$sf" ] || continue
+  v="$(awk -v op=get -v path=advisorModel -f "${SJ:-.claude/eval/lib/settings-json.awk}" "$sf" 2>/dev/null)" || v=""
+  v="${v#\"}"; v="${v%\"}"
+  [ -n "$v" ] && { _adv="$v"; _advf="$sf"; break; }
+done
+_advprov=""; for _ev in CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX; do
+  eval "_evv=\"\${$_ev:-}\""; case "$_evv" in ''|0|false) ;; *) _advprov="$_ev"; break ;; esac
+done
+if [ -z "$_adv" ]; then
+  if [ "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}" = 1 ]; then ok "advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)"
+  else ok "advisor: off (no advisorModel set; Crewforth never turns it on)"; fi
+elif [ "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}" = 1 ]; then
+  warn "advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off" "$_adv" "$_advf"
+elif [ -n "$_advprov" ]; then
+  warn "advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used" "$_adv" "$_advf" "$_advprov"
+else
+  ok "advisor: on, %s (from %s); its tokens are in /usage, not in Crewforth's records" "$_adv" "$_advf"
+  case "$_adv" in *haiku*|*sonnet*)
+    warn "the advisor (%s) is below the critical tier (opus): on critical work it would advise a stronger model than itself" "$_adv" ;;
+  esac
+fi
+
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has
 #     fired yet — a measured zero, not a gap. Never a failure either way.
