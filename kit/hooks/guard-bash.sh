@@ -1885,7 +1885,7 @@ _appr_named(){  # sets _APN: 1 = the record is named, 2 = the hook is fed, 3 = a
   t="$CMD_UQ"; _APN=0
   shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$t" in
-    *crewforth-appr*|*crew-approval-pending*) _APN=1 ;;
+    *crewforth-appr*|*crew-approval-pending*|*crew-approval-asked*) _APN=1 ;;
   esac
   [ "$nc" = 0 ] && shopt -u nocasematch
   # FED means the hook is what the input goes INTO: it stands after a pipe, or shares its command with an input
@@ -2510,11 +2510,110 @@ _appr_wired(){  # 0 = prompt-approval.sh is beside this hook and a settings file
   _APRW="read: ${seen:-no settings file found}"
   return 1
 }
+# IS THE APPROVAL QUESTION WIRED? The same reading as above, for the two halves on AskUserQuestion (guard-question.sh
+# on PreToolUse, prompt-approval.sh on PostToolUse). Asked only to choose which way the refusal offers first.
+_q_wired(){
+  local f t d="${CLAUDE_PROJECT_DIR:-.}"
+  d="${d//\\//}"; d="${d%/}"
+  for f in "${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT//\\//}/hooks/hooks.json}" "$d/.claude/settings.json" "$d/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    t=""; IFS= read -r -d '' t < "$f" || true
+    case "$t" in *'"PreToolUse"'*AskUserQuestion*guard-question.sh*'"PostToolUse"'*AskUserQuestion*prompt-approval.sh*) return 0 ;; esac
+  done
+  return 1
+}
+# MAY A PermissionRequest HOOK ANSWER THE PROMPT? One scan, defined in prompt-approval.sh (_crew_prh_scan) and read
+# from there. Without that file there is no other approval to fall back to, so the answer is "no" and the gate
+# asks as it always has.
+_gb_prh(){  # 0 = a PermissionRequest hook may be wired; _PRH names where
+  local here="${BASH_SOURCE%/*}"
+  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  [ -f "$here/prompt-approval.sh" ] || return 1
+  declare -F _crew_prh_scan >/dev/null 2>&1 || . "$here/prompt-approval.sh"
+  declare -F _crew_prh_scan >/dev/null 2>&1 || return 1
+  _crew_prh_scan
+}
 allow_approved(){
   gatelog ALLOW 4.4 "the user's own approval message covers this command"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"%s"}}\n' \
     "$(json_escape "§4.4: the user approved this in their own message, and what was approved is what this command does")"
   exit 0
+}
+# THE WRITTEN APPROVAL (and, in auto, the click). Reached where no prompt can be shown to a person - auto, dontAsk - and
+# in default / acceptEdits where a PermissionRequest hook may answer the prompt before the person does (3.2.0).
+_gate_written(){
+  # No prompt reaches a person here, but their own message does: see _approval_ok above.
+  _approval_ok && allow_approved
+  [ -n "${_PRF:-}" ] || { _PRF=0; _gb_prh && _PRF=1; }   # the default branch has already asked
+  gatelog BLOCK 4.4 "commit/push with no matching approval from the user"
+  case "$PERM_MODE" in
+    default|acceptEdits)
+      echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and a PermissionRequest hook may be wired ($_PRH). Such a hook answers the permission prompt before the person does, so this gate does not raise one." >&2 ;;
+    *)
+      echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and in '$PERM_MODE' a permission prompt is answered by software, not by a person." >&2
+      [ "$_PRF" = 1 ] && echo "The approval question is closed too: a PermissionRequest hook may be wired ($_PRH), and it can answer the question before the person does." >&2 ;;
+  esac
+  echo "Not allowed now: $_APW." >&2
+  if ! _appr_wired; then
+    # The record is written by one hook. Where it is not wired, a message from the user records nothing, and
+    # telling them to type one sends them into a wall (measured in the field: a worktree on an older Crewforth).
+    echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A '/crew-approve' message records nothing here." >&2
+    if [ "$_PRF" = 1 ]; then
+      echo "Tell the user exactly that, in their language, and give them the way that works: the command in their own terminal (or wire prompt-approval.sh, or remove the PermissionRequest hook)." >&2
+    else
+      echo "Tell the user exactly that, in their language, and give them the two ways that work: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
+    fi
+    echo "Do not create an approval any other way." >&2
+    exit 2
+  fi
+  _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
+  # WHAT WAS REFUSED IS WRITTEN DOWN, so that the user can approve it with `/crew-approve` and nothing after it:
+  # the session, the operation and the second, in .claude/state/crew-approval-pending. The operation is what
+  # THIS gate saw in the command it refused; a commit refused and then a push refused in the same session
+  # within 30 minutes are one thing waiting, commit+push. The file is closed to the session (guard-write.sh,
+  # and the name rule above): a session that could write it would choose what the user's approval covers.
+  _pw=""
+  if ! { git_has "$CMD_SEEN" 'commit' && git_has "$CMD_SEEN" 'push'; }; then
+    _pd="${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"; _pd="${_pd//\\//}"; _pd="${_pd%/}/.claude/state"
+    _json_slice "$INPUT" session_id >/dev/null; _psid="$_JS"
+    case "$_psid" in ''|*[!A-Za-z0-9._-]*) _psid="" ;; esac
+    if [ -n "$_psid" ] && mkdir -p "$_pd" 2>/dev/null; then
+      if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _pn '%(%s)T' -1; else _pn="$(date +%s)"; fi
+      _po=""; _ps=""; _pt=""
+      if [ -f "$_pd/crew-approval-pending" ]; then
+        while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; esac; done < "$_pd/crew-approval-pending"
+      fi
+      _pw="$_aps"
+      case "$_pt" in ''|*[!0-9]*) _pt=0 ;; esac
+      if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ]; then
+        case "$_po:$_aps" in commit:push|push:commit|commit+push:*) _pw="commit+push" ;; esac
+      fi
+      { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
+    fi
+  fi
+  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "${BASH_SOURCE%/*}/guard-question.sh" ]; then
+    echo "ASK THE USER WITH ONE CLICK (stage first: the approval covers what is staged at that moment): show the commit message whole, in ONE code block, then call AskUserQuestion with exactly this input, nothing added or changed:" >&2
+    echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
+    echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. If they would rather type, the way below works as well." >&2
+  fi
+  echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
+  echo "  1. the commit message, whole, in ONE code block;" >&2
+  if [ -n "$_pw" ]; then
+    echo "  2. under it one sentence in their language (If you approve, send only this:), and then the command on a line of its own, exactly as it is:" >&2
+    echo "/crew-approve"$'\n'"     That line is the whole message, and only the user can type it. It approves what was just refused here: $_pw. (Spelled out, the user can type /crew-approve commit, push or commit+push instead.)" >&2
+  else
+    echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
+    echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
+  fi
+  echo "Their message has to be that command alone, typed by them: a sentence such as 'go ahead and commit' is not an approval, and you cannot run the command for them. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
+  echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
+  if [ "$_PRF" = 1 ]; then
+    echo "The other way: the command in their own terminal. (Shift+Tab to default/acceptEdits does not help while that hook may be wired: the gate does not raise a prompt it could answer.)" >&2
+  else
+    echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
+  fi
+  echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2
+  exit 2
 }
 # Escalate to a permission prompt only the user can answer, then let Claude run the command itself.
 ask_user(){
@@ -3206,7 +3305,11 @@ if git_has "$CMD_SEEN" 'commit|push'; then
   # answered by the thing it is gating is not a gate.
   case "$PERM_MODE" in
     default|acceptEdits)
-      # A prompt provably reaches the user in these modes: ask, and let them approve in one keypress.
+      # A prompt provably reaches the user in these modes: ask, and let them approve in one keypress. UNLESS a
+      # PermissionRequest hook may be wired: it answers that prompt before the person does (measured on 2.1.294:
+      # the Bash prompt this gate raises was approved by such a hook with nobody at the keyboard). Then the typed
+      # approval is the only one left, exactly as in auto.
+      _gb_prh && { _PRF=1; _gate_written; }
       SHORT="$CMD"
       [ "${#SHORT}" -gt 300 ] && { _utf8_cut "$SHORT" 300; SHORT="$_UC…"; }
       # §4.4 branch guard: committing straight onto main/master is not blocked (a fresh project legitimately
@@ -3226,58 +3329,7 @@ $SHORT
 ${BRANCH_WARN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
       ;;
     auto|dontAsk)
-      # No prompt reaches a person here, but their own message does: see _approval_ok above.
-      _approval_ok && allow_approved
-      gatelog BLOCK 4.4 "commit/push with no matching approval from the user"
-      echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and in '$PERM_MODE' a permission prompt is answered by software, not by a person." >&2
-      echo "Not allowed now: $_APW." >&2
-      if ! _appr_wired; then
-        # The record is written by one hook. Where it is not wired, a message from the user records nothing, and
-        # telling them to type one sends them into a wall (measured in the field: a worktree on an older Crewforth).
-        echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A '/crew-approve' message records nothing here." >&2
-        echo "Tell the user exactly that, in their language, and give them the two ways that work: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
-        echo "Do not create an approval any other way." >&2
-        exit 2
-      fi
-      _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
-      # WHAT WAS REFUSED IS WRITTEN DOWN, so that the user can approve it with `/crew-approve` and nothing after it:
-      # the session, the operation and the second, in .claude/state/crew-approval-pending. The operation is what
-      # THIS gate saw in the command it refused; a commit refused and then a push refused in the same session
-      # within 30 minutes are one thing waiting, commit+push. The file is closed to the session (guard-write.sh,
-      # and the name rule above): a session that could write it would choose what the user's approval covers.
-      _pw=""
-      if ! { git_has "$CMD_SEEN" 'commit' && git_has "$CMD_SEEN" 'push'; }; then
-        _pd="${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"; _pd="${_pd//\\//}"; _pd="${_pd%/}/.claude/state"
-        _json_slice "$INPUT" session_id >/dev/null; _psid="$_JS"
-        case "$_psid" in ''|*[!A-Za-z0-9._-]*) _psid="" ;; esac
-        if [ -n "$_psid" ] && mkdir -p "$_pd" 2>/dev/null; then
-          if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _pn '%(%s)T' -1; else _pn="$(date +%s)"; fi
-          _po=""; _ps=""; _pt=""
-          if [ -f "$_pd/crew-approval-pending" ]; then
-            while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; esac; done < "$_pd/crew-approval-pending"
-          fi
-          _pw="$_aps"
-          case "$_pt" in ''|*[!0-9]*) _pt=0 ;; esac
-          if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ]; then
-            case "$_po:$_aps" in commit:push|push:commit|commit+push:*) _pw="commit+push" ;; esac
-          fi
-          { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
-        fi
-      fi
-      echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
-      echo "  1. the commit message, whole, in ONE code block;" >&2
-      if [ -n "$_pw" ]; then
-        echo "  2. under it one sentence in their language (If you approve, send only this:), and then the command on a line of its own, exactly as it is:" >&2
-        echo "/crew-approve"$'\n'"     That line is the whole message, and only the user can type it. It approves what was just refused here: $_pw. (Spelled out, the user can type /crew-approve commit, push or commit+push instead.)" >&2
-      else
-        echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
-        echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
-      fi
-      echo "Their message has to be that command alone, typed by them: a sentence such as 'go ahead and commit' is not an approval, and you cannot run the command for them. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
-      echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
-      echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
-      echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2
-      exit 2 ;;
+      _gate_written ;;
     *)
       # bypassPermissions, plan, or an unrecognised/absent mode: we cannot prove the prompt would reach a
       # human, so we fail closed rather than let the gate silently evaporate.
