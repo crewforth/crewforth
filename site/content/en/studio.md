@@ -103,6 +103,33 @@ Allow is an answer to Claude Code. It does not go around anything:
 
 Below 640 px the panel is one column. The navigator becomes a drawer, the inspector and the conversation each take the whole stage and stop above the dock, and the panel opens on the List, where a request's three answers sit one under the other. The Graph and the Timeline still open, and say `Best on a wider screen`. This is the layout a phone-sized window gets. It was checked in a narrow desktop browser window and is not measured on a phone, and the panel still listens on `127.0.0.1` only.
 
+## Watching from another device
+
+The panel's link carries the token that starts sessions and answers tool calls, so it is not a link to hand to a phone. A **viewer** is a second token that reads and changes nothing. In the navigator's **Machines** tab, under **Remote viewers**, **Add viewer** makes one and shows its link once, with **Copy link** beside it.
+
+| | |
+|:--|:--|
+| What a viewer can do | every `GET` the panel makes: the sessions, the three views, Models, the conversations, the requests waiting in the dock |
+| What it cannot | anything else. Starting a session, answering a request, changing a mode and sending a message are refused by the server with `403`, before the request is looked at. So is reading the list of viewers |
+| What you see | each viewer's name, when it last asked and how many requests it has made, and `watching now` while it holds a live stream open |
+| **Revoke** | the token stops working from the next request, and a stream the viewer holds open is closed |
+| How long it lasts | as long as the server that made it. Viewers are kept in memory, like the panel's own token; a restart ends all of them. Eight at most |
+
+**The server still listens on `127.0.0.1` only, and a viewer does not change that.** The way in from another device is a tunnel you run yourself; Studio starts none and opens no port. Two that keep the server on loopback:
+
+```bash
+# ssh: forward the port from the other device, then open the link as it was copied
+ssh -N -L 7777:127.0.0.1:7777 you@this-machine
+
+# Tailscale: serve the port inside your tailnet, then open the link with this machine's tailnet name
+tailscale serve 7777
+#   https://<this-machine>.<your-tailnet>.ts.net/?token=<the viewer's token>
+```
+
+The copied link names `127.0.0.1`. Through an ssh forward on the same port it works as it is; through a tailnet, keep the `?token=…` part and replace what comes before it with the address your tunnel gives. A viewer's page says **Read-only** in the top bar and has no **New session** button. The other controls are still drawn, and pressing one gets the server's refusal.
+
+What was checked and what was not: the refusals are asserted against a running server in the panel's own test suite, and a viewer link was opened in a browser on the same machine, where revoking it closed its stream. It was not measured from a phone, nor through ssh or Tailscale.
+
 **Studio installs with Crewforth.** `start.sh` and `adopt.sh` create six directories under `.claude/` and Studio is the sixth, so in any project that has Crewforth you open it with **`/crew-studio`** — or, without the command menu, `node .claude/studio/server/index.js --open`. It has zero npm dependencies, wants Node 18+, binds to `127.0.0.1` only and requires a per-run token on every API path. **No Node on the machine? Crewforth goes and gets one.** `.claude/studio/ensure-node.sh --plan` shows exactly what it would fetch — the current LTS from nodejs.org, checked against the published SHA-256 and unpacked into `~/.claude/studio-runtime` — and installs nothing until you say yes. No admin rights, no package manager, no PATH edit; deleting that one directory undoes it.
 
 | Channel | Studio |
