@@ -121,6 +121,8 @@ function nodeStack(pj, out) {
             // Built at run time, or a bundler's virtual module (astro:content, virtual:x): not a package.
             if (spec.includes('${') || /^[a-z][a-z0-9+.-]*:/.test(spec)) continue;
             const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+            // A package is named the way npm names one; `from '[^']*…` inside a regex literal is not an import.
+            if (!/^(@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/i.test(root)) continue;
             m.imports.push({ spec, root, ev: ev(f, i + 1, spec), file: f });
           }
         }

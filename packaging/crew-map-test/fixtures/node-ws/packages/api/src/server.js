@@ -15,3 +15,4 @@ const app = express();
 app.get('/api/users', list);
 app.get('/api/users/:id', one);
 app.post('/api/orders', create);
+const importish = /from '[^']*(scan\.mjs)|require\('x y'\)/;

@@ -60,7 +60,8 @@
     "GET /api/users/{} is called with a template parameter",
     "server.test.js is a test: its route, call and env read are not on the map",
     "api.get(...) on an axios client is a call, not a route",
-    "the WEBHOOK_URL token sits in the userinfo, which is cut before the host is kept"
+    "the WEBHOOK_URL token sits in the userinfo, which is cut before the host is kept",
+    "a regex literal holding from '[^']* is not an import"
   ],
   "nodes": [
     "ext:cache:redis",
