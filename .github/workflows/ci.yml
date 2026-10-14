@@ -29,8 +29,10 @@ env:
 # A push or a nightly run is grouped by its commit, not its branch: GitHub cancels a run still WAITING in a group when
 # another arrives, whatever cancel-in-progress says, and two merges in a row left one of them with no verdict at all
 # (measured: next @ 6109a8d, cancelled). One commit, one group, nothing to cancel.
+# A label other than full-ci starts a run too (GitHub cannot filter labels at the trigger): it gets a group of its own,
+# so it cancels nothing, and every job skips it.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && '-label' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -43,6 +45,7 @@ jobs:
   # limits are about twice the longest green run measured over the last eight (verify 9 min, macOS smoke 7, macOS
   # e2e 12, Windows smoke 30, Windows e2e 43), so a slow runner still finishes and a hung one is cut off.
   changes:
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -95,6 +98,7 @@ jobs:
   # Runs on every pull request, a text-only one included: the listing budget, the reference pointers, the routing
   # triggers and the plugin copy are checked here, and the text of a skill is exactly what they read.
   verify:
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

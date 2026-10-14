@@ -10662,7 +10662,10 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ -z "$_cv" ] && pass "ci-docs-only.sh: skill, agent and command text reads text, with documentation too; with a hook, a skill's script, kit/CLAUDE.md or a blocklist it reads code" \
                     || fail "ci-docs-only.sh gave the wrong text verdict for:$_cv"
       # The Linux verify job is gated on nothing: it holds the checks a text change can break.
-      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -cE '^    (if|needs):')"
+      # One condition is allowed, and only this one: it skips the run a label other than full-ci starts, and says
+      # nothing about what the pull request changed.
+      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -E '^    (if|needs):' \
+               | grep -vxF "    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'" | grep -c .)"
       _cyn="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -c 'bash packaging/verify.sh')"
       [ "$_cyv" = 0 ] && [ "$_cyn" -ge 1 ] \
         && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no if:, no needs:)" \
