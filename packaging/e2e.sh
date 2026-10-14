@@ -1562,9 +1562,14 @@ _ga_crs() {   # $1 = project dir, $2 = path inside it -> CR count after a core.a
   # called, and the question of branch names disappears.
   # And it reports WHY rather than a word: the first version swallowed every error into MISSING, so a broken
   # fixture came back wearing the product's failure message and sent the search to the installer.
+  # NO BACKGROUND MAINTENANCE. The commit spawns `git maintenance run --auto --detach`, whose `repack -d` packs
+  # and deletes loose objects while the clone below is copying them: "failed to copy file to …/objects/…: No
+  # such file or directory", seen on the Linux runner. Measured with GIT_TRACE2_EVENT: the commit starts that
+  # child with ~300 loose objects; with these two settings it starts none.
   local p="$1" f="$2" clone="$1.clone"
   rm -rf "$clone"
-  ( cd "$p" && git add -A >/dev/null 2>&1 && git commit -qm shared >/dev/null 2>&1 ) || true
+  ( cd "$p" && git add -A >/dev/null 2>&1 \
+      && git -c maintenance.auto=false -c gc.auto=0 commit -qm shared >/dev/null 2>&1 ) || true
   if ! git clone -q -c core.autocrlf=true "$p" "$clone" 2>"$p.clone.err"; then
     echo "FIXTURE: clone of $p failed: $(head -1 "$p.clone.err")"; return 0
   fi
