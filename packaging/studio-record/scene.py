@@ -44,6 +44,7 @@ CARD_R = 13
 # What is handed to the encoder: the card and its border, on even pixels, so the colour planes line up.
 PATCH_X, PATCH_Y, PATCH_W, PATCH_H = 220, 180, 1482, 774
 T_IN, T_OUT = 40.4, 47.8
+PUSH = 0.06   # how far the card pushes in over the scene
 FIRST, LAST = 1213, 1433          # the frames the card is on; 1212 and 1434 have it at opacity 0
 
 
@@ -113,10 +114,19 @@ def take_frame(files, cache, t):
         cache['k'] = k
         cache['im'] = Image.open(files[k]).convert('RGB')
     im = cache['im']
-    z = 1 + 0.06 * eo(p(t, T_IN, T_OUT))
-    sw, sh = im.width / z, im.height / z
-    x0, y0 = (im.width - sw) / 2, (im.height - sh) * 0.35
-    out = im.resize((CARD_W, CARD_H), Image.LANCZOS, box=(x0, y0, x0 + sw, y0 + sh))
+    # The push-in comes out of a margin of the panel's own ground around the take, not out of the panel: pushed into
+    # the panel itself, it cut New session at the right edge to "New sessio" (centred) or the title at the left
+    # (anchored right). At the end of the push-in the card holds the whole panel, edge to edge.
+    if cache.get('padded') is not cache['im']:
+        mw, mh = round(im.width * PUSH / 2), round(im.height * PUSH / 2)
+        pad = Image.new('RGB', (im.width + 2 * mw, im.height + 2 * mh), im.getpixel((2, 2)))
+        pad.paste(im, (mw, mh))
+        cache['padded'], cache['pad'] = cache['im'], pad
+    pad = cache['pad']
+    z = 1 + PUSH * eo(p(t, T_IN, T_OUT))
+    sw, sh = pad.width / z, pad.height / z
+    x0, y0 = (pad.width - sw) / 2, (pad.height - sh) / 2
+    out = pad.resize((CARD_W, CARD_H), Image.LANCZOS, box=(x0, y0, x0 + sw, y0 + sh))
     return np.asarray(out, np.float32)
 
 
