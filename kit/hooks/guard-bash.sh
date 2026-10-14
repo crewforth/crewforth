@@ -2615,6 +2615,25 @@ _gate_written(){
   echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2
   exit 2
 }
+# WHO WROTE THE MESSAGE. The discipline gives the commit message to crew-commit-agent; for a long time nothing
+# called it and the main thread wrote every message itself. This says so, and never blocks (K7): the latest
+# crew-review-agent or crew-commit-agent call in the session's transcript, and when it is not the commit agent the
+# approval carries one line. A call made by a subagent (agent_id in the payload), a push, or a transcript that
+# cannot be read says nothing: not known is not "did not run". One grep over the transcript, on a commit only
+# (measured: 0.52 s on a 107 MB transcript, 0.03 s on a 3 MB one, macOS).
+_commit_agent_note(){
+  _CAN=""
+  git_has "$CMD_SEEN" 'commit' || return 0
+  case "$INPUT" in *'"agent_id"'*) return 0 ;; esac
+  local tp last
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; tp="${_JU//\\//}"
+  [ -n "$tp" ] && [ -f "$tp" ] || return 0
+  last="$(grep -E '"subagent_type": ?"([a-z0-9-]+:)?crew-(review|commit)-agent"' "$tp" 2>/dev/null | tail -n 1)"
+  case "$last" in *crew-commit-agent*) return 0 ;; esac
+  _CAN="⚠️  crew-commit-agent has not run since the last review: the message above was written by the main thread, not by the agent that owns it (/crew-ship).
+
+"
+}
 # Escalate to a permission prompt only the user can answer, then let Claude run the command itself.
 ask_user(){
   gatelog ASK 4.4 "commit/push approval prompt"
@@ -3322,13 +3341,15 @@ if git_has "$CMD_SEEN" 'commit|push'; then
 
 " ;;
       esac
+      _commit_agent_note
       ask_user "§4.4 commit/push approval gate. Claude wants to run:
 
 $SHORT
 
-${BRANCH_WARN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
+${BRANCH_WARN}${_CAN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
       ;;
     auto|dontAsk)
+      _commit_agent_note; [ -n "$_CAN" ] && printf '%s' "$_CAN" >&2
       _gate_written ;;
     *)
       # bypassPermissions, plan, or an unrecognised/absent mode: we cannot prove the prompt would reach a

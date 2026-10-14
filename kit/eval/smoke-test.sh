@@ -2807,6 +2807,24 @@ r46rec "$R46_OID" "$R46_HEAD"
 o="$(gj default 'git commit -m x' | r46 2>/dev/null)"
 [ "$(gdec "$o")" = "ask" ] && pass "§4.6: a matching record lets the commit through to the §4.4 ask" \
                            || fail "§4.6: a matching record did NOT pass the gate (out=$o)"
+# 2b. Who wrote the message (AJAN-1): the latest crew-review-agent / crew-commit-agent call in the transcript decides
+# one line in the approval. It never blocks, and it says nothing when it cannot know: a subagent's own call, or a
+# transcript it cannot read.
+_can_t="$R46/.t"; mkdir -p "$_can_t"
+_can_call(){ printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"subagent_type":"%s","prompt":"x"}}]}}\n' "$1"; }
+{ _can_call crew-review-agent; _can_call crew-commit-agent; } > "$_can_t/both.jsonl"
+_can_call crew-review-agent > "$_can_t/review.jsonl"
+{ _can_call crew-commit-agent; _can_call crew-review-agent; } > "$_can_t/stale.jsonl"
+_canj(){ printf '{"cwd":"%s","permission_mode":"default","transcript_path":"%s",%s"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' "$R46" "$1" "${2:-}"; }
+_canb=""; _NOTE='crew-commit-agent has not run since the last review'
+o="$(_canj "$_can_t/both.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb agent-ran-but-noted"
+o="$(_canj "$_can_t/review.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" == *"$_NOTE"* ]] || _canb="$_canb no-agent-not-noted"
+o="$(_canj "$_can_t/stale.jsonl" | r46 2>/dev/null)"; [[ "$o" == *"$_NOTE"* ]] || _canb="$_canb a-review-after-the-agent-not-noted"
+o="$(_canj "$_can_t/review.jsonl" '"agent_id":"a1",' | r46 2>/dev/null)"; [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb noted-on-a-subagents-call"
+o="$(_canj "$_can_t/nope.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb noted-without-a-transcript"
+[ -z "$_canb" ] && pass "§4.4 approval names a commit message crew-commit-agent did not write (5 cases: ran, not run, review after it, subagent, no transcript); it never blocks" \
+                || fail "commit-agent note:$_canb"
+rm -rf "$_can_t"
 # 3. Right diff, wrong base. This is the case a wall-clock TTL cannot see and the reason there is none.
 r46rec "$R46_OID" "0000000000000000000000000000000000000000"
 gj default 'git commit -m x' | r46 >/dev/null 2>&1; [ "$?" = 2 ] \
@@ -11355,7 +11373,7 @@ _EVR="$(cd "$(dirname "$0")/../.." && pwd)/evals/run.sh"
 _PY3OK=0
 printf '' | python3 -c 'import sys,json' >/dev/null 2>&1 && _PY3OK=1
 if [ -f "$_EVR" ] && [ "$_PY3OK" = 0 ]; then
-  skip tool "evals metric not calibrated (no working python3 — eval_trace_metrics is a python heredoc)" 6
+  skip tool "evals metric not calibrated (no working python3 — eval_trace_metrics is a python heredoc)" 7
 elif [ -f "$_EVR" ]; then
   _EVD="$(mktemp -d)"
   # NOT IN A SUBSHELL, and that was a real defect in the first draft of this block: the five rows below ran
@@ -11404,6 +11422,15 @@ $_res")"
   [ "$(_f "$_p" 19)" = 2 ] \
     && pass "evals metric: two id-less messages stay two, not one" \
     || fail "evals metric: id-less messages collapsed [$_p] — parallel_msgs would undercount"
+  # agents_by_type (column 21): WHICH agent the main thread started. A count of calls looked healthy while two agents
+  # were never started; this names them. A plugin's namespace is dropped, a call with no type is general-purpose, and
+  # a subagent's own call is not the main thread's.
+  _p="$(_mk typed "$(printf '%s' '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"x1","name":"Agent","input":{"subagent_type":"crew-commit-agent"}},{"type":"tool_use","id":"x2","name":"Agent","input":{"subagent_type":"crewforth:crew-review-agent"}},{"type":"tool_use","id":"x3","name":"Agent","input":{}}]}}')
+$(_msg s1 1 n1)
+$_res")"
+  { [ "$(_f "$_p" 21)" = "crew-commit-agent:1,crew-review-agent:1,general-purpose:1" ] && [ "$(_f "$(_mk none_t "$_res")" 21)" = "-" ]; } \
+    && pass "evals metric: agents_by_type names the main thread's agents (namespace dropped, untyped is general-purpose, nested not counted, none is -)" \
+    || fail "evals metric: agents_by_type read [$(_f "$_p" 21)]"
   _p="$(_mk none "$_res")"
   { [ "$(_f "$_p" 19)" = 0 ] && [ "$(_f "$_p" 20)" = 0 ]; } \
     && pass "evals metric: a stream with no Agent call reports 0, not empty" \
