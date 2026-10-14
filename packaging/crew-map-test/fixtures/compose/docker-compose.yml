@@ -1,0 +1,16 @@
+services:
+  api:
+    build: ./api
+    depends_on:
+      - db
+      - cache
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CACHE_HOST: cache
+  db:
+    image: postgres:16
+  cache:
+    image: "redis:7-alpine"
+    command: >
+      redis-server
+      --save ""

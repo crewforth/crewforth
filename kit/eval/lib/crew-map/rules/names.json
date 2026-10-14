@@ -1,0 +1,28 @@
+{
+  "about": "Names the detectors must not misread. Each list says why it exists; a name added here silences a detector for it everywhere, so add only what a platform or a framework provides on its own.",
+  "platformEnv": {
+    "about": "Environment variables a runtime, a shell, a bundler (Vite: MODE, DEV, PROD, SSR, BASE_URL) or a hosting platform sets. Reading one is not a missing configuration key.",
+    "names": ["BASE_URL", "CI", "DEV", "DOTNET_ENVIRONMENT", "ASPNETCORE_ENVIRONMENT", "ASPNETCORE_URLS", "GOPATH", "GOOS", "GOARCH", "HOME", "HOSTNAME",
+      "LANG", "MODE", "NODE_ENV", "PATH", "PORT", "PROD", "PWD", "PYTHONPATH", "SHELL", "SSR", "TEMP", "TMP", "TMPDIR", "TZ", "USER", "USERPROFILE"]
+  },
+  "frameworkConfig": {
+    "about": "Configuration keys (or key prefixes ending in ':' or '.') a framework reads by itself, so code never names them. Not reported as config-unread.",
+    "names": ["AllowedHosts", "Kestrel:", "Logging:", "Serilog:", "ConnectionStrings:", "spring.", "server.", "management.", "logging."]
+  },
+  "nodeBuiltins": {
+    "about": "Node's own modules: an import of one of these is never a dependency. Also matched with a node: prefix.",
+    "names": ["assert", "async_hooks", "buffer", "child_process", "cluster", "console", "constants", "crypto", "dgram", "diagnostics_channel",
+      "dns", "domain", "events", "fs", "http", "http2", "https", "inspector", "module", "net", "os", "path", "perf_hooks", "process",
+      "punycode", "querystring", "readline", "repl", "stream", "string_decoder", "sys", "test", "timers", "tls", "trace_events", "tty",
+      "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib"]
+  },
+  "pythonImportNames": {
+    "about": "A distribution whose import name differs from its package name. Without this an installed package reads as unused and its import as undeclared.",
+    "map": {
+      "beautifulsoup4": "bs4", "pillow": "PIL", "pyyaml": "yaml", "psycopg2-binary": "psycopg2", "python-dotenv": "dotenv",
+      "scikit-learn": "sklearn", "opencv-python": "cv2", "pyjwt": "jwt", "python-dateutil": "dateutil", "mysqlclient": "MySQLdb",
+      "kafka-python": "kafka", "confluent-kafka": "confluent_kafka", "google-cloud-storage": "google", "azure-storage-blob": "azure",
+      "attrs": "attr", "protobuf": "google", "msgpack-python": "msgpack", "typing-extensions": "typing_extensions"
+    }
+  }
+}

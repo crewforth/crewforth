@@ -1,0 +1,7 @@
+{
+  "name": "edge-web",
+  "scripts": { "dev": "vite" },
+  "dependencies": {
+    "lib": "git+https://{{TOKEN}}:x-oauth-basic@github.com/o/lib.git#v1"
+  }
+}

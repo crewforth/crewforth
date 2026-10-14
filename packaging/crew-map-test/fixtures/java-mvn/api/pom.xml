@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <parent><groupId>com.demo</groupId><artifactId>parent</artifactId></parent>
+  <artifactId>api</artifactId>
+  <dependencies>
+    <dependency>
+      <groupId>com.demo</groupId>
+      <artifactId>core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.1</version>
+    </dependency>
+  </dependencies>
+</project>

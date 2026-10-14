@@ -1,0 +1,3 @@
+--extra-index-url https://deploy:{{PW}}@pypi.corp.io/simple
+git+https://{{TOKEN}}@github.com/o/a.git
+fastapi==0.110.0

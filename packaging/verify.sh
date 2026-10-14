@@ -34,14 +34,15 @@ fi
 
 # The step list is the contract with ci.yml. Adding a gate here is what makes it runnable locally;
 # adding it to ci.yml alone is what put this file here in the first place.
-STEPS="syntax smoke routing site manifests e2e studio findings parser i18n subshell"
+STEPS="syntax smoke routing site manifests e2e studio findings map parser i18n subshell"
 
 step_syntax(){
   bash -n start.sh || return 1
   bash -n adopt.sh || return 1
   local s
   for s in kit/hooks/*.sh kit/eval/*.sh packaging/*.sh packaging/studio-test/*.sh \
-           kit/studio/*.sh kit/studio/server/hooks/*.sh kit/eval/lib/findings/*.sh; do
+           kit/studio/*.sh kit/studio/server/hooks/*.sh kit/eval/lib/findings/*.sh \
+           kit/eval/lib/crew-map/*.sh; do
     [ -f "$s" ] || continue
     bash -n "$s" || return 1
   done
@@ -141,6 +142,20 @@ step_findings(){
   diff -r kit/eval/lib/findings plugin/eval/lib/findings >/dev/null 2>&1 || {
     echo "plugin/eval/lib/findings is missing or has drifted from kit/eval/lib/findings — run packaging/build-plugin.sh and commit the result"
     diff -rq kit/eval/lib/findings plugin/eval/lib/findings 2>&1 | head -10; return 1; }
+}
+
+# Crew Map's scanner (kit/eval/lib/crew-map): planted defects in eight fixture projects found exactly, the same
+# bytes on every run, no secret and no absolute path in what it writes, two child processes per scan. A Node gate
+# like the findings core it writes through, so the same rule: no Node is SKIPPED, never a quiet pass. It ships in
+# eval/lib as well, so the plugin copy must be the payload's bytes.
+step_map(){
+  [ -f kit/eval/lib/crew-map/scan.mjs ] || { echo "kit/eval/lib/crew-map is MISSING — the Crew Map scanner ships in the payload"; return 1; }
+  command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
+  node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
+  node packaging/crew-map-test/selfcheck.mjs || return 1
+  diff -r kit/eval/lib/crew-map plugin/eval/lib/crew-map >/dev/null 2>&1 || {
+    echo "plugin/eval/lib/crew-map is missing or has drifted from kit/eval/lib/crew-map — run packaging/build-plugin.sh and commit the result"
+    diff -rq kit/eval/lib/crew-map plugin/eval/lib/crew-map 2>&1 | head -10; return 1; }
 }
 
 # The only step that needs a tool the repo does not carry. CI installs the CLI; a developer machine

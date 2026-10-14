@@ -1,0 +1,29 @@
+{
+  "about": "Gradle Kotlin DSL: read by pattern, so its edges are inferred; a version catalog it does not resolve.",
+  "findings": [
+    [
+      "version-drift",
+      "maven:com.squareup.okhttp3:okhttp"
+    ]
+  ],
+  "nearMisses": [
+    "lib is referenced through project(\":lib\")"
+  ],
+  "nodes": [
+    "mod:java:app",
+    "mod:java:lib"
+  ],
+  "edges": [
+    [
+      "mod:java:app",
+      "mod:java:lib",
+      "references",
+      "inferred"
+    ]
+  ],
+  "provides": [],
+  "notMeasured": [
+    "Gradle version catalog references (1)",
+    "Gradle build logic"
+  ]
+}

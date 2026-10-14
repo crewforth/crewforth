@@ -1,0 +1,6 @@
+DATABASE_URL=postgres://app:{{PW}}@db.internal:5432/app
+REDIS_URL=redis://cache.internal:6379
+UNUSED_FLAG=1
+PAYMENTS_URL=https://payments.partner.io/v1
+WEBHOOK_URL=https://{{TOKEN}}@hooks.vendor.io/x
+LOG_LEVEL=info

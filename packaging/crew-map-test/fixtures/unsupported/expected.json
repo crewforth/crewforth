@@ -1,0 +1,12 @@
+{
+  "about": "Constructs outside the readers' subsets: they must be reported, never read partly, and a manifest that could not be read puts no module on the map.",
+  "findings": [],
+  "nearMisses": [],
+  "nodes": [],
+  "edges": [],
+  "provides": [],
+  "notMeasured": [
+    "docker-compose.yml",
+    "pyproject.toml"
+  ]
+}

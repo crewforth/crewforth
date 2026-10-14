@@ -1,0 +1,41 @@
+{
+  "about": "gin with a route group; one import not required, one requirement never imported, one indirect.",
+  "findings": [
+    [
+      "dep-undeclared",
+      "mod:go:example.com/gosvc github.com/missing/dep"
+    ],
+    [
+      "dep-unused",
+      "mod:go:example.com/gosvc github.com/unused/thing"
+    ],
+    [
+      "config-missing",
+      "go.missing"
+    ]
+  ],
+  "nearMisses": [
+    "golang.org/x/text is // indirect",
+    "fmt and os are the standard library",
+    "internal/store is the module itself"
+  ],
+  "nodes": [
+    "ext:cache:redis",
+    "mod:go:example.com/gosvc"
+  ],
+  "edges": [
+    [
+      "mod:go:example.com/gosvc",
+      "ext:cache:redis",
+      "uses-cache",
+      "evidence"
+    ]
+  ],
+  "provides": [
+    "mod:go:example.com/gosvc GET /health",
+    "mod:go:example.com/gosvc POST /v1/jobs/{}"
+  ],
+  "notMeasured": [
+    "endpoint-unused"
+  ]
+}

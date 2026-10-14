@@ -1,0 +1,6 @@
+x-common: &common
+  restart: always
+services:
+  web:
+    <<: *common
+    image: nginx

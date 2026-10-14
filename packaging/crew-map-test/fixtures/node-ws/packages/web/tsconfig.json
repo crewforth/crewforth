@@ -1,0 +1,4 @@
+{
+  // comments and trailing commas: tsconfig is JSONC
+  "compilerOptions": { "paths": { "@/*": ["./src/*"], "#lib/*": ["./lib/*"], }, },
+}

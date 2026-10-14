@@ -1,0 +1,1 @@
+DATABASE_URL=postgres://app:{{PW}}@db:5432/app
