@@ -10606,7 +10606,7 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       # starts with a wildcard (which reaches every directory, kit/ included).
       cdo_unsafe(){ while IFS= read -r _p; do case "$_p" in *.sh*|kit*|\**) printf '%s\n' "$_p" ;; esac; done; }
       _cp="$(cdo_pats "$CDO" | tr '\n' ' ' | sed 's/ $//')"
-      _want='README*.md site/content/* evals/README.md evals/results/* CHANGELOG.md'
+      _want='README*.md site/* evals/README.md evals/results/* CHANGELOG.md'
       [ "$_cp" = "$_want" ] && pass "the docs-only list is exactly: $_want" \
         || fail "the docs-only list changed — it reads '$_cp', pinned '$_want'. Widening it lets a change skip macOS and Windows; update this pin deliberately"
       _cu="$(cdo_pats "$CDO" | cdo_unsafe)"
@@ -10623,9 +10623,11 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ "$(cdo evals/run.sh)" = code ]      || _cv="$_cv evals/run.sh"
       [ "$(cdo kit/README.md)" = code ]     || _cv="$_cv kit/README.md"
       [ "$(cdo .github/workflows/ci.yml)" = code ] || _cv="$_cv ci.yml"
+      [ "$(cdo site/scripts/check.mjs site/package-lock.json)" = docs ] || _cv="$_cv site-source"
+      [ "$(cdo site/scripts/build.sh)" = code ] || _cv="$_cv site-script"
       [ "$(printf '' | bash "$CDO")" = code ] || _cv="$_cv empty"
       [ "$(printf 'README.md\r\n' | bash "$CDO")" = docs ] || _cv="$_cv crlf"
-      [ -z "$_cv" ] && pass "ci-docs-only.sh: documentation reads docs; a hook, evals/run.sh, kit/README.md, ci.yml or an empty diff reads code" \
+      [ -z "$_cv" ] && pass "ci-docs-only.sh: documentation and the site's sources read docs; a hook, a .sh under site/, evals/run.sh, kit/README.md, ci.yml or an empty diff reads code" \
                     || fail "ci-docs-only.sh gave the wrong verdict for:$_cv"
       # The third answer, `text`: a pull request that changes only the text of skills, agents or commands skips the
       # macOS and Windows jobs as a documentation one does, and still runs the Linux verify job. That list is pinned
