@@ -4662,6 +4662,10 @@ _d9run(){ _d9o="$( cd "$DOC" && env -u CLAUDE_CODE_DISABLE_ADVISOR_TOOL -u CLAUD
 _d9b=""
 _d9stub '[{"id":"crewforth@crewforth","enabled":true},{"id":"other@market","enabled":true}]'; _d9run
 case "$_d9o" in *"every hook runs twice"*) ;; *) _d9b="$_d9b both-on-not-seen" ;; esac; [ "$_d9rc" = 0 ] || _d9b="$_d9b both-on-changed-the-verdict($_d9rc)"
+# The 2.x plugin id, still enabled at user scope beside a 3.x install, wires the same hooks: measured in a real
+# project (the 2.13.0 plugin was claude-starter-kit@byerlikaya).
+_d9stub '[{"id":"claude-starter-kit@byerlikaya","enabled":true}]'; _d9run
+case "$_d9o" in *"claude-starter-kit@byerlikaya plugin is enabled"*"every hook runs twice"*) ;; *) _d9b="$_d9b legacy-plugin-not-seen" ;; esac
 _d9stub '[{"id": "crewforth@crewforth", "enabled": false}]'; _d9run
 case "$_d9o" in *"one edition: the Crewforth plugin is not enabled"*) ;; *) _d9b="$_d9b plugin-off-not-one-edition" ;; esac
 rm -f "$_d9/bin/claude"; _d9run env PATH="$_d9/bin:/usr/bin:/bin"
