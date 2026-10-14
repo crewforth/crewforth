@@ -198,7 +198,9 @@ build_project() {
 # the behaviour under test. The content gates (trace/secret pre-commit) still run — that is the point.
 # eval_trace_metrics <stream.jsonl> <stdout.txt> — one TSV line:
 #   agent_top agent_all spawned cost in out cache_read cache_create turns bad_lines has_result tests tests_nested turns_top turns_nested is_error limited final_tested parallel_msgs agents_in_one_msg_max
-# The last TWO were appended for the parallel-audit rule, which no earlier column could measure: Workflow step
+# agents_by_type (appended last): the main thread's Agent calls by subagent_type, "name:count,…" sorted, "-" for none. The
+# count alone cannot say WHICH agent ran, and two agents were never started while every delegation count looked healthy.
+# The last TWO before it were appended for the parallel-audit rule, which no earlier column could measure: Workflow step
 # 3 says the applicable audits are issued as several `Agent` calls in ONE message, because that is what makes
 # them concurrent. `agent_top` counts calls and `turns_top` counts messages, so 3-in-3 and 3-in-1 are identical
 # in both — and only the second obeys the rule. `parallel_msgs` is the number of main-thread messages carrying
@@ -230,7 +232,7 @@ tests = tnest = 0; seen_tu = set(); msgs_top = set(); msgs_nest = set(); k = las
 # same time. Keyed on the message id, falling back to the line number so messages WITHOUT an id stay separate
 # instead of collapsing into one bucket (which is a latent flaw in msgs_top, left alone here rather than
 # changed silently).
-per_msg = {}
+per_msg = {}; by_type = {}
 try: lines = open(src, errors='replace').read().splitlines()
 except OSError: lines = []
 for ln, line in enumerate(lines):
@@ -250,6 +252,8 @@ for ln, line in enumerate(lines):
                 if not nested:
                     top += 1
                     per_msg[mkey] = per_msg.get(mkey, 0) + 1
+                    st = str((c.get('input') or {}).get('subagent_type') or 'general-purpose').split(':')[-1]
+                    by_type[st] = by_type.get(st, 0) + 1
             elif c.get('name') in ('Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
                 edits += 1; last_edit = k
             elif c.get('name') == 'Bash' and RUNRX.search((c.get('input') or {}).get('command') or ''):
@@ -267,7 +271,8 @@ print('\t'.join(str(x) for x in (top, allc, sp, (res or {}).get('total_cost_usd'
       (res or {}).get('num_turns', ''), bad, 1 if res else 0, tests, tnest, len(msgs_top), len(msgs_nest),
       1 if (res or {}).get('is_error') else 0, 1 if limited or (res or {}).get('api_error_status') == 429 else 0,
       '' if not edits else (1 if last_test > last_edit else 0),
-      sum(1 for v in per_msg.values() if v >= 2), max(per_msg.values(), default=0))))
+      sum(1 for v in per_msg.values() if v >= 2), max(per_msg.values(), default=0),
+      ','.join(f'{k}:{by_type[k]}' for k in sorted(by_type)) or '-')))
 PYM
 }
 
@@ -442,13 +447,19 @@ for cdir in "$CASES"/*/; do
       [ -s "$P/.eval-metrics.tsv" ] && cat "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv"
     done
     if [ "${CREW_EVAL_TRACE:-0}" = 1 ]; then
-      LC_ALL=C awk -F'\t' -v arm="$arm" '
-        { n++; if ($11 != 1 || $16 == 1 || $17 == 1) { empty++; next } ok++; if ($1 > 0) deleg++; cost += $4; tin += $5; tout += $6; cr += $7; cc += $8; tst += $12; tsn += $13; ttop += $14; tnst += $15 }
+      LC_ALL=C awk -F'\t' -v arm="$arm" -v cname="$cname" '
+        { n++; if ($11 != 1 || $16 == 1 || $17 == 1) { empty++; next } ok++; if ($1 > 0) deleg++; cost += $4; tin += $5; tout += $6; cr += $7; cc += $8; tst += $12; tsn += $13; ttop += $14; tnst += $15
+          if ($21 != "" && $21 != "-") { m = split($21, kv, ","); for (i = 1; i <= m; i++) { split(kv[i], p, ":"); bt[p[1]] += p[2] } }
+          if ($21 ~ /(^|,)crew-commit-agent:/) cagent++ }
         END {
           if (n == 0) { printf "     trace %-5s NO TRACE FILE — the runs wrote no metrics; this measured nothing\n", arm; exit }
           printf "     trace %-5s delegated %d/%d · cost $%.3f · in %d out %d cache_read %d cache_create %d · test runs %d (nested %d) · turns %d (nested %d)", arm, deleg, ok, cost, tin, tout, cr, cc, tst, tsn, ttop, tnst
           if (empty) printf " · %d EMPTY/BROKEN/ERROR stream(s), not counted", empty
           printf "\n"
+          s = ""; for (k in bt) s = s (s == "" ? "" : ", ") k " " bt[k]
+          if (s != "") printf "     agents %-5s %s\n", arm, s
+          # A report, not a grade: the case grades the commit; this says whether the agent that owns the message wrote it.
+          if (cname == "commit-format") printf "     agents %-5s crew-commit-agent ran in %d of %d run(s)\n", arm, cagent, ok
         }' "$WORK/trace-$cname-$arm.tsv" 2>/dev/null || printf '     trace %-5s NO TRACE FILE — the runs wrote no metrics; this measured nothing\n' "$arm"
     fi
     if [ "$arm" = "$ARM_A" ]; then TOTAL_KIT=$((TOTAL_KIT+passed)); TOTAL_CHECKS=$((TOTAL_CHECKS+checks));

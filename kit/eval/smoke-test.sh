@@ -2525,20 +2525,34 @@ done
 # PROACTIVE-CUE GATE: Claude Code auto-delegates on the description field, and only fires reliably when it carries
 # an action cue ("use proactively" / "immediately after" / "use ... when"). A passive role description ("Senior X
 # expert. Handlers, endpoints.") rarely auto-invokes — the specialist stays dormant and Crewforth reads as inert.
-# Every agent EXCEPT the two deliberately pull-only ones (invoked explicitly: a commit needs approval; session
-# health is emitted by a hook) must carry a cue, or a future passive rewrite silently regresses delegation.
-PULL_AGENTS=" crew-commit-agent crew-session-manager "
+# EVERY agent carries one. Two used to be exempt as "pull-only" (a commit needs approval; session health comes from
+# a hook), and nothing pulled them: the main thread wrote the commit message and the handover itself, and neither
+# agent was ever started. The exemption is gone; what pulls a chain-step agent is pinned just below.
 NO_CUE=""
 for f in $(agent_quality_files); do
   [ -e "$f" ] || continue
   a="$(basename "$f" .md)"
-  case "$PULL_AGENTS" in *" $a "*) continue ;; esac
   awk '/^---$/{c++; next} c==1' "$f" | grep -qiE "use proactively|immediately after|use [a-z ]*when" \
     || NO_CUE="$NO_CUE $a"
 done
-if   [ -z "$NO_CUE" ]; then pass "every non-pull agent carries an auto-delegation cue (proactive/immediately-after)"
-elif [ "$IS_KIT" = 1 ]; then fail "agent(s) with a passive description — auto-delegation will rarely fire:$NO_CUE (add 'use proactively …', or add to PULL_AGENTS if pull-only)"
+if   [ -z "$NO_CUE" ]; then pass "every agent carries an auto-delegation cue (proactive/immediately-after/use … when)"
+elif [ "$IS_KIT" = 1 ]; then fail "agent(s) with a passive description — auto-delegation will rarely fire:$NO_CUE (add 'use proactively …')"
 else pass "some agents lack a proactive cue:$NO_CUE (your project's own agents, not gated)"; fi
+# WHO PULLS A CHAIN-STEP AGENT. An agent whose work sits at a fixed step of the chain (metadata.stage close, handoff
+# or understand: the reviewer, the commit message, the handover, the plan) is not reached by a prompt's words; it is
+# reached because a command or the discipline CALLS it there. So each one is named in the call form, `@agent-<name>`
+# (or `subagent_type`), in a command skill or the discipline. Producers and auditors are pulled by route-hint.sh and
+# the cue above; the orphan check (3b) already holds that they are routed at all. Kit agents only.
+_cs=0; _csb=""; _cmdfiles="$(grep -l 'kind: command' "$SKILLS"/*/SKILL.md 2>/dev/null)"
+for f in "$AGENTS"/*.md; do
+  [ -f "$f" ] || continue; a="$(basename "$f" .md)"; kit_owned "agents/$a.md" || continue
+  case "$(awk '/^---$/{c++; next} c==1 && /^[[:space:]]*stage:/{print $2; exit}' "$f")" in close|handoff|understand) ;; *) continue ;; esac
+  _cs=$((_cs+1))
+  grep -qE "@agent-$a([^a-z0-9-]|\$)|subagent_type[^a-z]{0,6}$a([^a-z0-9-]|\$)" $_cmdfiles "$ROUTE_DOC" 2>/dev/null || _csb="$_csb $a"
+done
+if [ "$IS_KIT" = 1 ] && [ "$_cs" -lt 4 ]; then fail "FIXTURE: $_cs chain-step agents read (close/handoff/understand) — the stage field or the count broke, not the agents"
+elif [ -z "$_csb" ]; then pass "every chain-step agent ($_cs) is called as @agent-<name> by a command or the discipline"
+else fail "chain-step agent(s) nothing calls by name — the main thread does their work instead:$_csb"; fi
 
 
 # ---- gate UNIT cases: skipped under CREW_SMOKE_SCOPE=install ------------------------------------------------
@@ -2793,6 +2807,24 @@ r46rec "$R46_OID" "$R46_HEAD"
 o="$(gj default 'git commit -m x' | r46 2>/dev/null)"
 [ "$(gdec "$o")" = "ask" ] && pass "§4.6: a matching record lets the commit through to the §4.4 ask" \
                            || fail "§4.6: a matching record did NOT pass the gate (out=$o)"
+# 2b. Who wrote the message (AJAN-1): the latest crew-review-agent / crew-commit-agent call in the transcript decides
+# one line in the approval. It never blocks, and it says nothing when it cannot know: a subagent's own call, or a
+# transcript it cannot read.
+_can_t="$R46/.t"; mkdir -p "$_can_t"
+_can_call(){ printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"subagent_type":"%s","prompt":"x"}}]}}\n' "$1"; }
+{ _can_call crew-review-agent; _can_call crew-commit-agent; } > "$_can_t/both.jsonl"
+_can_call crew-review-agent > "$_can_t/review.jsonl"
+{ _can_call crew-commit-agent; _can_call crew-review-agent; } > "$_can_t/stale.jsonl"
+_canj(){ printf '{"cwd":"%s","permission_mode":"default","transcript_path":"%s",%s"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' "$R46" "$1" "${2:-}"; }
+_canb=""; _NOTE='crew-commit-agent has not run since the last review'
+o="$(_canj "$_can_t/both.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb agent-ran-but-noted"
+o="$(_canj "$_can_t/review.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" == *"$_NOTE"* ]] || _canb="$_canb no-agent-not-noted"
+o="$(_canj "$_can_t/stale.jsonl" | r46 2>/dev/null)"; [[ "$o" == *"$_NOTE"* ]] || _canb="$_canb a-review-after-the-agent-not-noted"
+o="$(_canj "$_can_t/review.jsonl" '"agent_id":"a1",' | r46 2>/dev/null)"; [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb noted-on-a-subagents-call"
+o="$(_canj "$_can_t/nope.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb noted-without-a-transcript"
+[ -z "$_canb" ] && pass "§4.4 approval names a commit message crew-commit-agent did not write (5 cases: ran, not run, review after it, subagent, no transcript); it never blocks" \
+                || fail "commit-agent note:$_canb"
+rm -rf "$_can_t"
 # 3. Right diff, wrong base. This is the case a wall-clock TTL cannot see and the reason there is none.
 r46rec "$R46_OID" "0000000000000000000000000000000000000000"
 gj default 'git commit -m x' | r46 >/dev/null 2>&1; [ "$?" = 2 ] \
@@ -11341,7 +11373,7 @@ _EVR="$(cd "$(dirname "$0")/../.." && pwd)/evals/run.sh"
 _PY3OK=0
 printf '' | python3 -c 'import sys,json' >/dev/null 2>&1 && _PY3OK=1
 if [ -f "$_EVR" ] && [ "$_PY3OK" = 0 ]; then
-  skip tool "evals metric not calibrated (no working python3 — eval_trace_metrics is a python heredoc)" 6
+  skip tool "evals metric not calibrated (no working python3 — eval_trace_metrics is a python heredoc)" 7
 elif [ -f "$_EVR" ]; then
   _EVD="$(mktemp -d)"
   # NOT IN A SUBSHELL, and that was a real defect in the first draft of this block: the five rows below ran
@@ -11390,6 +11422,15 @@ $_res")"
   [ "$(_f "$_p" 19)" = 2 ] \
     && pass "evals metric: two id-less messages stay two, not one" \
     || fail "evals metric: id-less messages collapsed [$_p] — parallel_msgs would undercount"
+  # agents_by_type (column 21): WHICH agent the main thread started. A count of calls looked healthy while two agents
+  # were never started; this names them. A plugin's namespace is dropped, a call with no type is general-purpose, and
+  # a subagent's own call is not the main thread's.
+  _p="$(_mk typed "$(printf '%s' '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"x1","name":"Agent","input":{"subagent_type":"crew-commit-agent"}},{"type":"tool_use","id":"x2","name":"Agent","input":{"subagent_type":"crewforth:crew-review-agent"}},{"type":"tool_use","id":"x3","name":"Agent","input":{}}]}}')
+$(_msg s1 1 n1)
+$_res")"
+  { [ "$(_f "$_p" 21)" = "crew-commit-agent:1,crew-review-agent:1,general-purpose:1" ] && [ "$(_f "$(_mk none_t "$_res")" 21)" = "-" ]; } \
+    && pass "evals metric: agents_by_type names the main thread's agents (namespace dropped, untyped is general-purpose, nested not counted, none is -)" \
+    || fail "evals metric: agents_by_type read [$(_f "$_p" 21)]"
   _p="$(_mk none "$_res")"
   { [ "$(_f "$_p" 19)" = 0 ] && [ "$(_f "$_p" 20)" = 0 ]; } \
     && pass "evals metric: a stream with no Agent call reports 0, not empty" \
