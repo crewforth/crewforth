@@ -16,6 +16,7 @@ npx crewforth studio                              # hiçbir şey kurmadan
 |:--|:--|
 | Herhangi bir oturumun delegasyonu, canlı; **Graph**, **Timeline** ya da **List** olarak (`g`, `t`, `l`) | diskteki transcript ağacı; 700 ms'de bir boyut imzası okunuyor, imza değiştiyse ağaç yeniden kuruluyor. Üç görünüm de bu tek okumadan çiziliyor |
 | **Models** (`m`): bu projede her iş türüne hangi model gerekmiş | `.claude/state/model-outcomes.tsv`; bir crew ajanı durduğunda Crewforth'un hook'larının yazdığı kayıt. Studio onu okuyor, hiçbir şey yazmıyor |
+| **Map** (`p`): projenin modülleri, neye bağlandıkları ve aralarında ne bulunduğu | `.crewforth/crew-map.json`; Crewforth'un tarayıcısı yazıyor. Studio onu okuyor, hiçbir şey taramıyor |
 | Panelin başlattığı oturumlar, konuşma panelinden sürülüyor | stream-json biçiminde bir `claude -p`; komut da cevap da alt sürecin stdin ve stdout'undan geçiyor |
 | O oturumlardaki bir araç çağrısı siz cevaplayana kadar onay dock'unda bekletiliyor; soru ve plan da orada cevaplanıyor | panelin kendi ayar dosyası üzerinden enjekte edilen bir `PreToolUse` hook'u. Bir araç çağrısına harness'ın 90 sn'sine karşılık 45 sn'de, bir soruya ya da plana 300 sn'de karar veriyor; **sessizlik ret demek**, yani kapalı bir panel izin yerine geçmiyor |
 | Oturumu kopyalamak yerine gerçekten sürdürmek | oturumu tutan bir süreç yoksa çıplak `--resume`; oturumun kimliği korunuyor, yazılanlar aynı transcript'in sonuna ekleniyor. Tutan bir süreç varsa fork ediliyor, çünkü tek bir transcript'e iki yazar onu bozar |
@@ -79,6 +80,20 @@ Görünümün göstermediği: kayıtta yalnız crew ajanları var. Model seçimi
   <img src="../../../assets/studio-models.png" alt="Models görünümü: her iş sınıfı için bir satırlık tablo; riski, koştuğu modeller, iş sayısı, çubuğuyla ilk deneme oranı, kaç işin yükseltildiği ve tahmini maliyet. Tablonun altında bir tabanı indirme önerisi ve Copy command düğmesi; yanında bir ajanın inspector'ı, iş kartı ve işinin adımlarıyla" width="900">
   <br><sub>Her iş türüne bir satır. Öneri bir komut kopyalıyor; tabanı indirmek sizde kalıyor.</sub>
 </div>
+
+## Map: projenin crew haritasındaki hâli
+
+**Map** görünümü (`p`), Crewforth'un tarayıcısının (`bash .claude/eval/lib/crew-map/crew-map.sh`) yazdığı haritayı, yani `.crewforth/crew-map.json`'ı çiziyor: projenin modülleri, dokundukları dış kaynaklar, sundukları ve çağırdıkları endpoint'ler ve aralarındaki bulgular; her biri `dosya:satır` gösteriyor. Studio onu yalnız okuyor. Harita yoksa görünüm nasıl yazılacağını söylüyor; panelden hiçbir şey taranmıyor.
+
+Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points**, **Core**, **Infrastructure**, **External**. Bant, haritanın modül hakkında gösterdiği şey: bir endpoint sunan ya da bir konteynerin derlediği modül giriş noktası, yalnız endpoint çağıran istemci, başka bir modülün başvurduğu çekirdek. Haritanın yerleştirmediği modül bir tahmine değil **Unplaced**'e gidiyor. Bir dosyanın kanıtladığı çizgi düz, çıkarılan noktalı; bir modül seçince yalnız onun çizgileri yanıyor, gerisi soluk kalıyor, `Esc` seçimi bırakıyor.
+
+| Parça | Ne yapıyor |
+|:--|:--|
+| **Kaynak şeridi** | dosya, tarandığı commit ve o zamandan beri `HEAD`'in kaç commit ilerlediği |
+| **Layers** | Modules, External, Endpoints (her modülün endpoint'leri çip olarak), Findings |
+| **Findings** | bütün bulgular, kanıtlılar önce. Tarayıcının fazla sık yanıldığı için işaretlediği kural varsayılan olarak gizli ve sayılıyor; **Show N hidden by default** geri getiriyor |
+| **Inspector** | Overview (neye bağlandığı, `dosya:satır` ile), Connections (giden ve gelen) ve Findings; her bulgu **Copy as task** taşıyor, bulguyu bir oturuma yapıştırılacak metin olarak kopyalıyor. **Not measured** her zaman en altta |
+| **Compare with** | bu makinede haritası olan başka bir proje. Onun kendi endpoint'lerinin sunmadığı çağrıları bu projeyle eşleştiriliyor: çağıran modülleri **Clients**'a geliyor, her çizgi kaç çağrının buraya düştüğünü ve kaçının **missing** olduğunu söylüyor, eksikler bulgulara ekleniyor |
 
 ## Onay dock'u
 

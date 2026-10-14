@@ -1330,7 +1330,7 @@ check('prose without a notice yields nothing', none.size === 0);
   }
   check('Models is a fourth view with its own tab, and the record is read for the session on screen',
     /<button id="view-models"[^>]*aria-controls="models"/.test(read(path.join(WEB_ROOT, 'index.html')) ?? '')
-    && /\['graph', 'timeline', 'list', 'models'\]\.includes\(next\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
+    && /\['graph', 'timeline', 'list', 'models', 'map'\]\.includes\(next\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
     && /\/api\/models\?session=\$\{encodeURIComponent\(asked\)\}/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   check('the command a suggestion offers is the class in three words, with no model in it, and none is offered for a word it could not take',
     mp.lowerCommand(m.suggestions[0]) === '/crew-loosen crew-test-expert test-run normal'
@@ -1473,6 +1473,160 @@ check('prose without a notice yields nothing', none.size === 0);
         made.status === 0 ? (differ.length ? `differ: ${differ.join(', ')} (run fixtures/make-crew-map.mjs and keep its output)` : 'three documents, the same') : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
     }
     fs.rmSync(work, { recursive: true, force: true });
+  }
+  /* The Map view. The map is the scanner's (the samples above); the server reads it and runs nothing that writes,
+     the plan puts each node in a band by what the map shows of it, and the view draws it. Each rule has its twin. */
+  {
+    const cm = await import(`../../kit/studio/server/lib/crew-map.js?m=${Date.now()}`);
+    const mpl = await import(`../../kit/studio/web/map-plan.js?m=${Date.now()}`);
+    const sample = (nm) => JSON.parse(read(path.join(HERE, 'fixtures', 'crew-map', `${nm}.json`)) ?? 'null');
+    const ws = sample('node-ws'); const sln = sample('dotnet-sln'); const cmp = sample('compose');
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-map-read-'));
+    const missing = cm.readMap(proj);
+    fs.mkdirSync(path.join(proj, '.crewforth'));
+    const put = (v) => fs.writeFileSync(path.join(proj, '.crewforth', 'crew-map.json'), typeof v === 'string' ? v : JSON.stringify(v));
+    put('{ not json'); const bad = cm.readMap(proj);
+    put({ ...ws, schema: 'crewforth.crew-map/2' }); const later = cm.readMap(proj);
+    put({ ...ws, edges: undefined }); const noEdges = cm.readMap(proj);
+    put(ws);
+    const before = cm._stats.parsed;
+    const ok = cm.readMap(proj); for (let k = 0; k < 20; k += 1) cm.readMap(proj);
+    check('the map is read whole or not at all: missing, not JSON, another schema, a list missing each say so; a good one is read once and kept',
+      missing.measured === false && missing.missing === true && missing.reason.endsWith(`Write one there with: ${cm.WRITER}`)
+      && fs.existsSync(path.join(REPO, 'kit', cm.WRITER.replace(/^bash \.claude\//, '')))
+      && bad.measured === false && /not JSON/.test(bad.reason) && later.measured === false && /crewforth\.crew-map\/2/.test(later.reason)
+      && noEdges.measured === false && /no edges list/.test(noEdges.reason)
+      && ok.measured === true && ok.file === '.crewforth/crew-map.json' && ok.doc.nodes.length === ws.nodes.length && cm._stats.parsed - before === 1,
+      `${missing.reason} | ${bad.reason} | ${later.reason} | parses for 21 asks: ${cm._stats.parsed - before}`);
+    const notHex = await cm.behindOf(proj, '--output=/tmp/x');
+    const none = await cm.behindOf(proj, undefined);
+    let behind = null;
+    const git = (...a) => spawnSync('git', a, { cwd: proj, encoding: 'utf8' });
+    if (git('init', '-q').status !== 0) skip('how far HEAD is past the scanned commit is git\'s count', 'tool', 'git is not available');
+    else {
+      git('-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'one');
+      const first = git('rev-parse', 'HEAD').stdout.trim();
+      git('-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'two');
+      git('-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'three');
+      behind = await cm.behindOf(proj, first);
+      const head = await cm.behindOf(proj, git('rev-parse', 'HEAD').stdout.trim());
+      const gone = await cm.behindOf(proj, 'deadbeefdeadbeef');
+      check('how far HEAD is past the scanned commit is git\'s count; a commit git does not know is said, not guessed',
+        behind.count === 2 && head.count === 0 && gone.count === null && /git could not say/.test(gone.reason), `${JSON.stringify(behind)} ${JSON.stringify(gone)}`);
+    }
+    check('only a commit id reaches git: anything else in the file is not handed to it',
+      notHex.count === null && /names no commit/.test(notHex.reason) && none.count === null
+      && /execFile\('git', \['rev-list', '--count', `\$\{commit\}\.\.HEAD`\]/.test(read(path.join(STUDIO, 'server', 'lib', 'crew-map.js')) ?? ''));
+    fs.rmSync(proj, { recursive: true, force: true });
+
+    const band = (doc, id) => mpl.nodesOf(doc).find((n) => n.id === id)?.band;
+    const bareMod = { id: 'mod:x:lone', kind: 'module', name: 'lone' };
+    const bare = { nodes: [bareMod], edges: [], provides: { endpoints: [] }, consumes: { endpoints: [] } };
+    const twins = {
+      provides: [band(bare, 'mod:x:lone'), band({ ...bare, provides: { endpoints: [{ module: 'mod:x:lone', method: 'GET', path: '/a' }] } }, 'mod:x:lone')],
+      calls: [band(bare, 'mod:x:lone'), band({ ...bare, consumes: { endpoints: [{ module: 'mod:x:lone', method: 'GET', path: '/a' }] } }, 'mod:x:lone')],
+      referenced: [band(bare, 'mod:x:lone'), band({ ...bare, edges: [{ from: 'mod:x:other', to: 'mod:x:lone', kind: 'references' }] }, 'mod:x:lone')],
+      built: [band(bare, 'mod:x:lone'), band({ ...bare, edges: [{ from: 'svc:x', to: 'mod:x:lone', kind: 'builds' }] }, 'mod:x:lone')],
+      entry: [band(bare, 'mod:x:lone'), band({ ...bare, nodes: [{ ...bareMod, entry: true }] }, 'mod:x:lone')],
+    };
+    check('each band is what the map shows of a module, and a module with nothing to place it is Unplaced: each reason has its twin without it',
+      Object.values(twins).every(([a]) => a === 'unplaced') && twins.provides[1] === 'entry' && twins.calls[1] === 'clients'
+      && twins.referenced[1] === 'core' && twins.built[1] === 'entry' && twins.entry[1] === 'entry'
+      && band(ws, 'mod:node:@demo/api') === 'entry' && band(ws, 'mod:node:@demo/web') === 'clients' && band(ws, 'mod:node:@demo/shared') === 'core'
+      && band(ws, 'mod:node:@demo/orphan-lib') === 'unplaced' && band(cmp, 'svc:api') === 'infra' && band(cmp, 'mod:node:compose-api') === 'entry'
+      && mpl.nodesOf(ws).filter((n) => n.kind === 'external').every((n) => n.band === 'external'),
+      JSON.stringify(twins));
+    const fw = mpl.findingsOf(ws); const fwAll = mpl.findingsOf(ws, { showHidden: true });
+    const marked = ws.findings.filter((f) => f.data?.defaultHidden).length;
+    check('a finding the scanner hides by default is hidden until asked for, and counted while it is; proven ones are listed first',
+      marked > 0 && fw.hidden === marked && fw.shown.length === ws.findings.length - marked && fwAll.shown.length === ws.findings.length
+      && fw.shown.every((f) => !f.hidden) && fwAll.shown.findIndex((f) => !f.proven) > fwAll.shown.findLastIndex((f) => f.proven),
+      `${fw.shown.length} shown, ${fw.hidden} hidden`);
+    check('a finding belongs to the module it names, or else to the module whose folder holds its cited file, the deepest one',
+      mpl.findingModules({ data: { module: 'mod:a' }, evidence: [{ file: 'x/y.js' }] }, []).join() === 'mod:a'
+      && mpl.findingModules({ data: {}, evidence: [{ file: 'packages/api/src/s.js' }] }, [{ id: 'root', path: '.' }, { id: 'api', path: 'packages/api' }]).join() === 'api'
+      && mpl.findingModules({ data: {}, evidence: [{ file: 'tools/t.js' }] }, [{ id: 'api', path: 'packages/api' }]).length === 0);
+    check('an endpoint is matched by its method and its path, a parameter written any of the usual ways being one',
+      cm.endpointKey({ method: 'get', path: '/a/:id/' }) === cm.endpointKey({ method: 'GET', path: '/a/{id}' })
+      && cm.endpointKey({ method: 'GET', path: '/a/<id>?q=1' }) === 'GET /a/*' && cm.endpointKey({ method: 'GET', path: '/a/b' }) !== cm.endpointKey({ method: 'GET', path: '/a/*' })
+      && cm.endpointKey({ method: 'POST', path: '/a' }) !== cm.endpointKey({ method: 'GET', path: '/a' }));
+    const here = { nodes: [{ id: 'mod:h:api', kind: 'module', name: 'api' }], provides: { endpoints: [{ module: 'mod:h:api', method: 'GET', path: '/orders/{id}' }] } };
+    const other = {
+      nodes: [{ id: 'mod:o:web', kind: 'module', name: 'web' }, { id: 'mod:o:cron', kind: 'module', name: 'cron' }],
+      provides: { endpoints: [{ module: 'mod:o:web', method: 'GET', path: '/health' }] },
+      consumes: { endpoints: [
+        { module: 'mod:o:web', method: 'GET', path: '/orders/:id', evidence: [{ file: 'web/a.ts', line: 3 }] },
+        { module: 'mod:o:web', method: 'POST', path: '/refunds', evidence: [{ file: 'web/a.ts', line: 9 }] },
+        { module: 'mod:o:web', method: 'GET', path: '/health' },
+        { module: 'mod:o:cron', method: 'POST', path: '/elsewhere' },
+      ] },
+    };
+    const clients = cm.compareMaps(here, other);
+    const cf = mpl.findingsOf(here, { compare: { label: 'shop-web', clients } });
+    check('compared, a call the other project makes and does not serve itself is matched here or missing; a module none of whose calls is served here is no client',
+      clients.length === 1 && clients[0].name === 'web' && clients[0].calls.length === 1 && clients[0].calls[0].to === 'mod:h:api'
+      && clients[0].missing.length === 1 && clients[0].missing[0].path === '/refunds' && !clients.some((c) => c.id === 'mod:o:cron')
+      && cf.shown.some((f) => f.rule === 'compare-missing' && /POST \/refunds is called by web and not provided here/.test(f.title) && f.from === 'shop-web'),
+      JSON.stringify(clients.map((c) => [c.name, c.calls.length, c.missing.length])));
+    const ce = mpl.edgesOf(here, { label: 'shop-web', clients });
+    check('a compared client is drawn in the Clients band with one line to the module it calls, labelled with its calls and its missing ones',
+      mpl.nodesOf(here, { label: 'shop-web', clients }).find((n) => n.id === 'cmp:mod:o:web')?.band === 'clients'
+      && ce.length === 1 && ce[0].to === 'mod:h:api' && ce[0].calls === 1 && ce[0].missing === 1
+      && mpl.edgesOf(here, { label: 'x', clients: [{ ...clients[0], calls: [{ method: 'GET', path: '/orders/1' }] }] }).length === 0,
+      'a call with no module matched by the server draws no line: the view does not pick one');
+    const lay = mpl.layoutOf(mpl.nodesOf(ws), { width: 720 });
+    const overlap = Object.entries(lay.pos).some(([a, p], i, all) => all.slice(i + 1).some(([, q]) => p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h));
+    check('the layout keeps every card inside its band, no two cards over each other, and bands in the order of the design',
+      !overlap && mpl.nodesOf(ws).every((n) => { const b = lay.bands.find((x) => x.key === n.band); const p = lay.pos[n.id]; return b && p.y >= b.y && p.y + p.h <= b.y + b.h; })
+      && lay.bands.map((b) => b.key).join() === 'clients,entry,core,external,unplaced'
+      && lay.bands.every((b, i) => i === 0 || b.y === lay.bands[i - 1].y + lay.bands[i - 1].h),
+      lay.bands.map((b) => `${b.key}@${b.y}+${b.h}`).join(' '));
+    const t = mpl.taskOf(fwAll.shown.find((f) => !f.proven));
+    check('a finding copied as a task says what, where, and, for an inferred one, to check it first',
+      /^.+\. Evidence: \S+:\d+/.test(t) && /inferred this; check it before acting on it/.test(t) && /From the crew map \(rule /.test(t)
+      && !/inferred this/.test(mpl.taskOf(fw.shown.find((f) => f.proven))), t);
+    {
+      const dom = installDom();
+      try {
+        const { MapView } = await import(`../../kit/studio/web/map.js?m=${Date.now()}`);
+        const root = document.createElement('div');
+        const copied = []; const compared = [];
+        const view = new MapView(root, { onCopy: (x) => copied.push(x), onCompare: (c) => compared.push(c) });
+        const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+        view.setData(null); const reading = root.children[0]?.children?.[0]?.textContent;
+        view.setData({ measured: false, missing: true, reason: 'no map here', others: [] }); const empty = root.children[0]?.children?.[0]?.textContent;
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p', doc: ws, behind: { count: 2 }, others: [{ label: 'billing-web', cwd: '/q' }], compare: null });
+        const cards = walkAll(root, (e) => e.className === 'mp-mod' || e.className === 'mp-ext');
+        const isLine = (e) => (e.getAttribute?.('class') ?? e.className) === 'mp-line';
+        const paths = walkAll(root, isLine);
+        const rows = walkAll(root, (e) => e.className === 'mp-frow');
+        const pill = walkAll(root, (e) => e.dataset?.tone === 'behind')[0]?.textContent;
+        cards.find((c) => c.dataset.id === 'mod:node:@demo/api').emit('click');
+        const litNow = walkAll(root, isLine).filter((p) => p.dataset.lit === 'true').length;
+        const tabs = walkAll(root, (e) => e.className === 'mp-tab');
+        tabs.find((b) => /^Findings/.test(b.textContent))?.emit('click');
+        walkAll(root, (e) => e.tagName === 'BUTTON' && e.textContent === 'Copy as task')[0]?.emit('click');
+        const sel = walkAll(root, (e) => e.className === 'mp-compare')[0];
+        sel.value = '/q'; sel.emit('change');
+        const esc = view.escape();
+        const after = walkAll(root, isLine).filter((p) => p.dataset.lit !== undefined).length;
+        check('the view draws one card for each node, one line for each edge, one row for each shown finding, and how far behind the map is',
+          reading === 'Reading the map…' && empty === 'No map yet \u2014 no map here'
+          && cards.length === ws.nodes.length && paths.length === ws.edges.length && rows.length === fw.shown.length && pill === '2 commits behind',
+          `${cards.length} cards, ${paths.length} lines, ${rows.length} rows`);
+        check('selecting a module lights its lines only; its findings copy as a task; Compare asks for the other project; Esc lets the selection go',
+          litNow === ws.edges.filter((e) => e.from === 'mod:node:@demo/api' || e.to === 'mod:node:@demo/api').length && litNow > 0
+          && copied.length === 1 && /Evidence: /.test(copied[0]) && compared.join() === '/q' && esc === true && after === 0 && view.escape() === false,
+          `${litNow} lit; copied ${copied.length}; compared ${compared.join()}`);
+      } finally { dom(); }
+    }
+    const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
+    const libSrc = read(path.join(STUDIO, 'server', 'lib', 'crew-map.js')) ?? '';
+    const srvSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+    check('the Map runs nothing and writes nothing: the reader has no write, the one process it starts is git rev-list, the view asks the server nothing itself, and a comparison is only with a listed project that has a map',
+      !/writeFileSync|appendFileSync|renameSync|createWriteStream|unlinkSync|rmSync|spawn\(|exec\(/.test(libSrc) && (libSrc.match(/execFile\(/g) ?? []).length === 1
+      && !/fetch\(|XMLHttpRequest/.test(mapSrc) && /const peer = asked \? others\.find\(\(o\) => o\.cwd === asked\) : null;/.test(srvSrc)
+      && /readMap\(p\.cwd\)\.measured/.test(srvSrc) && !/from '[^']*(scan\.mjs|eval\/lib\/crew-map)|import\([^)]*scan|'crew-map\.sh'/.test(srvSrc + libSrc));
   }
   const serverJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   const outcomesJs = read(path.join(STUDIO, 'server', 'lib', 'model-outcomes.js')) ?? '';
@@ -5365,7 +5519,7 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
 
   check('the dock is not a dialog and takes no focus',
     !/showModal|role="dialog"|aria-modal|\.focus\(/.test(dockJs)
-    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="models"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
+    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="models"[^>]*hidden><\/div>\s*<div id="map"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
     'a region under the canvas, inside the stage: the graph stays usable above it');
   check('the dock is the one place requests are drawn: the conversation pane no longer draws its own',
     !/perm-queue|paintPermissions/.test(chatJs) && !/\.perm-/.test(cssSrc31) && /this\.onPermissions\(this, rec\)/.test(chatJs));

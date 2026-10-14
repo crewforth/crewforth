@@ -16,6 +16,7 @@ npx crewforth studio                              # without installing anything
 |:--|:--|
 | The delegation of any session, live, as a **Graph**, a **Timeline** or a **List** (`g`, `t`, `l`) | the transcript tree on disk, re-read on a size signature every 700 ms; the three views are drawn from that one reading |
 | **Models** (`m`): which model each kind of task has needed in this project | `.claude/state/model-outcomes.tsv`, the record Crewforth's hooks write when a crew agent stops. Studio reads it and writes nothing |
+| **Map** (`p`): the project's modules, what they connect to and what was found between them | `.crewforth/crew-map.json`, written by Crewforth's scanner. Studio reads it and scans nothing |
 | Sessions the panel starts, driven from the conversation panel | `claude -p` in stream-json, over the child's stdin and stdout |
 | A tool call in one of those parked in the approval dock until you answer; a question and a plan answered there too | a `PreToolUse` hook injected through the panel's own settings file. It answers a tool call at 45 s against the harness's 90 s, a question or a plan at 300 s, and **silence is a denial** — a panel that is closed does not become permission |
 | Continuing a session rather than copying it | a bare `--resume` when no process holds that session, which keeps its id and appends to its transcript; a fork when one does, because two writers on one transcript corrupt it |
@@ -79,6 +80,20 @@ What the view does not show: the record holds crew agents only. Model routing ap
   <img src="../../../assets/studio-models.png" alt="The Models view: a table with one line per class of task, its risk, the models it ran on, how many tasks, the first-try rate with a bar, how many were escalated and the estimated cost; under the table a suggestion to lower a floor with a Copy command button; beside it the inspector of one agent with its task card and the steps its work took" width="900">
   <br><sub>One line per kind of task. The suggestion copies a command; lowering a floor stays yours.</sub>
 </div>
+
+## Map: the project as its crew map shows it
+
+The **Map** view (`p`) draws `.crewforth/crew-map.json`, the map Crewforth's scanner writes (`bash .claude/eval/lib/crew-map/crew-map.sh`): the project's modules, the external resources they touch, the endpoints they provide and call, and the findings between them, each citing `file:line`. Studio only reads it. With no map, the view says how to write one; nothing is scanned from the panel.
+
+Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Infrastructure**, **External**. A band is what the map shows of a module: one that provides an endpoint or that a container builds is an entry point, one that only calls endpoints is a client, one another module references is core. A module the map does not place goes to **Unplaced** rather than to a guess. Lines are solid where a file proves them and dotted where they are inferred; selecting a module lights its own lines and leaves the rest faint, and `Esc` lets it go.
+
+| Part | What it does |
+|:--|:--|
+| **Source strip** | the file, the commit it was scanned at, and how many commits `HEAD` has moved since |
+| **Layers** | Modules, External, Endpoints (each module's endpoints as chips), Findings |
+| **Findings** | every finding, proven ones first. A rule the scanner marks as too often wrong is hidden by default and counted; **Show N hidden by default** brings it back |
+| **Inspector** | Overview (what it connects to, with `file:line`), Connections (in and out) and Findings, each with **Copy as task**, which copies the finding as text to paste into a session. **Not measured** is always at the bottom |
+| **Compare with** | another project on this machine that has a map. Its calls that no endpoint of its own provides are matched against this project: its calling modules join **Clients**, each line says how many calls land here and how many are **missing**, and the missing ones join the findings |
 
 ## The approval dock
 

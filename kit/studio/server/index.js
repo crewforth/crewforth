@@ -22,6 +22,7 @@ import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
 import { readModels, readRecord, readCosts } from './lib/model-outcomes.js';
+import { readMap, behindOf, compareMaps } from './lib/crew-map.js';
 
 const USAGE_BATCH = 12;
 import { palette } from './lib/palette.js';
@@ -372,6 +373,25 @@ export async function handle(req, res) {
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
     if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', costs: {}, sessionsRead: 0 });
     return sendJson(res, 200, await modelCosts(cwd));
+  }
+
+  // The project's crew map, as Crewforth's scanner wrote it, and how far HEAD has moved since. Nothing is scanned here.
+  // `compare` names another project of this machine by its directory; only a project the panel lists, with a map
+  // of its own, is read, so the route cannot be pointed at an arbitrary path.
+  if (url.pathname === '/api/map') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', others: [] });
+    const map = readMap(cwd);
+    const others = (await listProjects({ currentCwd: cwd })).filter((p) => p.cwd && p.cwd !== cwd && readMap(p.cwd).measured)
+      .map((p) => ({ label: p.label, cwd: p.cwd }));
+    if (!map.measured) return sendJson(res, 200, { ...map, cwd, others });
+    const asked = url.searchParams.get('compare');
+    const peer = asked ? others.find((o) => o.cwd === asked) : null;
+    const compare = peer ? { label: peer.label, cwd: peer.cwd, clients: compareMaps(map.doc, readMap(peer.cwd).doc) }
+      : asked ? { label: null, cwd: asked, clients: [], reason: 'not a project of this machine with a crew map' } : null;
+    return sendJson(res, 200, { ...map, cwd, behind: await behindOf(cwd, map.doc.source?.commit), others, compare });
   }
 
   if (url.pathname === '/api/kit') {
