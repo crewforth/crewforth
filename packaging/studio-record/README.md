@@ -51,7 +51,7 @@ record another one.
 
 The overview video's source page is not in the repository, so the scene is not rendered again: the new take is put
 inside the Studio card of the existing video, frame by frame, with the card's own fade and push-in, and the result
-is encoded once with the sound copied. Before writing anything it measures the old video's fade against its model
+is encoded once with the sound copied. The push-in comes out of a margin of the panel's own ground around the take, so it never cuts the panel: at its end the card holds the whole panel, edge to edge. Before writing anything it measures the old video's fade against its model
 of the scene and stops if they disagree, which is also how the frame offset of a copy with leading frames is found
 (`--offset`). `--check` runs that measurement alone.
 
