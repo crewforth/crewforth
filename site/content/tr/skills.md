@@ -14,6 +14,7 @@ Beş aşamaya yayılmış **{{AGENT_COUNT}} uzman ajan** var. Kalite, hiçbir ş
 | `crew-database-expert` | Üret | şema, migration, indeks, önbellek |
 | `crew-frontend-expert` | Üret | arayüz, bileşen, istemci işi |
 | `crew-devops-expert` | Üret | dağıtım, CI hattı, olay müdahalesi |
+| `crew-docs-agent` | Üret | README, kılavuz, sürüm notları, yasal ve gizlilik metinleri, mağaza metinleri |
 | `crew-security-expert` | Denetle | auth / IDOR / injection / sır · **güvenlik kritikse zorunlu** |
 | `crew-privacy-agent` | Denetle | kişisel veri: KVKK/GDPR ve projenin beyan ettiği diğer rejimler |
 | `crew-test-expert` | Denetle | test, kapsam, regresyon |

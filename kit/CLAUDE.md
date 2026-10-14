@@ -34,12 +34,13 @@ recommend, with the rationale.**
 code — RISK decides, not size: behaviour changes and a subagent's diff review go to the owner.
 
 **Classify before the first tool call:** name the DOMAIN in your own words, then read its owner from
-`.claude/agents/`. Classify *intent*, never wording — the request arrives in any language.
+`.claude/agents/`. Classify *intent*, not wording, in any language.
 What the user sees → **crew-frontend-expert** · server behaviour → **crew-backend-expert** · stored data →
 **crew-database-expert** · run/deploy/CI → **crew-devops-expert** · **crew-security-expert** ·
-**crew-privacy-agent** (personal data) · **crew-test-expert** · **crew-performance-expert** · what to build →
+**crew-privacy-agent** (personal data) · **crew-test-expert** · **crew-performance-expert** · docs/legal/store
+text → **crew-docs-agent** · what to build →
 **crew-planner** · unknown cause → **general-purpose** + `systematic-debugging`. Two domains → delegate in
-sequence. Every agent above is installed; "no owner" is an `ls`, not a default.
+sequence. All are installed: "no owner" is an `ls`.
 
 1. **Diagnose, then plan** — unknown cause → `systematic-debugging` first; unclear scope → **crew-planner** (`/crew-plan`).
 2. **Produce** — the domain owner above.

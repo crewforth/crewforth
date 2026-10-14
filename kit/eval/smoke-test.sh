@@ -2332,7 +2332,7 @@ BUDGET_DISC=14975    # 3.1.0: 13986 → 14975 (+989): the task card (files, chan
                      # and the wrong one winning silently. The only rule in this file that is about the OTHER
                      # rules, so it cannot live in the README the way the compaction note does. Plus the Audit
                      # row naming crew-performance-expert — an agent nothing routes to is an idle component.)
-BUDGET_AGENTS=5596   # 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
+BUDGET_AGENTS=5746   # 3.2.0: 5596 → 5746 (+150), the measured sum: crew-docs-agent is a 14th agent (195 B, its description cut to one line first; the other 13 sum to 5551). Raised on the user's decision, not to make room. 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
                      # agents' descriptions rewritten stack-agnostic, +55 B). Before that 5527, measured 2026-09-20 by reading this suite's
                      # own printed line rather than a hand-rolled counter (a hand-rolled one answered 5503 and
                      # was thrown away). Two corrections in one day: the note said 5765 against a measured 5407,
@@ -8220,6 +8220,19 @@ done <<'V2'
 2|crew-backend-expert|sonnet|prisma/schema.prisma|feature|none|
 2|crew-backend-expert|sonnet|config/SECRETS_local.env|text|none|
 0|crew-backend-expert|sonnet|docs/author.md, src/cryptography/hash.ts|feature|none|
+2|crew-backend-expert|sonnet|legal/terms-of-service.md|text|none|
+2|crew-backend-expert|sonnet|docs/privacy-policy.md|text|none|
+2|crew-backend-expert|sonnet|src/PrivacyController.cs|feature|none|
+2|crew-backend-expert|sonnet|src/consent/banner.ts|feature|none|
+2|crew-backend-expert|sonnet|content/terms/index.md|text|none|
+2|crew-backend-expert|sonnet|fastlane/metadata/en-US/description.txt|text|none|
+2|crew-backend-expert|sonnet|store/listing.md|text|none|
+2|crew-backend-expert|sonnet|metadata/android/en-US/full_description.txt|text|none|
+0|crew-backend-expert|opus|legal/terms-of-service.md|text|none|
+0|crew-backend-expert|sonnet|src/searchTerms.ts|feature|none|
+0|crew-backend-expert|sonnet|src/store/index.ts|feature|none|
+0|crew-backend-expert|sonnet|fastlane/metadata/en-US/images/icon.png|text|none|
+0|crew-backend-expert|sonnet|docs/legalese.md|text|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|none|
 2|crew-backend-expert|haiku|src/ui/a.ts|text|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|text|none|
@@ -8253,7 +8266,7 @@ done <<'V2'
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|git commit -m x|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|rm -rf /|
 V2
-if [ "$_v2n" != 47 ]; then fail "FIXTURE: the card table has $_v2n rows, not 47"
+if [ "$_v2n" != 60 ]; then fail "FIXTURE: the card table has $_v2n rows, not 60"
 elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; verify none is refused on haiku; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) (47 rows)"
 else fail "card table:$_v2b"; fi
 # The refusal names the way forward that exists (the field was sent, so it can be sent as false), and a call that

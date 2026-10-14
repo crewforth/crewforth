@@ -357,9 +357,13 @@ _am_tier(){  # $1 = a model as a call or a transcript names it -> _AMT haiku|son
 # a .sql file, schema.prisma. The path is read from the project's root down, so the name of the folder the project
 # sits in decides nothing. .claude/crew-model-rules, which only the user writes, adds (`+ glob`) and removes
 # (`- glob`); the last line that matches wins.
-_AM_W_L='auth|authn|authz|authentication|authorization|oauth|payments?|billing|migrations?|security|crypto|secrets?'
-_AM_W_C='Auth|Authn|Authz|Authentication|Authorization|OAuth|Payments?|Billing|Migrations?|Security|Crypto|Secrets?'
-_AM_W_U='AUTH|AUTHN|AUTHZ|OAUTH|PAYMENTS?|BILLING|MIGRATIONS?|SECURITY|CRYPTO|SECRETS?'
+# Legal and personal-data texts are critical too (crew-docs-agent's work): legal, privacy, consent in every form, and
+# terms only in lower case — `terms/`, `terms-of-service.md` — because the camelCase `searchTerms` is a search box.
+# Store listings are critical by place and only as text: under store/, store-listing/, fastlane/metadata/ or
+# metadata/android|ios/, a .txt .md .xml .yml .yaml is; code there (a Redux `store/index.ts`) and images are not.
+_AM_W_L='auth|authn|authz|authentication|authorization|oauth|payments?|billing|migrations?|security|crypto|secrets?|legal|privacy|terms|consent'
+_AM_W_C='Auth|Authn|Authz|Authentication|Authorization|OAuth|Payments?|Billing|Migrations?|Security|Crypto|Secrets?|Legal|Privacy|Consent'
+_AM_W_U='AUTH|AUTHN|AUTHZ|OAUTH|PAYMENTS?|BILLING|MIGRATIONS?|SECURITY|CRYPTO|SECRETS?|LEGAL|PRIVACY|TERMS|CONSENT'
 _AM_RE_L="(^|[^A-Za-z])($_AM_W_L)([^a-z]|\$)"
 _AM_RE_C="(^|[^A-Z])($_AM_W_C)([^a-z]|\$)"
 _AM_RE_U="(^|[^A-Za-z])($_AM_W_U)([^A-Za-z]|\$)"
@@ -394,7 +398,10 @@ _am_crit_path(){  # $1 = a path or a glob -> 0 critical (_AMW says by what), 1 n
   local p r k g hit=1
   _am_rel "$1"; p="$_AMRP"; _AMW=""
   if [[ "$p" =~ $_AM_RE_L ]] || [[ "$p" =~ $_AM_RE_C ]] || [[ "$p" =~ $_AM_RE_U ]]; then hit=0; _AMW="${BASH_REMATCH[2]}"
-  else case "$p" in *.sql|*.SQL) hit=0; _AMW="a .sql file" ;; schema.prisma|*/schema.prisma) hit=0; _AMW="schema.prisma" ;; esac; fi
+  else case "$p" in *.sql|*.SQL) hit=0; _AMW="a .sql file" ;; schema.prisma|*/schema.prisma) hit=0; _AMW="schema.prisma" ;;
+    store/*|*/store/*|store-listing/*|*/store-listing/*|fastlane/metadata/*|*/fastlane/metadata/*|metadata/android/*|*/metadata/android/*|metadata/ios/*|*/metadata/ios/*)
+      case "$p" in *.txt|*.md|*.xml|*.yml|*.yaml) hit=0; _AMW="a store listing text" ;; esac ;;
+  esac; fi
   _am_rules
   for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
     k="${r%%$'\t'*}"; g="${r#*$'\t'}"

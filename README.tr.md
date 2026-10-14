@@ -13,7 +13,7 @@
 
 **Crewforth, Claude Code için mühendislik ekibinizdir.**
 
-Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 13 uzman ajan,<br>
+Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 14 uzman ajan,<br>
 yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 12 komut ve önemli kuralları uygulayan hook'lar.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
@@ -60,7 +60,7 @@ Toplam **12 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-pl
 
 ## Ajanlar
 
-**13 uzman ajan** var; her biri işin kime ait olduğunu ve ne zaman devreye girdiğini söyler. Yöntem skill'lerde durur: [crewforth.com/tr/skills](https://crewforth.com/tr/skills).
+**14 uzman ajan** var; her biri işin kime ait olduğunu ve ne zaman devreye girdiğini söyler. Yöntem skill'lerde durur: [crewforth.com/tr/skills](https://crewforth.com/tr/skills).
 
 | Ajan | Sahip olduğu alan |
 |:--|:--|
