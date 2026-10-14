@@ -85,17 +85,20 @@ What the view does not show: the record holds crew agents only. Model routing ap
 
 ## Map: the project as its crew map shows it
 
-The **Map** view (`p`) draws `.crewforth/crew-map.json`, the map Crewforth's scanner writes (`bash .claude/eval/lib/crew-map/crew-map.sh`): the project's modules, the external resources they touch, the endpoints they provide and call, and the findings between them, each citing `file:line`. Studio only reads it. With no map, the view says how to write one; nothing is scanned from the panel.
+The **Map** view (`p`, or **Map** under a project in the navigator, beside the number of findings it shows) draws `.crewforth/crew-map.json`, the map Crewforth's scanner writes (`bash .claude/eval/lib/crew-map/crew-map.sh`): the project's modules, the external resources they touch, the endpoints they provide and call, and the findings between them, each citing `file:line`. Studio only reads it. With no map, the view says how to write one; nothing is scanned from the panel.
 
-Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Infrastructure**, **External**. A band is what the map shows of a module: one that provides an endpoint or that a container builds is an entry point, one that only calls endpoints is a client, one another module references is core. A module the map does not place goes to **Unplaced** rather than to a guess. Lines are solid where a file proves them and dotted where they are inferred; selecting a module lights its own lines and leaves the rest faint, and `Esc` lets it go.
+Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Infrastructure**, **External**. A band is what the map shows of a module: one that provides an endpoint or that a container builds is an entry point, one that only calls endpoints is a client, one another module references is core. A module the map does not place goes to **Unplaced** rather than to a guess. Lines are solid where a file proves them, dotted where they are inferred, and dashed with a **model** mark where the model proposed them; an external resource reached only by inferred lines has a dashed frame. Selecting a module lights its own lines and leaves the rest faint, and `Esc` lets it go. The pane pans and zooms like the graph's, with the same zoom, **Fit** and **Reset layout** controls: a card dragged stays where it was put for that project, and modules that share a folder in one band can be folded into one card and opened again.
 
 | Part | What it does |
 |:--|:--|
 | **Source strip** | the file, the commit it was scanned at, and how many commits `HEAD` has moved since |
 | **Layers** | Modules, External, Endpoints (each module's endpoints as chips), Findings |
-| **Findings** | every finding, proven ones first. A rule the scanner marks as too often wrong is hidden by default and counted; **Show N hidden by default** brings it back |
-| **Inspector** | Overview (what it connects to, with `file:line`), Connections (in and out) and Findings, each with **Copy as task**, which copies the finding as text to paste into a session. **Not measured** is always at the bottom |
+| **Findings** | every finding, proven ones first. A rule the scanner marks as too often wrong is hidden by default and counted; **Show N hidden by default** brings it back. A row selects its module and brings its card to the middle of the pane |
+| **Inspector** | Overview (what it connects to, and the node's own evidence), Connections (grouped by kind, in and out) and Findings, each with **Copy as task**, which copies the finding as text to paste into a session. Every `file:line` copies its path. **Not measured** is always at the bottom |
+| **Legend** | what each line and frame means; a press anywhere outside closes it |
 | **Compare with** | another project on this machine that has a map. Its calls that no endpoint of its own provides are matched against this project: its calling modules join **Clients**, each line says how many calls land here and how many are **missing**, and the missing ones join the findings |
+
+On a phone the pane gives way to the findings and a list of the modules; a row opens the module in the inspector.
 
 ## The approval dock
 

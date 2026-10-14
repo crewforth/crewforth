@@ -58,6 +58,13 @@ function parseMap(file, size) {
   return { measured: true, file: shown, bytes: size, doc };
 }
 
+/** What the navigator says of a project's map: null with none, else how many findings it shows unasked. */
+export function mapSummary(cwd) {
+  const m = readMap(cwd);
+  if (!m.measured) return m.missing ? null : { findings: null, reason: m.reason };
+  return { findings: m.doc.findings.filter((f) => !f?.data?.defaultHidden).length };
+}
+
 /**
  * How many commits HEAD is past the commit the map was scanned at: { count } or { count: null, reason }.
  * Only a commit id is handed to git, so nothing in the file can become an option.

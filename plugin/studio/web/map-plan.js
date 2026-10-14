@@ -64,18 +64,90 @@ export function nodesOf(doc, compare = null) {
 
 /** The edges between drawn nodes; a compared client gets one edge to each module of this project it calls. */
 export function edgesOf(doc, compare = null) {
-  const own = (doc.edges ?? []).map((e) => ({ ...e, solid: e.confidence !== 'inferred' }));
+  const own = (doc.edges ?? []).map((e) => ({ ...e, solid: e.confidence !== 'inferred', line: lineOf(e) }));
   const extra = [];
   for (const c of compare?.clients ?? []) {
     // The module each call lands on is the server's match (`to`), never a guess made here.
     const to = new Map();
     for (const call of c.calls) if (call.to) to.set(call.to, (to.get(call.to) ?? 0) + 1);
-    for (const [m, n] of to) extra.push({ from: `cmp:${c.id}`, to: m, kind: 'calls', confidence: 'evidence', solid: true, calls: n, missing: c.missing.length });
+    for (const [m, n] of to) extra.push({ from: `cmp:${c.id}`, to: m, kind: 'calls', confidence: 'evidence', solid: true, line: 'evidence', calls: n, missing: c.missing.length });
   }
   return [...extra, ...own];
 }
 
 export const edgeKey = (e) => `${e.from}>${e.to}>${e.kind}`;
+
+/**
+ * How a line is drawn: `evidence` (solid, a file proves it), `inferred` (dotted) or `model` (a line the model
+ * proposed: dashed with its own mark, never drawn as if a file showed it).
+ */
+export function lineOf(e) {
+  if (e?.source === 'model') return 'model';
+  return e?.confidence === 'inferred' ? 'inferred' : 'evidence';
+}
+
+/** An external resource every line of which is inferred is itself only inferred, and its card says so. */
+export function inferredOnly(node, edges) {
+  if (node.kind !== 'external') return false;
+  const into = edges.filter((e) => e.to === node.id || e.from === node.id);
+  return into.length > 0 && into.every((e) => lineOf(e) !== 'evidence');
+}
+
+/**
+ * The folders that hold two or more modules of one band: a group the view can fold into one card. A module at the
+ * project's root, or alone in its folder, is in no group. { groupId: { id, band, folder, members: [ids] } }
+ */
+export function groupsOf(nodes) {
+  const by = new Map();
+  for (const n of nodes) {
+    if (n.kind !== 'module' || typeof n.path !== 'string' || !n.path.includes('/')) continue;
+    const folder = n.path.slice(0, n.path.lastIndexOf('/'));
+    const id = `grp:${n.band}:${folder}`;
+    const g = by.get(id) ?? by.set(id, { id, band: n.band, folder, members: [] }).get(id);
+    g.members.push(n.id);
+  }
+  return Object.fromEntries([...by].filter(([, g]) => g.members.length > 1));
+}
+
+/**
+ * The nodes and edges with the folded groups folded: each folded group is one card in place of its members, and
+ * the members' lines are its lines, one per (from, to, kind), drawn solid when any of them is.
+ */
+export function foldView(nodes, edges, groups, folded) {
+  const into = new Map();
+  for (const g of Object.values(groups)) if (folded.has(g.id)) for (const m of g.members) into.set(m, g.id);
+  if (!into.size) return { nodes, edges };
+  const out = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const gid = into.get(n.id);
+    if (!gid) { out.push(n); continue; }
+    if (seen.has(gid)) continue;
+    seen.add(gid);
+    const g = groups[gid];
+    out.push({ id: gid, kind: 'group', band: g.band, name: `${g.folder}/`, folder: g.folder, members: g.members });
+  }
+  const em = new Map();
+  for (const e of edges) {
+    const from = into.get(e.from) ?? e.from;
+    const to = into.get(e.to) ?? e.to;
+    if (from === to) continue;
+    const k = `${from}>${to}>${e.kind}`;
+    const was = em.get(k);
+    if (!was) em.set(k, { ...e, from, to });
+    else if (lineOf(e) === 'evidence' && was.line !== 'evidence') em.set(k, { ...was, solid: true, line: 'evidence' });
+  }
+  return { nodes: out, edges: [...em.values()] };
+}
+
+/** The layout with the viewer's own placings over it: a card placed by hand stays where it was put. */
+export function placed(lay, pins) {
+  const pos = { ...lay.pos };
+  for (const [id, p] of Object.entries(pins ?? {})) if (pos[id]) pos[id] = { ...pos[id], x: p.x, y: p.y };
+  const right = Object.values(pos).reduce((m, p) => Math.max(m, p.x + p.w), lay.width);
+  const bottom = Object.values(pos).reduce((m, p) => Math.max(m, p.y + p.h), lay.height);
+  return { ...lay, pos, width: right, height: bottom };
+}
 
 /** Which lines a selection lights: the selected node's own, in and out. With nothing selected, none is lit. */
 export function litEdges(edges, selected) {
@@ -160,10 +232,13 @@ export function inspectOf(node, doc, edges, findings) {
   const nameOf = (id) => byId.get(id)?.name ?? byId.get(id)?.label ?? id.replace(/^(mod|svc|ext):/, '');
   const line = (e, other) => ({
     kind: e.kind, to: nameOf(other), host: byId.get(other)?.hosts?.[0] ?? null,
-    evidence: e.evidence?.[0] ? `${e.evidence[0].file}:${e.evidence[0].line}` : null, solid: e.solid,
+    evidence: e.evidence?.[0] ? `${e.evidence[0].file}:${e.evidence[0].line}` : null, solid: e.solid, line: e.line ?? lineOf(e),
   });
   const out = edges.filter((e) => e.from === node.id).map((e) => line(e, e.to));
   const into = edges.filter((e) => e.to === node.id).map((e) => line(e, e.from));
+  // Connections, by the kind of line: what the inspector's second tab lists.
+  const byKind = {};
+  for (const [dir, list] of [['out', out], ['in', into]]) for (const c of list) (byKind[c.kind] ??= { out: [], in: [] })[dir].push(c);
   return {
     title: node.name ?? node.label ?? node.id,
     path: node.path ?? (node.kind === 'external' ? (node.hosts ?? []).join(', ') : null),
@@ -172,6 +247,10 @@ export function inspectOf(node, doc, edges, findings) {
     narrativeNote: 'Not written yet: this map holds no description of the module, only what its files show.',
     connectsTo: out,
     connections: { out, in: into },
+    byKind: Object.entries(byKind).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    // Every line the map cites for this node itself, as file:line: what the inspector lets the viewer copy.
+    evidence: (node.evidence ?? []).map((e) => `${e.file}:${e.line}`),
+    evidenceTotal: node.evidenceTotal ?? (node.evidence ?? []).length,
     findings: findings.filter((f) => f.modules.includes(node.id)),
   };
 }
@@ -203,18 +282,23 @@ export const CHIPS_MAX = 4;
 
 /**
  * Where everything sits: bands from top to bottom, each as tall as its rows of cards; cards left to right,
- * wrapping at `width`. Empty bands are not drawn. A card with endpoint chips (`chips[id]`) is taller.
+ * wrapping at `width`. Empty bands are not drawn. A card with endpoint chips (`chips[id]`) is taller. With
+ * `rowKey`, a run of cards that share a key (an open folder group) starts a row of its own and the next card after
+ * it does too, so a frame drawn around the run holds those cards and no other.
  * @returns { bands: [{ key, label, y, h }], pos: { id: { x, y, w, h } }, width, height }
  */
-export function layoutOf(nodes, { width = 960, chips = {} } = {}) {
+export function layoutOf(nodes, { width = 960, chips = {}, rowKey = null } = {}) {
   const pos = {};
   const bands = [];
   let y = 0;
   for (const [key, label] of BANDS) {
     const members = nodes.filter((n) => n.band === key);
     if (!members.length) continue;
-    let x = LEFT; let rowY = y + PAD_Y; let rowH = 0;
+    let x = LEFT; let rowY = y + PAD_Y; let rowH = 0; let prev = null;
     for (const n of members) {
+      const key = rowKey?.(n) ?? null;
+      if (x > LEFT && key !== prev && (key || prev)) { x = LEFT; rowY += rowH + GAP_Y; rowH = 0; }
+      prev = key;
       const [w, h0] = CARD[n.kind] ?? CARD.module;
       const extra = Math.ceil(Math.min(chips[n.id] ?? 0, CHIPS_MAX + 1) / 2) * CHIP_ROW;
       const h = h0 + extra;
