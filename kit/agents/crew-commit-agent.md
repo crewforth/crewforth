@@ -102,6 +102,11 @@ write is refused because the file is on a critical path, do not reach it another
   `/crew-approve push` or `/crew-approve commit+push`. The user approves by sending
   that command alone; a sentence that says yes is not an approval, and you cannot run `/crew-approve` for them. It covers what is staged on that HEAD. If the gate says the approval path is closed in this session (the
   recording hook is not wired), say so and offer Shift+Tab or their own terminal instead.
+  In `auto` the refusal may also offer the approval question: show the message, then call AskUserQuestion with
+  exactly the input the refusal prints (the fixed question and its four answers, no answers of your own). The
+  user's click is recorded the same way; read the line Crewforth adds and run what it names. Where a
+  `PermissionRequest` hook may be wired the gate closes the question, and in `default` / `acceptEdits` its own
+  prompt too, because such a hook can answer either before the user does: then `/crew-approve` is the way.
   Then run `git commit -m '…'` alone in its call (single-quoted, or from a here-document with a quoted delimiter),
   and a push as `git push <remote> <branch>`. Never write that message yourself. Under `plan` and
   `bypassPermissions` the gate fails closed; there the user must switch modes or pre-authorise with

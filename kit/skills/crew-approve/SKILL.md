@@ -26,4 +26,11 @@ Read the line Crewforth added to this turn and do what it says:
   the argument was not `commit`, `push` or `commit+push`. Say which, and in the first case run the command and let
   the gate's own prompt ask.
 
+In `auto` the same approval can be given with one click: the gate's refusal prints a fixed AskUserQuestion, and
+the user's answer is recorded exactly like this command. Where a `PermissionRequest` hook may be wired (in the
+user's, the project's or a plugin's settings, or in a skill's or an agent's front matter), that question is closed,
+and so is the gate's own prompt in `default` / `acceptEdits`, because such a hook answers a prompt before the user
+does. This command is then the one approval left, in those modes too. Settings passed with `--settings` and
+managed settings delivered by a server cannot be read, so a hook there is past the check.
+
 Force-push and the rest of §4.5 are not opened by this.

@@ -109,6 +109,10 @@ note(){ echo "  ·  $1"; }   # informational; never counts as a failure
 # Scope. Declared HERE rather than beside the block it first guards, because it now gates cases that run
 # EARLIER than that block — see §6h. Reading an env var costs nothing; the note stays where the big skip is.
 UNITS=1; [ "${CREW_SMOKE_SCOPE:-full}" = install ] && UNITS=0
+# THE USER'S OWN CLAUDE SETTINGS ARE NOT AN INPUT OF THIS SUITE (3.2.0). Before a commit prompt the gates look for a
+# PermissionRequest hook in the user's settings, skills, agents and plugins; on a machine that has one, every "the gate
+# asks" case would read "the gate refuses". Cases that need a user directory set their own (HOME, CLAUDE_CONFIG_DIR).
+_SMOKE_CCD="$(mktemp -d)"; export CLAUDE_CONFIG_DIR="$_SMOKE_CCD"
 # Trigger-phrases requirement: a GATE in the Crewforth repo, a note in an installed project (your skills, your call).
 need_trigger(){ if kit_owned "${2:-}"; then fail "$1"; else note "$1 (your own skill/agent; not gated in an install)"; fi; }
 
@@ -6631,8 +6635,10 @@ rm -rf "$_hsd"
 # A gate's timeout is not a comfort setting: a PreToolUse hook that reaches it does not block (Claude Code's hooks
 # reference: "doesn't block the tool call … don't count on a stalled hook to act as a gate"), and a field session on
 # 3.0.0 showed nine of them in one day — the commands ran with no gate. Crewforth had set 60 s where Claude Code's
-# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The seven PreToolUse
-# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh and guard-agent-model.sh) carry 600 now; every other hook keeps 60 — when one of those times out, nothing is left unguarded.
+# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The eight PreToolUse
+# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh, guard-agent-model.sh and prompt-approval.sh on
+# the approval question, whose `ask` is what keeps a hook from answering it) carry 600 now; every other hook keeps 60 —
+# when one of those times out, nothing is left unguarded.
 # Read per entry, in both editions; the twin lowers one gate back to 60 and must be seen.
 gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++; t = 0
       if (match($3, /"timeout"[ \t]*:[ \t]*[0-9]+/)) { t = substr($3, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", t) }
@@ -6641,13 +6647,13 @@ gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++
 _gtd="$(mktemp -d)"
 tr -d '\n' < "$ROOT/settings.json" | sed 's/guard-bash\.sh\([^}]*\)"timeout": 600/guard-bash.sh\1"timeout": 60/' > "$_gtd/twin.json"
 _gtw="$(gate_timeouts "$_gtd/twin.json")"
-if [ "$_gtw" != "7 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '7 1' — the pin sees nothing"
+if [ "$_gtw" != "8 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '8 1' — the pin sees nothing"
 else for _gf in $_gpw_f; do
   [ -f "$_gf" ] || continue
   set -- $(gate_timeouts "$_gf")
-  if [ "${1:-0}" != 7 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 7 — the pin did not read the file as written"
-  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 7 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
-  else fail "${_gf##*/}: $2 of 7 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
+  if [ "${1:-0}" != 8 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 8 — the pin did not read the file as written"
+  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 8 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
+  else fail "${_gf##*/}: $2 of 8 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
 done; fi
 rm -rf "$_gtd"
 
@@ -7809,6 +7815,113 @@ _pa_say auto 'approve: commit' >/dev/null; _pa_gate auto 'git commit -m x'; _pav
 _pa_new; _pa_gate auto 'git commit -m x'; _pav2="$_par"
 [ "$_pav1/$_pav2" = 0/2 ] && pass "the wiring check moves no verdict: a recorded approval is allowed (rc 0) and its absence refused (rc 2) with no settings file" \
                           || fail "the wiring check moved a verdict: approved $_pav1 (want 0), unapproved $_pav2 (want 2)"
+# ---- THE APPROVAL QUESTION (3.2.0): one click in auto, recorded as the typed approval is -------------------------
+# guard-question.sh on PreToolUse for AskUserQuestion answers `ask` to the fixed question (a hook's `ask` beats another
+# hook's `allow` with filled-in answers: measured on Claude Code 2.1.294, 34 runs and by hand), PostToolUse records
+# (prompt-approval.sh, on PostToolUse) the user's answer when THIS call was asked. Before either, and before guard-bash.sh raises its own prompt in
+# default / acceptEdits, a PermissionRequest hook is looked for: such a hook answers a prompt before the person does.
+# Every case runs the hooks against a real repository; what is asserted is a verdict or a record.
+_pa_new; mkdir -p "$_PA/ccd" "$_PA/home"
+_PAQ_ENV="CLAUDE_PROJECT_DIR=$_paw CLAUDE_CONFIG_DIR=$_PA/ccd HOME=$_PA/home CREW_GATE_LOG=/dev/null"
+_paq_canon="$(bash -c '. "$1"; printf "%s" "$_CREW_Q_JSON"' _ "$HOOKS/prompt-approval.sh")"
+_paq_text="$(bash -c '. "$1"; printf "%s" "$_CREW_Q_TEXT"' _ "$HOOKS/prompt-approval.sh")"
+# $1 = mode, $2 = the questions array's content, $3 = more tool_input (",..."), $4 = tool_use_id -> rc in _par, stdout _pao
+_paq_pre(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s]%s},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "$2" "${3:-}" "${4:-tu1}" > "$_PA/q.json"
+  if [ -n "$JSONQ" ]; then json_ok < "$_PA/q.json" || _paqbad="$_paqbad [pre payload is not JSON]"; fi
+  _pao="$( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/guard-question.sh" < "$_PA/q.json" 2>"$_PA/qerr" )"; _par=$?; }
+# $1 = mode, $2 = the answer, $3 = tool_use_id
+_paq_post(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s],"answers":{"%s":"%s"}},"tool_response":{"questions":[%s],"answers":{"%s":"%s"}},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "$_paq_canon" "$_paq_text" "$2" "$_paq_canon" "$_paq_text" "$2" "${3:-tu1}" > "$_PA/q.json"
+  if [ -n "$JSONQ" ]; then json_ok < "$_PA/q.json" || _paqbad="$_paqbad [post payload is not JSON]"; fi
+  _pao="$( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/prompt-approval.sh" < "$_PA/q.json" 2>"$_PA/qerr" )"; _par=$?; }
+_paq_gate(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_paw" "$1" "$2" > "$_PA/pl.json"
+  _pao="$( cd "$_paw" && env $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/guard-bash.sh" < "$_PA/pl.json" 2>"$_PA/err" )"; _par=$?; _pae="$(cat "$_PA/err")"; }
+_paq_rec(){ [ -s "$_pa_rec" ] && _pa_op || echo none; }
+_paqbad=""; _paqn=0
+_paq_is(){ _paqn=$((_paqn+1)); [ "$2" = "$3" ] || _paqbad="$_paqbad [$1: got '$2', want '$3']"; }
+# the round trip, and what it opens
+: > "$_pa_rec"; _paq_pre auto "$_paq_canon";              _paq_is 'fixed question in auto is asked' "$_par/$(gdec "$_pao")" "0/ask"
+_paq_post auto 'Commit only';                             _paq_is 'its answer is recorded' "$(_paq_rec)" commit
+_paq_gate auto 'git commit -m x';                         _paq_is 'the recorded click allows the commit' "$_par" 0
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu2; _paq_post auto 'Commit + push' tu2; _paq_is 'commit + push' "$(_paq_rec)" commit+push
+# must-fail twins: each differs from the round trip in one thing
+_pa_new; : > "$_pa_rec"; _paq_post auto 'Commit only' tu3;  _paq_is 'an answer no PreToolUse asked for' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu4; _paq_post auto 'Commit only' tu5; _paq_is 'an answer to another call' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu6; _paq_post auto 'Commit only' tu6; : > "$_pa_rec"; _paq_post auto 'Commit only' tu6
+                                                          _paq_is 'the same call answered twice' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu7; _paq_post auto 'HOOK-CHOSE-Commit only' tu7; _paq_is 'an answer that is none of the four' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu8; _paq_post auto 'No' tu8; _paq_is 'No' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu9; _paq_post default 'Commit only' tu9; _paq_is 'an answer recorded outside auto' "$(_paq_rec)" none
+_paq_pre auto '{"question":"Crewforth approval: commit?","header":"Approval","options":[{"label":"Commit only","description":"x"}],"multiSelect":false}'
+                                                          _paq_is 'another wording is refused' "$_par" 2
+_paq_pre auto "$_paq_canon" ',"answers":{"x":"Commit only"}'; _paq_is 'a call with answers is refused' "$_par" 2
+_paq_pre auto "$_paq_canon,$_paq_canon";                  _paq_is 'the question twice is refused' "$_par" 2
+_paq_pre dontAsk "$_paq_canon";                           _paq_is 'dontAsk: refused' "$_par" 2
+_paq_pre default "$_paq_canon";                           _paq_is 'default: refused' "$_par" 2
+_paq_pre bypassPermissions "$_paq_canon";                 _paq_is 'bypassPermissions: refused' "$_par" 2
+_PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0"; _paq_pre auto "$_paq_canon"; unset _PAQ_X; _paq_is 'a headless session: refused' "$_par" 2
+_paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label":"Red","description":"r"}],"multiSelect":false}'
+                                                          _paq_is 'any other question: no decision' "$_par/$_pao" "0/"
+if [ "$_paqn" != 18 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 18"
+elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four; the record allows the commit (18 cases, 13 must-fail)"
+else fail "the approval question:$_paqbad"; fi
+
+# A PermissionRequest HOOK, wherever this can read one, closes the question AND the gate's own prompt. Each source is
+# planted alone in an otherwise clean fixture; the clean fixture itself must answer "none" (calibration).
+_paq_scan(){ ( cd "$_paw" && env $_PAQ_ENV ${_PAQ_X:-} bash -c '. "$1"; if _crew_prh_scan; then printf "found %s" "$_PRH"; else printf none; fi' _ "$HOOKS/prompt-approval.sh" ) 2>/dev/null; }
+_paqbad=""; _paqn=0
+_paq_clean(){ rm -rf "$_PA/ccd" "$_PA/home" "$_paw/.claude/skills" "$_paw/.claude/agents" "$_paw/.claude/settings.local.json" "$_PA/mng.json"; mkdir -p "$_PA/ccd" "$_PA/home"; }
+_paq_found(){ _paqn=$((_paqn+1)); case "$(_paq_scan)" in "found "*"$2"*) ;; *) _paqbad="$_paqbad [$1: $(_paq_scan)]" ;; esac; _paq_clean; }
+_paq_none(){ _paqn=$((_paqn+1)); [ "$(_paq_scan)" = none ] || _paqbad="$_paqbad [$1 wrongly: $(_paq_scan)]"; _paq_clean; }
+_PRQ='{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}'
+_paq_clean; _paq_none 'a clean fixture'
+printf '%s' "$_PRQ" > "$_paw/.claude/settings.local.json";             _paq_found 'project settings.local.json' settings.local.json
+printf '%s' "$_PRQ" > "$_PA/ccd/settings.json";                         _paq_found 'user settings (CLAUDE_CONFIG_DIR)' ccd/settings.json
+printf '%s' "$_PRQ" > "$_PA/mng.json"; _PAQ_X="CREW_MANAGED_SETTINGS=$_PA/mng.json"; _paq_found 'a managed file' mng.json; unset _PAQ_X
+printf '%s' '{"hooks":{"Permission\u0052equest":[]}}' > "$_paw/.claude/settings.local.json"; _paq_found 'the name spelled with a \u escape' settings.local.json
+mkdir -p "$_paw/.claude/skills/s"; printf -- '---\nname: s\nhooks:\n  PermissionRequest:\n    - hooks: []\n---\nbody\n' > "$_paw/.claude/skills/s/SKILL.md"; _paq_found 'skill front matter' SKILL.md
+mkdir -p "$_paw/.claude/agents"; printf -- '---\nname: a\nhooks:\n  "Permission\\x52equest": []\n---\n' > "$_paw/.claude/agents/a.md"; _paq_found 'agent front matter, escaped' a.md
+mkdir -p "$_PA/ccd/plugins/cache/m/p/1/hooks"; printf '%s' "$_PRQ" > "$_PA/ccd/plugins/cache/m/p/1/hooks/hooks.json"; _paq_found 'an installed plugin' hooks.json
+mkdir -p "$_paw/.claude/skills/s"; printf -- '---\nname: s\ndescription: about hooks\n---\nA PermissionRequest hook answers a prompt.\n' > "$_paw/.claude/skills/s/SKILL.md"; _paq_none 'the name in a skill body, not its front matter'
+printf '%s' '{"hooks":{"PreToolUse":[]},"x":"c:\\users\\me"}' > "$_paw/.claude/settings.local.json"; _paq_none 'an escaped backslash before u'
+if [ "$_paqn" != 10 ]; then fail "FIXTURE: the PermissionRequest scan table ran $_paqn cases, not 10"
+elif [ -z "$_paqbad" ]; then pass "a PermissionRequest hook is found in project, user and managed settings, an escaped spelling, skill and agent front matter and an installed plugin (7); a clean fixture, a skill body and an escaped backslash are not (3)"
+else fail "the PermissionRequest scan:$_paqbad"; fi
+
+# What it closes: the question, the recording of an answer, and in default the gate's prompt. What it leaves: the typed
+# approval, in default too. Twin: the same fixture without the hook asks (default) and offers the question (auto).
+_paqbad=""
+_pa_new; _paq_clean
+printf '%s' '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}],"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_paw/.claude/settings.json"
+_paq_gate default 'git commit -m x';   [ "$_par/$(gdec "$_pao")" = "0/ask" ] || _paqbad="$_paqbad [no hook, default: $_par/$(gdec "$_pao"), want 0/ask]"
+_paq_gate auto 'git commit -m x';      case "$_par/$_pae" in 2/*AskUserQuestion*"$_paq_text"*) ;; *) _paqbad="$_paqbad [no hook, auto: the refusal does not offer the question]" ;; esac
+printf '%s' "$_PRQ" > "$_paw/.claude/settings.local.json"
+_paq_gate default 'git commit -m x';   case "$_par/$_pae" in 2/*PermissionRequest*settings.local.json*/crew-approve*) ;; *) _paqbad="$_paqbad [hook, default: $_par, want 2 naming the file and /crew-approve]" ;; esac
+case "$_pae" in *'Shift+Tab to default/acceptEdits (this gate then asks'*) _paqbad="$_paqbad [hook, default: offers Shift+Tab]" ;; esac
+_paq_gate auto 'git commit -m x';      case "$_par/$_pae" in 2/*"approval question is closed"*) case "$_pae" in *AskUserQuestion*) _paqbad="$_paqbad [hook, auto: still offers the question]" ;; esac ;; *) _paqbad="$_paqbad [hook, auto: $_par, the question is not said to be closed]" ;; esac
+_paq_pre auto "$_paq_canon" '' tuh;    [ "$_par" = 2 ] || _paqbad="$_paqbad [hook: the question was asked ($_par)]"
+rm -f "$_paw/.claude/settings.local.json"; _paq_pre auto "$_paq_canon" '' tuh2; printf '%s' "$_PRQ" > "$_paw/.claude/settings.local.json"
+: > "$_pa_rec"; _paq_post auto 'Commit only' tuh2; [ "$(_paq_rec)" = none ] || _paqbad="$_paqbad [a hook added after the question: its answer was recorded]"
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/crew-approve commit"}' "$_patr" "$_paw" \
+  | ( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" ) >/dev/null 2>&1
+[ "$(_paq_rec)" = commit ] || _paqbad="$_paqbad [hook, default: /crew-approve commit was not recorded]"
+_paq_gate default 'git commit -m x';   [ "$_par" = 0 ] || _paqbad="$_paqbad [hook, default: the typed approval did not allow the commit ($_par)]"
+rm -f "$_paw/.claude/settings.local.json"; _pa_new
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/crew-approve commit"}' "$_patr" "$_paw" \
+  | ( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" ) >/dev/null 2>&1
+[ "$(_paq_rec)" = none ] || _paqbad="$_paqbad [no hook, default: /crew-approve recorded although the gate asks there]"
+if [ -z "$_paqbad" ]; then pass "a PermissionRequest hook closes the question, the recording of its answer and the gate's own prompt in default, and leaves /crew-approve (which then allows the commit); without one, default asks, auto offers the question, and a typed approval in default records nothing (9 readings)"
+else fail "what a PermissionRequest hook closes:$_paqbad"; fi
+
+# The record of the question is the gate's own: closed to the session like the pending note.
+_paqbad=""
+for _pqc in 'cat .claude/state/crew-approval-asked' 'printf x > .claude/state/crew-approval-asked' 'rm -f .claude/state/crew-approval-asked'; do
+  _paq_gate auto "$_pqc"; [ "$_par" = 2 ] || _paqbad="$_paqbad [$_pqc: rc $_par]"
+done
+printf '{"cwd":"%s","permission_mode":"auto","tool_name":"Write","tool_input":{"file_path":"%s/.claude/state/crew-approval-asked","content":"x"}}' "$_paw" "$_paw" \
+  | ( cd "$_paw" && env $_PAQ_ENV bash "$HOOKS/guard-write.sh" ) >/dev/null 2>&1; [ $? = 2 ] || _paqbad="$_paqbad [Write: not refused]"
+[ -z "$_paqbad" ] && pass "the question's own note (.claude/state/crew-approval-asked) is closed to the session: three shell forms and the Write tool refused" \
+                  || fail "the question's note is open:$_paqbad"
+rm -f "$_paw/.claude/settings.json"; _pa_new
 fi   # prompt-approval.sh present
 
 # ---- the two definitions that live in two files, and the wiring -----------------------------------------------
@@ -7837,6 +7950,22 @@ if [ "$IS_KIT" = 1 ]; then
   elif [ -z "$_phm" ]; then pass "every script the plugin's hooks.json runs is in plugin/hooks ($_phn scripts)"
   else fail "the plugin's hooks.json runs a script the plugin does not carry:$_phm (add it to the list in packaging/build-plugin.sh)"; fi
 fi
+# ...and the approval question: guard-question.sh asks it (PreToolUse), prompt-approval.sh records its answer
+# (PostToolUse), each once on AskUserQuestion, in both editions.
+for _pf in $_pawf; do
+  _pn="$(json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$2 == "AskUserQuestion" { if ($1 == "PreToolUse" && $3 ~ /guard-question\.sh/) a++; if ($1 == "PostToolUse" && $3 ~ /prompt-approval\.sh/) b++ } END { printf "%d %d", a, b }')"
+  [ "$_pn" = "1 1" ] && pass "${_pf##*/}: the approval question is wired on AskUserQuestion: guard-question.sh once on PreToolUse, prompt-approval.sh once on PostToolUse" \
+                     || fail "${_pf##*/}: the approval question is not wired once each (guard-question.sh on PreToolUse, prompt-approval.sh on PostToolUse; found: $_pn)"
+done
+# The managed settings files are one list: the ones model routing reads its rules from are the ones the approval
+# question looks for a PermissionRequest hook in. Compared as the lines that name a managed-settings.json.
+_pml(){ grep -oE '"[^"]*managed-settings\.json"|CREW_MANAGED_SETTINGS' "$1" 2>/dev/null | sort -u | tr '\n' ' '; }
+_pm1="$(_pml "$HOOKS/prompt-approval.sh")"; _pm2="$(_pml "$HOOKS/guard-agent-model.sh")"
+case "$_pm1" in *managed-settings.json*managed-settings.json*managed-settings.json*CREW_MANAGED_SETTINGS*)
+  [ "$_pm1" = "$_pm2" ] && pass "the managed settings files are one list in prompt-approval.sh and guard-agent-model.sh ($(printf '%s' "$_pm1" | tr ' ' '\n' | grep -c .) entries)" \
+                        || fail "the managed settings lists differ: prompt-approval.sh [$_pm1] guard-agent-model.sh [$_pm2]" ;;
+  *) fail "FIXTURE: the managed settings list could not be read from prompt-approval.sh ([$_pm1])" ;;
+esac
 # ...and on PreToolUse for the tools that schedule a prompt, in both editions, with one matcher.
 for _pf in $_pawf; do
   _pn="$(json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" && $3 ~ /guard-schedule\.sh/ { n++; m = $2 } END { printf "%d %s", n, m }')"
@@ -11427,7 +11556,7 @@ if [ -s "$SECLOG" ]; then
   ' "$SECLOG"
   echo "---"
 fi
-rm -f "$SECLOG"
+rm -f "$SECLOG"; rm -rf "$_SMOKE_CCD"
 if [ "$SKIPN" -gt 0 ]; then
   echo "SKIPPED (nothing was checked here):$SKIP_LIST"
   echo "---"
