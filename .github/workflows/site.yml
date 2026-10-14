@@ -26,6 +26,12 @@ permissions:
   pages: write
   id-token: write
 
+# Two deploys at once race for the one Pages site, and the check below cannot say which build it is reading. They
+# queue instead. Never cancelled: a release's deploy is a state that shipped, and a queued one still runs.
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
