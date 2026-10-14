@@ -12,4 +12,14 @@ Most of what a session costs is the model that runs each piece of work, so that 
 
 What that came to is recorded, one line per call, in `.claude/state/model-outcomes.tsv`, and stays in your project. Studio reads it (see the Studio page): the **Models** view shows, for each kind of task, the model, how often the first try passed, how often it was repeated one model up, and an estimated cost at API list price. A class whose first try fails too often is held one model up from then on; `/crew-loosen` lowers it again when you decide to.
 
-Two limits. This applies to `crew-*` agents only: Explore, general-purpose and a project's own agents run on the session's model and are not in the record. And the gate holds a floor, not a ceiling: it refuses a model that is too small for the card, never one that is larger than the work needs.
+Two limits. This applies to `crew-*` agents only: Explore, general-purpose and a project's own agents run on the model their call asks for, or else the session's, and are not in the record. And the gate holds a floor, not a ceiling: it refuses a model that is too small for the card, never one that is larger than the work needs.
+
+## The advisor
+
+Claude Code's advisor tool lets the model consult a second, usually stronger model mid-task. Crewforth never turns it on; `/crew-doctor` says whether it is on, on what, and from which settings file.
+
+Its cost is its own. Each call reads the whole conversation at the advisor model's rates, uncached: in one measured session a two-sentence answer on Sonnet cost $0.06 and the single advisor call behind it $0.15. The API keeps those tokens out of the response's top-level usage. Claude Code counts them in `/usage`, and Studio's session cost adds them and shows an **Advisor** line, with the number of calls and what they cost; a session with no call has no line.
+
+It does not follow the card. An advisor that ranks below the model it would advise is not attached at all, so with a Sonnet advisor an agent on Opus (critical work) gets no advice. The advisor is not in `model-outcomes.tsv`.
+
+Turn it off with `/advisor off`, or for good with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. It needs the Anthropic API; on Amazon Bedrock, Google Cloud's Agent Platform or Microsoft Foundry it is not available.

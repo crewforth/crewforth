@@ -1948,6 +1948,34 @@ check('prose without a notice yields nothing', none.size === 0);
   check('a record with no tokens, and one that is not a model\'s answer, add nothing',
     new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 }), { type: 'user', message: { usage: u1 } }, null]).result().responses === 0
     && new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 })]).result().cost === 0);
+  {
+    // A real response that consulted the advisor, its numbers as Claude Code wrote them (ids are made up). Claude Code
+    // put that session's cost at $0.210956, $0.15358 of it the advisor: the oracle here is the real bill, not this code.
+    const advU = {
+      input_tokens: 4, cache_creation_input_tokens: 12670, cache_read_input_tokens: 57130, output_tokens: 138,
+      cache_creation: { ephemeral_1h_input_tokens: 12400, ephemeral_5m_input_tokens: 0 }, inference_geo: 'global',
+      iterations: [
+        { type: 'message', input_tokens: 2, output_tokens: 26, cache_read_input_tokens: 22365, cache_creation_input_tokens: 12400, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 12400 } },
+        { type: 'advisor_message', model: 'claude-opus-5-5', input_tokens: 36345, output_tokens: 410, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 } },
+        { type: 'message', input_tokens: 2, output_tokens: 112, cache_read_input_tokens: 34765, cache_creation_input_tokens: 270, cache_creation: { ephemeral_5m_input_tokens: 270, ephemeral_1h_input_tokens: 0 } },
+      ],
+    };
+    // The response is written as three records (the advisor call, its result, the answer), each repeating the usage.
+    const adv = new us.Usage().add([1, 2, 3].map(() => rec('madv', 'claude-sonnet-5-5', advU))).result();
+    check('an advisor call is priced at its own model and counted once: the total is what Claude Code billed for the session',
+      adv.responses === 1 && adv.advisor?.calls === 1 && near(adv.advisor.cost, 0.15358) && near(adv.cost, 0.210956)
+      && near(adv.byModel['claude-opus-5-5']?.cost, 0.15358) && adv.advisorModels['claude-opus-5-5']?.calls === 1 && adv.tokens.input === 4 + 36345,
+      `${adv.responses} responses, ${adv.advisor?.calls} advisor calls, $${adv.cost}, advisor $${adv.advisor?.cost}`);
+    check('a cache write the split leaves out is counted as the five-minute kind, not dropped',
+      us.usageOfRecord(rec('w', 'claude-sonnet-5-5', advU)).cacheWrite5m === 270 && us.usageOfRecord(rec('w', 'claude-sonnet-5-5', advU)).cacheWrite1h === 12400
+      && us.usageOfRecord(rec('w', 'claude-sonnet-5-5', { input_tokens: 1, cache_creation_input_tokens: 500 })).cacheWrite5m === 500);
+    const none = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1)]).result();
+    const advRow = wu.summaryRows(adv).find((r) => r.label === 'Advisor');
+    check('the advisor has a line only where a call is recorded: no call is no line, not a zero',
+      none.advisor === null && Object.keys(none.advisorModels).length === 0 && !wu.summaryRows(none).some((r) => r.label === 'Advisor')
+      && Boolean(advRow) && /^1 call · /.test(advRow.value) && /Opus/.test(advRow.note) && /leaves it out/.test(advRow.note),
+      advRow ? `${advRow.value} | ${advRow.note.split('\n')[0]}` : 'no row');
+  }
   check('with no split recorded a cache write is the five-minute kind',
     us.usageOfRecord(rec('m', 'claude-opus-5-5', { input_tokens: 1, cache_creation_input_tokens: 40 })).cacheWrite5m === 40);
   const times = us.timesOf([
