@@ -1,0 +1,41 @@
+{
+  "about": "docker-compose: a built service, two images that are resources, environment passed through.",
+  "findings": [],
+  "nearMisses": [
+    "CACHE_HOST is defined in the compose environment",
+    "DATABASE_URL is read by ${} substitution and by code",
+    "compose-api is deployed by a build: entry, so not an orphan"
+  ],
+  "nodes": [
+    "ext:cache:redis",
+    "ext:db:postgres",
+    "mod:node:compose-api",
+    "svc:api",
+    "svc:cache",
+    "svc:db"
+  ],
+  "edges": [
+    [
+      "svc:api",
+      "mod:node:compose-api",
+      "builds",
+      "evidence"
+    ],
+    [
+      "svc:api",
+      "svc:db",
+      "depends-on",
+      "evidence"
+    ],
+    [
+      "svc:db",
+      "ext:db:postgres",
+      "runs",
+      "evidence"
+    ]
+  ],
+  "provides": [],
+  "notMeasured": [
+    "Kubernetes manifests (1 file)"
+  ]
+}

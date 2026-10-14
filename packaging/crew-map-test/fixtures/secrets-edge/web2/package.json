@@ -1,0 +1,7 @@
+{
+  "name": "edge-web2",
+  "scripts": { "dev": "vite" },
+  "dependencies": {
+    "lib": "git+https://github.com/o/lib.git#v2"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "about": "Inputs that once failed the whole write or read wrongly: a multi-line XML tag, an element value on its own line, an empty manifest, an empty __main__.py, an empty package name, a groupId collision, a reference in another case, a peer range, JVM properties, Vite built-ins, Prisma env(), an Express router mounted from another file, a compose override.",
+  "findings": [
+    [
+      "module-orphan",
+      "mod:node:noname"
+    ],
+    [
+      "endpoint-unused",
+      "mod:node:edge-srv GET /api/ping"
+    ]
+  ],
+  "nearMisses": [
+    "Include= on the line after <PackageReference",
+    "..\\lib\\Lib.csproj resolves to Lib/Lib.csproj",
+    "org.thirdparty:api is not the local com.my:api, so no cycle",
+    "an empty requirements.txt declares no module",
+    "an empty __main__.py is an entry point with no line to cite",
+    "peerDependencies >=17 beside devDependencies ^18 is not drift",
+    "ms in dependencies and devDependencies of ONE manifest is not drift",
+    "System.getProperty(\"user.home\") is a JVM property",
+    "import.meta.env.DEV is set by Vite",
+    "DATABASE_URL is read by schema.prisma",
+    "fetch(/api/users) falls under a router mounted at /api/users elsewhere",
+    "a FastAPI backend is runnable, not an orphan",
+    "web in docker-compose.override.yml is the same service",
+    "tests/fixtures/sample (outside any module) and srv/tests/fixtures/sample (inside one) are sample projects: no module, and its undeclared import is not this project's"
+  ],
+  "nodes": [
+    "ext:db:postgres",
+    "ext:db:prisma",
+    "mod:dotnet:App",
+    "mod:dotnet:Lib",
+    "mod:java:agg",
+    "mod:java:api",
+    "mod:java:core",
+    "mod:node:edge-srv",
+    "mod:node:noname",
+    "mod:python:backend",
+    "mod:python:edgecli",
+    "svc:web"
+  ],
+  "edges": [
+    [
+      "mod:dotnet:App",
+      "mod:dotnet:Lib",
+      "references",
+      "evidence"
+    ],
+    [
+      "mod:java:api",
+      "mod:java:core",
+      "references",
+      "evidence"
+    ],
+    [
+      "mod:dotnet:App",
+      "ext:db:postgres",
+      "uses-db",
+      "evidence"
+    ]
+  ],
+  "provides": [
+    "mod:node:edge-srv GET /",
+    "mod:node:edge-srv GET /api/ping"
+  ],
+  "notMeasured": [
+    "endpoints with a run-time path (1)"
+  ]
+}

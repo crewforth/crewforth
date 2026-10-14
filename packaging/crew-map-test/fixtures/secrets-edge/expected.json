@@ -1,0 +1,41 @@
+{
+  "about": "Values that must never reach the document, each in a shape that once did: a token in a dependency URL, credentials on line 1 of requirements.txt, a password holding # and /, a key in a query string, an upper-case host.",
+  "findings": [],
+  "nearMisses": [
+    "git+https://<token>@... declares no named package and no version",
+    "a URL version is not compared, so it is never shown",
+    "--extra-index-url carries credentials and is not quoted",
+    "redis://:<pw>#x@host and postgres://u:ab/<pw>@host keep the host only",
+    "fetch(/api/y?apiKey=...) is cited up to its query",
+    "https://API.Corp.io is cited as spelled on the line",
+    "fastapi makes the module runnable",
+    "a token pasted as a .env key is not read"
+  ],
+  "nodes": [
+    "ext:cache:redis",
+    "ext:db:postgres",
+    "ext:http-api:api.corp.io",
+    "mod:node:edge-web",
+    "mod:node:edge-web2",
+    "mod:python:root"
+  ],
+  "edges": [
+    [
+      "mod:node:edge-web",
+      "ext:http-api:api.corp.io",
+      "uses-http-api",
+      "evidence"
+    ],
+    [
+      "mod:python:root",
+      "ext:db:postgres",
+      "configured-db",
+      "evidence"
+    ]
+  ],
+  "provides": [],
+  "notMeasured": [
+    "endpoint-missing",
+    "a line of .env"
+  ]
+}

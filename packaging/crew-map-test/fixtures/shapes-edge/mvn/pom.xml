@@ -1,0 +1,6 @@
+<project>
+  <groupId>com.my</groupId>
+  <artifactId>agg</artifactId>
+  <packaging>pom</packaging>
+  <modules><module>api</module><module>core</module></modules>
+</project>

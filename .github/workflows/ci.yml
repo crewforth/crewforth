@@ -115,6 +115,10 @@ jobs:
       - name: Findings core — every finding is held to the lines it cites
         run: bash packaging/verify.sh findings
 
+      # The scanner reads paths, line endings and manifests, the three things that differ between these runners.
+      - name: Crew Map — planted gaps found exactly, same bytes, no secret, no absolute path
+        run: bash packaging/verify.sh map
+
       - name: Plugin & marketplace manifests valid (strict)
         # Offline manifest validation via the official CLI; --strict fails on unrecognized fields / missing
         # metadata. No API auth needed (this does not call the model). CI=true keeps it non-interactive.
@@ -213,6 +217,10 @@ jobs:
       # line endings, which is exactly what differs between these runners.
       - name: Findings core — every finding is held to the lines it cites
         run: bash packaging/verify.sh findings
+
+      # The scanner reads paths, line endings and manifests, the three things that differ between these runners.
+      - name: Crew Map — planted gaps found exactly, same bytes, no secret, no absolute path
+        run: bash packaging/verify.sh map
 
       # Here for a sharper reason than on ubuntu: macOS ships jq with the OS and a stock Windows desktop has no
       # working decoder at all, so these two runners sit on OPPOSITE tiers. A divergence that hides on one of

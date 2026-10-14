@@ -1,0 +1,47 @@
+{
+  "about": "FastAPI with a router prefix, PEP 621 dependencies, one import missing from them.",
+  "findings": [
+    [
+      "dep-undeclared",
+      "mod:python:pysvc httpx"
+    ],
+    [
+      "dep-unused",
+      "mod:python:pysvc unused-lib"
+    ],
+    [
+      "config-missing",
+      "py.missing.key"
+    ],
+    [
+      "endpoint-unused",
+      "mod:python:pysvc POST /jobs"
+    ]
+  ],
+  "nearMisses": [
+    "PyYAML is imported as yaml",
+    "psycopg[binary] carries extras",
+    "json and sys are the standard library",
+    "app is the module's own package",
+    "PY_WITH_DEFAULT has a fallback",
+    "GET /v1/items/7 matches /v1/items/{item_id} through the router prefix",
+    "api.weather.example is a reserved test name, not an external resource"
+  ],
+  "nodes": [
+    "ext:db:postgres",
+    "mod:python:pysvc"
+  ],
+  "edges": [
+    [
+      "mod:python:pysvc",
+      "ext:db:postgres",
+      "uses-db",
+      "evidence"
+    ]
+  ],
+  "provides": [
+    "mod:python:pysvc GET /v1/items/{}",
+    "mod:python:pysvc POST /jobs"
+  ],
+  "notMeasured": []
+}

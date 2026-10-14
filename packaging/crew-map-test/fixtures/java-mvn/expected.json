@@ -1,0 +1,44 @@
+{
+  "about": "A Maven aggregator with two modules, a Spring controller and application.properties.",
+  "findings": [
+    [
+      "config-missing",
+      "app.missing"
+    ],
+    [
+      "config-unread",
+      "api/src/main/resources/application.properties app.unused"
+    ]
+  ],
+  "nearMisses": [
+    "spring.* is read by the framework",
+    "the aggregator pom is a build entry point",
+    "jdbc: is cut before the scheme is read"
+  ],
+  "nodes": [
+    "ext:db:postgres",
+    "mod:java:api",
+    "mod:java:core",
+    "mod:java:parent"
+  ],
+  "edges": [
+    [
+      "mod:java:api",
+      "mod:java:core",
+      "references",
+      "evidence"
+    ],
+    [
+      "mod:java:api",
+      "ext:db:postgres",
+      "configured-db",
+      "evidence"
+    ]
+  ],
+  "provides": [
+    "mod:java:api GET /api/accounts/{}"
+  ],
+  "notMeasured": [
+    "Java/Kotlin package usage"
+  ]
+}
