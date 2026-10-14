@@ -599,6 +599,11 @@ body[data-role="viewer"] #new-session { display: none; }
 .mv-suggest-h { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--studio-accent); }
 .mv-suggest-text { margin: 0; font-size: 14px; line-height: 21px; }
 .mv-suggest-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.mv-above { margin: 16px 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); }
+.mv-above .mv-suggest-h { color: var(--ink-dim); }
+.mv-above p { margin: 0; }
+.mv-above-verdict { font-size: 13px; line-height: 19px; }
+.mv-above-verdict[data-measured="false"] { color: var(--ink-dim); }
 .mv-cmd { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 12px; user-select: all; }
 .mv-raised { display: flex; align-items: baseline; gap: var(--space-2); padding: 0 18px 16px; }
 .mv-raised .mv-tag { margin-left: 0; flex: none; }

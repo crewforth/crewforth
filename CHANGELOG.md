@@ -15,6 +15,11 @@ versioning follows [SemVer](https://semver.org/).
   `prompt-approval.sh` records your click exactly as it records `/crew-approve`: tied to what is staged, `HEAD`, the
   session, for 30 minutes.
   Any other wording, a question with answers already in it, or an answer the hook did not ask for records nothing.
+- **Studio's Models view shows normal work that ran above the table's model.** The gate holds a floor, not a
+  ceiling, so this is shown and nothing is blocked: the classes of normal work that ran higher than Sonnet and than
+  the floor the gate held them to, with what they cost as run and the same tokens at Sonnet's list price. That
+  Sonnet is enough for a class is said only when its last ten verified calls on Sonnet all passed first time, the
+  test a held class is offered for lowering by; otherwise the view says it is not measured.
 
 ### Changed
 

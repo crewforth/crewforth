@@ -1291,6 +1291,99 @@ check('prose without a notice yields nothing', none.size === 0);
   check('a project with no record is not measured, and says so instead of showing an empty table',
     mo.readModels(path.join(dir, 'nowhere')).measured === false && /^Not measured/.test(mp.emptyNote(mo.readModels(path.join(dir, 'nowhere')))));
 
+  /* Normal work above the table's model (finding 33). The gate holds a floor and no ceiling; the view says where
+     normal work ran higher than both the table and the floor, and says the table's model would have done only
+     where the record shows it. Each exclusion has its twin: the same call without the reason counts. */
+  {
+    const at0 = Date.parse('2026-02-01T00:00:00Z');
+    let n = 0;
+    const call = (o) => { n += 1; return { line: n, agentId: `u${n}`, ts: new Date(at0 + n * 1000).toISOString().replace(/\.\d+Z$/, 'Z'), at: at0 + n * 1000, agent: 'crew-backend-expert', change: 'feature', risk: 'normal', card: null, model: 'opus', verify: 'pass', fixes: 0, escalatedFrom: null, ranOn: null, confidence: null, ...o }; };
+    const one = (rows, rules = [], floors = []) => mo.aboveTableOf(rows, rules, floors).reduce((s, c) => s + c.runs, 0);
+    const opus = call({});
+    const pairs = {
+      'the agent\'s own floor': [call({ agent: 'crew-security-expert', change: 'audit' }), call({ agent: 'crew-test-expert', change: 'audit' })],
+      'a re-run one model up': [call({ escalatedFrom: 'sonnet' }), call({})],
+      'critical work': [call({ risk: 'critical' }), call({})],
+      'a sonnet call': [call({ model: 'sonnet' }), call({})],
+    };
+    const counted = Object.fromEntries(Object.entries(pairs).map(([why, [held, twin]]) => [why, `${one([held])}/${one([twin])}`]));
+    const rule = mo.parseRuleFloors('# the project\'s\nfloor crew-backend-expert * normal claude-opus-5-5  # held\nfloor x y\n');
+    const raise = { agent: 'crew-backend-expert', change: 'feature', risk: 'normal', model: 'opus', when: new Date(at0 + 500_000).toISOString().replace(/\.\d+Z$/, 'Z') };
+    const after = call({ at: at0 + 600_000, ts: new Date(at0 + 600_000).toISOString().replace(/\.\d+Z$/, 'Z') });
+    check('normal work is above the table when it ran higher than Sonnet and than the floor the gate held it to; each reason a call was held has a twin without it that counts',
+      one([opus]) === 1 && Object.values(counted).every((v) => v === '0/1')
+      && rule.length === 1 && rule[0].model === 'opus' && rule[0].change === '*' && one([opus], rule) === 0 && one([opus], rule.map((r) => ({ ...r, risk: 'critical' }))) === 1
+      && one([after], [], [raise]) === 0 && one([opus], [], [raise]) === 1,
+      `held/twin: ${JSON.stringify(counted)}; a rule ${one([opus], rule)}, a raise before ${one([opus], [], [raise])} after ${one([after], [], [raise])}`);
+    const gate = read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? '';
+    const gateFloors = {};
+    for (const m of gate.matchAll(/^\s*([a-z|-]+)\) floor=([1-4]); why=/gm)) for (const a of m[1].split('|')) gateFloors[a] = ['haiku', 'sonnet', 'opus', 'fable'][Number(m[2]) - 1];
+    check('the agents\' floors are the gate\'s, agent for agent, and so are the rules\' floor lines and the table\'s tier',
+      Object.keys(gateFloors).length >= 5 && JSON.stringify(Object.entries(gateFloors).sort()) === JSON.stringify(Object.entries(mo.AGENT_FLOORS).sort())
+      && /"floor "\*\) IFS=\$' \\t' read -r a b c d _ <<< "\$\{l#floor \}"/.test(gate) && mo.NORMAL_TIER === 'sonnet',
+      `gate ${JSON.stringify(gateFloors)}`);
+    const onSonnet = (k, o = {}) => Array.from({ length: k }, () => call({ model: 'sonnet', ...o }));
+    const verdict = (rows) => mo.aboveTableOf(rows)[0]?.passed;
+    check('that Sonnet would have done is said only when the class\'s latest ten verified calls on Sonnet all passed first time: nine, or one fixed, or one unverified among ten, say nothing',
+      verdict([opus, ...onSonnet(10)]) === 10 && verdict([opus, ...onSonnet(9)]) === 0 && verdict([opus, ...onSonnet(9), call({ model: 'sonnet', fixes: 1 })]) === 0
+      && verdict([opus, ...onSonnet(9), call({ model: 'sonnet', verify: 'none' })]) === 0
+      && verdict([opus, ...onSonnet(10, { change: 'refactor' })]) === 0 && mo.aboveTableOf([opus])[0].need === mo.LOOSEN_AFTER,
+      `ten ${verdict([opus, ...onSonnet(10)])}, nine ${verdict([opus, ...onSonnet(9)])}`);
+    const above = mo.aboveTableOf([opus, call({}), call({ model: 'fable' }), call({ change: 'refactor' })]);
+    const priced = mo.aboveCosts(above, (id) => (id === 'u_none' ? null : id === opus.agentId ? { cost: 2, atNormal: 1 } : id === above[0].ids[1] ? { cost: 4, atNormal: 2 } : null));
+    const big = mp.aboveText(above[0], priced[above[0].key]);
+    const all = mp.aboveText(above[0], { cost: 6, atNormal: 3, costed: 3, runs: 3 });
+    check('what the work above cost is the priced calls only, said as a floor with how many; the same tokens at Sonnet\'s price is named as that and not as a saving',
+      above.length === 2 && above[0].runs === 3 && above[0].models.opus === 2 && above[0].models.fable === 1
+      && priced[above[0].key].cost === 6 && priced[above[0].key].atNormal === 3 && priced[above[0].key].costed === 2 && priced[above[0].key].runs === 3
+      && /^≥\$6\.00 as run; the same tokens at Sonnet's price ≥\$3\.00 \(2 of 3 priced\)\. API list price; another model would not spend the same tokens\.$/.test(big.costs)
+      && /^~?\$6\.00 as run; .*price ~?\$3\.00\. API/.test(all.costs) && mp.aboveText(above[0], { cost: 0, atNormal: 0, costed: 0, runs: 3 }).costs === null && mp.aboveText(above[0]).costs === null,
+      big.costs);
+    check('the class is said with what ran it, and the verdict is "not measured" until the record shows it',
+      /^Backend .* · feature$|· feature$/.test(big.title) && big.says === 'normal risk, 3 tasks above Sonnet: 2 on Opus, 1 on Fable.'
+      && big.measured === false && /^Whether Sonnet would have done is not measured: this class does not have 10 verified calls on Sonnet/.test(big.verdict)
+      && mp.aboveText({ ...above[0], passed: 10 }).verdict === 'Sonnet is enough for this class: its latest 10 verified calls on Sonnet all passed the first time.',
+      `${big.title} ${big.says} ${big.verdict}`);
+    const u = new (await import(`../../kit/studio/server/lib/usage.js?a=${Date.now()}`)).Usage();
+    const pr = await import(`../../kit/studio/server/lib/pricing.js?a=${Date.now()}`);
+    const rec = (id, model) => ({ type: 'assistant', message: { id, model, usage: { input_tokens: 1000, output_tokens: 2000, cache_read_input_tokens: 5000, cache_creation_input_tokens: 300 } } });
+    u.add([rec('m1', 'claude-opus-5-5')], 'x1').add([rec('m2', 'some-model-with-no-price')], 'x2');
+    const x1 = u.of('x1'); const x2 = u.of('x2');
+    const sonnetSame = pr.costOf({ model: pr.NORMAL_TIER_MODEL, input: 1000, output: 2000, cacheRead: 5000, cacheWrite5m: 300, cacheWrite1h: 0, fast: false, usOnly: false });
+    check('the same tokens at Sonnet\'s price is the price table\'s own arithmetic on the agent\'s tokens, and is not given where the agent\'s own cost is not',
+      pr.NORMAL_TIER_MODEL === 'claude-sonnet-5-5' && pr.priceOf(pr.NORMAL_TIER_MODEL) !== null && Math.abs(x1.costAtNormal - sonnetSame) < 1e-12
+      && x1.cost > x1.costAtNormal && x2.cost === null && x2.costAtNormal === null,
+      `opus ${x1.cost}, the same at sonnet ${x1.costAtNormal}`);
+    const d4 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-above-'));
+    fs.mkdirSync(path.join(d4, '.claude', 'state'), { recursive: true });
+    const tsv = (r) => [r.ts, r.agentId, r.agent, r.change, r.risk, '-', r.model, r.verify, String(r.fixes), r.escalatedFrom ?? '-', '-', '-'].join('\t');
+    fs.writeFileSync(path.join(d4, '.claude', 'state', 'model-outcomes.tsv'), `${mo.COLUMNS.join('\t')}\n${tsv(opus)}\n`);
+    const m4 = mo.readModels(d4, { agents: [] });
+    fs.writeFileSync(path.join(d4, '.claude', 'crew-model-rules'), 'floor crew-backend-expert feature normal opus\n');
+    const m5 = mo.readModels(d4, { agents: [] });
+    check('a page is sent the classes above the table and not the ids of their agents; a floor line added to the project\'s rules is read without a restart',
+      m4.above.length === 1 && m4.above[0].ids === undefined && m4.above[0].runs === 1 && mo.readRecord(d4).above.length === 0 && m5.above.length === 0
+      && mo.readAboveCosts(path.join(d4, 'nowhere'), () => null) === null,
+      `before the rule ${m4.above.length}, after ${m5.above.length}`);
+    fs.rmSync(d4, { recursive: true, force: true });
+    const dom = installDom();
+    try {
+      const { Models } = await import(`../../kit/studio/web/models.js?a=${Date.now()}`);
+      const root = document.createElement('div');
+      const view = new Models(root, {});
+      const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+      view.setData({ measured: true, rows: 3, classes: mo.classesOf([opus]), suggestions: [], above: mo.aboveTableOf([opus]).map(({ ids, ...c }) => c), byAgent: {} });
+      const box = walkAll(root, (e) => e.className === 'mv-above')[0];
+      const texts = box ? walkAll(box, () => true).map((e) => e.textContent) : [];
+      view.setData({ measured: true, rows: 1, classes: mo.classesOf([opus]), suggestions: [], above: [], byAgent: {} });
+      const none = walkAll(root, (e) => e.className === 'mv-above').length;
+      check('the view says the work above the table under its own heading, with no button: nothing in it is acted on, and with none there is no box',
+        Boolean(box) && texts[0] === mp.ABOVE_HEAD && texts.some((t) => /^Whether Sonnet would have done is not measured/.test(t))
+        && texts.at(-1) === mp.ABOVE_RULE && walkAll(box, (e) => e.tagName === 'BUTTON').length === 0 && none === 0,
+        texts.join(' | '));
+    } finally { dom(); }
+  }
+
   const card = mp.cardOf('files: src/a.js, src/b.js\nchange: logic\nverify: npm test -- a\n\nDo the thing.');
   check('the task card is the three lines the task text starts with, and a text without them has no card',
     card.files === 'src/a.js, src/b.js' && card.change === 'logic' && card.verify === 'npm test -- a' && mp.cardOf('Do the thing.') === null);

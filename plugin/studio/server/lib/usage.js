@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import { readAll } from './transcript.js';
 import { agentMetaFiles } from './projects.js';
-import { costOf, SOURCE } from './pricing.js';
+import { costOf, SOURCE, NORMAL_TIER_MODEL } from './pricing.js';
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
 
@@ -43,11 +43,12 @@ class Tally {
   constructor() {
     this.tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
     this.usd = 0;
+    this.usdAtNormal = 0;     // the same tokens at NORMAL_TIER_MODEL's price
     this.responses = 0;
     this.unpriced = new Set();
   }
 
-  take(u, usd) {
+  take(u, usd, atNormal = null) {
     this.responses += 1;
     this.tokens.input += u.input;
     this.tokens.output += u.output;
@@ -55,13 +56,15 @@ class Tally {
     this.tokens.cacheRead += u.cacheRead;
     if (usd === null) this.unpriced.add(u.model ?? 'unknown model');
     else this.usd += usd;
+    if (atNormal !== null) this.usdAtNormal += atNormal;
   }
 
   /**
    * `fresh` is what was sent and written for the first time: input, output and cache writes. `cacheRead` is the
    * same context read back from the cache on every later response, which is why it dwarfs the rest in a long
    * session and is kept out of the headline. `cost` is null when any of the tokens came from a model the price
-   * table has no row for — a sum that leaves some of them out would read as the whole.
+   * table has no row for — a sum that leaves some of them out would read as the whole. `costAtNormal` is the same
+   * tokens at NORMAL_TIER_MODEL's list price, null under the same rule.
    */
   result() {
     const t = this.tokens;
@@ -69,6 +72,7 @@ class Tally {
       tokens: { ...t, fresh: t.input + t.output + t.cacheWrite, total: KINDS.reduce((a, k) => a + t[k], 0) },
       responses: this.responses,
       cost: this.unpriced.size ? null : this.usd,
+      costAtNormal: this.unpriced.size ? null : this.usdAtNormal,
       unpriced: [...this.unpriced].sort(),
     };
   }
@@ -106,9 +110,10 @@ export class Usage {
       if (u.id) { if (this.seen.has(u.id)) continue; this.seen.add(u.id); }
       if (!(u.input + u.output + u.cacheWrite5m + u.cacheWrite1h + u.cacheRead)) continue;   // a record the harness made up carries no tokens
       const usd = costOf(u);
-      this.all.take(u, usd);
-      this.#tally(this.who, who === 'session' && r.isSidechain === true ? 'agents:inline' : who).take(u, usd);
-      this.#tally(this.model, u.model ?? 'unknown model').take(u, usd);
+      const atNormal = costOf({ ...u, model: NORMAL_TIER_MODEL });
+      this.all.take(u, usd, atNormal);
+      this.#tally(this.who, who === 'session' && r.isSidechain === true ? 'agents:inline' : who).take(u, usd, atNormal);
+      this.#tally(this.model, u.model ?? 'unknown model').take(u, usd, atNormal);
     }
     return this;
   }
@@ -192,7 +197,7 @@ export async function sessionUsage(session) {
   for (const [who, t] of usage.who) {
     if (who === 'session' || who.startsWith('agents:')) continue;
     const r = t.result();
-    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost };
+    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost, costAtNormal: r.costAtNormal };
   }
   return { ...withTimes(usage, records), agents };
 }
