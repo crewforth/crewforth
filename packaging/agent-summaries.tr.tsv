@@ -13,3 +13,4 @@ crew-security-expert	Güvenlik inceleme uzmanı: auth, token akışları, sır s
 crew-session-manager	Oturum sağlığı denetçisi: aşama sınırında bağlam doluluğunu değerlendirir ve devri önerir; kod yazmaz.
 crew-test-expert	Test uzmanı: yeni davranış eklendikten sonra birim ve entegrasyon testlerini yazar, koşturur ve Definition of Done'daki "testler yeşil" şartını güvenceye alır.
 crew-refuter	Bağımsız çürütücü: orta ve üstü her bulgu rapora girmeden önce yalnız iddia ve dosya:satır ile çağrılır, iddiayı koddan çürütmeye çalışır
+crew-docs-agent	Dokümantasyon ajanı: README, kılavuz, sürüm notları, CHANGELOG, yasal ve gizlilik metinleri, mağaza metinleri; kod yazmaz, yasal/gizlilik/mağaza metinleri kritik seviyede koşar

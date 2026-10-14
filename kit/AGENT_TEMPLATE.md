@@ -49,7 +49,8 @@ verify: npm test -- orders
 `architecture` · `test-run` · `test-write` · `audit`. `verify` is the command that proves the work, or `none`.
 
 **Risk class.** `critical` when the change is `migration`, `security`, `architecture` or `fix-unknown`, or a file is
-on a critical path (auth, payments, billing, migrations, security, crypto, secrets, `*.sql`, `schema.prisma`; the
+on a critical path (auth, payments, billing, migrations, security, crypto, secrets, legal, privacy, consent, terms,
+`*.sql`, `schema.prisma`, store-listing text under `store/` or `fastlane/metadata/`; the
 project's own are listed in `.claude/state/crew-critical-paths.auto`, and `.claude/crew-model-rules` adds or removes).
 Otherwise `normal`.
 

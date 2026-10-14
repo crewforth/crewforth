@@ -14,6 +14,7 @@
 | `crew-database-expert` | Produce | schema, migration, index, cache |
 | `crew-frontend-expert` | Produce | UI, component, client work |
 | `crew-devops-expert` | Produce | deployment, CI pipeline, incident |
+| `crew-docs-agent` | Produce | README, guides, release notes, legal & privacy texts, store listings |
 | `crew-security-expert` | Audit | auth / IDOR / injection / secret · **mandatory if security-critical** |
 | `crew-privacy-agent` | Audit | personal data — KVKK/GDPR, plus any regime the project declares |
 | `crew-test-expert` | Audit | tests, coverage, regression |

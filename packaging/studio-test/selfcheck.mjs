@@ -4711,7 +4711,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const kitTypes = fs.readdirSync(path.join(PAYLOAD, 'agents')).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3));
     const roles = kitTypes.map(nm.roleName).sort().join(', ');
     check('each of the kit\'s agents is shown by its role, without the prefix and the suffix its file has',
-      roles === 'Backend, Commit, Database, DevOps, Frontend, Performance, Planner, Privacy, Refuter, Review, Security, Session Manager, Test',
+      roles === 'Backend, Commit, Database, DevOps, Docs, Frontend, Performance, Planner, Privacy, Refuter, Review, Security, Session Manager, Test',
       roles);
     check('a built-in agent is shown by its words, and a name that is not hyphenated words is left as it came',
       nm.roleName('general-purpose') === 'General Purpose' && nm.roleName('Explore') === 'Explore'

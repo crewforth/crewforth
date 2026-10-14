@@ -13,7 +13,7 @@
 
 **Crewforth is your engineering crew for Claude Code.**
 
-It adds subagents, skills, commands and hooks to Claude Code: 13 specialist agents that each own a domain,<br>
+It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain,<br>
 40 skills that hold the method, 12 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
@@ -60,7 +60,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 ## The agents
 
-**13 specialist agents**, each saying who owns the work and when. The method lives in the skills: [crewforth.com/skills](https://crewforth.com/skills).
+**14 specialist agents**, each saying who owns the work and when. The method lives in the skills: [crewforth.com/skills](https://crewforth.com/skills).
 
 | Agent | Owns |
 |:--|:--|
