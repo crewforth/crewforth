@@ -1041,7 +1041,8 @@ check('prose without a notice yields nothing', none.size === 0);
   check('when Auto has turned cards into chips the Density button says so, and its tooltip says why',
     /st\.density === 'auto' && st\.drawnAs === 'compact' \? 'Auto \\u00b7 compact'/.test(app) && /fits this pane at \$\{Math\.round\(AUTO\.readable \* 100\)\}%/.test(app));
   check('the canvas plans again when its pane changes size: a window made taller gets its cards back',
-    /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.fitIfUntouched\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
+    /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.paneResized\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
+    && /this\.settleTimer = setTimeout\(\(\) => \{ this\.settleTimer = null; this\.fitIfUntouched\(\); \}, RESIZE_SETTLE_MS\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
     && /tallestFor\(h\) !== tallestFor\(this\.paneHeight \?\? 0\)\) this\.#redraw\(\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
   check('on a chip the model does not shrink; the task beside it does',
     /\.cv-chip \.cv-model \{ flex: none; \}/.test(css) && /\.cv-chip \.cv-task \{ flex: 1 1 0;/.test(css));
@@ -3288,7 +3289,7 @@ function computed(rules, el, ancestors, media = []) {
   const rules = cssRules(cssText);
   const REDUCE = ['(prefers-reduced-motion: reduce)'];
 
-  const { Canvas } = await import(`../../kit/studio/web/canvas.js?motion=${Date.now()}`);
+  const { Canvas, RESIZE_SETTLE_MS } = await import(`../../kit/studio/web/canvas.js?motion=${Date.now()}`);
   // The palette says whose an agent is. Its colours are no longer read here: colour is status.
   const PAL = {
     measured: true,
@@ -3732,6 +3733,34 @@ function computed(rules, el, ancestors, media = []) {
     check('the canvas still answers the fit call the rest of the page makes',
       err === null && typeof canvas.fitIfUntouched === 'function',
       err ? `${err.name}: ${err.message}` : null);
+  }
+
+  /* -- 10. a pane being resized: the view follows, the choice of density waits (finding 31) ---------------------
+     Measured before the change, in a browser with 43 agents: an edge moved to and fro across Auto's limit for 60
+     frames turned the cards into chips and back 57 times, each a full redraw. Here the plan is counted: a new plan
+     object is a redraw. The twin is the call the observer made before, which plans on every frame. */
+  {
+    const auto = plain('resize-fixture');
+    auto.setDensity('auto');
+    auto.render(FIXTURE);
+    let h = 0;
+    auto.root.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 800, bottom: h, width: 800, height: h });
+    const drag = (call, last = 1400) => { let plans = 0; for (let i = 0; i < 60; i += 1) { h = i % 2 ? last : (last === 1400 ? 900 : 1400); const was = auto.lastPlan; call(); if (auto.lastPlan !== was) plans += 1; } return plans; };
+    const before = drag(() => auto.fitIfUntouched());
+    // Ending where the last plan was made: nothing to plan once it stops. Ending elsewhere: one plan, after it stops.
+    const settle = () => new Promise((r) => { setTimeout(r, RESIZE_SETTLE_MS + 60); });
+    let was = auto.lastPlan;
+    drag(() => auto.paneResized(), 1400);
+    await settle();
+    const same = auto.lastPlan !== was ? 1 : 0;
+    was = auto.lastPlan;
+    const during = drag(() => auto.paneResized(), 900);
+    const heldDuring = auto.lastPlan === was;
+    await settle();
+    const after = auto.lastPlan !== was ? 1 : 0;
+    check('a pane dragged to and fro across Auto\'s limit is planned again once it stops, not on every frame; the call it replaced plans every time',
+      RESIZE_SETTLE_MS >= 100 && RESIZE_SETTLE_MS <= 300 && before >= 30 && during === 0 && heldDuring && after === 1 && same === 0,
+      `60 frames: ${before} plans before, ${during} during, ${after} after the pane settled elsewhere, ${same} where it began (${RESIZE_SETTLE_MS} ms)`);
   }
 
   dom();

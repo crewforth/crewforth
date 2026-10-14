@@ -38,6 +38,11 @@ const MOTION_BUDGET = 60;
 // How long the pointer rests on a card before its details are shown.
 const TIP_MS = 400;
 
+// How long a pane has to stay one size before Auto decides again between cards and chips. While its edge is being
+// dragged the view follows at once, but the choice waits: measured 2026-10-14 with 43 agents, an edge moved to and
+// fro across Auto's limit for 60 frames turned every card into a chip and back 57 times, each a full redraw.
+export const RESIZE_SETTLE_MS = 150;
+
 // Marks, so a card says what kind of thing it is before it is read.
 //
 // Crewforth's own is the three chevrons, drawn here because the shape is three strokes and its colours are the
@@ -585,6 +590,13 @@ export class Canvas {
   #tallest() {
     this.paneHeight = this.root.getBoundingClientRect?.().height ?? 0;
     return tallestFor(this.paneHeight);
+  }
+
+  /** The pane is changing size. The view follows it now; whether it is cards or chips is asked once it stops. */
+  paneResized() {
+    if (!this.touched && !this.pinned.size) this.fit();
+    clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => { this.settleTimer = null; this.fitIfUntouched(); }, RESIZE_SETTLE_MS);
   }
 
   /** Re-fit only while the view is still the canvas's own. Once the viewer has panned, zoomed or placed a card,

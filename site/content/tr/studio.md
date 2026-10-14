@@ -41,7 +41,7 @@ Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört 
 
 **Sıra.** Her ajan başlatıldığı sıra numarasını taşıyor (`#3`). **Order** gruplaması oturumu dalgalar hâlinde diziyor: birlikte başlatılan ajanların her dalgası bir sütun. Bir ajandan sonraki dalgaya giden noktalı çizgi, o dalganın *o ajan rapor verdikten sonra* çağrıldığını söylüyor. Bu, olayların sırasından çıkarılıyor ve o yüzden bir çağrıdan farklı çiziliyor: her ajanı oturum çağırıyor, hiçbir ajan bir sonrakini çağırmıyor.
 
-**Yoğunluk.** **Auto**'da kartlar, resim okunabilir bir yakınlaştırmada (%75) bölmeye sığdığı sürece kart kalıyor; sığmayınca tek satırlık çiplere dönüşüyor. Düğme o zaman **Auto · compact** yazıyor ve ipucu nedenini söylüyor. Pencere uzayınca kartlar geri geliyor. Çip modelini yine tam yazıyor; kompakt grup kartı da ajanlarının koştuğu modelleri koruyor (`3 Sonnet · 2 Opus`). **Comfortable** ve **Compact** seçimi sabitliyor.
+**Yoğunluk.** **Auto**'da kartlar, resim okunabilir bir yakınlaştırmada (%75) bölmeye sığdığı sürece kart kalıyor; sığmayınca tek satırlık çiplere dönüşüyor. Düğme o zaman **Auto · compact** yazıyor ve ipucu nedenini söylüyor. Pencere uzayınca kartlar geri geliyor. Pencerenin kenarı sürüklenirken resim onu izliyor; Auto kart ile çip arasındaki seçimi pencere durunca yapıyor, böylece kenar sınırı geçerken kartlar yanıp sönmüyor. Çip modelini yine tam yazıyor; kompakt grup kartı da ajanlarının koştuğu modelleri koruyor (`3 Sonnet · 2 Opus`). **Comfortable** ve **Compact** seçimi sabitliyor.
 
 **Yerleşim.** Kart sürüklenebiliyor ve bırakıldığı yerde kalıyor. **Reset layout** (`r`) taşınan her kartı yerleşimin koyacağı yere geri götürüyor; ardından çıkan bildirim **Undo** sunuyor.
 

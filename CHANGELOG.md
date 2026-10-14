@@ -41,6 +41,12 @@ versioning follows [SemVer](https://semver.org/).
   can type, is the approval left. The limit: settings passed with `--settings` and managed settings delivered by a
   server cannot be read.
 
+### Fixed
+
+- **Studio's cards no longer flicker while a window is resized.** At Auto density, an edge dragged across the limit
+  between cards and chips redrew every card on every frame (measured: 57 times in 60 frames with 43 agents). The view
+  still follows the edge at once; the choice between cards and chips is made once the window has stopped for 150 ms.
+
 ## [3.1.1] — 2026-10-12
 
 ### Fixed
