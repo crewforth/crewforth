@@ -21,7 +21,7 @@ import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentM
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
-import { readModels, readRecord, readCosts } from './lib/model-outcomes.js';
+import { readModels, readRecord, readCosts, readAboveCosts } from './lib/model-outcomes.js';
 import { readMap, behindOf, compareMaps } from './lib/crew-map.js';
 
 const USAGE_BATCH = 12;
@@ -182,10 +182,15 @@ async function modelCosts(cwd) {
     for (const s of (await listSessions(dir)).filter((x) => x.modifiedAt >= since).slice(0, MODELS_SESSIONS_MAX)) {
       const u = await cachedUsage(s);
       read += 1;
-      for (const [id, a] of Object.entries(u.agents ?? {})) per.set(id, a.cost);
+      for (const [id, a] of Object.entries(u.agents ?? {})) per.set(id, a);
     }
   }
-  return { measured: true, costs: readCosts(cwd, (id) => (per.has(id) ? per.get(id) : null)), sessionsRead: read };
+  return {
+    measured: true,
+    costs: readCosts(cwd, (id) => per.get(id)?.cost ?? null),
+    above: readAboveCosts(cwd, (id) => (per.has(id) ? { cost: per.get(id).cost, atNormal: per.get(id).costAtNormal } : null)),
+    sessionsRead: read,
+  };
 }
 const MODELS_SESSIONS_MAX = 60;
 
@@ -363,7 +368,7 @@ export async function handle(req, res) {
     const sid = url.searchParams.get('session');
     const session = sid ? await findSession(sid) : null;
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
-    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], byAgent: {} });
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], above: [], byAgent: {} });
     return sendJson(res, 200, readModels(cwd, { agents: await agentIdsOf(session) }));
   }
 
@@ -371,7 +376,7 @@ export async function handle(req, res) {
     const sid = url.searchParams.get('session');
     const session = sid ? await findSession(sid) : null;
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
-    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', costs: {}, sessionsRead: 0 });
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', costs: {}, above: {}, sessionsRead: 0 });
     return sendJson(res, 200, await modelCosts(cwd));
   }
 

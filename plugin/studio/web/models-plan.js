@@ -146,6 +146,36 @@ export function suggestionText(s) {
   };
 }
 
+/**
+ * Normal work that ran above the table's model, in words. The gate holds a floor, not a ceiling, so this is said
+ * and nothing is blocked. That the table's model would have done is said only from the record (`a.passed`); the
+ * cost beside it is the same tokens at that model's price, which is not what that model would have spent.
+ * @param a     one class of server/lib/model-outcomes.js `aboveTableOf`
+ * @param cost  { cost, atNormal, costed, runs } for it, or null while costs have not been read
+ */
+export function aboveText(a, cost = null) {
+  const to = tierWord(a.to);
+  const ran = Object.entries(a.models ?? {}).sort((x, y) => y[1] - x[1]).map(([t, n]) => `${n} on ${tierWord(t)}`).join(', ');
+  let costs = null;
+  if (cost?.costed) {
+    const some = cost.costed < cost.runs;
+    const usd = (v) => (some ? `\u2265${fmtCost(v).replace(/^~/, '')}` : fmtCost(v));
+    costs = `${usd(cost.cost)} as run; the same tokens at ${to}'s price ${usd(cost.atNormal)}${some ? ` (${cost.costed} of ${cost.runs} priced)` : ''}. API list price; another model would not spend the same tokens.`;
+  }
+  return {
+    title: `${roleName(a.agent)} \u00b7 ${a.change}`,
+    says: `normal risk, ${plural(a.runs, 'task')} above ${to}: ${ran}.`,
+    verdict: a.passed
+      ? `${to} is enough for this class: its latest ${a.passed} verified calls on ${to} all passed the first time.`
+      : `Whether ${to} would have done is not measured: this class does not have ${a.need ?? 'enough'} verified calls on ${to} that all passed the first time.`,
+    measured: Boolean(a.passed),
+    costs,
+  };
+}
+
+export const ABOVE_HEAD = 'Above the table \u00b7 nothing is blocked';
+export const ABOVE_RULE = 'The gate holds a floor, not a ceiling: which model runs normal work is yours to choose.';
+
 /** What the view says when there is nothing to list. */
 export function emptyNote(data) {
   if (!data) return 'Reading the record…';

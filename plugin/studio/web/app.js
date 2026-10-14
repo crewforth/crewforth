@@ -811,7 +811,7 @@ el.tbRangeOut.addEventListener('click', () => timeline.zoom(1));
 el.tbRangeIn.addEventListener('click', () => timeline.zoom(-1));
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => timeline.render())).observe(el.timeline);
 // The canvas's pane changing size changes what fits in it, and with that what Auto density draws.
-if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => canvas.fitIfUntouched())).observe(el.canvasEl);
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => canvas.paneResized())).observe(el.canvasEl);
 
 getJson('/api/palette')
   .then((p) => {
