@@ -7,6 +7,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **In `auto`, approve a commit or a push with one click.** The refusal now also offers a fixed question, asked with
+  AskUserQuestion: Commit only, Commit + push, Push only, No. A new gate, `guard-question.sh`, answers `ask` on it,
+  so a hook that fills in the answer cannot answer it for you (measured in 34 runs and by hand in the terminal), and
+  `prompt-approval.sh` records your click exactly as it records `/crew-approve`: tied to what is staged, `HEAD`, the
+  session, for 30 minutes.
+  Any other wording, a question with answers already in it, or an answer the hook did not ask for records nothing.
+
 ### Changed
 
 - **A commit's command is read by one reader.** `guard-bash.sh` paired quotes in three places: the reader of a call,
@@ -15,6 +24,17 @@ versioning follows [SemVer](https://semver.org/).
   hold is unchanged. The older walk read a here-document's body and a comment as arguments of the commit; it no
   longer does, so a call that only holds the words of a commit inside a here-document body, or `-a` after a `#`,
   asks as any other commit does instead of being refused.
+
+### Security
+
+- **A `PermissionRequest` hook could approve a commit with nobody at the keyboard.** Such a hook answers a
+  permission prompt before the person does, and the answer cannot be told from a click: measured, it approved the
+  Bash prompt `guard-bash.sh` raises for a commit in `default`, and it answered the new question too. Before it
+  asks, the gate now looks for one in every source it can read (user, project and local settings, the
+  managed-settings files, skill, agent and command front matter, installed plugins). Where one may be wired the
+  question closes, and so does the gate's own prompt in `default` and `acceptEdits`: `/crew-approve`, which no hook
+  can type, is the approval left. The limit: settings passed with `--settings` and managed settings delivered by a
+  server cannot be read.
 
 ## [3.1.1] — 2026-10-12
 
