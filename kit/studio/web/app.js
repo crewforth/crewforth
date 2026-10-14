@@ -25,7 +25,7 @@ import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { Models } from './models.js';
 import { MapView } from './map.js';
-import { cardOf, cardLines, workSteps } from './models-plan.js';
+import { cardOf, cardLines, workSteps, outsideRouting } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
@@ -1034,11 +1034,15 @@ function paintAgentOverview(body, n, detail) {
     if (lines.length) {
       const dl = node('dl', 'icard');
       for (const l of lines) dl.append(node('dt', null, l.label), node('dd', null, l.text));
+      // Why the gate called it critical, in its own words (`files ... is on a critical path: ...` or `change: ...`).
+      if (work.riskWhy) dl.append(node('dt', null, 'why critical'), node('dd', null, work.riskWhy));
       const sec = isection('Task card', dl);
       if (work.risk) { const tag = node('span', 'mv-tag', work.risk); tag.dataset.risk = work.risk; sec.children[0].append(tag); }
       body.append(sec);
     }
-    // No card and no line: an agent that is not a crew agent, and nothing is said about it here.
+    // Not a crew agent: no card and no line, and that is said, so the empty space is not read as a record lost.
+    const outside = !row && !lines.length ? outsideRouting(n.agentType) : null;
+    if (outside) body.append(isection('Model routing', node('p', 'istep-note', outside)));
     if (row || lines.length) {
       const ol = node('ol', 'isteps');
       work.steps.forEach((st, i) => {

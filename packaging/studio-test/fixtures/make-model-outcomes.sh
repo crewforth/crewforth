@@ -22,9 +22,10 @@ printf 'exit 0\n' > ok.sh
 printf 'exit 1\n' > bad.sh
 chmod +x ok.sh bad.sh
 
-card() {   # card <agent id> <agent> <model> <change> <risk> <card> <escalated from> <verify>
+card() {   # card <agent id> <agent> <model> <change> <risk> <card> <escalated from> <verify> [why critical]
   printf 'agent=%s\ntier=%s\nasked=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=false\nesc=%s\nverify=%s\n' \
     "$2" "$3" "$3" "$4" "$5" "$6" "$7" "$8" > ".claude/state/crew-model/agents/$1"
+  [ -z "${9:-}" ] || printf 'why=%s\n' "$9" >> ".claude/state/crew-model/agents/$1"
 }
 stop() {   # stop <agent id> <true when the agent was already sent back once>
   printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":%s,"agent_transcript_path":"/none","last_assistant_message":"done"}' "$1" "$2" > payload.json
@@ -39,7 +40,7 @@ card f3 crew-test-expert haiku test-run normal suite - ./ok.sh
 stop f3 false
 card f4 crew-frontend-expert sonnet feature normal banner - none
 stop f4 false
-card f5 crew-performance-expert opus audit critical batch - ./nope.sh
+card f5 crew-performance-expert opus audit critical batch - ./nope.sh 'src/billing/batch.js is on a critical path: billing'
 stop f5 false
 
 [ -f .claude/state/model-outcomes.tsv ] || { echo "the hook wrote no record" >&2; exit 4; }

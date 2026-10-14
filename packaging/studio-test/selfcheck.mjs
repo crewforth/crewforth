@@ -1406,6 +1406,18 @@ check('prose without a notice yields nothing', none.size === 0);
     && steps('a4').note === 'A re-run with the same or a lower model is refused by the gate.' && steps('a1').note === null
     && mp.workSteps(null).steps.length === 0 && /^Not recorded yet/.test(mp.workSteps(null).note), said('a4'));
   {
+    // A line from before the gate kept its reason has twelve columns: still whole, with no reason, not one made up.
+    const old12 = ['2026-01-01T00:00:01Z', 'o1', 'crew-docs-agent', 'text', 'critical', 'c', 'opus', 'none', '0', '-', '-', 'high'].join('\t');
+    const p12 = mo.parseOutcomes(old12);
+    check('a line written before the reason was kept is read whole, and its critical work shows no reason rather than a guessed one',
+      p12.rows.length === 1 && p12.dropped === 0 && p12.rows[0].riskWhy === null && mp.workSteps(p12.rows[0]).risk === 'critical' && mp.workSteps(p12.rows[0]).riskWhy === null,
+      JSON.stringify(p12.why));
+  }
+  check('an agent that is not crew-* is said to be outside model routing (the gate leaves it alone); a crew agent or an unknown type is not',
+    /^Outside model routing: not a crew agent/.test(mp.outsideRouting('general-purpose') ?? '') && mp.outsideRouting('Explore') === mp.outsideRouting('general-purpose')
+    && mp.outsideRouting('crew-docs-agent') === null && mp.outsideRouting(undefined) === null && mp.outsideRouting('') === null,
+    String(mp.outsideRouting('general-purpose')));
+  {
     // The same card given twice: its first call failed on sonnet, the second ran on opus. The second's line carries the first.
     const two = [mo.COLUMNS.join('\t'),
       ['2026-01-01T00:00:01Z', 't1', 'crew-backend-expert', 'feature', 'normal', 'cardX', 'sonnet', 'fail', '1', '-', 'claude-sonnet-9', '-'].join('\t'),
@@ -1515,13 +1527,18 @@ check('prose without a notice yields nothing', none.size === 0);
     const trail = mp.workSteps(m3.byAgent.f2).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
     check('the record the hook wrote is read whole: five lines, none dropped, its header and its words as they are',
       // A Windows checkout hands this file over with CRLF line ends; the reader takes either, and so does this.
-      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0].replace(/\r$/, '') === mo.COLUMNS.join('\t')
+      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0].replace(/\r$/, '') === [...mo.COLUMNS, ...mo.LATER_COLUMNS].join('\t')
       && parsed.rows.map((r) => r.verify).join() === 'fail,pass,pass,none,blocked' && parsed.rows.every((r) => mo.CHANGES.includes(r.change) && mo.RISKS.includes(r.risk)),
       `${parsed.rows.length} rows, ${parsed.dropped} dropped`);
     check('from the hook\'s own lines: a failed card and its re-run are one class, half first try, one escalated; the re-run\'s trail starts with the failure',
       back.runs === 2 && back.verified === 2 && back.firstTryRate === 0.5 && back.escalated === 1 && back.failed === 1 && back.fixed === 1
       && trail === 'Ran on Sonnet \u00b7 fixed once inside the agent [fail] > Re-run on Opus [pass] [escalated]'
       && m3.classes.length === 4 && m3.classes.find((c) => c.risk === 'critical').notVerified.blocked === 1, trail);
+    // The gate's reason for critical work, as the hook copied it from the record; normal work has none to show.
+    check('the reason the gate gave for critical work is read from the hook\'s own line and shown only for critical work',
+      m3.byAgent.f5.riskWhy === 'src/billing/batch.js is on a critical path: billing' && mp.workSteps(m3.byAgent.f5).riskWhy === m3.byAgent.f5.riskWhy
+      && ['f1', 'f2', 'f3', 'f4'].every((id) => m3.byAgent[id].riskWhy === null && mp.workSteps(m3.byAgent[id]).riskWhy === null),
+      String(m3.byAgent.f5?.riskWhy));
     const made = spawnSync('bash', [path.join(fx, 'make-model-outcomes.sh'), REPO, fs.mkdtempSync(path.join(os.tmpdir(), 'crew-hookrun-'))], { encoding: 'utf8', timeout: 60000 });
     const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').slice(1).join('\t')).join('\n');
     if (made.status === 3 || made.error) skip('the hook, run now, writes the lines that are kept as the fixture', 'tool', `bash or git is not available to run it (${(made.stderr || made.error?.message || '').trim().slice(0, 80)})`);

@@ -8408,7 +8408,7 @@ _v2call crew-backend-expert sonnet 'src/ui/tz.ts' feature none; _v2start tz1; _V
 _tzg="$(awk -F'\t' '$2 == "tz1" { print substr($1, 1, 13) }' "$_v2p/.claude/state/model-outcomes.tsv")"; _tzn="$(date -u +%Y-%m-%dT%H)"; _tzp="$(date -u -v-1H +%Y-%m-%dT%H 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H 2>/dev/null)"
 { [ -n "$_tzg" ] && { [ "$_tzg" = "$_tzn" ] || [ "$_tzg" = "$_tzp" ]; }; } || _v2b="$_v2b [the time is not UTC: wrote $_tzg, UTC is $_tzn]"
 IFS= read -r _h < "$_v2p/.claude/state/model-outcomes.tsv"
-[ "$_h" = "ts"$'\t'"agent_id"$'\t'"agent"$'\t'"change"$'\t'"risk"$'\t'"card"$'\t'"model"$'\t'"verify"$'\t'"fixes"$'\t'"escalated_from"$'\t'"ran_on"$'\t'"confidence" ] || _v2b="$_v2b [header: $_h]"
+[ "$_h" = "ts"$'\t'"agent_id"$'\t'"agent"$'\t'"change"$'\t'"risk"$'\t'"card"$'\t'"model"$'\t'"verify"$'\t'"fixes"$'\t'"escalated_from"$'\t'"ran_on"$'\t'"confidence"$'\t'"risk_why" ] || _v2b="$_v2b [header: $_h]"
 [ -z "$_v2b" ] && pass "verify then escalate: red once keeps the agent running with the failing command; green after it is a pass with one fix; red twice ends the agent as a fail, recorded once; the session is told to repeat one model up; the same card is refused on the same model and allowed one up; red there too is the user's question and a third run is refused; a changed card is a new task; confidence: low is told the same way; a background launch and an agent with no record are left alone; the record's twelve columns are the ones published, and its time is UTC under a zone fourteen hours ahead" \
                || fail "verify-then-escalate:$_v2b"
 
@@ -8729,6 +8729,20 @@ mkdir -p "$_v2st/pending"; printf 'agent=crew-backend-expert\ntier=opus\nchange=
 _v2start o1; { [ ! -f "$_v2st/agents/o1" ] && [ ! -f "$_v2st/pending/1000000000-tuold" ]; } || _v2b="$_v2b a-stale-record-was-given-to-an-agent-or-kept"
 [ -z "$_v2b" ] && pass "which record is whose: with two models pending for one agent type the agent is recorded on the lower one; a record is taken by rename, so of two agents starting together one gets it; an agent whose transcript carries the other card is judged by that card's record (a call nobody has taken yet is looked at first), a task given as a list of blocks is read, a transcript with no card is noted in the gate log and the record used as matched, an agent whose card no record carries is not judged, and a record older than five minutes is dropped" \
                || fail "matching a call to its agent:$_v2b"
+# Why the work was critical is kept with it, in the gate's own words, so a reader shows the reason and does not work
+# it out again: a card on a critical path carries the path and the rule that matched; normal work carries "-".
+_v2new; _v2b=""; _v2st="$_v2p/.claude/state/crew-model"
+_v2call crew-backend-expert opus 'src/payments/p.ts' feature 'test -d src' ',"run_in_background":false'
+[ "$_v2rc" = 0 ] || _v2b="$_v2b FIXTURE:[the critical call was refused, rc=$_v2rc: $(head -c 300 "$_v2/err")]"
+grep -q '^why=src/payments/p.ts is on a critical path: ' "$_v2st"/pending/* 2>/dev/null || _v2b="$_v2b [pending record: $(grep -h '^why=' "$_v2st"/pending/* 2>/dev/null)]"
+_v2start k1; _v2tr k1 'src/payments/p.ts' feature 'test -d src'; _v2stopt k1 >/dev/null
+_kw="$(awk -F'\t' '$2 == "k1" { print $13 }' "$_v2st/../model-outcomes.tsv" 2>/dev/null)"
+case "$_kw" in 'src/payments/p.ts is on a critical path: '?*) ;; *) _v2b="$_v2b [critical row: risk_why='$_kw']" ;; esac
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'test -d src'; _v2start k2; _v2tr k2 'src/ui/a.ts' feature 'test -d src'; _v2stopt k2 >/dev/null
+_kn="$(awk -F'\t' '$2 == "k2" { print $5 "/" $13 }' "$_v2st/../model-outcomes.tsv" 2>/dev/null)"
+[ "$_kn" = "normal/-" ] || _v2b="$_v2b [normal row: '$_kn']"
+[ -z "$_v2b" ] && pass "the gate's reason for critical work reaches the record: the pending record and the outcome line carry the path and the rule that matched; normal work carries -" \
+               || fail "risk reason recorded:$_v2b"
 # The gate's and the write-time check's refusals are in the gate log; an agent id that cannot be read does not open
 # the write-time check; run_in_background named twice is refused.
 _v2new; _v2b=""; _V2ENV="CREW_GATE_LOG=$_v2/gl.tsv"; : > "$_v2/gl.tsv"
@@ -8761,7 +8775,7 @@ _v2call crew-backend-expert sonnet 'src/ui/m3.ts' feature none; _v2start no1; _v
 [ "$(_v2ran no1)" = "-" ] || _v2b="$_v2b [no model named: $(_v2ran no1)]"
 _v2call crew-backend-expert sonnet 'src/ui/m4.ts' feature none; _v2start od1; _v2stop od1 >/dev/null; _v2postm od1 completed ',"resolvedModel":"a b\tc"'
 [ "$(_v2ran od1)" = "-" ] || _v2b="$_v2b [a model that is not a name was written: $(_v2ran od1)]"
-[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 12' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
+[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 13' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
 [ -d "$_v2p/.claude/state/.outcomes.lock" ] && _v2b="$_v2b the-lock-was-left-behind"
 [ -z "$_v2b" ] && pass "ran_on is the model the answer to the Agent call names: written into the agent's line when the answer follows the stop (a foreground call), there already when it came at the launch (a background call), '-' when the answer names none or names something that is not a model; a decoy of the field inside the task's text is not read, the other lines and the twelve columns stay as they were, and no lock is left behind" \
                || fail "ran_on:$_v2b"
