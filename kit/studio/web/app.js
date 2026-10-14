@@ -611,16 +611,27 @@ el.tbOptions.addEventListener('click', (e) => {
 });
 el.tbExpand.addEventListener('click', () => { (foldTarget() ?? canvas).expandAll(); paintFoldButtons(); });
 el.tbFold.addEventListener('click', () => { (foldTarget() ?? canvas).foldAll(); paintFoldButtons(); });
-el.tbZoomOut.addEventListener('click', () => canvas.zoomBy(1 / 1.2));
-el.tbZoomIn.addEventListener('click', () => canvas.zoomBy(1.2));
-el.tbZoom.addEventListener('click', () => canvas.zoomTo(1));
-el.tbFit.addEventListener('click', () => canvas.fit());
+// The zoom, Fit and Reset controls are the graph's and the map's: they act on whichever of the two is open.
+const zoomed = () => (view === 'map' ? mapView : canvas);
+el.tbZoomOut.addEventListener('click', () => zoomed().zoomBy(1 / 1.2));
+el.tbZoomIn.addEventListener('click', () => zoomed().zoomBy(1.2));
+el.tbZoom.addEventListener('click', () => zoomed().zoomTo(1));
+el.tbFit.addEventListener('click', () => zoomed().fit());
 
 /* Reset layout: the cards moved by hand go back where the layout puts them, and for a moment that can be undone. */
 function resetLayout() {
-  const was = canvas.resetLayout();
+  const target = zoomed();
+  const was = target.resetLayout();
   if (!was) return;
-  toast('Layout reset', { label: 'Undo', run: () => { if (canvas.restoreLayout(was)) toast('Layout restored'); } });
+  toast('Layout reset', { label: 'Undo', run: () => { if (target.restoreLayout(was)) toast('Layout restored'); } });
+  if (target === mapView) paintZoom(mapView.zoom, mapView.moved);
+}
+/** The zoom and Reset as the map has them: the graph's go through paintToolbar. */
+function paintZoom(k, moved) {
+  const pct = `${Math.round(k * 100)}%`;
+  el.tbZoom.textContent = pct;
+  el.tbZoom.setAttribute('aria-label', `Zoom ${pct}. Back to 100%`);
+  if (el.tbReset) el.tbReset.disabled = !(moved > 0);
 }
 el.tbReset.addEventListener('click', resetLayout);
 
@@ -689,8 +700,11 @@ let mapAt = 0;
 let mapBusy = false;
 let mapCompare = null;
 const mapView = new MapView(el.map, {
-  onCopy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied — paste it into a session as a task'), () => toast(`Not copied — select it: ${text}`)),
+  onCopy: (text, what) => navigator.clipboard.writeText(text).then(
+    () => toast(what === 'path' ? `Copied ${text}` : 'Copied — paste it into a session as a task'),
+    () => toast(`Not copied — select it: ${text}`)),
   onCompare: (cwd) => { mapCompare = cwd; loadMap(true); },
+  onZoom: (k) => { if (view === 'map') paintZoom(k, mapView.moved); },
 });
 async function loadMap(force = false) {
   if (!current || mapBusy) return;
@@ -786,8 +800,11 @@ function setView(next, select = null, remember = true) {
   } else if (view === 'map') {
     // The map is the project's: read when the view opens, drawn with what was last read until the answer comes.
     mapView.render();
+    paintZoom(mapView.zoom, mapView.moved);
     loadMap(true);
   } else {
+    // Back on the graph: the zoom and Reset say the graph's again.
+    paintToolbar(canvas.state());
     canvas.fitIfUntouched();
     if (carried && canvas.nodes.has(carried)) canvas.focus(carried);
   }
@@ -1418,6 +1435,8 @@ const ICON = {
   copy: 'M5.5 5.5v-2A1.5 1.5 0 0 1 7 2h5.5A1.5 1.5 0 0 1 14 3.5V9a1.5 1.5 0 0 1-1.5 1.5h-2M3.5 5.5H9A1.5 1.5 0 0 1 10.5 7v5.5A1.5 1.5 0 0 1 9 14H3.5A1.5 1.5 0 0 1 2 12.5V7a1.5 1.5 0 0 1 1.5-1.5z',
   chevron: 'M6 4l4 4-4 4',
   more: 'M3.5 8h.01M8 8h.01M12.5 8h.01',
+  // The Map view's tab mark: three cards and the lines between them.
+  map: 'M2 2.5h5v3.5H2zM9 2.5h5v3.5H9zM5.5 10h5v3.5h-5zM4.5 6v2h7V6M8 8v2',
   machine: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 9.5v-5A1.5 1.5 0 0 1 3.5 3zM6 14h4M8 11v3',
 };
 
@@ -1648,6 +1667,23 @@ function versionBadge(kit) {
   return tag;
 }
 
+/** The Map entry under a project: opens the project's map, through its latest session. */
+function mapRow(p, latest) {
+  const row = node('div', 'srow map-row');
+  row.tabIndex = 0;
+  row.setAttribute('role', 'treeitem');
+  row.dataset.map = p.key;
+  const words = node('span', 'map-word', 'Map');
+  row.append(icon(ICON.map), words, node('span', 'row-fill'));
+  if (p.map?.findings) { const n = node('span', 'map-count', String(p.map.findings)); n.title = `${p.map.findings} finding(s) on the map`; row.append(n); }
+  else if (!p.map) row.append(node('span', 'sub', 'no map'));
+  row.title = p.map ? 'Open the project map' : 'This project has no .crewforth/crew-map.json yet';
+  const go = () => { selectSession(latest.sessionId); setView('map'); };
+  row.addEventListener('click', go);
+  row.addEventListener('keydown', (e) => { if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(); } });
+  return row;
+}
+
 function sessionRow(project, sn) {
   const status = sessionStatus(sn.sessionId, fleetData);
   const name = sessionName(sn, labels.all());
@@ -1812,6 +1848,8 @@ function paintProjects() {
     group.append(head);
 
     if (open) {
+      // Under the project, its map (spec §11): the orange number is how many findings it shows unasked.
+      if (p.local !== false && p.exists && sessions.length) group.append(mapRow(p, sessions[0]));
       for (const sn of sessions) group.append(sessionRow(p, sn));
       if (p.total > p.sessions.length) {
         group.append(node('div', 'nav-line', `${p.total - p.sessions.length} older session(s) not listed`));
@@ -2426,7 +2464,7 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 'l') {
     setView('list');
   } else if (key === 'r') {
-    if (view === 'graph') resetLayout();
+    if (view === 'graph' || view === 'map') resetLayout();
   } else if (key === 'm') {
     setView('models');
   } else if (key === 'p') {

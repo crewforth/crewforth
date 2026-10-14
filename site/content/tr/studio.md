@@ -85,17 +85,20 @@ Görünümün göstermediği: kayıtta yalnız crew ajanları var. Model seçimi
 
 ## Map: projenin crew haritasındaki hâli
 
-**Map** görünümü (`p`), Crewforth'un tarayıcısının (`bash .claude/eval/lib/crew-map/crew-map.sh`) yazdığı haritayı, yani `.crewforth/crew-map.json`'ı çiziyor: projenin modülleri, dokundukları dış kaynaklar, sundukları ve çağırdıkları endpoint'ler ve aralarındaki bulgular; her biri `dosya:satır` gösteriyor. Studio onu yalnız okuyor. Harita yoksa görünüm nasıl yazılacağını söylüyor; panelden hiçbir şey taranmıyor.
+**Map** görünümü (`p`, ya da gezginde bir projenin altındaki **Map**; yanında gösterdiği bulgu sayısı), Crewforth'un tarayıcısının (`bash .claude/eval/lib/crew-map/crew-map.sh`) yazdığı haritayı, yani `.crewforth/crew-map.json`'ı çiziyor: projenin modülleri, dokundukları dış kaynaklar, sundukları ve çağırdıkları endpoint'ler ve aralarındaki bulgular; her biri `dosya:satır` gösteriyor. Studio onu yalnız okuyor. Harita yoksa görünüm nasıl yazılacağını söylüyor; panelden hiçbir şey taranmıyor.
 
-Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points**, **Core**, **Infrastructure**, **External**. Bant, haritanın modül hakkında gösterdiği şey: bir endpoint sunan ya da bir konteynerin derlediği modül giriş noktası, yalnız endpoint çağıran istemci, başka bir modülün başvurduğu çekirdek. Haritanın yerleştirmediği modül bir tahmine değil **Unplaced**'e gidiyor. Bir dosyanın kanıtladığı çizgi düz, çıkarılan noktalı; bir modül seçince yalnız onun çizgileri yanıyor, gerisi soluk kalıyor, `Esc` seçimi bırakıyor.
+Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points**, **Core**, **Infrastructure**, **External**. Bant, haritanın modül hakkında gösterdiği şey: bir endpoint sunan ya da bir konteynerin derlediği modül giriş noktası, yalnız endpoint çağıran istemci, başka bir modülün başvurduğu çekirdek. Haritanın yerleştirmediği modül bir tahmine değil **Unplaced**'e gidiyor. Bir dosyanın kanıtladığı çizgi düz, çıkarılan noktalı, modelin önerdiği ise **model** işaretiyle kesik; yalnız çıkarılan çizgilerle bağlanan dış kaynağın çerçevesi kesik. Bir modül seçince yalnız onun çizgileri yanıyor, gerisi soluk kalıyor, `Esc` seçimi bırakıyor. Bölme grafiğinki gibi kaydırılıyor ve yakınlaştırılıyor, aynı yakınlaştırma, **Fit** ve **Reset layout** düğmeleriyle: sürüklenen kart o proje için konduğu yerde kalıyor, bir bantta aynı klasörü paylaşan modüller tek karta katlanıp yeniden açılabiliyor.
 
 | Parça | Ne yapıyor |
 |:--|:--|
 | **Kaynak şeridi** | dosya, tarandığı commit ve o zamandan beri `HEAD`'in kaç commit ilerlediği |
 | **Layers** | Modules, External, Endpoints (her modülün endpoint'leri çip olarak), Findings |
-| **Findings** | bütün bulgular, kanıtlılar önce. Tarayıcının fazla sık yanıldığı için işaretlediği kural varsayılan olarak gizli ve sayılıyor; **Show N hidden by default** geri getiriyor |
-| **Inspector** | Overview (neye bağlandığı, `dosya:satır` ile), Connections (giden ve gelen) ve Findings; her bulgu **Copy as task** taşıyor, bulguyu bir oturuma yapıştırılacak metin olarak kopyalıyor. **Not measured** her zaman en altta |
+| **Findings** | bütün bulgular, kanıtlılar önce. Tarayıcının fazla sık yanıldığı için işaretlediği kural varsayılan olarak gizli ve sayılıyor; **Show N hidden by default** geri getiriyor. Bir satır modülünü seçiyor ve kartını bölmenin ortasına getiriyor |
+| **Inspector** | Overview (neye bağlandığı ve düğümün kendi kanıtı), Connections (türe göre, giden ve gelen) ve Findings; her bulgu **Copy as task** taşıyor, bulguyu bir oturuma yapıştırılacak metin olarak kopyalıyor. Her `dosya:satır` yolunu kopyalıyor. **Not measured** her zaman en altta |
+| **Legend** | her çizginin ve çerçevenin ne demek olduğu; dışında herhangi bir yere basınca kapanıyor |
 | **Compare with** | bu makinede haritası olan başka bir proje. Onun kendi endpoint'lerinin sunmadığı çağrıları bu projeyle eşleştiriliyor: çağıran modülleri **Clients**'a geliyor, her çizgi kaç çağrının buraya düştüğünü ve kaçının **missing** olduğunu söylüyor, eksikler bulgulara ekleniyor |
+
+Telefonda bölmenin yerini bulgular ve modüllerin listesi alıyor; bir satır modülü inspector'da açıyor.
 
 ## Onay dock'u
 

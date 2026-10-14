@@ -20,6 +20,14 @@ versioning follows [SemVer](https://semver.org/).
   the floor the gate held them to, with what they cost as run and the same tokens at Sonnet's list price. That
   Sonnet is enough for a class is said only when its last ten verified calls on Sonnet all passed first time, the
   test a held class is offered for lowering by; otherwise the view says it is not measured.
+- **Studio draws a project's crew map.** The Map view (`p`, or **Map** under a project in the navigator, beside its
+  number of findings) reads `.crewforth/crew-map.json` and scans nothing. Modules sit in bands from the clients down
+  to the external resources, and a module the map does not place goes to Unplaced. Lines are solid where a file
+  proves them, dotted where inferred, and marked where the model proposed them. The pane pans and zooms with the
+  graph's own code; a card placed by hand stays placed for the project, and modules sharing a folder fold into one
+  card. The findings are listed proven first, with the scanner's hidden rules counted until asked for. The inspector
+  copies any `file:line` and copies a finding as a task. Compare with matches another project's calls against this
+  one's endpoints. On a phone, the findings and a list of the modules stand in for the pane.
 
 ### Changed
 

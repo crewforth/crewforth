@@ -933,9 +933,10 @@ check('prose without a notice yields nothing', none.size === 0);
   const app = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
   check('the toolbar has the control, off until a card is moved; r does the same on the graph; and the toast offers Undo',
-    /id="tb-reset" data-view="graph"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
-    && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
-    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(canvas\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
+    /id="tb-reset" data-view="graph map"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
+    && /key === 'r'\) \{\s*if \(view === 'graph' \|\| view === 'map'\) resetLayout\(\);/.test(app)
+    && /const target = zoomed\(\);\s*const was = target\.resetLayout\(\);/.test(app)
+    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(target\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
   const keys = await import(`../../kit/studio/web/keys.js?k=${Date.now()}`);
   const press = (key, extra = {}) => keys.shortcutOf({ key, target: { tagName: 'DIV' }, ...extra });
   check('r is a shortcut only as a bare key outside a field: not while typing, and not as Cmd+R, Ctrl+R or Alt+R',
@@ -955,7 +956,7 @@ check('prose without a notice yields nothing', none.size === 0);
     // What Option+R gives on a Mac is a symbol, and it is no shortcut of this panel: it reaches the handler and matches nothing.
     && press('®', { altKey: true }) === '®');
   check('every letter shortcut goes through that one rule, r among them, and r is bound once',
-    /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(app) && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
+    /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(app) && /key === 'r'\) \{\s*if \(view === 'graph' \|\| view === 'map'\) resetLayout\(\);/.test(app)
     && (app.match(/key === 'r'\)/g) ?? []).length === 1 && !/e\.key === '[gtlrjk]'/.test(app));
   check('a group folded by hand in the Timeline or the List repaints the two controls at once',
     /onChange: \(st\) => \{ paintTimelineBar\(st\); paintFoldButtons\(\); \},/.test(app) && /onFold: \(\) => paintFoldButtons\(\),/.test(app));
@@ -1690,7 +1691,7 @@ check('prose without a notice yields nothing', none.size === 0);
         view.setData(null); const reading = root.children[0]?.children?.[0]?.textContent;
         view.setData({ measured: false, missing: true, reason: 'no map here', others: [] }); const empty = root.children[0]?.children?.[0]?.textContent;
         view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p', doc: ws, behind: { count: 2 }, others: [{ label: 'billing-web', cwd: '/q' }], compare: null });
-        const cards = walkAll(root, (e) => e.className === 'mp-mod' || e.className === 'mp-ext');
+        const cards = walkAll(root, (e) => String(e.className).startsWith('mp-card'));
         const isLine = (e) => (e.getAttribute?.('class') ?? e.className) === 'mp-line';
         const paths = walkAll(root, isLine);
         const rows = walkAll(root, (e) => e.className === 'mp-frow');
@@ -1721,6 +1722,166 @@ check('prose without a notice yields nothing', none.size === 0);
       !/writeFileSync|appendFileSync|renameSync|createWriteStream|unlinkSync|rmSync|spawn\(|exec\(/.test(libSrc) && (libSrc.match(/execFile\(/g) ?? []).length === 1
       && !/fetch\(|XMLHttpRequest/.test(mapSrc) && /const peer = asked \? others\.find\(\(o\) => o\.cwd === asked\) : null;/.test(srvSrc)
       && /readMap\(p\.cwd\)\.measured/.test(srvSrc) && !/from '[^']*(scan\.mjs|eval\/lib\/crew-map)|import\([^)]*scan|'crew-map\.sh'/.test(srvSrc + libSrc));
+  }
+  /* The map as the design has it (faz6 brief §7, screen spec §11): on the graph's own pan-and-zoom pane, with cards
+     placed by hand and folders folded, the line language, the inspector's copyable file:line, a legend that closes
+     from outside, findings that bring their card to the middle, the phone's list, and the navigator's Map entry. */
+  {
+    const mpl = await import(`../../kit/studio/web/map-plan.js?v2=${Date.now()}`);
+    const cm = await import(`../../kit/studio/server/lib/crew-map.js?v2=${Date.now()}`);
+    const vpSrc = read(path.join(WEB_ROOT, 'viewport.js')) ?? '';
+    const cvSrc = read(path.join(WEB_ROOT, 'canvas.js')) ?? '';
+    const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
+    check('the map pans, zooms and places cards with the graph\'s own code: one viewport, used by both, and no second copy of the wheel or the drag',
+      /export class Viewport/.test(vpSrc) && /export function draggable/.test(vpSrc)
+      && /this\.vp = new Viewport\(this\.root, this\.viewport,/.test(cvSrc) && /draggable\(el, \{/.test(cvSrc)
+      && /this\.vp = new Viewport\(this\.pane, this\.layer,/.test(mapSrc) && /draggable\(card, \{/.test(mapSrc)
+      && !/addEventListener\('wheel'/.test(cvSrc + mapSrc) && (vpSrc.match(/addEventListener\('wheel'/g) ?? []).length === 1);
+    const e = (o) => ({ from: 'a', to: 'b', kind: 'k', ...o });
+    check('a line is drawn as what it rests on: a file, an inference, or the model; a resource only inferred is drawn as only inferred',
+      mpl.lineOf(e({ confidence: 'evidence' })) === 'evidence' && mpl.lineOf(e({ confidence: 'inferred' })) === 'inferred'
+      && mpl.lineOf(e({ confidence: 'inferred', source: 'model' })) === 'model' && mpl.lineOf(e({ confidence: 'evidence', source: 'model' })) === 'model'
+      && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' })]) === true
+      && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' }), e({ from: 'c', to: 'x', confidence: 'evidence' })]) === false
+      && mpl.inferredOnly({ id: 'x', kind: 'external' }, []) === false && mpl.inferredOnly({ id: 'x', kind: 'module' }, [e({ to: 'x', confidence: 'inferred' })]) === false);
+    const mods = [
+      { id: 'm1', kind: 'module', band: 'core', path: 'src/a' }, { id: 'm2', kind: 'module', band: 'core', path: 'src/b' },
+      { id: 'm3', kind: 'module', band: 'entry', path: 'src/c' }, { id: 'm4', kind: 'module', band: 'core', path: 'lib' },
+      { id: 'x', kind: 'external', band: 'external' },
+    ];
+    const groups = mpl.groupsOf(mods);
+    const gid = 'grp:core:src';
+    const lines = [e({ from: 'm1', to: 'x', kind: 'uses-db', confidence: 'inferred' }), e({ from: 'm2', to: 'x', kind: 'uses-db', confidence: 'evidence' }), e({ from: 'm1', to: 'm2', kind: 'references' }), e({ from: 'm3', to: 'm1', kind: 'references' })].map((l) => ({ ...l, line: mpl.lineOf(l), solid: l.confidence !== 'inferred' }));
+    const fv = mpl.foldView(mods, lines, groups, new Set([gid]));
+    const open = mpl.foldView(mods, lines, groups, new Set());
+    check('modules of one band under one folder fold into one card; a module alone in its folder, or in another band, is in no group; folded, their lines are the group\'s, once each, solid when any was',
+      Object.keys(groups).join() === gid && groups[gid].members.join() === 'm1,m2'
+      && fv.nodes.map((n) => n.id).join() === 'grp:core:src,m3,m4,x' && fv.nodes[0].kind === 'group'
+      && fv.edges.length === 2 && fv.edges.find((l) => l.to === 'x').line === 'evidence' && !fv.edges.some((l) => l.from === l.to)
+      && fv.edges.some((l) => l.from === 'm3' && l.to === gid) && open.nodes.length === 5 && open.edges.length === 4,
+      fv.edges.map((l) => `${l.from}>${l.to}:${l.line}`).join(' '));
+    const lay = mpl.layoutOf(mods.map((n) => ({ ...n })), { width: 900 });
+    const pl = mpl.placed(lay, { m1: { x: 1500, y: 900 }, gone: { x: 1, y: 1 } });
+    check('a card placed by hand is drawn where it was put, the picture grows to hold it, and a placing for a card that is not drawn is ignored',
+      pl.pos.m1.x === 1500 && pl.pos.m1.y === 900 && pl.pos.m2.x === lay.pos.m2.x && pl.width >= 1500 + lay.pos.m1.w && pl.height >= 900 + lay.pos.m1.h && !pl.pos.gone);
+    {
+      // A folded card, then an open group of two, in one band: the group's frame must hold its own cards and no other.
+      const row = [{ id: 'gA', kind: 'group', band: 'core' }, { id: 'p', kind: 'module', band: 'core' }, { id: 'q', kind: 'module', band: 'core' }];
+      const key = (n) => (n.id === 'p' || n.id === 'q' ? 'grp:core:tools' : null);
+      const frameHoldsOther = (l) => {
+        const b = ['p', 'q'].map((id) => l.pos[id]);
+        const fx = Math.min(...b.map((v) => v.x)); const fy = Math.min(...b.map((v) => v.y));
+        const fx2 = Math.max(...b.map((v) => v.x + v.w)); const fy2 = Math.max(...b.map((v) => v.y + v.h));
+        const g = l.pos.gA; return g.x < fx2 && g.x + g.w > fx && g.y < fy2 && g.y + g.h > fy;
+      };
+      const keyed = mpl.layoutOf(row, { width: 720, rowKey: key });
+      const plain = mpl.layoutOf(row, { width: 720 });
+      check('an open group starts a row of its own, so its frame holds its own cards and no other; without that the frame took in a folded neighbour',
+        !frameHoldsOther(keyed) && frameHoldsOther(plain) && keyed.pos.p.y > keyed.pos.gA.y,
+        `with rows: ${JSON.stringify(keyed.pos)}`);
+    }
+    const ws2 = JSON.parse(read(path.join(HERE, 'fixtures', 'crew-map', 'node-ws.json')) ?? 'null');
+    const api = mpl.nodesOf(ws2).find((n) => n.id === 'mod:node:@demo/api');
+    const ins = mpl.inspectOf(api, ws2, mpl.edgesOf(ws2), mpl.findingsOf(ws2).shown);
+    check('the inspector lists the connections by kind and the node\'s own evidence as file:line',
+      ins.byKind.map(([k]) => k).join() === [...new Set([...ins.connections.out, ...ins.connections.in].map((c) => c.kind))].sort().join()
+      && ins.byKind.every(([, v]) => v.out.length + v.in.length > 0) && ins.evidence.length > 0 && ins.evidence.every((x) => /^[^:]+:\d+$/.test(x)),
+      `${ins.byKind.map(([k, v]) => `${k} ${v.out.length}+${v.in.length}`).join(', ')}; evidence ${ins.evidence.join(', ')}`);
+    {
+      const dom = installDom();
+      const docListeners = [];
+      document.addEventListener = (t, fn) => docListeners.push([t, fn]);
+      try {
+        const { MapView, LAYOUT_KEY } = await import(`../../kit/studio/web/map.js?v2=${Date.now()}`);
+        const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+        const copied = []; const zooms = [];
+        const root = document.createElement('div');
+        const view = new MapView(root, { onCopy: (t, w) => copied.push([w, t]), onZoom: (k) => zooms.push(k) });
+        view.pane.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600 });
+        const grouped = { ...ws2, nodes: [...ws2.nodes, { id: 'mod:node:extra', kind: 'module', name: 'extra', stack: 'node', path: 'packages/extra', tech: [] }],
+          edges: [...ws2.edges, { from: 'mod:node:extra', to: 'mod:node:@demo/shared', kind: 'references', confidence: 'evidence', source: 'scanner', evidence: [] }] };
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
+        const card = (id) => walkAll(root, (x) => x.dataset?.id === id && String(x.className).startsWith('mp-card'))[0];
+        const frames = walkAll(root, (x) => x.className === 'mp-group');
+        // drag a card 50 px at 100%: it is placed, kept for this project, and the click that ends the drag selects nothing
+        const c = card('mod:node:@demo/api');
+        const at = { ...view.lay.pos['mod:node:@demo/api'] };
+        c.emit('pointerdown', { clientX: 0, clientY: 0, pointerId: 1 }); c.emit('pointermove', { clientX: 50, clientY: 20 }); c.emit('pointerup'); c.emit('click');
+        const saved = JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`) ?? 'null');
+        const placedOk = view.pins['mod:node:@demo/api']?.x === at.x + Math.round(50 / view.zoom) && saved?.pins?.['mod:node:@demo/api'] && view.selected === null;
+        // another project starts from its own layout, and coming back restores this one
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-b', doc: ws2, behind: { count: 0 }, others: [], compare: null });
+        const otherClean = view.moved === 0;
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
+        const back = view.moved === 1;
+        const undo = view.resetLayout(); const reset = view.moved === 0 && undo && view.restoreLayout(undo) && view.moved === 1;
+        // fold the folder of two modules in one band, and open it again from its card
+        const fold = walkAll(root, (x) => x.className === 'mp-group-fold')[0];
+        fold?.emit('click');
+        const foldedCard = walkAll(root, (x) => x.dataset?.kind === 'group')[0];
+        const foldedOk = Boolean(foldedCard) && !card('mod:node:extra') && JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`)).folded.length === 1;
+        foldedCard?.emit('click');
+        const reopened = Boolean(card('mod:node:extra')) && !walkAll(root, (x) => x.dataset?.kind === 'group').length;
+        // the legend opens, a press inside keeps it, a press outside closes it
+        walkAll(root, (x) => x.tagName === 'BUTTON' && x.textContent === 'Legend')[0].emit('click');
+        const opened = walkAll(root, (x) => x.className === 'mp-legend-box').length === 1;
+        const press = docListeners.find(([t]) => t === 'pointerdown')[1];
+        press({ target: { closest: (s) => (s === '.mp-legend' ? {} : null) } });
+        const kept = walkAll(root, (x) => x.className === 'mp-legend-box').length === 1;
+        press({ target: { closest: () => null } });
+        const closed = walkAll(root, (x) => x.className === 'mp-legend-box').length === 0;
+        // a finding row selects its module and brings its card to the middle of the pane
+        zooms.length = 0;
+        const row = walkAll(root, (x) => x.className === 'mp-frow')[0];
+        row.emit('click');
+        const sel = view.selected; const p = view.lay.pos[sel];
+        const centred = Math.abs(view.vp.view.x + (p.x + p.w / 2) * view.zoom - 500) < 1 && Math.abs(view.vp.view.y + (p.y + p.h / 2) * view.zoom - 300) < 1;
+        // the inspector's file:line copies the path, and says it is a path
+        walkAll(root, (x) => String(x.className).includes('mp-cite'))[0]?.emit('click');
+        const cite = copied.find(([w]) => w === 'path');
+        const modRows = walkAll(root, (x) => x.className === 'mp-mrow').length;
+        check('a card dragged is placed and kept for its project, its click selects nothing, another project keeps its own, and Reset forgets and Undo brings back',
+          placedOk && otherClean && back && reset && frames.length === 1, `pins ${JSON.stringify(view.pins)}; frames ${frames.length}`);
+        check('a folder is folded into one card and opened again from it, and the fold is kept for the project',
+          foldedOk && reopened);
+        check('the legend is a popover: a press inside keeps it open, a press anywhere else closes it',
+          opened && kept && closed);
+        check('a finding row selects its module and brings its card to the middle of the pane; a file:line copies, as a path',
+          Boolean(sel) && centred && zooms.length > 0 && Boolean(cite) && /^[^:]+:\d+$/.test(cite[1]),
+          `${sel}; view ${JSON.stringify(view.vp.view)}; copied ${JSON.stringify(cite)}`);
+        // A click must not move the cards it did not touch, even when the pane is another width than at the first draw.
+        const v2 = new MapView(document.createElement('div'), {});
+        v2.pane.clientWidth = 900;
+        // Twelve resources in one band: at 900 px they wrap onto two rows, at 1500 px they would fit on one.
+        const wide = { ...ws2, nodes: [...ws2.nodes, ...Array.from({ length: 8 }, (_, i) => ({ id: `ext:http-api:w${i}`, kind: 'external', resource: 'http-api', label: `w${i}`, hosts: [], evidence: [] }))] };
+        v2.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-c', doc: wide, behind: { count: 0 }, others: [], compare: null });
+        const before = JSON.stringify(v2.lay.pos);
+        v2.pane.clientWidth = 1500;
+        v2.select('mod:node:@demo/web');
+        const stable = JSON.stringify(v2.lay.pos) === before;
+        check('a click redraws the map without moving a card: the width cards wrap at is taken once per map and pane size',
+          stable, stable ? 'the same places' : 'cards moved on a click');
+        check('the phone\'s list holds every module, and the stylesheet shows it in place of the pane below 640 px',
+          modRows === grouped.nodes.filter((n) => n.kind !== 'external').length
+          && /@media \(max-width: 639px\) \{\s*\.mp-canvas-pane, \.mp-hint \{ display: none; \}\s*\.mp-modlist \{ display: flex; \}/.test(read(path.join(WEB_ROOT, 'style.css')) ?? ''),
+          `${modRows} rows`);
+      } finally { dom(); }
+    }
+    const d5 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-map-nav-'));
+    const none = cm.mapSummary(d5);
+    fs.mkdirSync(path.join(d5, '.crewforth'));
+    fs.writeFileSync(path.join(d5, '.crewforth', 'crew-map.json'), JSON.stringify(ws2));
+    const some = cm.mapSummary(d5);
+    fs.writeFileSync(path.join(d5, '.crewforth', 'crew-map.json'), '{ broken');
+    const broken = cm.mapSummary(d5);
+    fs.rmSync(d5, { recursive: true, force: true });
+    const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+    check('the navigator has a Map entry under a project, with the number of findings the map shows unasked; none says so, and a map that cannot be read is no number',
+      none === null && some.findings === ws2.findings.filter((f) => !f.data?.defaultHidden).length && broken.findings === null && /not JSON/.test(broken.reason)
+      && /p\.map = p\.exists && p\.cwd \? mapSummary\(p\.cwd\) : null;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? '')
+      && /if \(p\.local !== false && p\.exists && sessions\.length\) group\.append\(mapRow\(p, sessions\[0\]\)\);/.test(appSrc)
+      && /const go = \(\) => \{ selectSession\(latest\.sessionId\); setView\('map'\); \};/.test(appSrc),
+      `none ${JSON.stringify(none)}, some ${JSON.stringify(some)}, broken ${JSON.stringify(broken)}`);
   }
   const serverJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   const outcomesJs = read(path.join(STUDIO, 'server', 'lib', 'model-outcomes.js')) ?? '';
@@ -6265,7 +6426,9 @@ process.stdout.write('\n== §33 the Timeline ==\n');
     check('the toolbar switches between the graph and the Timeline, and each view shows only its own controls',
       /id="view-graph"[^>]*role="tab"[^>]*aria-selected="true"/.test(indexHtml) && /id="view-timeline"[^>]*role="tab"/.test(indexHtml)
       && /for \(const c of document\.querySelectorAll\('\.toolbar \[data-view\]'\)\) c\.hidden = !c\.dataset\.view\.split\(' '\)\.includes\(view\);/.test(appJs)
-      && ['tb-density', 'tb-zoom-out', 'tb-zoom', 'tb-zoom-in', 'tb-fit'].every((i) => new RegExp(`id="${i}" data-view="graph"`).test(indexHtml))
+      && /id="tb-density" data-view="graph"/.test(indexHtml)
+      // Zoom and Fit act on the graph and on the project map, the two views that pan and zoom (viewport.js).
+      && ['tb-zoom-out', 'tb-zoom', 'tb-zoom-in', 'tb-fit', 'tb-reset'].every((i) => new RegExp(`id="${i}" data-view="graph map"`).test(indexHtml))
       // Expand all and Fold all belong to all three views: each has groups of its own to open and fold.
       && ['tb-expand', 'tb-fold'].every((i) => new RegExp(`id="${i}" data-view="graph timeline list"`).test(indexHtml))
       && (indexHtml.match(/data-view="timeline"/g) ?? []).length === 4);

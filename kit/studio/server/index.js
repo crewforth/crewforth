@@ -22,7 +22,7 @@ import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
 import { readModels, readRecord, readCosts, readAboveCosts } from './lib/model-outcomes.js';
-import { readMap, behindOf, compareMaps } from './lib/crew-map.js';
+import { readMap, behindOf, compareMaps, mapSummary, MAP_FILE } from './lib/crew-map.js';
 
 const USAGE_BATCH = 12;
 import { palette } from './lib/palette.js';
@@ -317,7 +317,12 @@ export async function handle(req, res) {
     // dead time whenever the feed hung, measured. The refresh runs behind this response.
     const latest = latestVersionCached();
     const projects = await listProjects({ currentCwd: cwd, kitOf: (c) => kitStatus(c, latest) });
-    for (const p of projects) { p.origin = SELF_NAME; p.local = true; }
+    for (const p of projects) {
+      p.origin = SELF_NAME; p.local = true;
+      // The navigator's Map entry and its count: the findings the map shows unasked. A stat per project; the map
+      // is parsed again only when its file changes (crew-map.js).
+      p.map = p.exists && p.cwd ? mapSummary(p.cwd) : null;
+    }
 
     const origins = [{ name: SELF_NAME, local: true, ok: true, projects: projects.length }];
     if (PEERS.length) {
@@ -901,6 +906,26 @@ async function selftest() {
     typeof fleet.measured === 'boolean',
     fleet.measured ? `${fleet.sessions.length} session(s)` : `not measured: ${fleet.reason}`,
   );
+
+  // The Map view: its files are installed, and the reader takes a crew map and refuses one of another schema. On a
+  // scratch map of its own, so the verdict does not depend on whether this project has one; this project's own map,
+  // when there is one, is reported beside it.
+  check('map view installed', ['map.js', 'map-plan.js', 'viewport.js'].every((f) => fs.existsSync(path.join(WEB_ROOT, f))), null);
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-studio-map-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.crewforth'));
+      const doc = { schema: 'crewforth.crew-map/1', nodes: [{ id: 'mod:x:a', kind: 'module', name: 'a' }], edges: [], findings: [], notMeasured: [] };
+      fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify(doc));
+      const read = readMap(dir);
+      fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify({ ...doc, schema: 'crewforth.crew-map/9' }));
+      const other = readMap(dir);
+      check('map read', read.measured === true && read.doc.nodes.length === 1 && other.measured === false,
+        read.measured ? `a scratch map read; one of another schema refused (${other.reason ?? 'read'})` : read.reason);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    const own = readMap(process.cwd());
+    process.stdout.write(`INFO this project's map — ${own.measured ? `${own.doc.nodes.length} node(s), ${own.doc.findings.length} finding(s)` : own.reason}\n`);
+  }
 
   const cost = await measureSpawnCost(3);
   if (cost === null) skip('spawn cost measured', 'claude CLI absent');
