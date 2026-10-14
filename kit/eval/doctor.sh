@@ -714,7 +714,9 @@ if [ -f .claude/hooks/guard-bash.sh ]; then
       *) _pi=0
          while [ "$_pi" -lt "$_pn" ]; do
            _pid="$(printf '{"p":%s}' "$_pl" | awk -v op=get -v path="p.$_pi.id" -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)"
-           case "$_pid" in '"crewforth@'*)
+           # crewforth@… is 3.x; claude-starter-kit@… is the 2.x plugin, which wires the same hooks and is often still
+           # enabled at user scope after a 3.x install (measured in a real project).
+           case "$_pid" in '"crewforth@'*|'"claude-starter-kit@'*)
              _pen="$(printf '{"p":%s}' "$_pl" | awk -v op=get -v path="p.$_pi.enabled" -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)"
              [ "$_pen" = true ] && _pon="${_pid//\"/}" ;;
            esac
