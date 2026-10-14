@@ -46,6 +46,6 @@
   "homepage": "https://crewforth.com/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Crewforth/crewforth.git"
+    "url": "git+https://github.com/crewforth/crewforth.git"
   }
 }
