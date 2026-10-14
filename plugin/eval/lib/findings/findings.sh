@@ -9,7 +9,9 @@
 # resolver is asked (it knows the places PATH does not reach, and the runtime Crewforth may have fetched). This
 # file never installs anything.
 set -u
-d="${BASH_SOURCE%/*}"; [ "$d" = "${BASH_SOURCE}" ] && d=.
+# A caller on Windows may name this file with backslashes (Node's path.join does); cut at either separator,
+# or the directory falls back to "." and findings.mjs is looked for in the caller's cwd.
+d="${BASH_SOURCE%[/\\]*}"; [ "$d" = "${BASH_SOURCE}" ] && d=.
 FLOOR=18
 
 usable(){ local v; v="$("$1" -p 'process.versions.node.split(".")[0]' 2>/dev/null)" || return 1

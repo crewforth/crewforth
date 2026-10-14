@@ -233,7 +233,8 @@ const good = JSON.stringify(doc()); const bad = JSON.stringify(ev({ line: 1 }));
     const r1 = sh(withNode, good, ['validate', '--root', ROOT, '-']);
     check('findings.sh hands a good document through with rc 0', r1.status === 0 && /1 verified/.test(r1.stdout), `rc=${r1.status} ${r1.stdout}${r1.stderr}`);
     const r2 = sh(withNode, bad, ['validate', '--root', ROOT, '-']);
-    check('findings.sh hands a failing document through with rc 1', r2.status === 1, `rc=${r2.status} ${r2.stderr}`);
+    // rc 1 alone is what Node gives when it cannot find findings.mjs at all, so the summary line must be there too.
+    check('findings.sh hands a failing document through with rc 1', r2.status === 1 && /\b1 problem\(s\)/.test(r2.stdout), `rc=${r2.status} ${r2.stdout}${r2.stderr}`);
     // The Store-stub shape: a `node` that resolves first on PATH and exits 49 without running anything.
     const stub = path.join(TMP, 'stub'); fs.mkdirSync(stub);
     fs.writeFileSync(path.join(stub, 'node'), '#!/bin/sh\necho "Python was not found" >&2\nexit 49\n', { mode: 0o755 });
