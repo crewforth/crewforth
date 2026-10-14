@@ -1,0 +1,411 @@
+{
+  "schema": "crewforth.crew-map/1",
+  "producer": {
+    "name": "crew-map",
+    "version": "1"
+  },
+  "stacks": [
+    "dotnet"
+  ],
+  "coverage": {
+    "files": 8,
+    "modules": 4,
+    "listing": "walk"
+  },
+  "nodes": [
+    {
+      "id": "ext:db:postgres",
+      "kind": "external",
+      "resource": "db",
+      "label": "postgres",
+      "hosts": [
+        "db.internal"
+      ],
+      "evidence": [
+        {
+          "file": "Api/Api.csproj",
+          "line": 7,
+          "text": "Npgsql",
+          "sha256": "e20ea051967659573f55f2a1c13e8a884b7eae1baa7a294cf2c386b6f014c3fb"
+        },
+        {
+          "file": "Api/appsettings.json",
+          "line": 4,
+          "text": "Default"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "ext:http-api:pay.vendor.net",
+      "kind": "external",
+      "resource": "http-api",
+      "label": "pay.vendor.net",
+      "hosts": [
+        "pay.vendor.net"
+      ],
+      "evidence": [
+        {
+          "file": "Api/appsettings.json",
+          "line": 8,
+          "text": "BaseUrl"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:dotnet:Api",
+      "kind": "module",
+      "name": "Api",
+      "stack": "dotnet",
+      "path": "Api",
+      "manifest": "Api/Api.csproj",
+      "tech": [
+        "Microsoft.NET.Sdk.Web",
+        "net8.0"
+      ],
+      "entry": true,
+      "entryPoint": {
+        "evidence": [
+          {
+            "file": "Api/Api.csproj",
+            "line": 1,
+            "text": "Microsoft.NET.Sdk.Web",
+            "sha256": "74c093800dbaf43dd116cea9d59738431abad47d4d7a45e2b0efaaed1f501e0f"
+          }
+        ]
+      },
+      "dependencies": 2,
+      "evidence": [
+        {
+          "file": "Api/Api.csproj",
+          "line": 1,
+          "text": "Project",
+          "sha256": "74c093800dbaf43dd116cea9d59738431abad47d4d7a45e2b0efaaed1f501e0f"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:dotnet:Core",
+      "kind": "module",
+      "name": "Core",
+      "stack": "dotnet",
+      "path": "Core",
+      "manifest": "Core/Core.csproj",
+      "tech": [
+        "Microsoft.NET.Sdk",
+        "net8.0"
+      ],
+      "entry": false,
+      "dependencies": 1,
+      "evidence": [
+        {
+          "file": "Core/Core.csproj",
+          "line": 1,
+          "text": "Project",
+          "sha256": "81590f63c7cc75247d3bf84dbe30d990110122d8c0945ceb3004bd1cef662703"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:dotnet:Legacy",
+      "kind": "module",
+      "name": "Legacy",
+      "stack": "dotnet",
+      "path": "Legacy",
+      "manifest": "Legacy/Legacy.csproj",
+      "tech": [
+        "Microsoft.NET.Sdk",
+        "net8.0"
+      ],
+      "entry": false,
+      "dependencies": 0,
+      "evidence": [
+        {
+          "file": "Legacy/Legacy.csproj",
+          "line": 1,
+          "text": "Project",
+          "sha256": "81590f63c7cc75247d3bf84dbe30d990110122d8c0945ceb3004bd1cef662703"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:dotnet:Tools",
+      "kind": "module",
+      "name": "Tools",
+      "stack": "dotnet",
+      "path": "Tools",
+      "manifest": "Tools/Tools.csproj",
+      "tech": [
+        "Microsoft.NET.Sdk",
+        "net8.0"
+      ],
+      "entry": true,
+      "entryPoint": {
+        "evidence": [
+          {
+            "file": "Tools/Tools.csproj",
+            "line": 3,
+            "text": "OutputType",
+            "sha256": "41a13c2daa6652bf573a47dfb6be682608ff00bdada3fc1d4f7885848ad91179"
+          }
+        ]
+      },
+      "dependencies": 0,
+      "evidence": [
+        {
+          "file": "Tools/Tools.csproj",
+          "line": 1,
+          "text": "Project",
+          "sha256": "81590f63c7cc75247d3bf84dbe30d990110122d8c0945ceb3004bd1cef662703"
+        }
+      ],
+      "narrative": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "mod:dotnet:Api",
+      "to": "ext:db:postgres",
+      "kind": "configured-db",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "config"
+      ],
+      "evidence": [
+        {
+          "file": "Api/appsettings.json",
+          "line": 4,
+          "text": "Default"
+        }
+      ]
+    },
+    {
+      "from": "mod:dotnet:Api",
+      "to": "ext:db:postgres",
+      "kind": "uses-db",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "package"
+      ],
+      "evidence": [
+        {
+          "file": "Api/Api.csproj",
+          "line": 7,
+          "text": "Npgsql",
+          "sha256": "e20ea051967659573f55f2a1c13e8a884b7eae1baa7a294cf2c386b6f014c3fb"
+        }
+      ]
+    },
+    {
+      "from": "mod:dotnet:Api",
+      "to": "ext:http-api:pay.vendor.net",
+      "kind": "configured-http-api",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "config"
+      ],
+      "evidence": [
+        {
+          "file": "Api/appsettings.json",
+          "line": 8,
+          "text": "BaseUrl"
+        }
+      ]
+    },
+    {
+      "from": "mod:dotnet:Api",
+      "to": "mod:dotnet:Core",
+      "kind": "references",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "code"
+      ],
+      "evidence": [
+        {
+          "file": "Api/Api.csproj",
+          "line": 11,
+          "text": "Core.csproj",
+          "sha256": "229aff279b374d5eb33a294a4659f9c627604178bfe0dd43f0ff3996ecd73167"
+        }
+      ]
+    },
+    {
+      "from": "mod:dotnet:Tools",
+      "to": "mod:dotnet:Core",
+      "kind": "references",
+      "confidence": "inferred",
+      "source": "scanner",
+      "via": [
+        "code"
+      ],
+      "evidence": [
+        {
+          "file": "Tools/Program.cs",
+          "line": 1,
+          "text": "Demo.Core.Models",
+          "sha256": "7d28be923a58dd1b79c14126848fc61125ad33000b3c247cf5fd37786ecdb7fd"
+        }
+      ]
+    }
+  ],
+  "provides": {
+    "endpoints": [
+      {
+        "module": "mod:dotnet:Api",
+        "method": "GET",
+        "path": "/api/health",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "Api/Program.cs",
+            "line": 9,
+            "text": "MapGet",
+            "sha256": "3101c114fd784140563b7062e254366df1278756f98a268944196917ed047c1f"
+          }
+        ]
+      },
+      {
+        "module": "mod:dotnet:Api",
+        "method": "POST",
+        "path": "/api/users",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "Api/Controllers/UsersController.cs",
+            "line": 10,
+            "text": "HttpPost",
+            "sha256": "00d205262b47ab197f2e0cdf3500595ed0c0f463648a89e079c51e2f312d552e"
+          }
+        ]
+      },
+      {
+        "module": "mod:dotnet:Api",
+        "method": "GET",
+        "path": "/api/users/{}",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "Api/Controllers/UsersController.cs",
+            "line": 7,
+            "text": "HttpGet",
+            "sha256": "0a8e4343e727d9dea7781f7873439ffe71b35302f7440eea887cfd6bde252b13"
+          }
+        ]
+      }
+    ]
+  },
+  "consumes": {
+    "endpoints": []
+  },
+  "findings": [
+    {
+      "id": "config-missing:missing.key:b3c8fdaa",
+      "rule": "config-missing",
+      "title": "Missing:Key is read but defined in no configuration file",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "Api/Program.cs",
+          "line": 5,
+          "text": "Missing:Key",
+          "sha256": "e65c776ec4d3a32812ff133fa1725710614b7dd301bdd41884a2b36bccdae4d5"
+        }
+      ],
+      "data": {
+        "subject": "missing.key",
+        "key": "Missing:Key"
+      }
+    },
+    {
+      "id": "config-unread:api-appsettings.json-features:unused:905c318d",
+      "rule": "config-unread",
+      "title": "Features:Unused is configured in Api/appsettings.json but no read of it was found",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": "Api/appsettings.json",
+          "line": 7,
+          "text": "Unused"
+        }
+      ],
+      "data": {
+        "subject": "Api/appsettings.json Features:Unused",
+        "key": "Features:Unused",
+        "file": "Api/appsettings.json",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "module-orphan:mod:dotnet:legacy:f05c3007",
+      "rule": "module-orphan",
+      "title": "No module references Legacy, and it has no entry point",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": "Legacy/Legacy.csproj",
+          "line": 1,
+          "text": "Project",
+          "sha256": "81590f63c7cc75247d3bf84dbe30d990110122d8c0945ceb3004bd1cef662703"
+        }
+      ],
+      "data": {
+        "subject": "mod:dotnet:Legacy",
+        "module": "mod:dotnet:Legacy",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "version-drift:nuget:newtonsoft.json:5954cd2c",
+      "rule": "version-drift",
+      "title": "Newtonsoft.Json is declared at 2 versions: 12.0.3, 13.0.1",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "Api/Api.csproj",
+          "line": 8,
+          "text": "Newtonsoft.Json",
+          "sha256": "a31987c16b2f3c8a97bbf4dac094b74b3e04568e0265f0c3852a3ac868ea857d"
+        },
+        {
+          "file": "Core/Core.csproj",
+          "line": 7,
+          "text": "Newtonsoft.Json",
+          "sha256": "4c7be80087aba28708d3d38e006bd12f4ee4d20dda6f226095c6818a57155788"
+        }
+      ],
+      "data": {
+        "subject": "nuget:Newtonsoft.Json",
+        "package": "Newtonsoft.Json",
+        "versions": [
+          "12.0.3",
+          "13.0.1"
+        ],
+        "modules": [
+          "mod:dotnet:Api",
+          "mod:dotnet:Core"
+        ]
+      }
+    }
+  ],
+  "notMeasured": [
+    {
+      "what": ".NET package usage (dep-unused, dep-undeclared)",
+      "reason": "a NuGet package name does not say which namespaces it provides, so imports cannot be matched to packages"
+    },
+    {
+      "what": "endpoint-unused",
+      "reason": "this repository calls none of its own endpoints, so their callers are elsewhere"
+    }
+  ],
+  "overview": null
+}

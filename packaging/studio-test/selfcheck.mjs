@@ -1435,6 +1435,45 @@ check('prose without a notice yields nothing', none.size === 0);
       made.status === 0 ? 'six lines, the same' : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
     fs.rmSync(d3, { recursive: true, force: true });
   }
+  /* The crew-map documents the Map view is built against: written by Crewforth's own scanner
+     (kit/eval/lib/crew-map/scan.mjs) over three of its fixtures, see fixtures/make-crew-map.mjs. Kept so the view
+     reads what the scanner really writes; the scanner is run again here and has to write the same bytes. */
+  {
+    const cmDir = path.join(HERE, 'fixtures', 'crew-map');
+    const names = ['node-ws', 'dotnet-sln', 'compose'];
+    const kept = Object.fromEntries(names.map((nm) => [nm, read(path.join(cmDir, `${nm}.json`)) ?? '']));
+    const docs = Object.fromEntries(names.map((nm) => { try { return [nm, JSON.parse(kept[nm])]; } catch { return [nm, null]; } }));
+    const all = Object.values(docs).filter(Boolean);
+    const kinds = new Set(all.flatMap((d) => d.nodes.map((x) => x.kind)));
+    const shown = all.flatMap((d) => d.findings).filter((f) => !f.data?.defaultHidden).length;
+    const hidden = all.flatMap((d) => d.findings).filter((f) => f.data?.defaultHidden).length;
+    const said = `${all.length} documents · nodes ${[...kinds].sort().join('/')} · findings ${shown} shown, ${hidden} hidden · `
+      + `${all.reduce((n, d) => n + d.edges.length, 0)} edges · ${all.reduce((n, d) => n + d.provides.endpoints.length, 0)} provided, `
+      + `${all.reduce((n, d) => n + d.consumes.endpoints.length, 0)} called · ${all.reduce((n, d) => n + d.notMeasured.length, 0)} not measured`;
+    check('the Map view\'s sample documents are crew-map documents and hold every shape the view draws: three kinds of node, findings shown and hidden, edges, endpoints both ways, what was not measured, and a map with no finding',
+      all.length === 3 && all.every((d) => d.schema === 'crewforth.crew-map/1') && ['module', 'service', 'external'].every((k) => kinds.has(k))
+      && shown > 0 && hidden > 0 && all.every((d) => d.edges.length > 0)
+      && all.some((d) => d.provides.endpoints.length > 0) && all.some((d) => d.consumes.endpoints.length > 0)
+      && all.some((d) => d.notMeasured.length > 0) && all.some((d) => d.findings.length === 0),
+      said);
+    const scanner = path.join(REPO, 'packaging', 'crew-map-test', 'fixtures');
+    const planted = names.filter((nm) => fs.existsSync(path.join(scanner, nm)) && /\{\{(PW|TOKEN)\}\}/.test(
+      fs.readdirSync(path.join(scanner, nm), { recursive: true }).map((f) => { try { return fs.readFileSync(path.join(scanner, nm, f), 'utf8'); } catch { return ''; } }).join('\n'))).length;
+    check('a sample carries no value the scanner was given to hide and no path of this machine; the inputs it was made from do carry such values',
+      planted === 3 && names.every((nm) => !/PwSample0000Z9|ghp_0{36}/.test(kept[nm]))
+      && names.every((nm) => !kept[nm].includes(os.tmpdir()) && !kept[nm].includes(REPO) && !/(^|")\/(Users|home)\/|[A-Za-z]:\\\\/.test(kept[nm])),
+      `${planted} of 3 fixtures plant a secret`);
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-map-sample-'));
+    const made = spawnSync(process.execPath, [path.join(HERE, 'fixtures', 'make-crew-map.mjs'), REPO, work], { encoding: 'utf8', timeout: 60000 });
+    if (made.status === 3) skip('the scanner, run now, writes the documents that are kept as the samples', 'fixture', made.stderr.trim().slice(0, 120));
+    else {
+      const differ = names.filter((nm) => (read(path.join(work, 'out', `${nm}.json`)) ?? '') !== kept[nm]);
+      check('the scanner, run now, writes the documents that are kept as the samples, byte for byte',
+        made.status === 0 && differ.length === 0,
+        made.status === 0 ? (differ.length ? `differ: ${differ.join(', ')} (run fixtures/make-crew-map.mjs and keep its output)` : 'three documents, the same') : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
+    }
+    fs.rmSync(work, { recursive: true, force: true });
+  }
   const serverJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   const outcomesJs = read(path.join(STUDIO, 'server', 'lib', 'model-outcomes.js')) ?? '';
   const before = fs.readdirSync(state).sort().join(',');
