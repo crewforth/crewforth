@@ -19,6 +19,11 @@
 // failed too often. Lowering such a hold is the user's to approve, with a Crewforth command in their own session:
 // Studio shows which holds could be lowered (`suggestionsOf`) and writes nothing. A panel's button is a request
 // any process of the same user can send, so it cannot stand for the user.
+//
+// The gate holds a floor and no ceiling: normal work may run on a model above the one the table in CLAUDE.md asks
+// for it. Studio shows that work (`aboveTableOf`) and blocks nothing. That the table's model would have done is
+// said only where this record shows it: the class's latest LOOSEN_AFTER verified calls on that model all passed the
+// first time, the same test a hold is offered for lowering by.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,6 +41,14 @@ const MAX_BYTES = 4 * 1024 * 1024;      // the record is read whole; past this o
 // A starting point; it has not been measured.
 export const LOOSEN_AFTER = 10;
 const TRAIL_MAX = 6;
+// What the table in CLAUDE.md asks of normal work, at most. Above it is a choice the gate lets the caller make.
+export const NORMAL_TIER = 'sonnet';
+// The floor hooks/guard-agent-model.sh puts under an agent whatever its card says (its `case "$st"`).
+export const AGENT_FLOORS = {
+  'crew-security-expert': 'opus',
+  'crew-privacy-agent': 'sonnet', 'crew-review-agent': 'sonnet', 'crew-planner': 'sonnet', 'crew-database-expert': 'sonnet',
+};
+const rankOf = (t) => TIERS.indexOf(t) + 1;   // 1..4, 0 for no tier: the gate's _am_rank
 
 const stateDir = (cwd) => path.join(cwd, '.claude', 'state');
 const dash = (v) => (v === '-' || v === '' || v == null ? null : v);
@@ -102,8 +115,52 @@ export function parseLoosened(text) {
   return out;
 }
 
+/**
+ * The `floor <agent> <change> <risk> <model>` lines of the project's .claude/crew-model-rules; `*` matches any.
+ * Read as hooks/guard-agent-model.sh reads them (`_am_rules`): a comment is cut at #, the model is found in the word.
+ */
+export function parseRuleFloors(text) {
+  const out = [];
+  for (const line of String(text ?? '').split('\n')) {
+    const l = line.replace(/\r$/, '').replace(/#.*/, '').trim();
+    const m = l.match(/^floor\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+    if (!m) continue;
+    const model = TIERS.find((t) => m[4].toLowerCase().includes(t));
+    if (model) out.push({ agent: m[1], change: m[2], risk: m[3], model });
+  }
+  return out;
+}
+
 const keyOf = (r) => `${r.agent}\t${r.change}\t${r.risk}`;
 const firstTry = (r) => r.verify === 'pass' && r.fixes === 0;
+
+/**
+ * The lowest model the gate would have let this call run on, as a rank (see `rankOf`): the highest of what
+ * applies, the order of hooks/guard-agent-model.sh. The project's rules are read as they are now; a raise from the
+ * record counts for the calls made after it, lowered or not, so a call it held is never said to have run above.
+ */
+export function floorOfRow(r, ruleFloors = [], floors = []) {
+  let f = rankOf(AGENT_FLOORS[r.agent]);
+  if (r.verify === 'none') f = Math.max(f, 2);
+  if (r.change === 'test-write' || r.change === 'audit') f = Math.max(f, 2);
+  if (r.risk === 'critical' && r.change !== 'test-run') f = Math.max(f, 3);
+  const any = (want, v) => want === '*' || want === v;
+  for (const x of ruleFloors) if (any(x.agent, r.agent) && any(x.change, r.change) && any(x.risk, r.risk)) f = Math.max(f, rankOf(x.model));
+  for (const x of floors) if (keyOf(x) === keyOf(r) && !(String(r.ts) < String(x.when ?? ''))) f = Math.max(f, rankOf(x.model));
+  if (r.escalatedFrom) f = Math.max(f, rankOf(r.escalatedFrom) + 1);
+  return f;
+}
+
+/**
+ * How many of a class's latest `need` verified calls on `model`, since `since`, there are when every one of them
+ * passed the first time; 0 when there are fewer, or one did not. The test for lowering a hold and for saying the
+ * table's model would have done.
+ */
+function passedLatest(rows, k, model, since, need) {
+  const recent = rows.filter((r) => keyOf(r) === k && r.model === model && VERIFIED.has(r.verify) && (r.at ?? 0) >= since)
+    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, need);
+  return recent.length >= need && recent.every(firstTry) ? recent.length : 0;
+}
 
 /**
  * The lowering that stands for a raised floor, or null. The rule is hooks/guard-agent-model.sh's (`_am_floor_now`),
@@ -186,11 +243,52 @@ export function suggestionsOf(rows, floors = [], loosened = [], need = LOOSEN_AF
     const k = keyOf(f);
     // Once for each raise: a floor whose lowering stands is not offered again (the same rule the gate reads it by).
     if (loweringOf(f, loosened)) continue;
-    const since = Date.parse(f.when ?? '') || 0;
-    const recent = rows.filter((r) => keyOf(r) === k && r.model === f.model && VERIFIED.has(r.verify) && (r.at ?? 0) >= since)
-      .sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, need);
-    if (recent.length < need || !recent.every(firstTry)) continue;
-    out.push({ key: k, agent: f.agent, change: f.change, risk: f.risk, from: f.model, to: TIERS[tier - 1], passed: recent.length, heldSince: f.when ?? null });
+    const passed = passedLatest(rows, k, f.model, Date.parse(f.when ?? '') || 0, need);
+    if (!passed) continue;
+    out.push({ key: k, agent: f.agent, change: f.change, risk: f.risk, from: f.model, to: TIERS[tier - 1], passed, heldSince: f.when ?? null });
+  }
+  return out;
+}
+
+/**
+ * Normal work that ran above the table's model, by class, the busiest first: the calls on a model above both
+ * NORMAL_TIER and the floor the gate held them to (`floorOfRow`). `passed` is how many of the class's latest
+ * verified calls on NORMAL_TIER passed the first time (counted from the class's raise, where it has one), when it
+ * is `need` of `need`; otherwise 0, and nothing is said about whether NORMAL_TIER would have done.
+ * `ids` are the agents' ids, for pricing; they are not sent to a page (`readModels`).
+ */
+export function aboveTableOf(rows, ruleFloors = [], floors = [], need = LOOSEN_AFTER) {
+  const by = new Map();
+  const top = rankOf(NORMAL_TIER);
+  for (const r of rows) {
+    if (r.risk !== 'normal' || rankOf(r.model) <= Math.max(top, floorOfRow(r, ruleFloors, floors))) continue;
+    const k = keyOf(r);
+    const c = by.get(k) ?? by.set(k, { key: k, agent: r.agent, change: r.change, risk: r.risk, to: NORMAL_TIER, runs: 0, models: {}, ids: [] }).get(k);
+    c.runs += 1;
+    c.models[r.model] = (c.models[r.model] ?? 0) + 1;
+    c.ids.push(r.agentId);
+  }
+  return [...by.values()].map((c) => {
+    const held = floors.find((f) => keyOf(f) === c.key);
+    return { ...c, need, passed: passedLatest(rows, c.key, NORMAL_TIER, Date.parse(held?.when ?? '') || 0, need) };
+  }).sort((a, b) => b.runs - a.runs || a.key.localeCompare(b.key));
+}
+
+/**
+ * What the work above the table cost, by class: { classKey: { cost, atNormal, costed, runs } }. `atNormal` is the
+ * same tokens at NORMAL_TIER's list price: what that model would have cost had it used as many, which no record
+ * can say it would have. As with `classCosts`, only priced calls are in the sums.
+ * @param priceOf  (agentId) => { cost, atNormal } in USD, or null
+ */
+export function aboveCosts(above, priceOf) {
+  const out = {};
+  for (const c of above) {
+    const o = (out[c.key] = { cost: 0, atNormal: 0, costed: 0, runs: c.ids.length });
+    for (const id of c.ids) {
+      const p = priceOf(id);
+      if (typeof p?.cost !== 'number' || typeof p?.atNormal !== 'number') continue;
+      o.cost += p.cost; o.atNormal += p.atNormal; o.costed += 1;
+    }
   }
   return out;
 }
@@ -210,16 +308,18 @@ function readBounded(file) {
 
 const sigOf = (file) => { try { const st = fs.statSync(file); return `${st.mtimeMs}:${st.size}`; } catch { return '-'; } };
 const FILES = ['model-outcomes.tsv', 'crew-model-floors.auto', 'crew-model-loosened.tsv'];
+const RULES = (cwd) => path.join(cwd, '.claude', 'crew-model-rules');   // the project's own, beside the state
 const records = new Map();           // cwd -> { sig, value }
 export const _stats = { parsed: 0 };  // how many times a record was really read: the claims count it
 
 /**
- * The record of one project, read once and kept until one of its three files changes (its time or its size).
+ * The record of one project, read once and kept until one of its files, or the project's rules, changes (its
+ * time or its size).
  * A view that asks every few seconds costs three stats, not a parse.
  */
 export function readRecord(cwd) {
   const dir = stateDir(cwd);
-  const sig = FILES.map((f) => sigOf(path.join(dir, f))).join('|');
+  const sig = [...FILES.map((f) => sigOf(path.join(dir, f))), sigOf(RULES(cwd))].join('|');
   const hit = records.get(cwd);
   if (hit && hit.sig === sig) return hit.value;
   const value = parseRecord(dir, cwd);
@@ -231,10 +331,11 @@ export function readRecord(cwd) {
 
 function parseRecord(dir, cwd) {
   const record = readBounded(path.join(dir, FILES[0]));
-  if (!record) return { measured: false, reason: 'no .claude/state/model-outcomes.tsv in this project: no crew agent has finished here since model routing was installed', classes: [], suggestions: [], byAgent: {} };
+  if (!record) return { measured: false, reason: 'no .claude/state/model-outcomes.tsv in this project: no crew agent has finished here since model routing was installed', classes: [], suggestions: [], above: [], byAgent: {} };
   const parsed = parseOutcomes(record.text);
   const floors = parseFloors(readBounded(path.join(dir, FILES[1]))?.text ?? '');
   const loosened = parseLoosened(readBounded(path.join(dir, FILES[2]))?.text ?? '');
+  const ruleFloors = parseRuleFloors(readBounded(RULES(cwd))?.text ?? '');
   const byAgent = {};
   for (const r of parsed.rows) byAgent[r.agentId] = r;           // a resumed agent's latest line is the one that stands
   // A card that failed is given again one model up, to another agent: the calls of one card, oldest first, are
@@ -258,6 +359,7 @@ function parseRecord(dir, cwd) {
     classes: classesOf(parsed.rows, floors, loosened),
     floors,
     suggestions: suggestionsOf(parsed.rows, floors, loosened),
+    above: aboveTableOf(parsed.rows, ruleFloors, floors),
     loosened,
     byAgent,
     all: parsed.rows,
@@ -276,12 +378,18 @@ export function readModels(cwd, { agents = null } = {}) {
   if (!rec.measured) return rec;
   const byAgent = {};
   for (const id of agents ?? []) if (Object.hasOwn(rec.byAgent, id)) byAgent[id] = rec.byAgent[id];
-  const { all, byAgent: _every, ...rest } = rec;
-  return { ...rest, byAgent };
+  const { all, byAgent: _every, above, ...rest } = rec;
+  return { ...rest, above: above.map(({ ids, ...c }) => c), byAgent };
 }
 
 /** What the classes of one project cost, from the kept record: see `classCosts`. Null when there is no record. */
 export function readCosts(cwd, costOf) {
   const rec = readRecord(cwd);
   return rec.measured ? classCosts(rec.all, costOf) : null;
+}
+
+/** What the work above the table cost, from the kept record: see `aboveCosts`. Null when there is no record. */
+export function readAboveCosts(cwd, priceOf) {
+  const rec = readRecord(cwd);
+  return rec.measured ? aboveCosts(rec.above, priceOf) : null;
 }

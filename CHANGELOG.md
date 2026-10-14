@@ -7,6 +7,14 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Studio's Models view shows normal work that ran above the table's model.** The gate holds a floor, not a
+  ceiling, so this is shown and nothing is blocked: the classes of normal work that ran higher than Sonnet and than
+  the floor the gate held them to, with what they cost as run and the same tokens at Sonnet's list price. That
+  Sonnet is enough for a class is said only when its last ten verified calls on Sonnet all passed first time, the
+  test a held class is offered for lowering by; otherwise the view says it is not measured.
+
 ### Changed
 
 - **A commit's command is read by one reader.** `guard-bash.sh` paired quotes in three places: the reader of a call,
