@@ -42,7 +42,124 @@ _evidence(){   # $1 = label, $2 = log path, $3 = the step's exit status
   exit 1
 }
 
+# ==== helpers the blocks share ====
+# Defined before the first block, not inside the one that first needed them, so that a shard (below) can skip any
+# block and every block it runs still finds them.
+
+# Every adopt assertion below used to depend on a run sent to /dev/null, then print one line and exit. A red CI
+# therefore arrived with no evidence at all: the recorded stack, what the detector saw, and whether adopt even
+# finished were all unknowable from the log, so a real defect and a flake looked identical. `run_adopt` keeps the
+# output and the exit code; `evidence` prints the state the assertion actually ran against. Nothing is retried —
+# a flake that is hidden is worse than one that is loud, and this is here to make the next failure readable.
+ADOPT_OUT=""; ADOPT_RC=0
+run_adopt() {   # $1 = project dir, rest = adopt.sh args
+  local d="$1"; shift
+  ADOPT_RC=0
+  ADOPT_OUT="$( cd "$d" && bash adopt.sh "$@" 2>&1 )" || ADOPT_RC=$?
+  return 0
+}
+evidence() {    # $1 = label, $2 = project dir
+  echo "---- evidence · $1 (adopt exit=$ADOPT_RC) ----"
+  echo "  kit.conf:";        sed 's/^/    /' "$2/.claude/kit.conf" 2>/dev/null || echo "    (absent)"
+  echo "  components:       agents=$(ls "$2"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ') skills=$(ls -d "$2"/.claude/skills/*/ 2>/dev/null | wc -l | tr -d ' ')"
+  echo "  cqrs-aop-module:   $([ -d "$2/.claude/skills/cqrs-aop-module" ] && echo present || echo absent)"
+  echo "  devarch-module:    $([ -d "$2/.claude/skills/devarch-module" ] && echo present || echo absent)"
+  echo "  §4.2 vendor line:  $(grep -xE '#? ?DevArchitecture' "$2/.claude/hooks/trace-blocklist.txt" 2>/dev/null | head -1)"
+  echo "  branch:           $(git -C "$2" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  echo "  adopt output (tail):"; printf '%s\n' "$ADOPT_OUT" | tail -45 | sed 's/^/    /'
+  echo "---- end evidence ----"
+}
+die() {         # $1 = message, $2 = label, $3 = project dir
+  echo "FAIL: $1"; evidence "$2" "$3"; exit 1
+}
+
+# THE FLAT FILES CREWFORTH OWNS: .claude/README.md, AGENT_TEMPLATE.md and DISCIPLINE.md are rewritten on every run.
+# README was not written at all by adopt/update before 3.0.1 (RC-1 field: both projects still described 3.0.0), and
+# the other two were rewritten with no look at what was there: an edit was lost without a word. One rule for the
+# three: a copy that is not this version's and not one an earlier release shipped is kept first and named.
+of_want(){  # $1 = name -> the file holding this version's content, in $WORK/of-want
+  if [ "$1" = DISCIPLINE.md ]; then awk '/^<!-- KIT:DISCIPLINE-END/{exit} {print}' kit/CLAUDE.md > "$WORK/of-want"; else cp "kit/$1" "$WORK/of-want"; fi; }
+
+sh_commit(){  # $1 = project, $2 = file to add -> rc of the commit; the project's hook appends a line to own.log
+  ( cd "$1" && git add "$2" && git commit -qm "feat: $2" ) >/dev/null 2>&1; }
+
+# The old installer is not in this tree, so the shape is produced by THIS tree's start.sh and then turned into
+# what 2.13's start.sh --dotnet left behind. (A first version copied the payload into .claude/ by hand; that left
+# a .claude/CLAUDE.md no real install has, and the installed smoke-test took the project for the kit repo — 21
+# "failures" that were the fixture's, not the product's.) The fixture carries its own correctness claim, checked
+# before the update runs: stack=dotnet in kit.conf, the pattern skill on disk AND in the manifest (that is what
+# makes the stale sweep see it), and the §4.2 vendor line armed. The pattern skill carries a user edit so "kept"
+# means kept byte for byte, not merely "a directory of that name exists". Measured separately, once, against
+# the real v2.13.0 installer (git archive of the tag): the same assertions held.
+legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module | devarch-module), $3 = installer (start.sh | adopt.sh)
+  local d="$1" pk="$2" inst="${3:-start.sh}"; rm -rf "$d"; mkdir -p "$d/backend"
+  cp start.sh "$d/"; cp -R kit "$d/"
+  _slog; ( cd "$d" && git init -q && git config user.email t@t.t && git config user.name t \
+      && printf 'yes\n' | bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $d" "$_L" $?
+  printf '2.13.0\n' > "$d/.claude/VERSION"
+  mkdir -p "$d/.claude/skills/$pk"
+  printf -- '---\nname: %s\ndescription: |\n  Project backend pattern (kept from a pre-3.0 install).\n---\nTrigger phrases: "new handler"\n# edited by the team\n' "$pk" \
+    > "$d/.claude/skills/$pk/SKILL.md"
+  # 2.13's start.sh --dotnet armed the vendor line; 2.13's adopt.sh never did.
+  [ "$inst" = start.sh ] && awk '/^# DevArchitecture$/ { print "DevArchitecture"; print "#test: ported the handler from DevArchitecture"; next } { print }' \
+    kit/hooks/trace-blocklist.txt > "$d/.claude/hooks/trace-blocklist.txt"
+  { for x in kit/skills/*/; do echo "skills/$(basename "$x")"; done; echo "skills/$pk"
+    for x in kit/agents/*.md; do echo "agents/$(basename "$x")"; done; } > "$d/.claude/kit-manifest.txt"
+  printf '# Written by %s.\nstack=dotnet\ninstaller=%s\nversion=2.13.0\n' "$inst" "$inst" > "$d/.claude/kit.conf"
+  : > "$d/backend/App.sln"
+  # Committed BEFORE the update payload is staged beside it: the install armed core.hooksPath, and the trace scan
+  # would (rightly) refuse a commit carrying the kit's own payload. A failure here must be loud — under `set -e`
+  # a silent subshell exit is how the first version of this line ended the whole run with no message.
+  _slog; ( cd "$d" && git add -A && git commit -q -m 'shape of a 2.13 dotnet install' ) >"$_L" 2>&1 \
+    || _evidence "fixture commit in $d" "$_L" $?
+  cp adopt.sh "$d/"; cp -R kit "$d/"; cp VERSION "$d/"
+}
+
+# ==== shards ====
+# CREW_E2E_SHARD=i/3 runs the blocks this map gives shard i; unset, every block runs, as it always did. ci.yml splits
+# the Windows leg in three because there one run took 48 minutes. The map is balanced on that run's own times, and
+# two pairs sit together because a later block reads what an earlier one left in $WORK: start writes proj-generic
+# (channel-parity and panel-runs read it), adopt-brownfield writes adopt-generic (legacy-sweep reads it).
+# The map is checked against the blocks in this file on EVERY run, sharded or not: a block in no shard, or in two,
+# stops the run before anything is rehearsed. A skipped block is never a passed one.
+E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
+2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line
+3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename'
+E2E_SHARDS=3
+_e2e_blocks="$(grep -E '^if _e2e_mine [a-z0-9.-]+; then$' "${BASH_SOURCE[0]}" | awk '{print $3}' | tr -d ';' | LC_ALL=C sort)"
+_e2e_mapped="$(printf '%s\n' "$E2E_SHARD_MAP" | awk '{for (i = 2; i <= NF; i++) print $i}' | LC_ALL=C sort)"
+if [ -z "$_e2e_blocks" ] || [ "$_e2e_blocks" != "$_e2e_mapped" ]; then
+  echo "FAIL: the e2e shard map does not hold every block exactly once:"
+  diff <(printf '%s\n' "$_e2e_blocks") <(printf '%s\n' "$_e2e_mapped") | sed 's/^/  /'
+  exit 1
+fi
+_E2E_SH=""; _E2E_N=0; _E2E_RAN=""; _E2E_PREV=""; _E2E_T0=$SECONDS
+case "${CREW_E2E_SHARD:-}" in
+  '') ;;
+  [1-9]/[1-9]) [ "${CREW_E2E_SHARD#*/}" = "$E2E_SHARDS" ] || { echo "FAIL: CREW_E2E_SHARD=$CREW_E2E_SHARD, but the map has $E2E_SHARDS shards"; exit 1; }
+       _E2E_SH="${CREW_E2E_SHARD%/*}"
+       [ "$_E2E_SH" -le "$E2E_SHARDS" ] || { echo "FAIL: CREW_E2E_SHARD=$CREW_E2E_SHARD names no shard"; exit 1; } ;;
+  *) echo "FAIL: CREW_E2E_SHARD must read i/$E2E_SHARDS, reads '$CREW_E2E_SHARD'"; exit 1 ;;
+esac
+# Ends the previous block's clock, then: does this block run here? Builtins only: this is called once per block.
+_e2e_mine(){
+  [ -n "$_E2E_PREV" ] && echo "[e2e:$_E2E_PREV] $((SECONDS - _E2E_T0)) s"
+  _E2E_PREV=""; _E2E_T0=$SECONDS
+  if [ -n "$_E2E_SH" ]; then
+    local line; line="$(printf '%s\n' "$E2E_SHARD_MAP" | grep -E "^$_E2E_SH ")"
+    case " ${line#* } " in *" $1 "*) ;; *) return 1 ;; esac
+  fi
+  _E2E_PREV="$1"; _E2E_N=$((_E2E_N + 1)); _E2E_RAN="$_E2E_RAN $1"; return 0
+}
+_e2e_done(){
+  [ -n "$_E2E_PREV" ] && echo "[e2e:$_E2E_PREV] $((SECONDS - _E2E_T0)) s"
+  if [ -n "$_E2E_SH" ]; then echo "e2e: shard $CREW_E2E_SHARD passed — $_E2E_N block(s):$_E2E_RAN"
+  else echo "e2e: all installer rehearsals passed"; fi
+}
+
+
 # ---- start.sh: 2 combinations (one install shape + old command lines) ----
+if _e2e_mine start; then
 # 2.0 removed the profile split and 3.0 removed the backend pattern choice: every install lands the same set on
 # disk. What is still rehearsed is that the set does not vary silently, and that old flags keep installing it.
 # The legacy-flag case is here rather than in the smoke-test because only an end-to-end run proves an old
@@ -115,34 +232,10 @@ grep -qx '# DevArchitecture' "$WORK/proj-legacy-dotnet/.claude/hooks/trace-block
   || { echo "FAIL: start.sh --dotnet armed the vendor pattern — the flag is supposed to change nothing"; exit 1; }
 echo "[trace-4.2] clean installs (with and without --dotnet) leave the vendor name commented"
 
-# Every adopt assertion below used to depend on a run sent to /dev/null, then print one line and exit. A red CI
-# therefore arrived with no evidence at all: the recorded stack, what the detector saw, and whether adopt even
-# finished were all unknowable from the log, so a real defect and a flake looked identical. `run_adopt` keeps the
-# output and the exit code; `evidence` prints the state the assertion actually ran against. Nothing is retried —
-# a flake that is hidden is worse than one that is loud, and this is here to make the next failure readable.
-ADOPT_OUT=""; ADOPT_RC=0
-run_adopt() {   # $1 = project dir, rest = adopt.sh args
-  local d="$1"; shift
-  ADOPT_RC=0
-  ADOPT_OUT="$( cd "$d" && bash adopt.sh "$@" 2>&1 )" || ADOPT_RC=$?
-  return 0
-}
-evidence() {    # $1 = label, $2 = project dir
-  echo "---- evidence · $1 (adopt exit=$ADOPT_RC) ----"
-  echo "  kit.conf:";        sed 's/^/    /' "$2/.claude/kit.conf" 2>/dev/null || echo "    (absent)"
-  echo "  components:       agents=$(ls "$2"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ') skills=$(ls -d "$2"/.claude/skills/*/ 2>/dev/null | wc -l | tr -d ' ')"
-  echo "  cqrs-aop-module:   $([ -d "$2/.claude/skills/cqrs-aop-module" ] && echo present || echo absent)"
-  echo "  devarch-module:    $([ -d "$2/.claude/skills/devarch-module" ] && echo present || echo absent)"
-  echo "  §4.2 vendor line:  $(grep -xE '#? ?DevArchitecture' "$2/.claude/hooks/trace-blocklist.txt" 2>/dev/null | head -1)"
-  echo "  branch:           $(git -C "$2" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-  echo "  adopt output (tail):"; printf '%s\n' "$ADOPT_OUT" | tail -45 | sed 's/^/    /'
-  echo "---- end evidence ----"
-}
-die() {         # $1 = message, $2 = label, $3 = project dir
-  echo "FAIL: $1"; evidence "$2" "$3"; exit 1
-}
 
+fi
 # ---- adopt.sh: a brownfield .NET project (solution under ./backend) + agent-overlap takeover ----
+if _e2e_mine adopt-brownfield; then
 # Since 3.0 a .NET repo is adopted exactly like any other: stack=generic, no pattern skill, the stack is left to
 # backend-architecture. What is still exercised here is the takeover of a colliding project agent.
 P="$WORK/adopt-brownfield"; rm -rf "$P"; mkdir -p "$P/backend" "$P/.claude/agents"
@@ -258,12 +351,6 @@ run_adopt "$G" --yes
 grep -q '^stack=generic' "$G/.claude/kit.conf"          || die "Node project not recorded as generic" adopt-generic "$G"
 [ ! -d "$G/.claude/skills/cqrs-aop-module" ]             || die "the removed .NET pattern skill was installed" adopt-generic "$G"
 echo "[adopt-generic] stack=generic · no pattern skill"
-# THE FLAT FILES CREWFORTH OWNS: .claude/README.md, AGENT_TEMPLATE.md and DISCIPLINE.md are rewritten on every run.
-# README was not written at all by adopt/update before 3.0.1 (RC-1 field: both projects still described 3.0.0), and
-# the other two were rewritten with no look at what was there: an edit was lost without a word. One rule for the
-# three: a copy that is not this version's and not one an earlier release shipped is kept first and named.
-of_want(){  # $1 = name -> the file holding this version's content, in $WORK/of-want
-  if [ "$1" = DISCIPLINE.md ]; then awk '/^<!-- KIT:DISCIPLINE-END/{exit} {print}' kit/CLAUDE.md > "$WORK/of-want"; else cp "kit/$1" "$WORK/of-want"; fi; }
 for _of in README.md AGENT_TEMPLATE.md DISCIPLINE.md; do
   of_want "$_of"; cmp -s "$WORK/of-want" "$G/.claude/$_of" || die "adopt did not write .claude/$_of" owned-files "$G"
 done
@@ -298,15 +385,15 @@ case "$ADOPT_OUT" in *"AGENT_TEMPLATE.md written"*) die "the run says it wrote a
 rm -f "$G/.claude/.legacy-backup"; cp kit/AGENT_TEMPLATE.md "$G/.claude/"
 echo "[owned-files] README, AGENT_TEMPLATE, DISCIPLINE written on adopt · each edited one kept byte for byte in one .legacy-backup and named, then refreshed · this version's content and its CRLF copy: no backup · no place for a backup: left as it is, and said"
 
+fi
 # ---- a project with a hook chain of its own keeps it through every update ----
+if _e2e_mine hook-chain; then
 # The first run puts .claude/git-shim in front of the project's chain and points git at it. The SECOND run then read
 # core.hooksPath=.claude/git-shim as "Crewforth's own, no chain", and pointed git straight at .claude/hooks: the
 # project's own pre-commit never ran again, and nothing was said (measured with core.hooksPath=myhooks; a project
 # with .husky was found again by its directory, but as `.husky`, not the `.husky/_` it had). The chain is read back
 # from the shim now. Checked by what git RUNS: a commit after each update must run the project's hook, and a staged
 # key must be stopped by Crewforth's.
-sh_commit(){  # $1 = project, $2 = file to add -> rc of the commit; the project's hook appends a line to own.log
-  ( cd "$1" && git add "$2" && git commit -qm "feat: $2" ) >/dev/null 2>&1; }
 for _shc in myhooks .husky/_; do
   SH="$WORK/shim-$(printf '%s' "$_shc" | tr -c 'A-Za-z0-9\n' '-')"; rm -rf "$SH"; mkdir -p "$SH/$_shc"
   cp adopt.sh "$SH/"; cp -R kit "$SH/"; cp VERSION "$SH/"; printf '{"name":"x"}' > "$SH/package.json"
@@ -330,7 +417,9 @@ for _shc in myhooks .husky/_; do
 done
 echo "[shim-kept] core.hooksPath=myhooks and =.husky/_: three runs each, git stays on .claude/git-shim, the shim keeps naming that chain, the project's pre-commit runs on every commit, a staged key is stopped by Crewforth's, doctor reports the shim ✅"
 
+fi
 # ---- core.hooksPath is read for what it NAMES, not for how it is spelled ----
+if _e2e_mine hookspath; then
 # Seen in a real project: core.hooksPath held the ABSOLUTE path of the kit's own .claude/hooks. The updater matched
 # the text `.claude/hooks`, took the directory for a chain of the project's own, and wrote a shim that named
 # `$ROOT//Users/<name>/…/.claude/hooks`: a path that does not exist, with the machine's user name in a file
@@ -416,38 +505,9 @@ grep -qx 'stack=generic' "$R/.claude/kit.conf"          || die "CSK_CORRECT_STAC
 case "$ADOPT_OUT" in *"CSK_CORRECT_STACK has no effect"*) ;; *) die "CSK_CORRECT_STACK=1 was ignored without a word" adopt-refresh "$R" ;; esac
 echo "[adopt-refresh] CSK_CORRECT_STACK=1 is a no-op that says so; stack=generic kept"
 
+fi
 # ---- 3.0 MIGRATION: a 2.13-shaped --dotnet install, updated ----
-# The old installer is not in this tree, so the shape is produced by THIS tree's start.sh and then turned into
-# what 2.13's start.sh --dotnet left behind. (A first version copied the payload into .claude/ by hand; that left
-# a .claude/CLAUDE.md no real install has, and the installed smoke-test took the project for the kit repo — 21
-# "failures" that were the fixture's, not the product's.) The fixture carries its own correctness claim, checked
-# before the update runs: stack=dotnet in kit.conf, the pattern skill on disk AND in the manifest (that is what
-# makes the stale sweep see it), and the §4.2 vendor line armed. The pattern skill carries a user edit so "kept"
-# means kept byte for byte, not merely "a directory of that name exists". Measured separately, once, against
-# the real v2.13.0 installer (git archive of the tag): the same assertions held.
-legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module | devarch-module), $3 = installer (start.sh | adopt.sh)
-  local d="$1" pk="$2" inst="${3:-start.sh}"; rm -rf "$d"; mkdir -p "$d/backend"
-  cp start.sh "$d/"; cp -R kit "$d/"
-  _slog; ( cd "$d" && git init -q && git config user.email t@t.t && git config user.name t \
-      && printf 'yes\n' | bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $d" "$_L" $?
-  printf '2.13.0\n' > "$d/.claude/VERSION"
-  mkdir -p "$d/.claude/skills/$pk"
-  printf -- '---\nname: %s\ndescription: |\n  Project backend pattern (kept from a pre-3.0 install).\n---\nTrigger phrases: "new handler"\n# edited by the team\n' "$pk" \
-    > "$d/.claude/skills/$pk/SKILL.md"
-  # 2.13's start.sh --dotnet armed the vendor line; 2.13's adopt.sh never did.
-  [ "$inst" = start.sh ] && awk '/^# DevArchitecture$/ { print "DevArchitecture"; print "#test: ported the handler from DevArchitecture"; next } { print }' \
-    kit/hooks/trace-blocklist.txt > "$d/.claude/hooks/trace-blocklist.txt"
-  { for x in kit/skills/*/; do echo "skills/$(basename "$x")"; done; echo "skills/$pk"
-    for x in kit/agents/*.md; do echo "agents/$(basename "$x")"; done; } > "$d/.claude/kit-manifest.txt"
-  printf '# Written by %s.\nstack=dotnet\ninstaller=%s\nversion=2.13.0\n' "$inst" "$inst" > "$d/.claude/kit.conf"
-  : > "$d/backend/App.sln"
-  # Committed BEFORE the update payload is staged beside it: the install armed core.hooksPath, and the trace scan
-  # would (rightly) refuse a commit carrying the kit's own payload. A failure here must be loud — under `set -e`
-  # a silent subshell exit is how the first version of this line ended the whole run with no message.
-  _slog; ( cd "$d" && git add -A && git commit -q -m 'shape of a 2.13 dotnet install' ) >"$_L" 2>&1 \
-    || _evidence "fixture commit in $d" "$_L" $?
-  cp adopt.sh "$d/"; cp -R kit "$d/"; cp VERSION "$d/"
-}
+if _e2e_mine migrate-dotnet; then
 L="$WORK/legacy-dotnet-migration"; legacy_dotnet_install "$L" cqrs-aop-module
 LSUM="$(cksum < "$L/.claude/skills/cqrs-aop-module/SKILL.md")"
 # The fixture's own claim, checked before anything runs against it.
@@ -494,7 +554,9 @@ case "$ADOPT_OUT" in *"cqrs-aop-module is now a project skill"*) die "the 3.0 mi
   || die "a second update lost the kept pattern skill or its §4.2 line" legacy-dotnet-migration/2nd "$L"
 echo "[legacy-dotnet-migration] 2.13 --dotnet -> stack=generic · cqrs-aop-module kept byte-for-byte, off the manifest, not swept · edited copy named, not vouched · §4.2 armed and enforced · smoke OK"
 
+fi
 # ---- §4.2 is PRESERVED, never newly armed: a 2.13 install made by adopt.sh on a real DevArchitecture codebase ----
+if _e2e_mine vendor-preserved; then
 # 2.13's updater never armed the vendor line, so such a project still carries the name in its own namespaces. An
 # early 3.0 draft armed the line whenever the pattern skill existed, and every commit touching that code then failed
 # (rc=1, measured in review). So: after the update the line is still a comment, and a real commit of the project's
@@ -520,7 +582,9 @@ printf 'namespace DevArchitecture.Business;\npublic class C {}\n' > "$V/backend/
 mv "$V/bl.keep" "$V/.claude/hooks/trace-blocklist.txt"
 echo "[legacy-dotnet-adopted] vendor line left commented (was not armed before) · own DevArchitecture-named code commits · twin: armed line blocks it"
 
+fi
 # ---- §4.2 preserved through a CRLF blocklist ----
+if _e2e_mine vendor-crlf; then
 # The armed line read as `DevArchitecture\r` did not match a plain `grep -x`, so an update switched the protection
 # off silently. The fixture's CRs are COUNTED before it is used (a CRLF fixture that came out LF would test the LF
 # path under the CRLF name) — built by awk into a file, not through `$( )`, which eats a trailing CR on Git Bash.
@@ -541,7 +605,9 @@ XCR2="$(tr -dc '\r' < "$XBL" | wc -c | tr -d ' ')"
 [ "$XCR2" = 0 ] || die "the updated blocklist still carries $XCR2 CRs" legacy-dotnet-crlf "$X"
 echo "[legacy-dotnet-crlf] armed line read through CRLF ($XCR CRs) stays armed after the update"
 
+fi
 # ---- the devarch-module -> cqrs-aop-module RENAME is kept inside the 3.0 migration ----
+if _e2e_mine devarch-rename; then
 # An install from before the rename, and before kit.conf and the manifest (pre-1.8.0): the OLD directory is the
 # only signal. It must be renamed (content kept), announced as a project skill, and not left beside the new one.
 U="$WORK/adopt-rename"; legacy_dotnet_install "$U" devarch-module
@@ -557,7 +623,9 @@ grep -qx 'stack=generic' "$U/.claude/kit.conf"   || die "a pre-kit.conf dotnet i
 case "$ADOPT_OUT" in *"changed since Crewforth shipped it"*) ;; *) die "a pre-kit.conf dotnet install got no notice about its renamed pattern skill" adopt-rename "$U" ;; esac
 echo "[adopt-rename] pre-kit.conf install carrying the OLD name -> renamed (content kept), announced (edited: not vouched), no duplicate"
 
+fi
 # ---- adopt.sh: pre-2.0 profile MIGRATION ----
+if _e2e_mine profile-migration; then
 # A project installed by 1.x with `--backend` is missing the frontend agent and four UI skills. 2.0 completes
 # it. Built by hand rather than by running the old start.sh, because the old installer no longer exists — the
 # fixture IS the contract: kit.conf carrying profile=, and the exact set that profile pruned.
@@ -582,7 +650,9 @@ MOUT2="$( cd "$M" && bash adopt.sh --yes 2>&1 || true )"
 case "$MOUT2" in *"profile pruning was removed"*) echo "FAIL: migration notice repeats on every refresh"; exit 1 ;; esac
 echo "[adopt-migrate] pre-2.0 backend install completed (+1 agent, +4 skills) · stack=generic · notice retired"
 
+fi
 # ---- Channel parity: start.sh and the plugin edition must ship the SAME components ----
+if _e2e_mine channel-parity; then
 # The two channels drifting is not hypothetical — it is what shipped a sleeping agent and broke the route-hint
 # cases on pruned profiles. With the split gone they are identical by construction, so assert it.
 if [ -d plugin/agents ] && [ -d plugin/skills ]; then
@@ -747,7 +817,9 @@ else
   echo "[adopt-pty-yes] update --here --yes completes under a real TTY (no hang)"
 fi
 
+fi
 # ---- the panel actually runs, and finds the kit's colours, from an INSTALLED tree ----
+if _e2e_mine panel-runs; then
 # Two claims, both of which were false before this release and neither of which any assertion above can
 # see: (a) the installed panel starts at all — the ESM/`--selftest` path, which is what catches a missed
 # package.json; (b) its palette resolves the kit's agents from `.claude/`, not only from this checkout.
@@ -790,7 +862,9 @@ else
   echo "[studio-installed] SKIPPED (no working node here — the panel needs 18+)"
 fi
 
+fi
 # ---- the star line: once per kit version, through the real installers and doctor ----
+if _e2e_mine star-line; then
 # Every case sets or clears CI and CREW_NO_STAR itself: the runner exports CI=true, and inheriting it would turn
 # every "prints" below into "silent" there — green locally, red in CI, for a reason that is not the product.
 # The version is changed by editing the STAGED payload's VERSION, which is what a real new release does.
@@ -827,7 +901,9 @@ for _q in "CREW_NO_STAR=1" "CI=true"; do
 done
 echo "[star] once per version: install 1 · doctor 0 · same-version update 0 · new-version update 1 · doctor 0 · new version via doctor 1 · again 0 · marker in the git dir · CREW_NO_STAR=1 / CI=true: 0, no marker"
 
+fi
 # ---- 2.x → 3.0: a real 2.13.0 install, updated by this tree ----
+if _e2e_mine migrate-2.13; then
 # The fixture is the released installer itself (841eb4e = v2.13.0), taken with git archive — a hand-made "old
 # install" would only prove the migration understands what its author thinks 2.13 left behind. CI checks out
 # with fetch-depth 0 for this; without the commit the case cannot run, which is a fixture skip, red under strict.
@@ -1092,7 +1168,9 @@ else
   fi
 fi
 
+fi
 # ---- [legacy-forward] the 2.x package name forwards to crewforth ----
+if _e2e_mine legacy-forward; then
 # 2.x installs update through `npx @byerlikaya/claude-starter-kit@latest update`. That name's 3.0.0 is the
 # forwarder in packaging/legacy-npm/, and the claim is that it changes NOTHING: a real 2.13.0 install updated
 # through it must come out byte-for-byte the tree the same install gets from `crewforth update` directly, with the
@@ -1159,7 +1237,9 @@ else
   echo "[legacy-forward] 2.13.0 updated through the forwarder = crewforth update directly (tree $LF_H_FW, rc $LF_RC_FW) · a child's exit 3 returns 3 · \"a b\" arrives as one argument"
 fi
 
+fi
 # ---- the two no-install doors: `add` and `studio` (pure Node, no bash) ----
+if _e2e_mine no-install-doors; then
 # Driven through bin/cli.js exactly as `npx crewforth …` runs it. Every tree comparison is a hash over the files'
 # paths and bytes, so "nothing changed" is measured, not assumed from an exit code.
 if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
@@ -1267,7 +1347,9 @@ else
   echo "[add/studio-cli] SKIPPED (no working node here — both doors are Node programs)"
 fi
 
+fi
 # ---- UPDATE: a project that ALREADY has the kit gets the panel on its next update ----
+if _e2e_mine update-panel; then
 # This is the reported bug, end to end. The project is installed from a payload with NO studio/ — the
 # shape every 2.8.0 install has — and then updated the way /crew-update drives it. The panel must ARRIVE.
 # Asserted in both directions: absent after the old install, present after the update. Asserting only
@@ -1292,7 +1374,9 @@ grep -q '"type": *"module"' "$UP/.claude/studio/package.json" || { echo "FAIL: t
 [ -f "$UP/.claude/skills/crew-studio/SKILL.md" ] || { echo "FAIL: the update did not deliver /crew-studio"; exit 1; }
 echo "[update-gets-panel] a 2.8.0-shaped install gained .claude/studio ($(find "$UP/.claude/studio" -type f | wc -l | tr -d ' ') files) and /crew-studio on update"
 
+fi
 # ---- the install WIZARD: unattended runs, the .gitignore question, and what --yes may not approve ----
+if _e2e_mine wizard; then
 # These are here rather than in the smoke-test because every one of them needs a real installer run: the
 # question is what the wizard DOES to a project, not what a string in it says. Each case carries the reason it
 # exists, and where a mistake is recoverable only by a twin that fails, the twin is run.
@@ -1675,7 +1759,9 @@ if [ -s "$_MISS" ]; then
 fi
 echo "[wizard] --lang tr: 0 strings without a Turkish row, 0 raw English lines (start.sh plain + --dotnet, adopt fresh+refresh)"
 
+fi
 # ---- 5R.3: what adopt WRITES into a project names Crewforth, and ADR-0001 is never written twice ----
+if _e2e_mine adopt-writes; then
 # The installers write four files the user keeps: docs/HANDOVER.md, the ADR, the CLAUDE.md import comment and the
 # kit.conf header. None may use "kit" as the product's name (paths such as kit.conf stay). The matcher is read from
 # smoke-test.sh rather than copied, so the two suites cannot drift apart on what counts as a word.
@@ -1742,7 +1828,9 @@ _uw born-here; U3="$WORK/born-here"; ( cd "$U3" && echo x > f.txt && git add f.t
 printf '%s\n' "$ADOPT_OUT" | grep -q 'discard:  git reset --hard HEAD' || die "twin: a repository WITH a commit lost the reset discard — the unborn branch swallowed the normal one" adopt-unborn "$U3"
 echo "[adopt-unborn] no-commit repo: one-line branch name · discard 'git rm --cached' RUN: 0 staged, HEAD on main · accept 'git branch -m' · --here discard too · twin with a commit keeps 'reset --hard HEAD' · summary skills +$_ps commands +$_pc = README rule"
 
+fi
 # ---- kit/legacy-blobs.tsv against what the real old installers wrote ----
+if _e2e_mine legacy-blobs; then
 # The updater will move a legacy file aside only when its bytes — or its bytes with CR removed — hash to one of its
 # path's ids in kit/legacy-blobs.tsv. That is safe only if an old installer wrote exactly those bytes. Measured once
 # by hand (seven installs), pinned here on two: v1.0.0 generic (the -cck agents, the generic backend variant) and
@@ -1867,7 +1955,9 @@ else
   echo "[owned-blobs] real installers vs kit/owned-blobs.tsv: $_obn of $_obn files in the list ($LBV1: 2, no DISCIPLINE.md · $LBV2: 3) · edit falls out · update of the real $LBV2 install: 3 untouched files refreshed, none kept, nothing said · mixed: only the edited one kept, the CRLF one not · three CRLF copies under a grep blind to CR with -q (Git for Windows): none kept · no list: kept, with the reason"
 fi
 
+fi
 # ---- the pattern skill's trust: vouched for only when it is a copy Crewforth shipped ----
+if _e2e_mine pattern-trust; then
 # 3.0 keeps cqrs-aop-module as the project's own. The update vouches for it (trust record, no question at the next
 # session) only when every file in it matches kit/legacy-blobs.tsv — the old test was the recorded stack, and a
 # generic-recorded install carrying the skill got no record and its first session flagged it (field report; C3
@@ -2000,7 +2090,9 @@ else
   echo "[pattern-trust]$_pksum 2nd update silent · doctor: trace agrees on an updated project, names a removed component, changes nothing"
 fi
 
+fi
 # ---- the legacy sweep: untouched old components moved aside, changed ones named, nothing deleted ----
+if _e2e_mine legacy-sweep; then
 # Real old installers, then this update. What is "legacy" comes from kit/legacy-blobs.tsv, which [legacy-blobs] above
 # pins against the same installers. Shapes from the field: v1.0.0's -cck agents and plain commands, v1.8.0 --frontend's
 # six plain commands, and a vps-deploy whose SKILL.md and references come from different releases.
@@ -2141,4 +2233,5 @@ else
   echo "[legacy-sweep]$_lssum clean 3.0: silent"
 fi
 
-echo "e2e: all installer rehearsals passed"
+fi
+_e2e_done

@@ -10626,6 +10626,15 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       # gate that only runs when someone remembers to run it, which is how the catalogue check went unnoticed.
       [ -z "$UNRUN" ] && pass "every gate verify.sh defines is wired into ci.yml" \
                       || fail "verify.sh defines gates ci.yml never runs: $UNRUN — they hold only when run by hand"
+      # The Windows e2e runs as shards of packaging/e2e.sh's map. A shard the matrix does not list is a third of the
+      # rehearsals that runs nowhere while every listed job is green; e2e.sh checks its own map, not the matrix. So
+      # the matrix lists exactly 1/N … N/N, N read from e2e.sh.
+      _e2n="$(sed -n 's/^E2E_SHARDS=\([0-9][0-9]*\)$/\1/p' "$SGR/packaging/e2e.sh" 2>/dev/null)"
+      _e2m="$(grep -oE "shard: [0-9]+/[0-9]+" "$SGR/.github/workflows/ci.yml" | awk '{print $2}' | LC_ALL=C sort -u | tr '\n' ' ')"
+      _e2w=""; if [ -n "$_e2n" ]; then _i=1; while [ "$_i" -le "$_e2n" ]; do _e2w="$_e2w$_i/$_e2n "; _i=$((_i+1)); done; fi
+      if [ -z "$_e2n" ]; then fail "FIXTURE: E2E_SHARDS was not read from packaging/e2e.sh — the shard pin cannot compare"
+      elif [ "$_e2m" = "$_e2w" ]; then pass "ci.yml runs every e2e shard the map has ($_e2w)"
+      else fail "ci.yml's e2e matrix lists shards [$_e2m], packaging/e2e.sh has [$_e2w] — a shard it does not list runs nowhere"; fi
     fi
 
     # EVERY JOB OF EVERY WORKFLOW HAS A TIME LIMIT. A job without one runs for GitHub's default of 360 minutes: a
@@ -10742,10 +10751,13 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ -z "$_cv" ] && pass "ci-docs-only.sh: skill, agent and command text reads text, with documentation too; with a hook, a skill's script, kit/CLAUDE.md or a blocklist it reads code" \
                     || fail "ci-docs-only.sh gave the wrong text verdict for:$_cv"
       # The Linux verify job is gated on nothing: it holds the checks a text change can break.
-      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -cE '^    (if|needs):')"
+      # One condition is allowed, and only this one: it skips the run a label other than full-ci starts, and says
+      # nothing about what the pull request changed.
+      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -E '^    (if|needs):' \
+               | grep -vxF "    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'" | grep -c .)"
       _cyn="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -c 'bash packaging/verify.sh')"
       [ "$_cyv" = 0 ] && [ "$_cyn" -ge 1 ] \
-        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no if:, no needs:)" \
+        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no needs:, and no if: but the one that skips an unrelated label)" \
         || fail "ci.yml's verify job is conditional ($_cyv if:/needs: line(s)) or was not found ($_cyn verify.sh call(s)): a text-only pull request would skip the budget, pointer, routing and plugin checks"
       # ...and ci.yml really uses it: both cross-platform jobs are gated on its answer, nothing else is.
       _cy="$SGR/.github/workflows/ci.yml"
