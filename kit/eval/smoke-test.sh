@@ -2525,20 +2525,34 @@ done
 # PROACTIVE-CUE GATE: Claude Code auto-delegates on the description field, and only fires reliably when it carries
 # an action cue ("use proactively" / "immediately after" / "use ... when"). A passive role description ("Senior X
 # expert. Handlers, endpoints.") rarely auto-invokes — the specialist stays dormant and Crewforth reads as inert.
-# Every agent EXCEPT the two deliberately pull-only ones (invoked explicitly: a commit needs approval; session
-# health is emitted by a hook) must carry a cue, or a future passive rewrite silently regresses delegation.
-PULL_AGENTS=" crew-commit-agent crew-session-manager "
+# EVERY agent carries one. Two used to be exempt as "pull-only" (a commit needs approval; session health comes from
+# a hook), and nothing pulled them: the main thread wrote the commit message and the handover itself, and neither
+# agent was ever started. The exemption is gone; what pulls a chain-step agent is pinned just below.
 NO_CUE=""
 for f in $(agent_quality_files); do
   [ -e "$f" ] || continue
   a="$(basename "$f" .md)"
-  case "$PULL_AGENTS" in *" $a "*) continue ;; esac
   awk '/^---$/{c++; next} c==1' "$f" | grep -qiE "use proactively|immediately after|use [a-z ]*when" \
     || NO_CUE="$NO_CUE $a"
 done
-if   [ -z "$NO_CUE" ]; then pass "every non-pull agent carries an auto-delegation cue (proactive/immediately-after)"
-elif [ "$IS_KIT" = 1 ]; then fail "agent(s) with a passive description — auto-delegation will rarely fire:$NO_CUE (add 'use proactively …', or add to PULL_AGENTS if pull-only)"
+if   [ -z "$NO_CUE" ]; then pass "every agent carries an auto-delegation cue (proactive/immediately-after/use … when)"
+elif [ "$IS_KIT" = 1 ]; then fail "agent(s) with a passive description — auto-delegation will rarely fire:$NO_CUE (add 'use proactively …')"
 else pass "some agents lack a proactive cue:$NO_CUE (your project's own agents, not gated)"; fi
+# WHO PULLS A CHAIN-STEP AGENT. An agent whose work sits at a fixed step of the chain (metadata.stage close, handoff
+# or understand: the reviewer, the commit message, the handover, the plan) is not reached by a prompt's words; it is
+# reached because a command or the discipline CALLS it there. So each one is named in the call form, `@agent-<name>`
+# (or `subagent_type`), in a command skill or the discipline. Producers and auditors are pulled by route-hint.sh and
+# the cue above; the orphan check (3b) already holds that they are routed at all. Kit agents only.
+_cs=0; _csb=""; _cmdfiles="$(grep -l 'kind: command' "$SKILLS"/*/SKILL.md 2>/dev/null)"
+for f in "$AGENTS"/*.md; do
+  [ -f "$f" ] || continue; a="$(basename "$f" .md)"; kit_owned "agents/$a.md" || continue
+  case "$(awk '/^---$/{c++; next} c==1 && /^[[:space:]]*stage:/{print $2; exit}' "$f")" in close|handoff|understand) ;; *) continue ;; esac
+  _cs=$((_cs+1))
+  grep -qE "@agent-$a([^a-z0-9-]|\$)|subagent_type[^a-z]{0,6}$a([^a-z0-9-]|\$)" $_cmdfiles "$ROUTE_DOC" 2>/dev/null || _csb="$_csb $a"
+done
+if [ "$IS_KIT" = 1 ] && [ "$_cs" -lt 4 ]; then fail "FIXTURE: $_cs chain-step agents read (close/handoff/understand) — the stage field or the count broke, not the agents"
+elif [ -z "$_csb" ]; then pass "every chain-step agent ($_cs) is called as @agent-<name> by a command or the discipline"
+else fail "chain-step agent(s) nothing calls by name — the main thread does their work instead:$_csb"; fi
 
 
 # ---- gate UNIT cases: skipped under CREW_SMOKE_SCOPE=install ------------------------------------------------

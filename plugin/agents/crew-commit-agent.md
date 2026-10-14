@@ -2,8 +2,8 @@
 name: crew-commit-agent
 color: cyan
 description: |
-  Commit message specialist (thin trigger). Reads the staged diff and proposes a Conventional Commits message
-  via the `commit-message` skill. Writes no source; commits only with user approval.
+  Use immediately after the DoD is clean, before any git commit: proposes the Conventional Commits message
+  from the staged diff (`commit-message`). Commits only with user approval.
 tools: Read, Grep, Glob, Bash, PowerShell
 model: haiku
 metadata:

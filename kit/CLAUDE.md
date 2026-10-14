@@ -49,8 +49,8 @@ sequence. Every agent above is installed; "no owner" is an `ls`, not a default.
    A finding or a red test goes back to the owner that wrote the code, and after the fix **all of them run
    again**: the diff they cleared no longer exists.
 4. **Close — only once 3 is clean.** DoD → **crew-review-agent** (LAST, never first) clean → **crew-commit-agent**
-   proposes, waits for approval (`/crew-ship`); held items close here.
-5. **Hand off** — phase boundary or full context → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
+   writes the message, not you; waits for approval (`/crew-ship`); held items close here.
+5. **Hand off** — phase boundary or 🔋 ≥ medium → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
 
 **Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
 `files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
@@ -126,7 +126,7 @@ more tokens, because each one re-pays for its own context — plan for that.
 > **Honest boundary.** Measuring fill **is a gate** (`context-usage.sh` + `session-guard.sh`). The four bullets above
 > are **model discipline** — no exit code can judge a delegate-or-not call, so they rest on your reasoning.
 
-## Session management (crew-session-manager)
+## Session status line
 Last line of a reply, after the next step: `🔋 Session: [low/medium/high fill] · Recommendation: [continue / handoff+clear / new session]`
 — **only when you have a reading**; with none there is nothing to report, so omit the line.
 
