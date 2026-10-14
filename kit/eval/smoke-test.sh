@@ -10668,7 +10668,7 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
                | grep -vxF "    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'" | grep -c .)"
       _cyn="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -c 'bash packaging/verify.sh')"
       [ "$_cyv" = 0 ] && [ "$_cyn" -ge 1 ] \
-        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no if:, no needs:)" \
+        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no needs:, and no if: but the one that skips an unrelated label)" \
         || fail "ci.yml's verify job is conditional ($_cyv if:/needs: line(s)) or was not found ($_cyn verify.sh call(s)): a text-only pull request would skip the budget, pointer, routing and plugin checks"
       # ...and ci.yml really uses it: both cross-platform jobs are gated on its answer, nothing else is.
       _cy="$SGR/.github/workflows/ci.yml"
