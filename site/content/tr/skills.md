@@ -18,6 +18,7 @@ Beş aşamaya yayılmış **{{AGENT_COUNT}} uzman ajan** var. Kalite, hiçbir ş
 | `crew-privacy-agent` | Denetle | kişisel veri: KVKK/GDPR ve projenin beyan ettiği diğer rejimler |
 | `crew-test-expert` | Denetle | test, kapsam, regresyon |
 | `crew-performance-expert` | Denetle | sıcak yol, sorgu/döngü, render, payload |
+| `crew-refuter` | Denetle | orta ve üstü bir bulgu, raporlanmadan önce: onu çürütmeye çalışır |
 | `crew-review-agent` | Kapat | commit öncesi kod sağlığı incelemesi |
 | `crew-commit-agent` | Kapat | commit'i önerir, onayı bekler |
 | `crew-session-manager` | Devret | bağlam dolduğunda / aşama bittiğinde |

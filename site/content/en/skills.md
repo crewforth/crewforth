@@ -18,6 +18,7 @@
 | `crew-privacy-agent` | Audit | personal data — KVKK/GDPR, plus any regime the project declares |
 | `crew-test-expert` | Audit | tests, coverage, regression |
 | `crew-performance-expert` | Audit | hot path, query/loop, render, payload |
+| `crew-refuter` | Audit | a medium+ finding, before it is reported: tries to refute it |
 | `crew-review-agent` | Close | pre-commit code-health review |
 | `crew-commit-agent` | Close | proposes the commit, waits for approval |
 | `crew-session-manager` | Hand off | context fills / phase boundary |
