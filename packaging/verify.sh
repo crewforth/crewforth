@@ -34,14 +34,14 @@ fi
 
 # The step list is the contract with ci.yml. Adding a gate here is what makes it runnable locally;
 # adding it to ci.yml alone is what put this file here in the first place.
-STEPS="syntax smoke routing site manifests e2e studio parser i18n subshell"
+STEPS="syntax smoke routing site manifests e2e studio findings parser i18n subshell"
 
 step_syntax(){
   bash -n start.sh || return 1
   bash -n adopt.sh || return 1
   local s
   for s in kit/hooks/*.sh kit/eval/*.sh packaging/*.sh packaging/studio-test/*.sh \
-           kit/studio/*.sh kit/studio/server/hooks/*.sh; do
+           kit/studio/*.sh kit/studio/server/hooks/*.sh kit/eval/lib/findings/*.sh; do
     [ -f "$s" ] || continue
     bash -n "$s" || return 1
   done
@@ -127,6 +127,20 @@ step_studio(){
   diff -r kit/studio plugin/studio >/dev/null 2>&1 || {
     echo "plugin/studio has drifted from kit/studio — run packaging/build-plugin.sh and commit the result"
     diff -rq kit/studio plugin/studio | head -10; return 1; }
+}
+
+# The findings core (kit/eval/lib/findings): the document shape and the validator that holds each finding to the
+# lines it cites. A NODE gate like the panel's, with the same rule for a machine without one: SKIPPED, never a
+# quiet pass. It ships in eval/lib, the one directory both editions carry, so the plugin copy is asserted to be
+# the payload's bytes for the same reason the panel's is.
+step_findings(){
+  [ -f kit/eval/lib/findings/findings.mjs ] || { echo "kit/eval/lib/findings is MISSING — the findings core ships in the payload"; return 1; }
+  command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
+  node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
+  node packaging/findings-test/selfcheck.mjs || return 1
+  diff -r kit/eval/lib/findings plugin/eval/lib/findings >/dev/null 2>&1 || {
+    echo "plugin/eval/lib/findings is missing or has drifted from kit/eval/lib/findings — run packaging/build-plugin.sh and commit the result"
+    diff -rq kit/eval/lib/findings plugin/eval/lib/findings 2>&1 | head -10; return 1; }
 }
 
 # The only step that needs a tool the repo does not carry. CI installs the CLI; a developer machine
