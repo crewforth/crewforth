@@ -1,0 +1,217 @@
+{
+  "schema": "crewforth.crew-map/1",
+  "producer": {
+    "name": "crew-map",
+    "version": "1"
+  },
+  "stacks": [
+    "container",
+    "node"
+  ],
+  "coverage": {
+    "files": 5,
+    "modules": 1,
+    "listing": "walk"
+  },
+  "nodes": [
+    {
+      "id": "ext:cache:redis",
+      "kind": "external",
+      "resource": "cache",
+      "label": "redis",
+      "hosts": [],
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 13,
+          "text": "image"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "ext:db:postgres",
+      "kind": "external",
+      "resource": "db",
+      "label": "postgres",
+      "hosts": [
+        "db:5432"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 1,
+          "text": "DATABASE_URL"
+        },
+        {
+          "file": "docker-compose.yml",
+          "line": 11,
+          "text": "image"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:node:compose-api",
+      "kind": "module",
+      "name": "compose-api",
+      "stack": "node",
+      "path": "api",
+      "manifest": "api/package.json",
+      "tech": [],
+      "entry": false,
+      "dependencies": 0,
+      "evidence": [
+        {
+          "file": "api/package.json",
+          "line": 1,
+          "text": "compose-api",
+          "sha256": "4ec10e51c940fd2d4bcfd9e90b07e97baf9cb36766f308ab79330fcc6e36832b"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "svc:api",
+      "kind": "service",
+      "name": "api",
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 2,
+          "text": "api"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "svc:cache",
+      "kind": "service",
+      "name": "cache",
+      "image": "redis:7-alpine",
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 12,
+          "text": "cache"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "svc:db",
+      "kind": "service",
+      "name": "db",
+      "image": "postgres:16",
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 10,
+          "text": "db"
+        }
+      ],
+      "narrative": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "svc:api",
+      "to": "mod:node:compose-api",
+      "kind": "builds",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "compose"
+      ],
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 3,
+          "text": "build"
+        }
+      ]
+    },
+    {
+      "from": "svc:api",
+      "to": "svc:cache",
+      "kind": "depends-on",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "compose"
+      ],
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 6,
+          "text": "cache"
+        }
+      ]
+    },
+    {
+      "from": "svc:api",
+      "to": "svc:db",
+      "kind": "depends-on",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "compose"
+      ],
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 5,
+          "text": "db"
+        }
+      ]
+    },
+    {
+      "from": "svc:cache",
+      "to": "ext:cache:redis",
+      "kind": "runs",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "compose"
+      ],
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 13,
+          "text": "image"
+        }
+      ]
+    },
+    {
+      "from": "svc:db",
+      "to": "ext:db:postgres",
+      "kind": "runs",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "compose"
+      ],
+      "evidence": [
+        {
+          "file": "docker-compose.yml",
+          "line": 11,
+          "text": "image"
+        }
+      ]
+    }
+  ],
+  "provides": {
+    "endpoints": []
+  },
+  "consumes": {
+    "endpoints": []
+  },
+  "findings": [],
+  "notMeasured": [
+    {
+      "what": "Kubernetes manifests (1 file)",
+      "reason": "not parsed: services and resources declared there are not on the map"
+    }
+  ],
+  "overview": null
+}

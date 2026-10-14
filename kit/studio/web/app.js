@@ -24,6 +24,7 @@ import { Timeline } from './timeline.js';
 import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { Models } from './models.js';
+import { MapView } from './map.js';
 import { cardOf, cardLines, workSteps } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
@@ -79,6 +80,8 @@ const el = {
   viewList: document.getElementById('view-list'),
   viewModels: document.getElementById('view-models'),
   models: document.getElementById('models'),
+  viewMap: document.getElementById('view-map'),
+  map: document.getElementById('map'),
   list: document.getElementById('list'),
   firstRun: document.getElementById('first-run'),
   stageNote: document.getElementById('stage-note'),
@@ -679,6 +682,33 @@ async function loadCosts(force = false) {
 const COSTS_POLL_MS = 60000;
 const MODELS_POLL_MS = 5000;
 
+/* The project's crew map, as Crewforth's scanner wrote it. Read when the view opens, when the comparison changes, and every
+   half minute while it stays open; nothing is scanned from here. */
+let mapFor = null;
+let mapAt = 0;
+let mapBusy = false;
+let mapCompare = null;
+const mapView = new MapView(el.map, {
+  onCopy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied — paste it into a session as a task'), () => toast(`Not copied — select it: ${text}`)),
+  onCompare: (cwd) => { mapCompare = cwd; loadMap(true); },
+});
+async function loadMap(force = false) {
+  if (!current || mapBusy) return;
+  if (!force && mapFor === current && Date.now() - mapAt < MAP_POLL_MS) return;
+  const asked = current;
+  if (mapFor !== asked) mapCompare = null;
+  mapAt = Date.now();
+  mapBusy = true;
+  let data;
+  const q = `session=${encodeURIComponent(asked)}${mapCompare ? `&compare=${encodeURIComponent(mapCompare)}` : ''}`;
+  try { data = await getJson(`/api/map?${q}`); } catch (e) { data = { measured: false, reason: e.message, others: [] }; }
+  finally { mapBusy = false; }
+  if (asked !== current) return;
+  mapFor = asked;
+  mapView.setData(data);
+}
+const MAP_POLL_MS = 30000;
+
 const list = new List(el.list, {
   tileOf: (n) => canvas.tileFor(n),
   dimmed: (n) => canvas.dimmed(n),
@@ -713,7 +743,7 @@ function paintTimelineBar(st) {
  */
 function setView(next, select = null, remember = true) {
   const was = view;
-  view = ['graph', 'timeline', 'list', 'models'].includes(next) ? next : 'graph';
+  view = ['graph', 'timeline', 'list', 'models', 'map'].includes(next) ? next : 'graph';
   // A view the window opened on by default is not a choice, and is not remembered as one.
   if (remember) store.set('crewforth-studio-view', view);
   const carried = select ?? (was === 'timeline' ? timeline.selected : was === 'list' ? list.selected : canvas.selected) ?? null;
@@ -722,6 +752,8 @@ function setView(next, select = null, remember = true) {
   el.list.hidden = view !== 'list';
   el.models.hidden = view !== 'models';
   el.viewModels.setAttribute('aria-selected', String(view === 'models'));
+  el.map.hidden = view !== 'map';
+  el.viewMap.setAttribute('aria-selected', String(view === 'map'));
   el.viewGraph.setAttribute('aria-selected', String(view === 'graph'));
   el.viewTimeline.setAttribute('aria-selected', String(view === 'timeline'));
   el.viewList.setAttribute('aria-selected', String(view === 'list'));
@@ -751,6 +783,10 @@ function setView(next, select = null, remember = true) {
     if (costsFor !== current) models.setCosts(null);
     loadModels(true);
     loadCosts(costsFor !== current);
+  } else if (view === 'map') {
+    // The map is the project's: read when the view opens, drawn with what was last read until the answer comes.
+    mapView.render();
+    loadMap(true);
   } else {
     canvas.fitIfUntouched();
     if (carried && canvas.nodes.has(carried)) canvas.focus(carried);
@@ -768,6 +804,7 @@ el.viewGraph.addEventListener('click', () => setView('graph'));
 el.viewTimeline.addEventListener('click', () => setView('timeline'));
 el.viewList.addEventListener('click', () => setView('list'));
 el.viewModels.addEventListener('click', () => setView('models'));
+el.viewMap.addEventListener('click', () => setView('map'));
 el.tbFollow.addEventListener('click', () => timeline.setFollow(el.tbFollow.getAttribute('aria-checked') !== 'true'));
 // "Out" is more time on screen, "in" is less: the same way round as the graph's zoom.
 el.tbRangeOut.addEventListener('click', () => timeline.zoom(1));
@@ -2337,7 +2374,7 @@ function paintPulse() {
   pulse.detail.textContent = l.detail ? `· ${l.detail}` : '';
 }
 paintPulse();
-setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } }, 1000);
+setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } if (view === 'map') loadMap(); }, 1000);
 
 /* -------------------------------------------------------------- home, keys */
 
@@ -2365,6 +2402,7 @@ document.addEventListener('keydown', (e) => {
     if (shell.classList.contains('side-open')) { setDrawer(false); return; }
     if (newPanel.isOpen) { newPanel.close(); return; }
     if (view === 'timeline' && timeline.selected) { timeline.select(null); return; }
+    if (view === 'map' && mapView.escape()) return;
     // Close the inspector and let go of the selection.
     if (!el.inspector.hidden) { canvas.clearSelection(); showInspector(null); }
     return;
@@ -2391,6 +2429,8 @@ document.addEventListener('keydown', (e) => {
     if (view === 'graph') resetLayout();
   } else if (key === 'm') {
     setView('models');
+  } else if (key === 'p') {
+    setView('map');
   } else if (key === 'j') {
     stepAttention(1);
   } else if (key === 'k') {

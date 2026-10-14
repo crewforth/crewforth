@@ -96,6 +96,9 @@
         <button id="view-models" class="seg-btn" type="button" role="tab" aria-label="Models view" aria-selected="false" aria-controls="models">
           <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V8M8 13V3M13 13V6"/></svg><span class="tb-words">Models</span>
         </button>
+        <button id="view-map" class="seg-btn" type="button" role="tab" aria-label="Map view" aria-selected="false" aria-controls="map">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="5" height="3.5" rx="1"/><rect x="9" y="2.5" width="5" height="3.5" rx="1"/><rect x="5.5" y="10" width="5" height="3.5" rx="1"/><path d="M4.5 6v2h7V6M8 8v2"/></svg><span class="tb-words">Map</span>
+        </button>
       </div>
       <button id="tb-group" data-view="graph timeline" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Group <span>Workflow run</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
       <button id="tb-density" data-view="graph" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Density <span>Auto</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
@@ -140,6 +143,7 @@
     <div id="timeline" role="tabpanel" aria-labelledby="view-timeline" hidden></div>
     <div id="list" role="tabpanel" aria-labelledby="view-list" hidden></div>
     <div id="models" role="tabpanel" aria-labelledby="view-models" hidden></div>
+    <div id="map" role="tabpanel" aria-labelledby="view-map" hidden></div>
     <div id="first-run" class="first-run" hidden></div>
     <div id="terminal-wait" class="terminal-wait" role="status" hidden></div>
     <div id="dock" role="region" aria-label="Waiting for approval" hidden></div>
