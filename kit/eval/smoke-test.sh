@@ -10536,7 +10536,9 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
     # An empty answer must mean "nothing unpinned", never "git listed nothing": two files every checkout has must
     # be in the listing first. Symlinks and submodules are not regular files; git leaves their i/ field empty.
     SLIST="$(git -C "$SGR" ls-files -- start.sh adopt.sh VERSION LICENSE README.md bin kit plugin 2>/dev/null)"
-    if ! printf '%s\n' "$SLIST" | grep -qx 'start.sh' || ! printf '%s\n' "$SLIST" | grep -qx 'kit/CLAUDE.md'; then
+    # Here-strings, not a pipe: `grep -q` exits on its first match, a printf still writing gets SIGPIPE, and under
+    # pipefail that read as "not listed" once the list grew long enough to outlast the match (Linux runner).
+    if ! grep -qx 'start.sh' <<< "$SLIST" || ! grep -qx 'kit/CLAUDE.md' <<< "$SLIST"; then
       fail "git did not list Crewforth's shipped files (start.sh and kit/CLAUDE.md are missing), so the eol pin check measured nothing"
     else
     UNPIN="$(git -C "$SGR" ls-files --eol -- start.sh adopt.sh VERSION LICENSE README.md bin kit plugin 2>/dev/null \
