@@ -2,7 +2,7 @@
 //
 // Crewforth writes one line per finished crew agent to `.claude/state/model-outcomes.tsv` (hooks/agent-outcome.sh):
 //
-//   ts  agent_id  agent  change  risk  card  model  verify  fixes  escalated_from  ran_on  confidence
+//   ts  agent_id  agent  change  risk  card  model  verify  fixes  escalated_from  ran_on  confidence  [risk_why]
 //
 // Twelve columns, tab-separated, a header on the first line, "-" for an empty value, and any column added later
 // is added at the end. This file reads that and adds nothing to it: a class's first-try success is counted from
@@ -29,6 +29,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const COLUMNS = ['ts', 'agent_id', 'agent', 'change', 'risk', 'card', 'model', 'verify', 'fixes', 'escalated_from', 'ran_on', 'confidence'];
+// Added at the end later, so a line written before them is still whole without them.
+export const LATER_COLUMNS = ['risk_why'];
 const VERIFIED = new Set(['pass', 'fail']);
 // What the hooks write, and nothing else is a row. The words are hooks/guard-agent-model.sh's and
 // hooks/agent-outcome.sh's; a word they do not use is a line this file cannot read, not a new kind of work.
@@ -85,6 +87,8 @@ export function parseOutcomes(text) {
       line: i, ts: f[0], at, agentId: f[1], agent: f[2], change: f[3], risk: f[4], card: dash(f[5]),
       model: dash(f[6]), verify: f[7], fixes: Number.parseInt(f[8], 10), escalatedFrom: dash(f[9]), ranOn: dash(f[10]),
       confidence: dash(f[11]),
+      // Written by the gate when it called the work critical; a line from before it kept the reason has no column.
+      riskWhy: dash(f[12]),
     });
   }
   return out;

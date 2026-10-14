@@ -52,15 +52,25 @@ function stepOf(r, again) {
  * How the work went, as steps: the earlier calls of the same card, then this one. `row` is Crewforth's line for
  * the agent with `before` (see server/lib/model-outcomes.js), or null when it has none: it has not stopped, or it
  * is not a crew agent.
- * @returns { risk, steps: [{ text, verify, tone, escalated }], note }
+ * @returns { risk, riskWhy, steps: [{ text, verify, tone, escalated }], note }
  */
 export function workSteps(row) {
-  if (!row) return { risk: null, steps: [], note: 'Not recorded yet: the line is written when the agent stops.' };
+  if (!row) return { risk: null, riskWhy: null, steps: [], note: 'Not recorded yet: the line is written when the agent stops.' };
   const steps = [...(row.before ?? []).map((r) => stepOf(r, false)), stepOf(row, Boolean(row.escalatedFrom))];
   if (row.escalatedFrom && !(row.before ?? []).length) {
     steps.unshift({ text: `An earlier call on ${tierWord(row.escalatedFrom)} did not pass; its line is not in the record`, verify: null, tone: null, escalated: false });
   }
-  return { risk: row.risk ?? null, steps, note: row.escalatedFrom ? 'A re-run with the same or a lower model is refused by the gate.' : null };
+  // The reason is the gate's own sentence, kept as it wrote it; a line written before the gate kept one has none.
+  return { risk: row.risk ?? null, riskWhy: row.risk === 'critical' ? row.riskWhy ?? null : null, steps, note: row.escalatedFrom ? 'A re-run with the same or a lower model is refused by the gate.' : null };
+}
+
+/**
+ * What is said about an agent the model gate does not look at: one whose type is not crew-* (hooks/guard-agent-model.sh
+ * leaves it alone), so there is no card to read and no line in the record. Null for a crew agent or an unknown type.
+ */
+export function outsideRouting(agentType) {
+  if (typeof agentType !== 'string' || !agentType || agentType.startsWith('crew-')) return null;
+  return 'Outside model routing: not a crew agent, so the gate chose nothing for it and Crewforth kept no record of it. It ran on the model its call asked for, or else the session\u2019s.';
 }
 
 /**

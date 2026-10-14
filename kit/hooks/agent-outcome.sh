@@ -19,7 +19,8 @@
 #                                                   -> blocked: not run, nothing concluded.
 #                          not finished in CREW_VERIFY_TIMEOUT seconds (540)
 #                                                   -> timeout: stopped, nothing concluded.
-#                        Then one line is added to .claude/state/model-outcomes.tsv, and the class is looked at:
+#                        Then one line is added to .claude/state/model-outcomes.tsv, its last column the gate's reason
+#                        when the work is critical (risk_why, "-" when it is not), and the class is looked at:
 #                        where the first try failed too often, its floor goes one model up (crew-model-floors.auto).
 #                        Only ever up: lowering a floor is the user's decision and nothing here does it.
 #   PostToolUse (Agent)  a foreground call has come back. If its verify failed, or its report closed with
@@ -280,6 +281,8 @@ case "$EV" in
     _am_rec_get "$REC" verify; VCMD="$_AMV"
     _am_rec_get "$REC" agent; AG="$_AMV"; _am_rec_get "$REC" change; CH="$_AMV"; _am_rec_get "$REC" risk; RK="$_AMV"
     _am_rec_get "$REC" card; CID="$_AMV"; _am_rec_get "$REC" esc; ESC="${_AMV:--}"
+    # A record written before the gate kept its reason has none: that is "-", not a reason made up here.
+    _am_rec_get "$REC" why; RW="${_AMV:--}"; RW="${RW//$'\t'/ }"
     _am_rec_get "$REC" asked || _am_rec_get "$REC" tier; ASK="$_AMV"
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
@@ -359,10 +362,10 @@ case "$EV" in
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
-    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\n' > "$TSV" 2>/dev/null
+    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why\n' > "$TSV" 2>/dev/null
     _ao_now
     _ao_lock
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" >> "$TSV" 2>/dev/null
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" "$RW" >> "$TSV" 2>/dev/null
     _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
     exit 0 ;;

@@ -825,7 +825,10 @@ fi
 _json_slice "$INPUT" tool_use_id >/dev/null; tid="$_JS"; case "$tid" in ''|*[!A-Za-z0-9._-]*) tid="x$RANDOM" ;; esac
 if mkdir -p "$_AMD/pending" 2>/dev/null; then
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v t '%(%s)T' -1; else t="$(date +%s)"; fi
-  { printf 'agent=%s\ntier=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\n' "$st" "$m" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
+  # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
+  rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
+  { printf 'agent=%s\ntier=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nwhy=%s\n' "$st" "$m" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
 exit 0
 }
