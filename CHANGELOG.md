@@ -130,8 +130,8 @@ versioning follows [SemVer](https://semver.org/).
 - **Doctor's advisor lines match how Claude Code attaches it.** An advisor below the model it would advise is not
   attached at all, so critical work runs without one; the warning said it would advise a stronger model.
 - **`incident-runbook` is picked for an outage that keeps coming back.** Its description named only a production that
-  is degraded or broken; a request about a recurring outage picked no skill in three runs of the held-out eval, and
-  two in three after.
+  is degraded or broken; a request about a recurring outage picked it in none of three held-out eval runs before, and
+  in two of three after.
 
 ## [3.1.1] — 2026-10-12
 
