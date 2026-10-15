@@ -107,8 +107,8 @@ _mt() {
       "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
       'advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off') s="advisorModel %s (%s içinde), ama CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 advisor'ı kapatıyor" ;;
       'advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used') s="advisorModel %s (%s içinde), ama %s ayarlı ve advisor Anthropic API ister — kullanılmıyor" ;;
-      "advisor: on, %s (from %s); its tokens are in /usage, not in Crewforth's records") s="advisor: açık, %s (%s içinden); token'ları /usage'da, Crewforth'un kayıtlarında değil" ;;
-      'the advisor (%s) is below the critical tier (opus): on critical work it would advise a stronger model than itself') s="advisor (%s) kritik seviyenin (opus) altında: kritik işte kendisinden güçlü bir modele danışmanlık eder" ;;
+      "advisor: on, %s (from %s); not a gate, and its tokens are in /usage and in Studio's session cost") s="advisor: açık, %s (%s içinden); bir kapı değil, token'ları /usage'da ve Studio'nun oturum maliyetinde" ;;
+      'the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one') s="advisor (%s) kritik seviyenin (opus) altında: Claude Code danışacağı modelin altındaki bir advisor'ı eklemiyor, yani kritik iş advisor'sız koşuyor" ;;
       "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
@@ -705,8 +705,10 @@ fi
 #     THE ADVISOR (advisorModel; documented: fable, opus, sonnet or a full model id, unset = off; Anthropic API only;
 #     CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns it off). Crewforth never sets it. What is reported is whether it is on
 #     and on what, read from the same three settings files as the skill-listing budget above (a managed layer is not
-#     read), and a note when it sits below the critical tier, where it would advise a stronger model than itself.
-#     Its usage is not reported: Claude Code shows it in /usage, and nothing a hook or a transcript field carries.
+#     read), and a note when it sits below the critical tier: Claude Code does not attach an advisor that ranks below
+#     the model it would advise (code.claude.com/docs/en/advisor), so an agent on opus gets none.
+#     Its usage is not reported here. It is in /usage, and in the transcript (usage.iterations, `advisor_message`,
+#     measured on a real advisor session), which is where Studio's session cost reads it.
 if [ -f .claude/hooks/guard-bash.sh ]; then
   if command -v claude >/dev/null 2>&1 && _pl="$(claude plugin list --json 2>/dev/null)" && [ -n "$_pl" ]; then
     _pon=""; _pn="$(printf '{"p":%s}' "$_pl" | awk -v op=len -v path=p -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)" || _pn=""
@@ -748,9 +750,9 @@ elif [ "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}" = 1 ]; then
 elif [ -n "$_advprov" ]; then
   warn "advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used" "$_adv" "$_advf" "$_advprov"
 else
-  ok "advisor: on, %s (from %s); its tokens are in /usage, not in Crewforth's records" "$_adv" "$_advf"
+  ok "advisor: on, %s (from %s); not a gate, and its tokens are in /usage and in Studio's session cost" "$_adv" "$_advf"
   case "$_adv" in *haiku*|*sonnet*)
-    warn "the advisor (%s) is below the critical tier (opus): on critical work it would advise a stronger model than itself" "$_adv" ;;
+    warn "the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one" "$_adv" ;;
   esac
 fi
 

@@ -64,3 +64,7 @@ The gates stop accidents, not determined attempts. On a command line there is al
 ## Watching a gate fire
 
 The Bash guard appends a line to `.claude/gate-log.tsv` for each block, approval prompt and `CLAUDE_GIT_OK` pre-authorisation (`BLOCK` / `ASK` / `ALLOW`), and the gate-file write guard one for each block, with the section and the rule; the command is recorded only with `CREW_GATE_LOG_CMD=1`. It is on by default when the project's `.claude/` directory exists and the file is git-ignored or the project is not a repo; `CREW_GATE_LOG=<path>` sends it elsewhere and `/dev/null` turns it off. The commit scan refuses without writing a line. It is write-only and written after the verdict, so it cannot change one. Useful when you need to know whether a gate stopped something or the model simply never went there — those two leave identical traces.
+
+## The advisor is not a gate
+
+If you turn on Claude Code's advisor, the model decides when to consult it, and nothing caps or forces a call. So it adds a second opinion, not a guarantee: no gate waits for it, a verify command still decides whether work passed, and a medium-or-higher finding still needs a fresh `crew-refuter` that has not seen the reasoning, which an advisor reading the whole conversation is not. What it costs is on the Sessions and cost page.

@@ -64,3 +64,7 @@ Kapılar kazaları durdurur, kararlı denemeleri değil. Komut satırında bir d
 ## Bir kapının ateşlendiğini görmek
 
 Bash guard'ı her blok, onay istemi ve `CLAUDE_GIT_OK` ön onayı için (`BLOCK` / `ASK` / `ALLOW`), kapı dosyası yazma guard'ı da her blok için `.claude/gate-log.tsv` dosyasına bölüm ve kuralla birlikte bir satır ekler; komut yalnızca `CREW_GATE_LOG_CMD=1` verilirse yazılır. Projenin `.claude/` dizini varsa ve dosya git'te yok sayılıyorsa ya da proje bir repo değilse varsayılan olarak açıktır; `CREW_GATE_LOG=<yol>` kaydı başka yere gönderir, `/dev/null` kapatır. Commit taraması satır yazmadan reddeder. Yalnızca yazar ve karardan **sonra** yazılır, dolayısıyla kararı değiştiremez. Bir şeyi kapının mı durdurduğunu yoksa modelin o yola hiç girmediğini mi bilmeniz gerektiğinde işe yarar, çünkü ikisi geriye tıpatıp aynı izi bırakır.
+
+## Advisor bir kapı değil
+
+Claude Code'un advisor'ını açarsanız ona ne zaman danışılacağına model karar verir; çağrıyı sınırlayan ya da zorlayan bir şey yoktur. Yani ikinci bir görüş ekler, güvence eklemez: hiçbir kapı onu beklemez, işin geçip geçmediğine yine verify komutu karar verir, ve orta ya da daha yüksek bir bulgu yine akıl yürütmeyi görmemiş taze bir `crew-refuter` ister; bütün konuşmayı okuyan bir advisor bu değildir. Neye mal olduğu Oturum ve maliyet sayfasında.
