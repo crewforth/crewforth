@@ -919,7 +919,9 @@ async function selftest() {
       const doc = { schema: 'crewforth.crew-map/1', nodes: [{ id: 'mod:x:a', kind: 'module', name: 'a' }], edges: [], findings: [], notMeasured: [] };
       fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify(doc));
       const read = readMap(dir);
-      fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify({ ...doc, schema: 'crewforth.crew-map/9' }));
+      // A different size, not only a different schema: the reader caches on mtime and size, and on Windows both writes
+      // land on one timestamp, so a same-size rewrite read back the first map (seen on a CI runner).
+      fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify({ ...doc, schema: 'crewforth.crew-map/99' }));
       const other = readMap(dir);
       check('map read', read.measured === true && read.doc.nodes.length === 1 && other.measured === false,
         read.measured ? `a scratch map read; one of another schema refused (${other.reason ?? 'read'})` : read.reason);
