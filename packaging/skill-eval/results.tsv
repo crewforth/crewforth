@@ -1,8 +1,25 @@
 # Written by packaging/skill-eval/run.mjs; read by check.mjs. One line per case: does the description pick the
 # skill (kind is) or keep away from a neighbour's request (kind not). claude 2.1.299 · model sonnet ·
-# cost ~$0.43 at list price · complete
+# cost ~$3.75 at list price · complete
 case	skill	kind	source	description	score	worst	runs
-holdout-is-adr-46301897	adr	is	holdout	46cfbae699cb4b02	1.000	1.000	1
+holdout-is-a11y-5f4c0d38	a11y	is	holdout	22aa9b00ec710b1f	1.000	1.000	3
+holdout-is-adr-46301897	adr	is	holdout	46cfbae699cb4b02	1.000	1.000	3
+holdout-is-api-design-e7d8e771	api-design	is	holdout	01aea84f92532137	0.000	0.000	3
+holdout-is-backend-architecture-6aa65a24	backend-architecture	is	holdout	b4cda17c9ea8df0b	1.000	1.000	3
+holdout-is-backend-architecture-bfc564d3	backend-architecture	is	holdout	b4cda17c9ea8df0b	1.000	1.000	3
+holdout-is-ci-pipeline-86fd0c63	ci-pipeline	is	holdout	92058089820d15cc	1.000	1.000	3
+holdout-is-db-migration-721b7758	db-migration	is	holdout	f7f1563b304e8434	1.000	1.000	3
+holdout-is-dependency-audit-c568093e	dependency-audit	is	holdout	d388060d126956a5	1.000	1.000	3
+holdout-is-deploy-be8c9c0b	deploy	is	holdout	b499fc55f7c0148c	1.000	1.000	3
+holdout-is-handoff-34b81fcb	handoff	is	holdout	a067fc03861fcd5f	1.000	1.000	3
+holdout-is-incident-runbook-adfcc96f	incident-runbook	is	holdout	bee5c3afd3be0504	0.000	0.000	3
+holdout-is-performance-0ca8fd33	performance	is	holdout	72761f1a0f847413	1.000	1.000	3
+holdout-is-performance-d9886144	performance	is	holdout	72761f1a0f847413	1.000	1.000	3
+holdout-is-privacy-compliance-d2d94d73	privacy-compliance	is	holdout	90a0b21f06b88ff0	1.000	1.000	3
+holdout-is-release-ad77f22d	release	is	holdout	41e9f5274a8d1779	1.000	1.000	3
+holdout-is-security-scan-d46e56a4	security-scan	is	holdout	da43825fbf508967	1.000	1.000	3
+holdout-is-teamboard-aa27c535	teamboard	is	holdout	0fd5c7940cecfda9	1.000	1.000	3
+holdout-is-testing-88e6c95a	testing	is	holdout	c361144ea87f7fda	1.000	1.000	3
 working-is-adr-d8d93313	adr	is	working	46cfbae699cb4b02	1.000	1.000	1
 working-not-adr-252419ae	adr	not	working	46cfbae699cb4b02	1.000	1.000	1
 working-not-adr-4b406c7e	adr	not	working	46cfbae699cb4b02	1.000	1.000	1

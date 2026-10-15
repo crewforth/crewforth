@@ -22,7 +22,14 @@ neighbour's work. A skill that no row reaches cannot be measured, and the gate s
 measured), and `--no-publish` (the tool's default is to publish the report to claude.ai). The plugin under test is a
 copy of `plugin/` with the cases added, hooks on: what is measured is what a user gets.
 
-**What it cost, measured:** one run of the six `adr` cases on Sonnet, $0.43 at list price, about $0.07 a case.
+**What it cost, measured:** one run of the six `adr` cases on Sonnet, $0.43 at list price, about $0.07 a case. The
+baseline (`--all --source holdout --baseline`: the 18 held-out cases, three runs each) cost $3.75.
 
-**Not measured yet:** that the grader fails when the wrong skill is invoked. The positive cases matched the skill's
-name (`Skill called 1x`), so the pattern reaches it; a planted wrong name has not been run.
+**The baseline, measured:** 16 of the 18 held-out cases picked their skill in all three runs. `api-design` ("this
+endpoint returns different shapes depending on the caller") and `incident-runbook` ("we keep discovering the same
+outage twice a month") were picked in none, with no run ending in an error: their floor is 0.000 until a description
+reaches them.
+
+**The grader, calibrated:** one run of a case whose prompt picks `adr` every time, with three graders: `adr` invoked
+(passed, 1x), `adr` must not be invoked (failed, 1x), and `deploy` invoked (failed, 0x). Score 1/3, as predicted, so
+a wrong skill and an unwanted one are both caught.

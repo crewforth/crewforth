@@ -2,9 +2,10 @@
 // run.mjs — does Claude pick a skill from its description? Runs `claude plugin eval` on the cases of the skills
 // whose description changed, and writes packaging/skill-eval/results.tsv for check.mjs to hold the change to.
 //
-//   node packaging/skill-eval/run.mjs [--base REF] [--skill NAME]... [--all] [--runs N] [--baseline] [--dry-run]
+//   node packaging/skill-eval/run.mjs [--base REF] [--skill NAME]... [--all] [--source holdout|working] [--runs N] [--baseline] [--dry-run]
 //       --base REF   the descriptions are compared with this ref (default origin/next)
 //       --skill      measure these skills instead of the changed ones; --all measures every skill that has cases
+//       --source     only the rows of one set; --all --source holdout measures every skill the held-out set reaches
 //       --baseline   also raise baseline.tsv to each case's worst run (never lowers it; a partial run sets nothing)
 //       --dry-run    write the cases and print the command; call no model
 //
@@ -36,12 +37,14 @@ const now = skillsAt(null);
 let skills = args.includes('--all') ? [...now.keys()] : named.length ? named : changedSince(base);
 const asked = skills.length;
 skills = skills.filter((s) => !commands.has(s));
-const cases = casesFor(skills);
+const source = opt('--source');
+const cases = casesFor(skills).filter((c) => !source || c.source === source);
 if (!skills.length) {
   console.log(asked ? 'skill-eval: only commands were named; a command is called by name, not picked from its description'
     : `skill-eval: no description changed against ${base}; nothing to measure`);
   process.exit(0);
 }
+if (source) skills = skills.filter((s) => cases.some((c) => c.skill === s));   // a set reaches only some skills
 const without = skills.filter((s) => !cases.some((c) => c.skill === s));
 if (without.length) {
   console.error(`skill-eval: no routing row measures ${without.join(', ')}: add a held-out row (kit/eval/golden-holdout.txt) first`);
@@ -93,9 +96,10 @@ const head = [
   `# cost ~$${Number(doc.costUsd ?? 0).toFixed(2)} at list price · ${doc.partial ? `PARTIAL (${doc.partialReason})` : 'complete'}`,
   RESULT_COLUMNS.join('\t'),
 ];
-// The lines of skills not measured this time are kept: the file holds the latest measurement of every skill.
+// The lines of cases not measured this time are kept: the file holds the latest measurement of every case.
+const ran = new Set(lines.map((l) => l.split('\t')[0]));
 const keep = fs.existsSync(RESULTS) ? fs.readFileSync(RESULTS, 'utf8').split(/\r?\n/)
-  .filter((l) => l && !l.startsWith('#') && !l.startsWith('case\t') && !skills.includes(l.split('\t')[1])) : [];
+  .filter((l) => l && !l.startsWith('#') && !l.startsWith('case\t') && !ran.has(l.split('\t')[0])) : [];
 fs.writeFileSync(RESULTS, [...head, ...[...keep, ...lines].sort()].join('\n') + '\n');
 // --baseline: raise each measured case's floor to its worst run, never lower it. Only on a complete run.
 if (args.includes('--baseline') && !doc.partial) {
