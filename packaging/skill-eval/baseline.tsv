@@ -1,0 +1,20 @@
+# The floor of each case (its worst run when it was set). Only raised: run.mjs --baseline.
+case	floor
+holdout-is-a11y-5f4c0d38	1.000
+holdout-is-adr-46301897	1.000
+holdout-is-api-design-e7d8e771	0.000
+holdout-is-backend-architecture-6aa65a24	1.000
+holdout-is-backend-architecture-bfc564d3	1.000
+holdout-is-ci-pipeline-86fd0c63	1.000
+holdout-is-db-migration-721b7758	1.000
+holdout-is-dependency-audit-c568093e	1.000
+holdout-is-deploy-be8c9c0b	1.000
+holdout-is-handoff-34b81fcb	1.000
+holdout-is-incident-runbook-adfcc96f	0.000
+holdout-is-performance-0ca8fd33	1.000
+holdout-is-performance-d9886144	1.000
+holdout-is-privacy-compliance-d2d94d73	1.000
+holdout-is-release-ad77f22d	1.000
+holdout-is-security-scan-d46e56a4	1.000
+holdout-is-teamboard-aa27c535	1.000
+holdout-is-testing-88e6c95a	1.000
