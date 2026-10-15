@@ -995,17 +995,20 @@ check('prose without a notice yields nothing', none.size === 0);
       pairs.every(([card, chip]) => chip.width === card.width && chip.height < card.height) && new Set(pairs.map(([c]) => c.width)).size === 4,
       pairs.map(([card, chip]) => `${card.width}x${card.height} -> ${chip.width}x${chip.height}`).join(' | '));
   }
-  const small = gpl.plan(sixteen(), { open, tallest: gpl.tallestFor(724) });
-  const tall = gpl.plan(sixteen(), { open, tallest: gpl.tallestFor(1400) });
-  const few = gpl.plan(sixteen().slice(0, 4), { tallest: gpl.tallestFor(724) });
-  check('Auto asks whether the picture fits the pane, not how many agents there are: the same sixteen are chips in a short pane and cards in a tall one',
-    agentsIn === 16 && small.density === 'compact' && tall.density === 'comfortable' && small.drawn === tall.drawn && few.density === 'comfortable',
-    `${agentsIn} agents, ${tall.height}px as cards: pane 724px → ${small.density}; pane 1400px → ${tall.density}`);
+  // The sixteen are cards in either pane now that Auto lets a picture run past the pane (AUTO.overflow); the same
+  // property is held on more of them: chips in a short pane, cards in a tall one.
+  const more = () => [...sixteen(), ...Array.from({ length: 14 }, (_, i) => A0(`x${i}`, `crew-extra-${i}`, 'claude-sonnet-5-5'))];
+  const small = gpl.plan(more(), { open, tallest: gpl.tallestFor(724) });
+  const tall = gpl.plan(more(), { open, tallest: gpl.tallestFor(1400) });
+  const few = gpl.plan(sixteen(), { tallest: gpl.tallestFor(724) });
+  check('Auto asks whether the picture fits the pane, not how many agents there are: the same thirty are chips in a short pane and cards in a tall one, and the sixteen are cards in the short one',
+    small.density === 'compact' && tall.density === 'comfortable' && small.drawn === tall.drawn && few.density === 'comfortable',
+    `${tall.height}px as cards: pane 724px → ${small.density}; pane 1400px → ${tall.density}; the sixteen → ${few.density} (${few.height}px)`);
   check('what fits is the pane at the smallest zoom a card is read at, and never less than the reference window',
     // The reference window's 724px pane is where the 900 came from: 676 / 0.75, a pixel either side of it.
     Math.abs(gpl.tallestFor(724) - gpl.AUTO.tallest) <= 1 && gpl.tallestFor(1400) === Math.floor((1400 - 2 * gpl.ZOOM.pad) / gpl.AUTO.readable)
     && gpl.tallestFor(200) === gpl.AUTO.tallest && gpl.tallestFor(0) === gpl.AUTO.tallest && gpl.tallestFor(undefined) === gpl.AUTO.tallest
-    && gpl.plan(sixteen(), { open }).density === small.density, `724px → ${gpl.tallestFor(724)}; 1400px → ${gpl.tallestFor(1400)}`);
+    && gpl.plan(more(), { open }).density === small.density, `724px → ${gpl.tallestFor(724)}; 1400px → ${gpl.tallestFor(1400)}`);
   check('Comfortable and Compact are still the viewer\'s word, whatever fits',
     gpl.plan(sixteen(), { open, density: 'comfortable', tallest: 100 }).density === 'comfortable'
     && gpl.plan(sixteen().slice(0, 3), { density: 'compact', tallest: 99999 }).density === 'compact');
@@ -1025,8 +1028,8 @@ check('prose without a notice yields nothing', none.size === 0);
   check('THE CASE: as chips, an agent still says its model in full',
     chip.classList.contains('cv-chip') && chip.parts.model.textContent === 'Opus 5.5' && c.els.get('pe').parts.model.textContent === 'Haiku 5.5'
     && chip.parts.model.hidden === false, `${chip.parts.model.textContent}, ${c.els.get('pe').parts.model.textContent}`);
-  check('THE CASE: and a card that stands for several agents still says which models they ran on, beside its bar',
-    group.parts.count.textContent === '3 Sonnet · 2 Opus' && c.els.get('type:session:crew-security-expert').parts.count.textContent === '3 Opus'
+  check('THE CASE: and a card that stands for several agents still says how they went and which models they ran on, beside its bar',
+    group.parts.count.textContent === '5 done · 3 Sonnet · 2 Opus' && c.els.get('type:session:crew-security-expert').parts.count.textContent === '3 done · 3 Opus'
     && /done/.test(group.parts.count.title) && c.lastPlan.items.find((it) => it.id === 'type:session:crew-frontend-expert').h === gpl.SIZE.stack.tight,
     `Frontend ×5: ${group.parts.count.textContent}; Security ×3: ${c.els.get('type:session:crew-security-expert').parts.count.textContent}`);
   c.toggle('type:session:crew-test-expert');
@@ -4181,6 +4184,29 @@ function computed(rules, el, ancestors, media = []) {
       `60 frames: ${before} plans before, ${during} during, ${after} after the pane settled elsewhere, ${same} where it began (${RESIZE_SETTLE_MS} ms)`);
   }
 
+  /* -- 11. a picture Auto keeps as cards past the pane is opened at a zoom they are read at --------------------
+     The overflow is panned to, not shrunk away: the canvas's own fit stops at AUTO.readable. The toolbar's Fit still
+     shows the whole picture. The twin is a picture that fits: its own fit is the whole of it, as before. */
+  {
+    const gp = await import(`../../kit/studio/web/graph-plan.js?fit=${Date.now()}`);
+    const nodes = (n) => [{ id: 'session', kind: 'session', status: 'session', turns: 1, cwd: '/x' },
+      ...Array.from({ length: n }, (_, i) => ({ id: `o${i}`, kind: 'agent', agentType: `type-${i}`, status: 'done', parentId: 'session', description: `task ${i}`, order: i + 1 }))];
+    const pane = (c) => { const rect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 600, width: 800, height: 600 }); c.root.getBoundingClientRect = rect; if (c.vp?.pane) c.vp.pane.getBoundingClientRect = rect; };
+    const open = (name, n) => { const c = plain(name); pane(c); c.setDensity('auto'); c.render({ nodes: nodes(n), edges: [] }); c.fit({ readable: true }); return c; };
+    let n = 2;
+    while (n < 60) { const p = gp.plan(nodes(n), { tallest: gp.tallestFor(600) }); if (p.density === 'comfortable' && gp.fitZoom(p.width, p.height, 800, 600) < gp.AUTO.readable) break; n += 1; }
+    const over = open('overflow-fit', n);
+    const own = over.view.k;
+    const top = over.view.y;
+    over.fit();
+    const whole = over.view.k;
+    const fits = open('fits-fit', 2);
+    check('a picture Auto keeps as cards past the pane opens at the zoom cards are read at, from its top; Fit still shows the whole of it; one that fits opens whole',
+      over.lastPlan.density === 'comfortable' && own >= gp.AUTO.readable && top === gp.ZOOM.pad && whole < gp.AUTO.readable
+      && fits.view.k === gp.fitZoom(fits.lastPlan.width, fits.lastPlan.height, 800, 600),
+      `${n} agents, ${over.lastPlan.height}px as cards: opened at ${own}, Fit ${whole.toFixed(3)}; a picture that fits at ${fits.view.k}`);
+  }
+
   dom();
 }
 
@@ -4427,9 +4453,9 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       `(724 - ${2 * gp.ZOOM.pad}) / 0.75 = ${derived.toFixed(0)}; limit ${gp.AUTO.tallest}`);
     let last = 1;
     while (gp.plan(many(last + 1), {}).density === 'comfortable') last += 1;
-    check('cards stay cards up to the limit and become chips one agent past it',
-      gp.plan(many(last), {}).height <= gp.AUTO.tallest && gp.plan(many(last + 1), { density: 'comfortable' }).height > gp.AUTO.tallest
-      && gp.plan(many(last + 1), {}).density === 'compact' && last >= 9 && last <= 13,
+    check('cards stay cards up to the limit and its overflow, and become chips one agent past it',
+      gp.plan(many(last), {}).height <= gp.AUTO.tallest * gp.AUTO.overflow && gp.plan(many(last + 1), { density: 'comfortable' }).height > gp.AUTO.tallest * gp.AUTO.overflow
+      && gp.plan(many(last + 1), {}).density === 'compact' && last >= 13 && last <= 20,
       `${last} distinct agents are cards (${gp.plan(many(last), {}).height}px); ${last + 1} are chips`);
     // Under "Workflow run" agents of one type are one card, however few they are and wherever they stand in the
     // order: three of a kind called fifth, eighth and ninth are the same thing three times, and were drawn as
@@ -4494,7 +4520,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const p = gp.plan(big, { open: new Map(folds.map((id) => [id, false])) });
     const planMs = Number(process.hrtime.bigint() - t0) / 1e6;
     check('250 agents open as a picture short enough to read, with every agent accounted for',
-      agentsOf(big) === 250 && p.height <= gp.AUTO.tallest && p.items.length < 40
+      agentsOf(big) === 250 && p.height <= gp.AUTO.tallest * gp.AUTO.overflow && p.items.length < 40
       && p.items.filter((it) => it.kind === 'group').reduce((n, it) => n + it.members.length, 0) === 250,
       `${p.items.length} boxes, ${p.height}px tall, ${p.density}; planned in ${planMs.toFixed(1)} ms`);
     const c = made(big, 'big');

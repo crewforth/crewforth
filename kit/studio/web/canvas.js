@@ -11,7 +11,7 @@
 //   A status is never colour alone: every dot has its word beside it.
 //   A poll that changed nothing writes nothing. Each element remembers what it last drew.
 import {
-  plan, sequence, crowdFolds, tallestFor, stateOf, GROUPINGS, DENSITIES, INFERRED_NOTE,
+  plan, sequence, crowdFolds, tallestFor, stateOf, GROUPINGS, DENSITIES, INFERRED_NOTE, AUTO,
 } from './graph-plan.js';
 import { clock } from './timeline-plan.js';
 import { Viewport, draggable, swallowClick } from './viewport.js';
@@ -536,7 +536,7 @@ export class Canvas {
 
   /** The pane is changing size. The view follows it now; whether it is cards or chips is asked once it stops. */
   paneResized() {
-    if (!this.touched && !this.pinned.size) this.fit();
+    if (!this.touched && !this.pinned.size) this.fit({ readable: true });
     clearTimeout(this.settleTimer);
     this.settleTimer = setTimeout(() => { this.settleTimer = null; this.fitIfUntouched(); }, RESIZE_SETTLE_MS);
   }
@@ -547,13 +547,18 @@ export class Canvas {
     // The pane changed size: what fits in it may have changed with it, and so may Auto's answer.
     const h = this.root.getBoundingClientRect?.().height ?? 0;
     if (this.lastPlan && this.density === 'auto' && tallestFor(h) !== tallestFor(this.paneHeight ?? 0)) this.#redraw();
-    if (!this.touched && !this.pinned.size) this.fit();
+    if (!this.touched && !this.pinned.size) this.fit({ readable: true });
   }
 
-  fit() {
+  /**
+   * Fit the picture to the pane. On its own (`readable`), the view does not go under the zoom a card is read at
+   * when Auto kept cards for a picture taller than the pane: that is the overflow Auto allows, panned to, not
+   * shrunk away. The toolbar's Fit asks for the whole picture.
+   */
+  fit({ readable = false } = {}) {
     const p = this.lastPlan;
     if (!p || !p.items.length) return;
-    this.vp.fit(p.width, p.height);
+    this.vp.fit(p.width, p.height, readable && this.density === 'auto' && p.density === 'comfortable' ? AUTO.readable : 0);
   }
 
   /* -------------------------------------------------------- rendering */
@@ -647,7 +652,7 @@ export class Canvas {
 
     this.#drawEdges(p);
     this.#drawMap(p);
-    if (fit) this.fit(); else this.applyView();
+    if (fit) this.fit({ readable: true }); else this.applyView();
   }
 
   /** The card's position and size, and whatever only changes with them. */
@@ -931,7 +936,7 @@ export class Canvas {
       // Beside the bar: how the members went — or, at compact density where the card has no line for it, the
       // models they ran on, with how they went left to the bar and its tooltip.
       const mix = modelMix(it.members).replace(/, /g, ' \u00b7 ');
-      if (!it.boxed) { p.count.textContent = it.compact && mix ? mix : says; p.count.title = it.compact && mix ? `${says}\nThe models its agents ran on` : ''; }
+      if (!it.boxed) { p.count.textContent = it.compact && mix ? `${says} \u00b7 ${mix}` : says; p.count.title = it.compact && mix ? `${says}\nThe models its agents ran on: ${mix}` : ''; }
       if (!it.boxed) this.#fillTotals(p, it);
       el.title = it.boxed ? '' : (it.open ? 'Click to fold' : `Click to show ${it.members.length} agents`);
       el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? 'open' : 'folded'}`);

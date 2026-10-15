@@ -74,6 +74,9 @@ versioning follows [SemVer](https://semver.org/).
   asks as any other commit does instead of being refused.
 - **npm releases are published over OIDC.** The release job proves its identity with a short-lived GitHub Actions
   token (npm Trusted Publishing); the repository holds no npm token, and each version carries a provenance statement.
+- **Studio keeps cards for a longer session.** At Auto density a picture may now run up to half again past the pane
+  before its cards become chips; it opens at the zoom cards are read at, from its top, and Fit still shows all of it.
+  A compact group card says how its agents went as well as their models (`5 done · 3 Sonnet · 2 Opus`).
 
 ### Security
 
