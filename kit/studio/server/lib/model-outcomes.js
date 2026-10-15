@@ -222,13 +222,16 @@ export function classesOf(rows, floors = [], loosened = []) {
  * `costed` of `runs` were priced; the rest are not in the sum, so the sum is a floor and not the total.
  * @param costOf  (agentId) => USD or null
  */
-export function classCosts(rows, costOf) {
+export function classCosts(rows, costOf, advisorOf = () => null) {
   const out = {};
   for (const r of rows) {
-    const c = (out[keyOf(r)] ??= { cost: 0, costed: 0, runs: 0 });
+    const c = (out[keyOf(r)] ??= { cost: 0, costed: 0, runs: 0, advisorCalls: 0, advisorCost: 0 });
     c.runs += 1;
     const usd = costOf(r.agentId);
     if (typeof usd === 'number') { c.cost += usd; c.costed += 1; }
+    // The advisor's share is part of `cost` already; it is counted apart only to be said.
+    const a = advisorOf(r.agentId);
+    if (a?.calls > 0) { c.advisorCalls += a.calls; if (typeof a.cost === 'number') c.advisorCost += a.cost; }
   }
   return out;
 }
@@ -387,9 +390,9 @@ export function readModels(cwd, { agents = null } = {}) {
 }
 
 /** What the classes of one project cost, from the kept record: see `classCosts`. Null when there is no record. */
-export function readCosts(cwd, costOf) {
+export function readCosts(cwd, costOf, advisorOf) {
   const rec = readRecord(cwd);
-  return rec.measured ? classCosts(rec.all, costOf) : null;
+  return rec.measured ? classCosts(rec.all, costOf, advisorOf) : null;
 }
 
 /** What the work above the table cost, from the kept record: see `aboveCosts`. Null when there is no record. */

@@ -688,6 +688,7 @@ body[data-role="viewer"] #new-session { display: none; }
 .mv-raised .mv-tag[data-kind="lowered"] { margin-left: 0; }
 .mv-tag[data-tone="pass"] { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 .mv-tag[data-tone="fail"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
+.mv-tag[data-kind="advisor"] { margin-left: 6px; color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
 .mv-tag[data-kind="escalated"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
 .mv-table td[data-partial="true"] { color: var(--ink-dim); }
 .mv-meter { display: inline-block; width: 72px; height: 6px; margin-left: 8px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; vertical-align: middle; }

@@ -187,7 +187,8 @@ async function modelCosts(cwd) {
   }
   return {
     measured: true,
-    costs: readCosts(cwd, (id) => per.get(id)?.cost ?? null),
+    costs: readCosts(cwd, (id) => per.get(id)?.cost ?? null,
+      (id) => (per.get(id)?.advisorCalls ? { calls: per.get(id).advisorCalls, cost: per.get(id).advisorCost } : null)),
     above: readAboveCosts(cwd, (id) => (per.has(id) ? { cost: per.get(id).cost, atNormal: per.get(id).costAtNormal } : null)),
     sessionsRead: read,
   };
