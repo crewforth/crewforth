@@ -89,6 +89,7 @@ export class Models {
       const cost = mk('td', 'mv-num', r.cost);
       cost.title = r.costNote;
       if (r.partial) cost.dataset.partial = 'true';
+      if (r.advisor) { const t = mk('span', 'mv-tag', 'advisor'); t.dataset.kind = 'advisor'; t.title = r.advisor; cost.append(t); }
       tr.append(who, risk, model, mk('td', 'mv-num', r.tasks), first, mk('td', 'mv-num', r.escalated), cost);
       tbody.append(tr);
     }

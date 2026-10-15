@@ -122,6 +122,7 @@ export class Usage {
     this.model = new Map();    // model id -> Tally
     this.advisor = new Tally(); // the advisor calls alone, one take per call
     this.advisorModels = new Map(); // advisor model id -> Tally
+    this.advisorWho = new Map();    // 'session' or an agent's id -> Tally of its advisor calls alone
     this.first = null;         // the earliest and the latest record of any file added
     this.last = null;
   }
@@ -158,6 +159,7 @@ export class Usage {
         this.#tally(this.model, x.model ?? 'unknown model').take(x, usd, atNormal, own);
         if (!own) {   // here each call is one
           this.advisor.take(x, usd, atNormal);
+          this.#tally(this.advisorWho, who === 'session' && r.isSidechain === true ? 'agents:inline' : who).take(x, usd, atNormal);
           this.#tally(this.advisorModels, x.model ?? 'unknown model').take(x, usd, atNormal);
         }
       }
@@ -247,7 +249,10 @@ export async function sessionUsage(session) {
   for (const [who, t] of usage.who) {
     if (who === 'session' || who.startsWith('agents:')) continue;
     const r = t.result();
-    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost, costAtNormal: r.costAtNormal };
+    // What of it was the advisor: its calls and their cost, already in `cost`. Zero calls when it consulted none.
+    const adv = usage.advisorWho.get(who)?.result() ?? null;
+    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost, costAtNormal: r.costAtNormal,
+      advisorCalls: adv?.responses ?? 0, advisorCost: adv?.cost ?? null };
   }
   return { ...withTimes(usage, records), agents };
 }

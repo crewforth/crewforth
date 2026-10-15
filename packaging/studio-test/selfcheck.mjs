@@ -1270,6 +1270,14 @@ check('prose without a notice yields nothing', none.size === 0);
   check('with every task priced the cell is the estimate; with none it is a dash; before costs are read it says so, and is never a zero',
     mp.costCell({ cost: 1.2, costed: 3, runs: 3 }, 3).cost === '~$1.20' && mp.costCell({ cost: 1.2, costed: 3, runs: 3 }, 3).partial === false
     && docsCost.cost === '\u2014' && mp.classRow(be).cost === '\u2026' && mp.costCell({ cost: 0, costed: 0, runs: 4 }, 4).cost === '\u2014');
+  // The advisor's share of a class: a1 consulted it twice ($0.30 of its $0.50), a2 never did.
+  const advCosts = mo.readCosts(dir, (id) => (id === 'a1' ? 0.5 : id === 'a2' ? 0.25 : null), (id) => (id === 'a1' ? { calls: 2, cost: 0.3 } : null));
+  const advRow = mp.classRow(be, advCosts[be.key]);
+  check('a class whose agents consulted the advisor says how many calls and how much of its cost; one that did not says nothing',
+    advCosts[be.key].advisorCalls === 2 && Math.abs(advCosts[be.key].advisorCost - 0.3) < 1e-9 && Math.abs(advCosts[be.key].cost - 0.75) < 1e-9
+    && /^Advisor: 2 calls, ~\$0\.30 of it\./.test(advRow.advisor ?? '') && advRow.costNote.endsWith(advRow.advisor)
+    && beCost.advisor === null && docsCost.advisor === null && mp.costCell({ cost: 1, costed: 1, runs: 1, advisorCalls: 1, advisorCost: null }, 1).advisor === 'Advisor: 1 call, its cost not priced. A second model the agents consulted, at that model\'s rates; included above.',
+    advRow.advisor ?? 'no advisor words');
   check('a page is sent the lines of the agents it shows and no others',
     Object.keys(m.byAgent).sort().join() === 'a1,a2,a3,a4,a5,a6,a7,a8' && Object.keys(mo.readModels(dir).byAgent).length === 0
     && m.all === undefined && Object.keys(mo.readModels(dir, { agents: ['a20', '__proto__', 'constructor'] }).byAgent).join() === 'a20');
@@ -1472,6 +1480,12 @@ check('prose without a notice yields nothing', none.size === 0);
         && all(root, (e) => e.className === 'mv-suggest-h')[0]?.textContent === 'Suggestion · needs your approval'
         && all(root, (e) => e.className === 'mv-raised').length === 2 && all(root, (e) => e.dataset?.kind === 'raised').length === 4,
         `${buttons.length} button(s); copied: ${copied.join()}`);
+      const noTag = all(root, (e) => e.dataset?.kind === 'advisor').length;
+      view.setCosts({ measured: true, costs: advCosts, sessionsRead: 1 });
+      const tags = all(root, (e) => e.dataset?.kind === 'advisor');
+      check('the cost cell carries an advisor tag only for a class that consulted it, its words on hover',
+        noTag === 0 && tags.length === 1 && tags[0].textContent === 'advisor' && /^Advisor: 2 calls/.test(tags[0].title ?? ''),
+        `${noTag} before, ${tags.length} after`);
     } finally { dom(); }
   }
   check('the view\'s classes are its own: none of them is one the Markdown renderer styles',
@@ -1979,6 +1993,11 @@ check('prose without a notice yields nothing', none.size === 0);
     };
     // The response is written as three records (the advisor call, its result, the answer), each repeating the usage.
     const adv = new us.Usage().add([1, 2, 3].map(() => rec('madv', 'claude-sonnet-5-5', advU))).result();
+    // Whose advisor call it was: the agent whose transcript made it, apart from the session's own.
+    const whose = new us.Usage().add([rec('mx', 'claude-sonnet-5-5', u1)]).add([1, 2].map(() => rec('madv2', 'claude-sonnet-5-5', advU)), 'ag1');
+    check('an advisor call is the agent\'s whose transcript made it, and the session\'s own has none',
+      whose.advisorWho.get('ag1')?.result().responses === 1 && near(whose.advisorWho.get('ag1').result().cost, 0.15358) && !whose.advisorWho.has('session'),
+      JSON.stringify([...whose.advisorWho.keys()]));
     check('an advisor call is priced at its own model and counted once: the total is what Claude Code billed for the session',
       adv.responses === 1 && adv.advisor?.calls === 1 && near(adv.advisor.cost, 0.15358) && near(adv.cost, 0.210956)
       && near(adv.byModel['claude-opus-5-5']?.cost, 0.15358) && adv.advisorModels['claude-opus-5-5']?.calls === 1 && adv.tokens.input === 4 + 36345,

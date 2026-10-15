@@ -95,15 +95,29 @@ export function floorWords(floor) {
  * ("\u2265$0.75 \u00b7 2/7"), because a sum of two calls must not be read as the cost of seven. None: a dash.
  */
 export function costCell(cost, runs) {
-  if (!cost) return { cost: '\u2026', costNote: 'Reading what this class cost\u2026', partial: false };
-  if (!cost.costed) return { cost: '\u2014', costNote: 'No agent of this class has a transcript on this machine that could be priced', partial: false };
+  if (!cost) return { cost: '\u2026', costNote: 'Reading what this class cost\u2026', partial: false, advisor: null };
+  if (!cost.costed) return { cost: '\u2014', costNote: 'No agent of this class has a transcript on this machine that could be priced', partial: false, advisor: null };
   const usd = fmtCost(cost.cost);
-  if (cost.costed >= runs) return { cost: usd, costNote: `All ${runs} ${runs === 1 ? 'task' : 'tasks'} priced, at API list price. An estimate: what a subscription is charged is not known here.`, partial: false };
+  const advisor = advisorWords(cost);
+  const tail = advisor ? `\n${advisor}` : '';
+  if (cost.costed >= runs) return { cost: usd, costNote: `All ${runs} ${runs === 1 ? 'task' : 'tasks'} priced, at API list price. An estimate: what a subscription is charged is not known here.${tail}`, partial: false, advisor };
   return {
     cost: `\u2265${usd.replace(/^~/, '')} \u00b7 ${cost.costed}/${runs}`,
-    costNote: `At least this much: ${cost.costed} of ${runs} tasks could be priced; the others have no transcript on this machine. At API list price.`,
+    costNote: `At least this much: ${cost.costed} of ${runs} tasks could be priced; the others have no transcript on this machine. At API list price.${tail}`,
     partial: true,
+    advisor,
   };
+}
+
+/**
+ * What of a class's cost was the advisor (a second model its agents consulted mid-task), or null when they consulted
+ * none: no call is no tag, not a zero. Its share is already in the class's cost; this only says how much it was.
+ */
+export function advisorWords(cost) {
+  const n = cost?.advisorCalls ?? 0;
+  if (!(n > 0)) return null;
+  const share = typeof cost.advisorCost === 'number' && cost.advisorCost > 0 ? `${fmtCost(cost.advisorCost)} of it` : 'its cost not priced';
+  return `Advisor: ${n} ${n === 1 ? 'call' : 'calls'}, ${share}. A second model the agents consulted, at that model's rates; included above.`;
 }
 
 /** One class as the view's row: who and what kind of change, how risky, what ran it, and how it went. */
