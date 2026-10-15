@@ -10934,6 +10934,63 @@ sec "== 14b) the star line (once, on a first install) and the front page it poin
 # One file owns the line — its URL, both languages, and when it stays quiet — so these checks drive THAT file,
 # with CI and CREW_NO_STAR set or cleared by each case itself: a runner exports CI=true, and a check that read it
 # from the environment would pass here and assert the opposite there.
+# ---- the status line: what it says, and where it is set ----------------------------------------------------------
+# eval/lib/statusline.sh reads Claude Code's stdin and the hooks' own records. What it must never do: show a gate
+# line or an agent from before the session (the gate log carries no time), or replace a status line of the user's.
+SLS="$ROOT/eval/lib/statusline.sh"
+if [ -f "$SLS" ]; then
+  _sl="$(mktemp -d)"; mkdir -p "$_sl/p/.claude/state/crew-model/agents" "$_sl/p/.claude/state/crew-model/results" "$_sl/home"
+  ( cd "$_sl/p" && git init -q . ) >/dev/null 2>&1
+  printf 'ASK\t§4.4\tcommit\t\n' > "$_sl/p/.claude/gate-log.tsv"; : > "$_sl/p/.claude/state/crew-model/agents/before"
+  _slj='{"session_id":"sl1","context_window":{"used_percentage":34.6},"cost":{"total_cost_usd":1.2034},"rate_limits":{"five_hour":{"used_percentage":90}},"workspace":{"project_dir":"'"$_sl/p"'"}}'
+  sleep 1
+  _o1="$(printf '%s' "$_slj" | (cd "$_sl" && bash "$SLS") 2>&1)"
+  sleep 1
+  printf 'BLOCK\t§4.2\tforce push\t\n' >> "$_sl/p/.claude/gate-log.tsv"
+  : > "$_sl/p/.claude/state/crew-model/agents/run1"; : > "$_sl/p/.claude/state/crew-model/agents/done1"; : > "$_sl/p/.claude/state/crew-model/results/done1"
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ]; then printf -v _now '%(%s)T' -1; else _now="$(date +%s)"; fi
+  # 330 s old: 24 minutes left for the next 30 s, so a slow machine does not read 23 (measured in an install: 23).
+  printf 'v=1\nop=commit\nts=%s\n' "$((_now - 330))" > "$_sl/p/.git/crewforth-approval"
+  _o2="$(printf '%s' "$_slj" | (cd "$_sl" && bash "$SLS") 2>&1)"
+  _o3="$(printf '' | bash "$SLS" 2>&1)"
+  [ "$_o1" = "🔋 34% · ~\$1.20" ] && [ "$_o2" = "🛡 BLOCK §4.2 · ✓ commit approved 24m · ⚙ 1 crew agent · 🔋 34% · ~\$1.20" ] && [ -z "$_o3" ] \
+    && pass "status line: the session's own gate line, a standing approval and its running crew agents; nothing from before the session; the context fill, not a rate limit's; silent on no input" \
+    || fail "status line said: first='$_o1' · later='$_o2' · no input='$_o3'"
+  # --install: only where no status line is set, and never through a file it cannot read.
+  # The project's settings carry a hook of the user's own beside Crewforth's: both must come through whole.
+  # Built from Crewforth's hooks alone: in an installed project settings.json already carries the status line.
+  if [ -f "$ROOT/settings.json" ]; then
+    printf '{"hooks":%s}\n' "$(awk -v op=get -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$ROOT/settings.json" 2>/dev/null)" > "$_sl/base.json"
+    awk -v op=merge -v retired= -f "$ROOT/eval/lib/settings-json.awk" "$_sl/base.json" /dev/stdin > "$_sl/p/.claude/settings.json" 2>/dev/null <<'JSON'
+{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"my-own-stop-hook"}]}]}}
+JSON
+  fi
+  [ -s "$_sl/p/.claude/settings.json" ] || printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"my-own-stop-hook"}]}]}}\n' > "$_sl/p/.claude/settings.json"
+  _hb="$(awk -v op=get -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null | cksum)"
+  _i(){ (cd "$_sl/p" && env CLAUDE_CONFIG_DIR="$_sl/home" bash "$SLS" --install 2>&1); }
+  _hk0="$(awk -v op=len -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null)"
+  _r1="$(_i)"; _c1="$(awk -v op=get -v path=statusLine.command -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null)"
+  _hk1="$(awk -v op=len -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null)"
+  _ha="$(awk -v op=get -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null | cksum)"
+  grep -q 'my-own-stop-hook' "$_sl/p/.claude/settings.json" || _ha="lost the user's own hook"
+  _r2="$(_i)"
+  cp "$_sl/base.json" "$_sl/p/.claude/settings.json" 2>/dev/null || printf '{"hooks":{}}\n' > "$_sl/p/.claude/settings.json"
+  printf '{"statusLine":{"type":"command","command":"mine"}}\n' > "$_sl/home/settings.json"
+  _sum0="$(cksum < "$_sl/p/.claude/settings.json")"; _r3="$(_i)"; _sum1="$(cksum < "$_sl/p/.claude/settings.json")"
+  rm -f "$_sl/home/settings.json"; printf '{bad' > "$_sl/p/.claude/settings.json"; _r4="$(_i)"; _b4="$(cat "$_sl/p/.claude/settings.json")"
+  case "$_c1" in *eval/lib/statusline.sh*) _c1=ok ;; esac
+  [ "$_r1/$_c1/$_r2/$_r3/$_r4" = "installed/ok/kept/kept/failed" ] && [ "$_hk0" = "$_hk1" ] && [ -n "$_hk0" ] && [ "$_hb" = "$_ha" ] && [ "$_sum0" = "$_sum1" ] && [ "$_b4" = "{bad" ] \
+    && pass "status line --install: set where none is, every hook kept byte for byte, Crewforth's and the user's own ($_hk1 events); kept when set; a user's own left untouched; a file it cannot read left as it was" \
+    || fail "status line --install: $_r1/$_c1/$_r2/$_r3/$_r4 (want installed/ok/kept/kept/failed), hooks $_hk0 -> $_hk1 (content $([ "$_hb" = "$_ha" ] && echo same || echo "CHANGED: $_ha")), user's case changed the file: $([ "$_sum0" = "$_sum1" ] || echo yes), invalid left as '$_b4'"
+  # The reader's gets: several values in one read, an absent one empty, a string with its quotes.
+  _g="$(printf '{"a":{"b":1},"c":"x y"}' | awk -v op=gets -v 'path=a.b|nope|c' -f "$ROOT/eval/lib/settings-json.awk" - 2>&1)"
+  [ "$_g" = "1"$'\t\t'"\"x y\"" ] && pass "settings-json.awk gets: several paths in one read, tab-separated, an absent one empty" \
+    || fail "settings-json.awk gets printed '$_g'"
+  rm -rf "$_sl"
+else
+  skip scope "status line checks skipped (this project has no eval/lib/statusline.sh)" 3
+fi
+
 STAR="$ROOT/eval/lib/star.sh"
 if [ -f "$STAR" ]; then
   _SURL="$(sed -n 's/^CREW_REPO_URL="\(.*\)"$/\1/p' "$STAR" | head -1)"
