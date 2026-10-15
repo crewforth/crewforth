@@ -8,6 +8,9 @@ dependencies = [
   "requests",
   "unused-lib==1.0",
   "faiss-cpu>=1.8",
+  "uvicorn[standard]>=0.29",
+  "pytest-asyncio>=0.23",
+  "en-core-web-sm",
 ]
 
 [project.scripts]

@@ -30,7 +30,8 @@
     "POST /v1/items is declared over three lines, as black writes a long decorator",
     "faiss-cpu is imported as faiss, on a line that ends in a comment",
     "f\"{base}/v1/elsewhere\" has a run-time host: it may be another service's, so its absence here proves nothing",
-    "GET /admin is a route whose empty path sits on the decorator line itself"
+    "GET /admin is a route whose empty path sits on the decorator line itself",
+    "uvicorn is started from the command line, pytest-asyncio is a pytest plugin, en-core-web-sm is a spaCy model loaded by name"
   ],
   "nodes": [
     "ext:db:postgres",

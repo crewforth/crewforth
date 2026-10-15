@@ -381,8 +381,24 @@ export function endpoints(pj, st, out) {
       }
     }
   }
+  // A route a platform calls rather than code: a compose or Dockerfile healthcheck (`curl -f http://localhost:8000/health`)
+  // and a Kubernetes probe (`httpGet: path: /healthz`). Not on the map as a call, since no module makes it; only the
+  // provider is spared being reported unused.
+  const probes = [];
+  for (const f of pj.files) {
+    const compose = /(^|\/)(docker-)?compose[^/]*\.ya?ml$/.test(f); const docker = /(^|\/)Dockerfile[^/]*$/.test(f);
+    const k8s = /\.ya?ml$/.test(f) && !compose;
+    if (!(compose || docker || k8s) || isTestPath(f)) continue;
+    const src = pj.read(f); if (!src) continue;
+    if (k8s && !/\b(liveness|readiness|startup)Probe\s*:/.test(src.text)) continue;
+    src.lines.forEach((l) => {
+      if (isComment(l)) return;
+      if (k8s) { const kp = /^\s*path\s*:\s*['"]?(\/[^\s'"]*)/.exec(l); if (kp) probes.push(normPath(kp[1]).path); return; }
+      for (const x of l.matchAll(/https?:\/\/([^/\s'"]+)(\/[^\s'"\]),;)]*)/g)) if (isLocalHost(x[1])) probes.push(normPath(x[2]).path);
+    });
+  }
   if (dynamic) out.notMeasured.push({ what: `routes registered with a run-time path (${dynamic})`, reason: 'the path is a variable, not a literal, so the route is not on the map' });
-  return { provides, consumes, mounts: [...new Set(mounts)].sort() };
+  return { provides, consumes, mounts: [...new Set(mounts)].sort(), probes: [...new Set(probes)].sort() };
 }
 
 // ---- containers ---------------------------------------------------------------------------------------------
