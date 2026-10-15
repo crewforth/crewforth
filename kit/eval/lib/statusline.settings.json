@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/eval/lib/statusline.sh"
+  }
+}

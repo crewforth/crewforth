@@ -4,6 +4,7 @@
 #   awk -v op=validate -f settings-json.awk FILE              rc 0 = FILE is a JSON object, 1 = it is not
 #   awk -v op=get -v path=hooks.Stop.0 -f settings-json.awk FILE   the value there, as the merge would print it
 #   awk -v op=len -v path=hooks.Stop -f settings-json.awk FILE     how many entries an array/object holds
+#   awk -v op=gets -v path='a.b|c.d' -f settings-json.awk FILE   several values in one read, tab-separated, "" if absent
 #   awk -v op=strings -v path=permissions.deny -f settings-json.awk FILE   each string element of that array, one per
 #       line, quotes off, escapes as written (rc 1 = not an array)
 #       path = dot-separated keys, a number indexes an array (0-based), empty = the root. rc 1 = no such path
@@ -124,6 +125,10 @@ END{
       print (it && !isnull(it) ? V[it] : 0) + V[cr] + (cc && !isnull(cc) ? V[cc] : 0); exit 0 }
     exit 0 }
   if(op=="validate") exit !doc(1)
+  # gets: several paths in one read (path = "a.b|c.d"), their values on one line, tab-separated; an absent one is
+  # empty. One process for what a hot caller (the status line) would otherwise read with one awk per field.
+  if(op=="gets"){ if(!(r=doc(1))) exit 10; n=split(path,pp,"|"); o=""
+    for(i=1;i<=n;i++){ x=at(r,pp[i]); o=o (i>1?"\t":"") (x ? put(x,"") : "") } print o; exit 0 }
   if(op=="get" || op=="len"){ if(!(r=doc(1))) exit 10; if(!(r=at(r,path))) exit 1
     if(op=="get"){ print put(r,""); exit 0 } if(T[r]=="s") exit 1; print N[r]; exit 0 }
   if(op=="strings"){ if(!(r=doc(1))) exit 10; if(!(r=at(r,path))) exit 1; if(T[r]!="a") exit 1

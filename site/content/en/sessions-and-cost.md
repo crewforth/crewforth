@@ -23,3 +23,15 @@ Its cost is its own. Each call reads the whole conversation at the advisor model
 It does not follow the card. An advisor that ranks below the model it would advise is not attached at all, so with a Sonnet advisor an agent on Opus (critical work) gets no advice. The advisor is not in `model-outcomes.tsv`.
 
 Turn it off with `/advisor off`, or for good with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. It needs the Anthropic API; on Amazon Bedrock, Google Cloud's Agent Platform or Microsoft Foundry it is not available.
+
+## The status line
+
+One line under the prompt says what Crewforth's hooks know about this session:
+
+```
+🛡 BLOCK §4.2 · ✓ commit approved 24m · ⚙ 2 crew agents · 🔋 34% · ~$1.20
+```
+
+The gate's last word in this session, an approval you gave for a commit or a push that still holds, the crew agents started in this session and still running, the context fill Claude Code measured, and what Claude Code puts the session's cost at. Each part shows only when there is something to say, and nothing from before the session: the gate log carries no time, so a line from last week would otherwise read as now.
+
+The installers set it only where no status line is set, in the project or in your own settings, because the project's setting would win over yours. With one of your own, they leave it and `/crew-doctor` says how to turn Crewforth's on. The plugin edition cannot set a status line.

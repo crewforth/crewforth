@@ -96,6 +96,8 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
   if [ "$CREW_LANG" = tr ]; then
     case "$s" in
       "Crewforth · setup wizard") s='Crewforth · kurulum' ;;
+      "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost).") s="Durum satırı: Crewforth'unki (kapının son sözü, geçerli onay, crew ajanları, doluluk, maliyet)." ;;
+      "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor).") s="Durum satırı: seninki korundu; Crewforth'unki tek komutla açılır (/crew-doctor'a bak)." ;;
       "stack-agnostic") s='her yığınla çalışır' ;;
       "[1/2] Who is this install for?") s='[1/2] Kurulumu kim kullanacak?' ;;
       "Decides whether your teammates get Crewforth's configuration — and what goes into .gitignore.") s="Crewforth ayarlarının ekiple paylaşılıp paylaşılmayacağını ve .gitignore'a nelerin ekleneceğini belirler." ;;
@@ -638,6 +640,14 @@ count_showcase .claude/skills
 # studio's gate hook is invoked as `bash <path>` today, so the bit is not load-bearing
 # yet; set it anyway, because a future direct exec would fail silently.
 chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg .claude/eval/*.sh .claude/studio/server/hooks/*.sh 2>/dev/null || true
+# The status line, only where none is set: a user's own would lose to the project's setting, so it is never
+# replaced. eval/lib/statusline.sh --install decides and writes; this only says what it did.
+if [ -f .claude/eval/lib/statusline.sh ]; then
+  case "$(bash .claude/eval/lib/statusline.sh --install 2>/dev/null)" in
+    installed) _mt "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost)."; echo "  ${_M}" ;;
+    kept) _mt "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor)."; echo "  ${_M}" ;;
+  esac
+fi
 
 # §4.2: a vendor line that was armed before this run stays armed (the copy above resets it to a comment); nothing
 # else arms it. Rationale, and the measured failure of "arm it whenever the pattern skill exists", in adopt.sh.
