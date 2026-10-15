@@ -32,7 +32,7 @@ Bring the Crewforth install up to the latest published version:
    (no flags) in **their own terminal**, where both the npx and the interactive prompts work.
 7. **After:** run `bash .claude/eval/update-guard.sh post` (Bash tool, not PowerShell) and show the user its lists — added, changed, moved,
    removed.
-8. **Verify:** run `/crew-doctor` (or `bash .claude/eval/doctor.sh` — Bash tool, not PowerShell) so a bad/partial update surfaces immediately.
+8. **Verify:** run `CREW_NO_STAR=1 bash .claude/eval/doctor.sh` (Bash tool, not PowerShell) so a bad/partial update surfaces immediately; the updater has already shown the star line, if it was due.
    If the updater's or doctor's output contains a line starting with ⭐, pass it to the user verbatim as the LAST
    line of your summary — it prints once per Crewforth version, and it is meant for the user, not for you.
 9. **Report** old → new + the headline changes. Take them from `.claude/.state/whats-new.md` — the updater writes

@@ -876,10 +876,11 @@ SP="$WORK/star"; rm -rf "$SP"; mkdir -p "$SP"; cp start.sh VERSION "$SP/"; cp -R
 _slog; ( cd "$SP" && git init -q && git config user.email t@t.t && git config user.name t && git commit -q --allow-empty -m b \
     && printf 'yes\n' | env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $SP" "$_L" $?
 S1="$(starn "$_L")"
-dstar(){ ( cd "$SP" && env -u CI -u CREW_NO_STAR -u CSK_NO_STAR CREW_LANG=en bash .claude/eval/doctor.sh 2>&1 || true ) > "$WORK/star-doctor.txt"
+# doctor keeps its own marker (the installers keep theirs); $1 = CREW_NO_STAR=1 is the doctor /crew-update runs.
+dstar(){ ( cd "$SP" && env -u CI -u CREW_NO_STAR -u CSK_NO_STAR CREW_LANG=en ${1:-} bash .claude/eval/doctor.sh 2>&1 || true ) > "$WORK/star-doctor.txt"
          case "$(cat "$WORK/star-doctor.txt")" in *"DOCTOR: healthy"*) ;; *) echo "FAIL: FIXTURE — doctor is not healthy here, so its star checks prove nothing" >&2; echo UNHEALTHY; return ;; esac
          starn "$WORK/star-doctor.txt"; }
-D1="$(dstar)"                                              # same version as the install: silent
+D1="$(dstar)"                                              # same version as the install: doctor's own once, shown
 restage(){ cp adopt.sh "$SP/"; cp -R kit "$SP/"; printf '%s\n' "$1" > "$SP/VERSION"; }
 restage "$(head -1 VERSION)"
 _slog; ( cd "$SP" && env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash adopt.sh --here --yes </dev/null ) >"$_L" 2>&1 || _evidence "adopt.sh same-version update in $SP" "$_L" $?
@@ -887,11 +888,12 @@ S2="$(starn "$_L")"
 restage "9.9.9-e2e"
 _slog; ( cd "$SP" && env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash adopt.sh --here --yes </dev/null ) >"$_L" 2>&1 || _evidence "adopt.sh new-version update in $SP" "$_L" $?
 S3="$(starn "$_L")"
-D2="$(dstar)"                                              # the doctor /crew-update runs right after: silent
+D2="$(dstar CREW_NO_STAR=1)"                               # the doctor /crew-update runs right after: silent
+D2b="$(dstar)"                                             # the user's own /crew-doctor later: still owed, shown
 printf '9.9.10-e2e\n' > "$SP/.claude/VERSION"; D3="$(dstar)"   # a new version reached by doctor first: shown
 D4="$(dstar)"                                              # ...once
-[ "$S1/$D1/$S2/$S3/$D2/$D3/$D4" = "1/0/0/1/0/1/0" ] \
-  || { echo "FAIL: star line not once per version — install/doctor/same-ver update/new-ver update/doctor/new-ver doctor/doctor = $S1/$D1/$S2/$S3/$D2/$D3/$D4 (want 1/0/0/1/0/1/0)"; exit 1; }
+[ "$S1/$D1/$S2/$S3/$D2/$D2b/$D3/$D4" = "1/1/0/1/0/1/1/0" ] \
+  || { echo "FAIL: star line not once per version and caller — install/doctor/same-ver update/new-ver update/update's doctor/doctor/new-ver doctor/doctor = $S1/$D1/$S2/$S3/$D2/$D2b/$D3/$D4 (want 1/1/0/1/0/1/1/0)"; exit 1; }
 [ -z "$(cd "$SP" && git status --porcelain -- .claude/star-shown 2>/dev/null)" ] && [ ! -e "$SP/.claude/star-shown" ] \
   || { echo "FAIL: the star marker landed under .claude/ in a git project — a tracked .claude/ would commit it"; exit 1; }
 for _q in "CREW_NO_STAR=1" "CI=true"; do

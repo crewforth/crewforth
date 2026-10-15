@@ -659,9 +659,9 @@ for _v in $(compgen -e); do
   esac
 done
 if [ "$FAIL" -eq 0 ]; then _mt "DOCTOR: healthy ✅%s" "$PANEL_NOTE"; echo "$_M"
-  # Healthy verdict: the star line, once per kit version — the marker is shared with the installers, so the
-  # doctor run that /crew-update makes right after an update stays quiet. Text/URL/silence: lib/star.sh.
-  [ -f "$(dirname "$0")/lib/star.sh" ] && bash "$(dirname "$0")/lib/star.sh" --once .
+  # Healthy verdict: the star line, once per kit version under doctor's own marker (the installers keep theirs).
+  # /crew-update runs this with CREW_NO_STAR=1, so an update shows it once, not twice. Text/URL/silence: lib/star.sh.
+  [ -f "$(dirname "$0")/lib/star.sh" ] && bash "$(dirname "$0")/lib/star.sh" --once . doctor
 else _mt "DOCTOR: %s issue(s) ❌ — apply the fixes above%s" "$FAIL" "$PANEL_NOTE"; echo "$_M"; fi
 
 # 9) The auto-mode classifier. Since 2026-08-14 auto mode is the default permission mode on Pro/Max/Team, so a

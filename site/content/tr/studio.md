@@ -42,7 +42,7 @@ Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört 
 
 **Sıra.** Her ajan başlatıldığı sıra numarasını taşıyor (`#3`). **Order** gruplaması oturumu dalgalar hâlinde diziyor: birlikte başlatılan ajanların her dalgası bir sütun. Bir ajandan sonraki dalgaya giden noktalı çizgi, o dalganın *o ajan rapor verdikten sonra* çağrıldığını söylüyor. Bu, olayların sırasından çıkarılıyor ve o yüzden bir çağrıdan farklı çiziliyor: her ajanı oturum çağırıyor, hiçbir ajan bir sonrakini çağırmıyor.
 
-**Yoğunluk.** **Auto**'da kartlar, resim okunabilir bir yakınlaştırmada (%75) bölmeye sığdığı sürece kart kalıyor; sığmayınca tek satırlık çiplere dönüşüyor. Düğme o zaman **Auto · compact** yazıyor ve ipucu nedenini söylüyor. Pencere uzayınca kartlar geri geliyor. Pencerenin kenarı sürüklenirken resim onu izliyor; Auto kart ile çip arasındaki seçimi pencere durunca yapıyor, böylece kenar sınırı geçerken kartlar yanıp sönmüyor. Çip modelini yine tam yazıyor; kompakt grup kartı da ajanlarının koştuğu modelleri koruyor (`3 Sonnet · 2 Opus`). **Comfortable** ve **Compact** seçimi sabitliyor.
+**Yoğunluk.** **Auto**'da kartlar, resim okunabilir bir yakınlaştırmada (%75) bölmenin en fazla bir buçuk katı uzunluktaysa kart kalıyor; daha uzunsa tek satırlık çiplere dönüşüyor. Bölmeden uzun bir resim o yakınlaştırmada en üstünden açılıyor, gerisi kaydırınca görünüyor (**Fit** yine tamamını gösteriyor). Düğme o zaman **Auto · compact** yazıyor ve ipucu nedenini söylüyor. Pencere uzayınca kartlar geri geliyor. Pencerenin kenarı sürüklenirken resim onu izliyor; Auto kart ile çip arasındaki seçimi pencere durunca yapıyor, böylece kenar sınırı geçerken kartlar yanıp sönmüyor. Çip modelini yine tam yazıyor; kompakt grup kartı da ajanlarının nasıl gittiğini ve koştuğu modelleri koruyor (`5 done · 3 Sonnet · 2 Opus`). **Comfortable** ve **Compact** seçimi sabitliyor.
 
 **Yerleşim.** Kart sürüklenebiliyor ve bırakıldığı yerde kalıyor. **Reset layout** (`r`) taşınan her kartı yerleşimin koyacağı yere geri götürüyor; ardından çıkan bildirim **Undo** sunuyor.
 
@@ -99,6 +99,11 @@ Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points
 | **Compare with** | bu makinede haritası olan başka bir proje. Onun kendi endpoint'lerinin sunmadığı çağrıları bu projeyle eşleştiriliyor: çağıran modülleri **Clients**'a geliyor, her çizgi kaç çağrının buraya düştüğünü ve kaçının **missing** olduğunu söylüyor, eksikler bulgulara ekleniyor |
 
 Telefonda bölmenin yerini bulgular ve modüllerin listesi alıyor; bir satır modülü inspector'da açıyor.
+
+<div align="center">
+  <img src="../../../assets/studio-map.png" alt="Bir demo projenin Map görünümü: istemcilerden dış kaynaklara bantlara oturmuş modüller, aralarındaki çizgiler ve bölmenin altında bulgular; her biri gösterdiği dosya ve satırla." width="100%">
+  <br><sub>Crewforth'un tarayıcısının bir demo proje için yazdığı haritadan çizildi; çıkarımla bulunan kurallar istenene kadar gizli.</sub>
+</div>
 
 ## Onay dock'u
 

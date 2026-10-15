@@ -63,6 +63,10 @@ versioning follows [SemVer](https://semver.org/).
 - **Read-only remote viewers for Studio.** The Machines tab makes a viewer link that only reads, lists each viewer
   with its last request, and revokes it. The server still binds to `127.0.0.1`; watching from another device goes
   through a tunnel you run (`ssh -L`, Tailscale).
+- **A visible way to the repository.** `/crew-doctor` now shows the star line once per version under its own marker,
+  so a line already shown at install no longer silences it, and a plugin install shows it too, with the plugin's
+  version. `/crew-update` keeps it to one line per update. The READMEs and the site's home page have a Star on GitHub
+  button.
 - **A status line.** One line under the prompt: the gate's last word in this session, a commit or push approval that
   still holds, the crew agents still running, the measured context fill and the session's cost. The installers set it
   only where no status line is set, in the project or in your own settings, and `/crew-doctor` says which one is in
@@ -78,6 +82,12 @@ versioning follows [SemVer](https://semver.org/).
   asks as any other commit does instead of being refused.
 - **npm releases are published over OIDC.** The release job proves its identity with a short-lived GitHub Actions
   token (npm Trusted Publishing); the repository holds no npm token, and each version carries a provenance statement.
+- **The session line shows the measured fill.** The last line of a reply was `🔋 Session: low fill · …`: the template
+  had no number, so the figure the hook measures every turn stayed out of sight. It is now `🔋 Session %NN → low fill ·
+  …`, the hook's own figure, never an estimate.
+- **Studio keeps cards for a longer session.** At Auto density a picture may now run up to half again past the pane
+  before its cards become chips; it opens at the zoom cards are read at, from its top, and Fit still shows all of it.
+  A compact group card says how its agents went as well as their models (`5 done · 3 Sonnet · 2 Opus`).
 
 ### Security
 

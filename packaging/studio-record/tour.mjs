@@ -70,9 +70,20 @@ await beat('the list: what needs someone, first', async () => {
   await click(await centreOf(ev, '#view-list'), 'the List tab');
 }, { name: 'sections in the List', probe: `[...document.querySelectorAll('#list .ls-title')].map((t) => t.textContent).join(' | ')`, want: (v) => /Failed/.test(v) && /Done/.test(v) }, 2400);
 
+await beat('a critical agent: why the gate called it critical', async () => {
+  // Done is folded until asked for: open it, then the security scan of the release audit.
+  await click(await centreOf(ev, '#list .ls-head[data-key="sec:done"]'), 'the Done section');
+  await sleep(700);
+  await click(await findByText(ev, '#list .ls-row', 'secret handling'), 'the security scan');
+}, { name: 'why critical in its task card', probe: `[...document.querySelectorAll('#inspector .icard dt')].some((d) => d.textContent === 'why critical' && /change: security/.test(d.nextElementSibling?.textContent ?? ''))`, want: (v) => v === true }, 2800);
+
 await beat('the project, not the session: which model each kind of task has needed', async () => {
   await click(await centreOf(ev, '#view-models'), 'the Models tab');
-}, { name: 'classes in the Models view', probe: `document.querySelectorAll('#models tbody tr').length`, want: (v) => v > 3 }, 2800);
+}, { name: 'classes, the advisor tag and the work above the table', probe: `[document.querySelectorAll('#models tbody tr').length, document.querySelectorAll('#models .mv-tag[data-kind="advisor"]').length, document.querySelectorAll('#models .mv-above').length].join()`, want: (v) => { const [rows, adv, above] = String(v).split(',').map(Number); return rows > 3 && adv >= 1 && above === 1; } }, 3200);
+
+await beat('the project as its crew map shows it', async () => {
+  await click(await centreOf(ev, '#view-map'), 'the Map tab');
+}, { name: 'modules on the Map', probe: `document.querySelectorAll('#map .mp-mod').length`, want: (v) => v > 3 }, 3200);
 
 // A tool call in another session now waits on the viewer. It is started here, off screen, through the panel's
 // own API; the stand-in CLI answers the message by playing a tool call through the real approval hook.

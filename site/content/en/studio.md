@@ -42,7 +42,7 @@ Selecting an agent in any view opens the inspector, with four tabs: **Overview**
 
 **Order.** Every agent carries the number it was started with (`#3`). The **Order** grouping lays the session out in waves, one column per wave of agents started together. A dotted line from an agent to a later wave says that wave was called *after that agent reported*. It is inferred from the order of events and is drawn differently from a call for that reason: the session calls every agent, and no agent called the next.
 
-**Density.** At **Auto**, cards stay cards while the picture fits the pane at a readable zoom (75%), and become one-line chips when it does not; the button then reads **Auto · compact** and its tooltip says why. A taller window gets its cards back. While a window's edge is being dragged the picture follows it, and Auto chooses between cards and chips once the window has stopped, so the cards do not flicker as the edge passes the limit. A chip still says its model in full, and a compact group card keeps the models its agents ran on (`3 Sonnet · 2 Opus`). **Comfortable** and **Compact** fix the choice.
+**Density.** At **Auto**, cards stay cards while the picture at a readable zoom (75%) is no more than half again as tall as the pane, and become one-line chips past that; a picture taller than the pane opens at that zoom from its top and the rest is a scroll away (**Fit** still shows all of it); the button then reads **Auto · compact** and its tooltip says why. A taller window gets its cards back. While a window's edge is being dragged the picture follows it, and Auto chooses between cards and chips once the window has stopped, so the cards do not flicker as the edge passes the limit. A chip still says its model in full, and a compact group card keeps how its agents went and the models they ran on (`5 done · 3 Sonnet · 2 Opus`). **Comfortable** and **Compact** fix the choice.
 
 **Layout.** A card can be dragged, and stays where it is put. **Reset layout** (`r`) puts every moved card back where the layout would have it, and the notice that follows offers **Undo**.
 
@@ -99,6 +99,11 @@ Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Inf
 | **Compare with** | another project on this machine that has a map. Its calls that no endpoint of its own provides are matched against this project: its calling modules join **Clients**, each line says how many calls land here and how many are **missing**, and the missing ones join the findings |
 
 On a phone the pane gives way to the findings and a list of the modules; a row opens the module in the inspector.
+
+<div align="center">
+  <img src="../../../assets/studio-map.png" alt="The Map view of a demo project: modules in bands from clients to external resources, lines between them, and the findings under the pane, each with the file and line it cites." width="100%">
+  <br><sub>Drawn from the map Crewforth's scanner wrote for a demo project; the inferred rules stay hidden until asked for.</sub>
+</div>
 
 ## The approval dock
 

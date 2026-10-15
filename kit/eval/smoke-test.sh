@@ -11030,6 +11030,26 @@ if [ -f "$STAR" ]; then
     && pass "--once: once per version (shown · same version silent · new version shown), marker holds the version; a silenced run writes nothing" \
     || fail "--once broken: v1='${_o1:+shown}' v1-again='${_o2:+shown}' v2='${_o3:+shown}' marker='$_mv' silenced='${_o4:+shown}' marker-after='$_mv4'"
   rm -rf "$_SP"
+  # doctor keeps its own marker: the line an installer showed for a version does not silence doctor's, and doctor
+  # shows it once per version too. Before 3.2.0 they shared one, so doctor almost never showed it.
+  _SD="$(mktemp -d)"; mkdir -p "$_SD/.claude"; printf '9.9.0\n' > "$_SD/.claude/VERSION"
+  _r(){ env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$STAR" --once "$_SD" "$@" 2>&1 | grep -c '⭐'; }
+  _d="$(_r)$(_r)$(_r doctor)$(_r doctor)"
+  _dn="$(env -u CI -u CSK_NO_STAR CREW_NO_STAR=1 bash "$STAR" --once "$_SD" doctor 2>&1)"
+  [ "$_d" = 1010 ] && [ -z "$_dn" ] && [ -f "$_SD/.claude/star-shown-doctor" ] \
+    && pass "--once doctor: its own marker (install shown, again silent, doctor shown, again silent); CREW_NO_STAR silences it" \
+    || fail "--once doctor: install/install/doctor/doctor printed $_d (want 1010), silenced='${_dn:+shown}'"
+  rm -rf "$_SD"
+  # The plugin edition has no .claude/VERSION: the version is read from the manifest beside star.sh (../../).
+  _SPL="$(mktemp -d)"; mkdir -p "$_SPL/plug/eval/lib" "$_SPL/plug/.claude-plugin" "$_SPL/proj"
+  cp "$STAR" "$ROOT/eval/lib/settings-json.awk" "$_SPL/plug/eval/lib/" 2>/dev/null
+  [ -f "$ROOT/eval/lib/crew-env.sh" ] && cp "$ROOT/eval/lib/crew-env.sh" "$_SPL/plug/eval/lib/"
+  printf '{\n  "name": "crewforth",\n  "version": "9.8.7"\n}\n' > "$_SPL/plug/.claude-plugin/plugin.json"
+  env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$_SPL/plug/eval/lib/star.sh" --once "$_SPL/proj" doctor >/dev/null 2>&1
+  _pv="$(head -1 "$_SPL/proj/.claude/star-shown-doctor" 2>/dev/null)"
+  [ "$_pv" = 9.8.7 ] && pass "a plugin install's star marker holds the plugin manifest's version (9.8.7)" \
+    || fail "a plugin install's star marker holds '${_pv:-nothing}', not the manifest's 9.8.7"
+  rm -rf "$_SPL"
   if command -v git >/dev/null 2>&1; then
     _SG="$(mktemp -d)"; ( cd "$_SG" && git init -q . ) >/dev/null 2>&1; mkdir -p "$_SG/.claude"; printf '9.9.0\n' > "$_SG/.claude/VERSION"
     env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$STAR" --once "$_SG" >/dev/null 2>&1
@@ -11053,7 +11073,7 @@ if [ -f "$STAR" ]; then
   [ -z "$_dup$_nocall" ] && pass "the repo URL lives only in lib/star.sh; $(printf '%s\n' $_callers | grep -c .) caller(s) call it" \
     || fail "star single source broken — URL copied into:${_dup:- none} · not calling star.sh:${_nocall:- none}"
 else
-  skip scope "star line checks skipped (this project has no eval/lib/star.sh)" 7
+  skip scope "star line checks skipped (this project has no eval/lib/star.sh)" 9
 fi
 # The front page. Kit repo only: an installed project has no README of ours.
 if [ "$IS_KIT" = 1 ]; then
@@ -11134,7 +11154,7 @@ site/scripts/check.mjs	7	tests: the old-name pattern of the built-site gate, and
 */hooks/board.sh	42	compat layer: reads the 2.x board ref and settings and folds them in — removed in 4.0
 */skills/automode-policy/scripts/check.sh	4	compat layer: counts auto-mode rules still named by 2.x — removed in 4.0
 */studio/web/storage-migrate.js	4	migration: moves the panel'"'"'s saved layout to the new keys — removed in 4.0
-kit/eval/smoke-test.sh	39	tests: this gate'"'"'s own pattern, and that the 2.x names still work (doctor 9c: the 2.x plugin id)
+kit/eval/smoke-test.sh	42	tests: this gate'"'"'s own pattern, and that the 2.x names still work (doctor 9c: the 2.x plugin id; the star line'"'"'s doctor marker)
 packaging/legacy-npm/*	10	the 2.x package name'"'"'s 3.0.0: a forwarder to crewforth, published once by hand
 packaging/*	154	tests: the migration rehearsal on the real v2.13.0 tree, the legacy token and layout checks; the legacy blob list'"'"'s generator and its real-installer check'
   # A line may name several globs, separated by spaces, when one reason covers them all; its pin is their sum. Split
