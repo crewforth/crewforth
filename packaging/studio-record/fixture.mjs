@@ -5,6 +5,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = process.argv[2];
 if (!ROOT) throw new Error('usage: node fixture.mjs <projects-root> [version] [work-dir]');
@@ -53,8 +55,19 @@ function writeJsonl(file, records, mtimeMs) {
 const MODEL_MAIN = 'claude-opus-5-5';
 const MODEL_SUB = 'claude-sonnet-5-5';
 
+// An agent that consulted the advisor: its usage lists the call as an `advisor_message` iteration with the advisor's
+// own model, kept out of the top-level fields, as the API writes it (measured on a real advisor session).
+function withAdvisor(u, advisor) {
+  if (!advisor) return u;
+  return { ...u, iterations: [
+    { type: 'message', input_tokens: u.input_tokens, output_tokens: Math.round(u.output_tokens / 4), cache_read_input_tokens: u.cache_read_input_tokens, cache_creation_input_tokens: u.cache_creation_input_tokens },
+    { type: 'advisor_message', model: advisor.model, input_tokens: advisor.input, output_tokens: advisor.output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    { type: 'message', input_tokens: 2, output_tokens: u.output_tokens - Math.round(u.output_tokens / 4), cache_read_input_tokens: u.cache_read_input_tokens, cache_creation_input_tokens: 0 },
+  ] };
+}
+
 // One agent transcript: prompt, alternating assistant/tool_result turns, report.
-function agentRecords({ cwd, sessionId, branch, prompt, calls, startMs, endMs, errorsAt = [], tokens, narration, report }) {
+function agentRecords({ cwd, sessionId, branch, prompt, calls, startMs, endMs, errorsAt = [], tokens, narration, report, advisor = null }) {
   const recs = [];
   const step = calls.length ? Math.max(1, Math.floor((endMs - startMs) / (calls.length + 2))) : MIN;
   let t = startMs;
@@ -94,7 +107,7 @@ function agentRecords({ cwd, sessionId, branch, prompt, calls, startMs, endMs, e
   }
 
   recs.push({ ...base, parentUuid: uid(), type: 'assistant', uuid: uid(), timestamp: iso(endMs),
-    message: { id: `msg_${uidN}`, role: 'assistant', model: MODEL_SUB, content: [{ type: 'text', text: report }], usage: usage(true) } });
+    message: { id: `msg_${uidN}`, role: 'assistant', model: MODEL_SUB, content: [{ type: 'text', text: report }], usage: withAdvisor(usage(true), advisor) } });
   return recs;
 }
 
@@ -149,6 +162,7 @@ const CARDS = {
   f20a7c63: { files: 'web/checkout/RefundBanner.tsx', change: 'feature', verify: 'npm test -- checkout' },
   '5d93be08': { files: 'db/migrations/0042_ledger_index.sql', change: 'migration', verify: 'npm run migrate:dry' },
   c7e58f14: { files: 'jobs/settlement/**', change: 'audit', verify: 'none' },
+  e6390d7b: { files: 'src/config/credentials.ts, src/http/log.ts', change: 'security', verify: 'none' },
 };
 const cardText = (id) => (CARDS[id] ? `files: ${CARDS[id].files}\nchange: ${CARDS[id].change}\nverify: ${CARDS[id].verify}\n\n` : '');
 
@@ -159,10 +173,12 @@ function writeOutcomes(dir) {
   const stamp = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const t0 = NOW - 6 * 60 * MIN;
   let n = 0;
-  const rows = ['ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence'];
+  const rows = ['ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why'];
+  // Critical work carries the gate's reason (risk_why), in the words guard-agent-model.sh writes; normal work "-".
+  const why = (change, risk) => (risk === 'critical' ? `change: ${change}` : '-');
   const add = (agent, change, risk, model, verify, fixes = 0, from = '-', id = null, card = null) => {
     n += 1;
-    rows.push([stamp(t0 + n * 4 * MIN), id ?? `e${String(n).padStart(4, '0')}a1`, agent, change, risk, card ?? `c${n}`, model, verify, fixes, from, '-', 'high'].join('\t'));
+    rows.push([stamp(t0 + n * 4 * MIN), id ?? `e${String(n).padStart(4, '0')}a1`, agent, change, risk, card ?? `c${n}`, model, verify, fixes, from, '-', 'high', why(change, risk)].join('\t'));
     return stamp(t0 + n * 4 * MIN);
   };
   // Backend features on haiku: two of five did not pass first time, so the class was raised to sonnet...
@@ -184,6 +200,10 @@ function writeOutcomes(dir) {
   // and the test run under it.
   add('crew-backend-expert', 'feature', 'normal', 'sonnet', 'pass', 0, 'haiku', '3e7b10d5', 'idem');
   add('crew-test-expert', 'test-run', 'normal', 'haiku', 'pass', 0, '-', 'b48d29e1');
+  // The release audit's security scan: critical by its kind of change, which the inspector says.
+  add('crew-security-expert', 'security', 'critical', 'opus', 'none', 0, '-', 'e6390d7b', 'sec-scan');
+  // Normal work a caller chose to run above Sonnet: shown under the table, nothing blocked.
+  for (const v of ['pass', 'pass', 'pass']) add('crew-docs-agent', 'text', 'normal', 'opus', v);
   const state = path.join(dir, '.claude', 'state');
   mk(state);
   fs.writeFileSync(path.join(state, 'model-outcomes.tsv'), `${rows.join('\n')}\n`);
@@ -213,6 +233,8 @@ const AG = [
     report: 'Four retry paths, three of them independent. `capture/handler-3.ts` retries on any 5xx with no ceiling and no jitter, which is what produced the duplicate settlement rows. The refund path already caps at five attempts but shares no code with capture, so a fix in one will not reach the other. Recommend extracting a single retry policy module and having both call it.' },
 
   { id: '3e7b10d5', type: 'crew-backend-expert', tu: 'toolu_agent_3e7b10d5',
+    // It consulted the advisor once: its class in the Models view carries the advisor tag.
+    advisor: { model: 'claude-opus-5-5', input: 30210, output: 380 },
     desc: 'Add idempotency keys to the capture endpoint',
     want: 'done-via-link', notice: null, mtime: NOW - 31 * MIN,
     start: T0 + 6 * MIN, end: T0 + 14 * MIN + 12_000,
@@ -358,7 +380,7 @@ for (const a of AG) {
     cwd: HERO_CWD, sessionId: HERO, branch: BRANCH,
     prompt: `${cardText(a.id)}${a.desc}. Report what you changed and what you deliberately left alone.`,
     calls: cs, startMs: a.start, endMs: a.end, errorsAt: a.errorsAt,
-    tokens: a.tokens, narration: a.narration, report: a.report,
+    tokens: a.tokens, narration: a.narration, report: a.report, advisor: a.advisor ?? null,
   }), a.mtime);
 }
 
@@ -604,5 +626,25 @@ smallSession({
       report: 'Both days staged. Counts match to the row and the revenue sums match to the cent, so the partition swap is safe to run.' },
   ],
 });
+
+/* -------------------------------------------------------- the crew map */
+// The Map view draws .crewforth/crew-map.json, which Crewforth's own scanner writes. The hero project gets the files
+// of one of the scanner's test projects (packaging/crew-map-test/fixtures/node-ws: invented @demo packages) and the
+// real scanner runs over them, so the picture is the scanner's output, not a drawing of one.
+{
+  const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const src = path.join(repo, 'packaging', 'crew-map-test', 'fixtures', 'node-ws');
+  const copy = (from, to) => {
+    for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+      if (e.name === 'expected.json') continue;
+      const name = e.name.startsWith('_env') ? `.env${e.name.slice(4)}` : e.name;
+      if (e.isDirectory()) { mk(path.join(to, name)); copy(path.join(from, e.name), path.join(to, name)); }
+      else fs.copyFileSync(path.join(from, e.name), path.join(to, name));
+    }
+  };
+  copy(src, HERO_CWD);
+  const scan = spawnSync(process.execPath, [path.join(repo, 'kit', 'eval', 'lib', 'crew-map', 'scan.mjs'), '--root', HERO_CWD], { encoding: 'utf8' });
+  if (scan.status !== 0) throw new Error(`the crew map scanner failed (rc ${scan.status}): ${scan.stderr}`);
+}
 
 console.log(JSON.stringify({ root: ROOT, hero: HERO, second: SECOND, work: WORK, latest: LATEST }, null, 2));

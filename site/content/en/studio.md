@@ -100,6 +100,11 @@ Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Inf
 
 On a phone the pane gives way to the findings and a list of the modules; a row opens the module in the inspector.
 
+<div align="center">
+  <img src="../../../assets/studio-map.png" alt="The Map view of a demo project: modules in bands from clients to external resources, lines between them, and the findings under the pane, each with the file and line it cites." width="100%">
+  <br><sub>Drawn from the map Crewforth's scanner wrote for a demo project; the inferred rules stay hidden until asked for.</sub>
+</div>
+
 ## The approval dock
 
 A tool call in a session Studio started waits in a dock along the bottom of the panel, whichever session and view are on screen. It shows the agent that asked, the tool and its input, and three answers: **Allow once**, **Allow _tool_ this session** and **Deny** (`a`, `s`, `d`). Unanswered, the call is denied at 45 s. A session allowance is listed in the inspector's Gates tab and can be revoked there.

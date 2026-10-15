@@ -100,6 +100,11 @@ Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points
 
 Telefonda bölmenin yerini bulgular ve modüllerin listesi alıyor; bir satır modülü inspector'da açıyor.
 
+<div align="center">
+  <img src="../../../assets/studio-map.png" alt="Bir demo projenin Map görünümü: istemcilerden dış kaynaklara bantlara oturmuş modüller, aralarındaki çizgiler ve bölmenin altında bulgular; her biri gösterdiği dosya ve satırla." width="100%">
+  <br><sub>Crewforth'un tarayıcısının bir demo proje için yazdığı haritadan çizildi; çıkarımla bulunan kurallar istenene kadar gizli.</sub>
+</div>
+
 ## Onay dock'u
 
 Studio'nun başlattığı bir oturumdaki araç çağrısı, ekranda hangi oturum ve hangi görünüm olursa olsun, panelin altındaki dock'ta bekliyor. Dock isteyen ajanı, aracı ve girdisini gösteriyor; üç cevap var: **Allow once**, **Allow _araç_ this session** ve **Deny** (`a`, `s`, `d`). Cevap gelmezse çağrı 45 saniyede reddediliyor. Oturum izni inspector'ın Gates sekmesinde listeleniyor ve oradan geri alınabiliyor.

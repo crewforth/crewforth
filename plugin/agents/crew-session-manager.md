@@ -35,7 +35,7 @@ is the main thread's, from the hook, and needs no agent.
 Reports the measured fill and the recommendation in the same form as the per-turn line, and, when the
 recommendation is a handover, a draft of it (`handoff` skill) for `/crew-handoff` to write:
 
-`🔋 Session: [low/medium/high fill] · Recommendation: [continue / handoff+clear / new session]`
+`🔋 Session %NN → [low/medium/high] fill · Recommendation: [continue / handoff+clear / new session]`
 
 **Actual fill is MEASURED, guessing is FORBIDDEN.** The `UserPromptSubmit` hook runs `context-usage.sh` each turn,
 automatically injecting the real `🔋 Session: %.. (token) → level` line into the context — use that value. If you want an
