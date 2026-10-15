@@ -92,9 +92,10 @@ export class Viewport {
   }
 
   /** The whole picture (width × height, in the layer's own pixels) in the pane, never above 100%. */
-  fit(width, height) {
+  /** Fit the picture to the pane; `floor` is a zoom it does not go under (the picture then starts at its top). */
+  fit(width, height, floor = 0) {
     const r = this.pane.getBoundingClientRect();
-    const k = fitZoom(width, height, r.width, r.height);
+    const k = Math.max(fitZoom(width, height, r.width, r.height), Math.min(floor, ZOOM.fitMax));
     this.view.k = k;
     this.view.x = Math.max(ZOOM.pad, (r.width - width * k) / 2);
     this.view.y = Math.max(ZOOM.pad, (r.height - height * k) / 2);

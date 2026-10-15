@@ -81,6 +81,9 @@ versioning follows [SemVer](https://semver.org/).
 - **The session line shows the measured fill.** The last line of a reply was `🔋 Session: low fill · …`: the template
   had no number, so the figure the hook measures every turn stayed out of sight. It is now `🔋 Session %NN → low fill ·
   …`, the hook's own figure, never an estimate.
+- **Studio keeps cards for a longer session.** At Auto density a picture may now run up to half again past the pane
+  before its cards become chips; it opens at the zoom cards are read at, from its top, and Fit still shows all of it.
+  A compact group card says how its agents went as well as their models (`5 done · 3 Sonnet · 2 Opus`).
 
 ### Security
 

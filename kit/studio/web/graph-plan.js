@@ -52,7 +52,13 @@ export const AUTO = {
   readable: 0.75,
   // Same-type siblings fold into one card from this many, once the picture is too tall.
   stackAt: 3,
+  // How far past what fits a picture may run and still be drawn as cards: the rest is a pan away, at a zoom the
+  // cards are read at (the canvas's own fit does not go under `readable` then). A long column of agent types beside
+  // an empty half of the pane turned to chips at 1.0; 1.5 is a starting point, not a measured one.
+  overflow: 1.5,
 };
+/** The height past which Auto gives cards up: what fits, and the overflow it allows on top. */
+const overLimit = (h, tallest) => h > tallest * AUTO.overflow;
 
 export const GROUPINGS = ['run', 'type', 'parent', 'order', 'none'];
 export const DENSITIES = ['auto', 'comfortable', 'compact'];
@@ -422,12 +428,12 @@ export function plan(nodes, opts = {}) {
   let compact = asked === 'compact';
   let stacked = false;
   let box = lay(pass.shown, compact);
-  if (asked === 'auto' && box.height > tallest) {
+  if (asked === 'auto' && overLimit(box.height, tallest)) {
     if (group !== 'none' && group !== 'type') {
       const folded = drawFrom(itemsOf(nodes, { group, density: asked, seq, stack: true, aside }));
       if (folded.shown.some((it) => it.kind === 'group' && it.type === 'type')) { pass = folded; stacked = true; box = lay(pass.shown, false); }
     }
-    if (box.height > tallest) { compact = true; box = lay(pass.shown, true); }
+    if (overLimit(box.height, tallest)) { compact = true; box = lay(pass.shown, true); }
   }
   const drawnItems = pass.shown;
   const drawn = pass.count;
@@ -523,7 +529,7 @@ function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
   };
   let compact = asked === 'compact';
   let box = lay(compact);
-  if (asked === 'auto' && box.height > tallest) { compact = true; box = lay(true); }
+  if (asked === 'auto' && overLimit(box.height, tallest)) { compact = true; box = lay(true); }
   const { items } = box;
   let { height } = box;
 
@@ -586,7 +592,7 @@ export function crowdFolds(nodes, opts = {}) {
   const folds = [];
   for (let guard = 0; guard < 64; guard += 1) {
     const p = plan(nodes, { ...opts, open, pinned: new Map(), sessionY: null });
-    if (p.height <= Math.max(AUTO.tallest, opts.tallest ?? 0)) break;
+    if (!overLimit(p.height, Math.max(AUTO.tallest, opts.tallest ?? 0))) break;
     const next = p.items.filter((it) => it.kind === 'group' && it.open && it.members.length > 1)
       .sort((a, b) => b.members.length - a.members.length || String(a.id).localeCompare(String(b.id)))[0];
     if (!next) break;
