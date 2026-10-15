@@ -94,7 +94,7 @@ Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Inf
 | **Source strip** | the file, the commit it was scanned at, and how many commits `HEAD` has moved since |
 | **Layers** | Modules, External, Endpoints (each module's endpoints as chips), Findings |
 | **Findings** | every finding, proven ones first. A rule the scanner marks as too often wrong is hidden by default and counted; **Show N hidden by default** brings it back. A row selects its module and brings its card to the middle of the pane |
-| **Inspector** | Overview (what it connects to, and the node's own evidence), Connections (grouped by kind, in and out) and Findings, each with **Copy as task**, which copies the finding as text to paste into a session. Every `file:line` copies its path. **Not measured** is always at the bottom |
+| **Inspector** | Overview (what the module is for, when `/crew-map` described it, with the lines that rests on; what it connects to; the node's own evidence; with nothing selected, the project's overview), Connections (grouped by kind, in and out) and Findings, each with **Copy as task**, which copies the finding as text to paste into a session. Every `file:line` copies its path. **Not measured** is always at the bottom |
 | **Legend** | what each line and frame means; a press anywhere outside closes it |
 | **Compare with** | another project on this machine that has a map. Its calls that no endpoint of its own provides are matched against this project: its calling modules join **Clients**, each line says how many calls land here and how many are **missing**, and the missing ones join the findings |
 

@@ -387,6 +387,12 @@ export class MapView {
   #inspector(node, doc, edges, findings) {
     const parts = [];
     if (!node) {
+      // The project's overview, when /crew-map wrote one: what it says, and the lines it rests on.
+      const ov = doc?.overview;
+      if (typeof ov?.text === 'string' && ov.text.trim()) {
+        parts.push(mk('span', 'lbl', 'Overview'), mk('p', 'mp-overview', ov.text));
+        if (Array.isArray(ov.cites) && ov.cites.length) parts.push(mk('p', 'sub mp-cites', `From ${ov.cites.filter((c) => typeof c === 'string').join(', ')}`));
+      }
       parts.push(mk('p', 'sub', 'Select a module to see what it connects to and what was found in it. Esc lets it go.'));
     } else {
       const v = inspectOf(node, doc, edges, findings);
@@ -410,6 +416,7 @@ export class MapView {
       const sec = mk('div', 'mp-isec');
       if (this.tab === 'overview') {
         sec.append(mk('span', 'lbl', 'What it is for'), mk('p', v.narrative ? null : 'sub', v.narrative ?? v.narrativeNote));
+        if (v.narrative && v.narrativeCites.length) sec.append(mk('p', 'sub mp-cites', `From ${v.narrativeCites.join(', ')}`));
         sec.append(mk('span', 'lbl', 'Connects to'));
         if (!v.connectsTo.length) sec.append(mk('p', 'sub', 'Nothing on this map.'));
         for (const c of v.connectsTo) sec.append(this.#conn(c));

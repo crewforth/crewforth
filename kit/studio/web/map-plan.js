@@ -243,7 +243,9 @@ export function inspectOf(node, doc, edges, findings) {
     title: node.name ?? node.label ?? node.id,
     path: node.path ?? (node.kind === 'external' ? (node.hosts ?? []).join(', ') : null),
     chips: (node.tech ?? []).map((t) => t.replace('@', ' ')),
-    narrative: node.narrative ?? null,
+    // /crew-map's description: { text, cites }, each cite a file:line of this node's evidence (eval/lib/crew-map/narrative.mjs).
+    narrative: typeof node.narrative?.text === 'string' ? node.narrative.text : null,
+    narrativeCites: Array.isArray(node.narrative?.cites) ? node.narrative.cites.filter((c) => typeof c === 'string') : [],
     narrativeNote: 'Not written yet: this map holds no description of the module, only what its files show.',
     connectsTo: out,
     connections: { out, in: into },

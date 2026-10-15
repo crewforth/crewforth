@@ -15,7 +15,7 @@
 **Crewforth, Claude Code için mühendislik ekibinizdir.**
 
 Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 14 uzman ajan,<br>
-yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 12 komut ve önemli kuralları uygulayan hook'lar.
+yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 13 komut ve önemli kuralları uygulayan hook'lar.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -57,7 +57,7 @@ Hiçbir şey yazılmadan önce bir özeti onaylarsınız; `add` tam kurulum yapm
 | Teslim et | `/crew-ship` | `crew-review-agent` temiz incelemeyi kaydeder; `crew-commit-agent` commit'i önerir ve onayınızı bekler |
 | Devret | `/crew-handoff` | `handoff` durumu bir sonraki oturum için yazar |
 
-Toplam **12 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`.
+Toplam **13 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
 
 ## Ajanlar
 
