@@ -57,6 +57,9 @@ versioning follows [SemVer](https://semver.org/).
   API keeps it out of a response's top-level usage; Studio now reads it from `usage.iterations` and prices it at its
   own model. The session table has an Advisor line (calls, tokens, cost) when a call is recorded. Measured on a real
   session: Studio read $0.0567 before, $0.2110 after, the same as Claude Code's own figure.
+- **Studio's Models view marks the classes whose agents consulted the advisor.** The cost cell carries an advisor tag
+  whose hover says how many calls and how much of the cost they were, already included; a class whose agents consulted
+  none has no tag.
 - **Read-only remote viewers for Studio.** The Machines tab makes a viewer link that only reads, lists each viewer
   with its last request, and revokes it. The server still binds to `127.0.0.1`; watching from another device goes
   through a tunnel you run (`ssh -L`, Tailscale).
