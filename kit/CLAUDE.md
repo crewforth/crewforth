@@ -128,8 +128,8 @@ more tokens, because each one re-pays for its own context — plan for that.
 > are **model discipline** — no exit code can judge a delegate-or-not call, so they rest on your reasoning.
 
 ## Session status line
-Last line of a reply, after the next step: `🔋 Session: [low/medium/high fill] · Recommendation: [continue / handoff+clear / new session]`
-— **only when you have a reading**; with none there is nothing to report, so omit the line.
+Last line of a reply, after the next step: `🔋 Session %NN → [low/medium/high] fill · Recommendation: [continue / handoff+clear / new session]`
+— **only with a reading** (%NN is its measured figure); with none, omit the line.
 
 **Never guess the fill.** You cannot run `/context`; the `UserPromptSubmit` hook injects the measured line
 `🔋 Session %NN.N → level` every turn (`input + cache_read + cache_creation` = the `/context` figure). Use it. Exact
