@@ -68,7 +68,7 @@ const HOME = {
   en: {
     title: { before: 'Your engineering ', accent: 'crew', after: ' for Claude Code.' },
     lead: 'Subagents, skills, commands and hooks: specialists that plan, build, review and ship a change in any stack, with the rules that matter enforced by gates.',
-    docs: 'Read the docs', copy: 'Copy', copied: 'Copied',
+    docs: 'Read the docs', star: 'Star on GitHub', copy: 'Copy', copied: 'Copied',
     play: 'Play the 1-minute overview', sound: 'Sound',
     videoDesc: 'A one-minute overview: plain Claude Code, the install, the crew at work, the gates, Studio and the handoff.',
     adopt: 'Existing repository? `npx crewforth adopt` lands everything on its own branch. `main` is never touched.',
@@ -91,7 +91,7 @@ const HOME = {
   tr: {
     title: { before: 'Claude Code için mühendislik ', accent: 'ekibiniz', after: '.' },
     lead: "Ajanlar, skill'ler, komutlar ve hook'lar: her yığında bir değişikliği planlayan, yazan, inceleyen ve teslim eden uzmanlar. Önemli kurallar ise kapılarla korunur.",
-    docs: 'Belgeleri oku', copy: 'Kopyala', copied: 'Kopyalandı',
+    docs: 'Belgeleri oku', star: "GitHub'da yıldız ver", copy: 'Kopyala', copied: 'Kopyalandı',
     play: 'Bir dakikalık tanıtımı oynat', sound: 'Ses', videoNote: 'Video İngilizce',
     videoDesc: 'Bir dakikalık tanıtım: sade Claude Code, kurulum, iş başındaki ekip, kapılar, Studio ve devir.',
     adopt: "Mevcut bir repo mu? `npx crewforth adopt` her şeyi ayrı bir dala koyar, `main`'e dokunmaz.",
@@ -222,7 +222,7 @@ export function generate(root = ROOT, site = SITE) {
     const p = prefix(loc);
     const d = {
       mark: '/assets/mark.svg', title: H.title, lead: H.lead, command: 'npx crewforth init',
-      copy: H.copy, copied: H.copied, docsLabel: H.docs, docsHref: `${p}/install/`, adopt: inline(H.adopt),
+      copy: H.copy, copied: H.copied, docsLabel: H.docs, docsHref: `${p}/install/`, starLabel: H.star, starHref: REPO_URL, adopt: inline(H.adopt),
       video: { src: '/media/crewforth-hero.mp4', poster: '/media/crewforth-hero-poster.jpg', play: H.play, sound: H.sound, desc: H.videoDesc, note: H.videoNote ?? '' },
       crew: {
         heading: H.crewHeading, lead: H.crewLead,

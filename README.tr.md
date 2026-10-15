@@ -8,6 +8,7 @@
 
 ![Sürüm](https://img.shields.io/badge/version-3.1.1-6D28D9?style=flat-square)
 ![Lisans](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
+[![GitHub'da yıldız ver](https://img.shields.io/badge/GitHub'da_yıldız_ver-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
 [🇬🇧 English](README.md) · 🇹🇷 Türkçe
 

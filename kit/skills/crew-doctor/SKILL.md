@@ -24,7 +24,7 @@ Verify Crewforth is actually *active* in this project (not just present on disk)
 5. Summarise: **healthy**, or the precise fixes applied/needed, plus the readiness score. If it's not a git repo,
    note that the commit-time gates need `git init` + `git config core.hooksPath .claude/hooks`.
    If the output contains a line starting with ⭐, pass it to the user verbatim as the LAST line of your summary —
-   it prints once per Crewforth version, and it is meant for the user, not for you.
+   it prints once per Crewforth version here (the installer has its own once), and it is meant for the user, not for you.
 
 If `.claude/eval/doctor.sh` doesn't exist, this is not a full (start.sh / adopt.sh) install — Crewforth is likely
 running as a **plugin**, whose hooks are managed by Claude Code itself; there's nothing for the doctor to check,
@@ -52,3 +52,7 @@ found no Git Bash: tell the user the gates do not run and that the fix is Git fo
 scripts are developer instruments: they inspect an installation from outside it, and the plugin edition has no
 installation to inspect. Say this plainly when someone asks why `/crew-doctor` reports only the listing (and, on Windows, Git Bash) on a plugin install,
 rather than treating it as a defect. The Studio panel ships in both editions (`/crew-studio`).
+
+**On a plugin install, end with the star line** the full install's doctor prints: `bash "${CLAUDE_PLUGIN_ROOT}/eval/lib/star.sh" --once . doctor`
+(Bash tool, not PowerShell). It prints once per plugin version, or nothing; if it prints a line starting with ⭐, pass it to the
+user verbatim as the LAST line of your summary.

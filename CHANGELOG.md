@@ -63,6 +63,10 @@ versioning follows [SemVer](https://semver.org/).
 - **Read-only remote viewers for Studio.** The Machines tab makes a viewer link that only reads, lists each viewer
   with its last request, and revokes it. The server still binds to `127.0.0.1`; watching from another device goes
   through a tunnel you run (`ssh -L`, Tailscale).
+- **A visible way to the repository.** `/crew-doctor` now shows the star line once per version under its own marker,
+  so a line already shown at install no longer silences it, and a plugin install shows it too, with the plugin's
+  version. `/crew-update` keeps it to one line per update. The READMEs and the site's home page have a Star on GitHub
+  button.
 
 ### Changed
 

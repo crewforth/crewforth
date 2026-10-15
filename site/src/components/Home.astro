@@ -16,6 +16,7 @@ const { d } = Astro.props;
         <span class="cf-sr" aria-live="polite"></span>
       </div>
       <a class="cf-primary" href={d.docsHref}>{d.docsLabel}</a>
+      <a class="cf-secondary" href={d.starHref}>⭐ {d.starLabel}</a>
     </div>
     <p class="cf-adopt" set:html={d.adopt} />
   </section>
@@ -142,6 +143,7 @@ const { d } = Astro.props;
   .cf-cmd { display: flex; align-items: center; gap: 12px; background: var(--cf-surface); border: 1px solid var(--cf-line); border-radius: var(--cf-radius-md); padding: 8px 8px 8px 16px; }
   .cf-cmd-text { background: none; font-size: 15px; user-select: all; }
   .cf-copy { font: 600 12px/16px var(--cf-font-sans); text-transform: uppercase; letter-spacing: 0.06em; color: var(--cf-accent); background: var(--cf-surface-raised); border: 1px solid var(--cf-line); border-radius: var(--cf-radius-sm); padding: 6px 10px; cursor: pointer; }
+  .cf-secondary { display: inline-flex; align-items: center; padding: 10px 20px; border-radius: var(--cf-radius-md); border: 1px solid var(--cf-accent); color: var(--cf-accent); font-weight: 600; text-decoration: none; }
   .cf-primary { display: inline-flex; align-items: center; padding: 10px 20px; border-radius: var(--cf-radius-md); background: var(--cf-accent); color: var(--cf-on-accent); font-weight: 600; text-decoration: none; }
   .cf-adopt { color: var(--cf-ink-dim); margin: 0; }
   .cf-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
