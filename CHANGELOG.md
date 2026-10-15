@@ -74,6 +74,9 @@ versioning follows [SemVer](https://semver.org/).
   asks as any other commit does instead of being refused.
 - **npm releases are published over OIDC.** The release job proves its identity with a short-lived GitHub Actions
   token (npm Trusted Publishing); the repository holds no npm token, and each version carries a provenance statement.
+- **The session line shows the measured fill.** The last line of a reply was `🔋 Session: low fill · …`: the template
+  had no number, so the figure the hook measures every turn stayed out of sight. It is now `🔋 Session %NN → low fill ·
+  …`, the hook's own figure, never an estimate.
 
 ### Security
 
