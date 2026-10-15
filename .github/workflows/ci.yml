@@ -146,6 +146,10 @@ jobs:
       - name: Crew Map — planted gaps found exactly, same bytes, no secret, no absolute path
         run: bash packaging/verify.sh map
 
+      # Reads a file and compares descriptions with the PR's base, so once is enough: nothing in it differs by platform.
+      - name: Skill descriptions — a changed one is measured for its current text and holds its floor
+        run: bash packaging/verify.sh skilleval
+
       - name: Plugin & marketplace manifests valid (strict)
         # Offline manifest validation via the official CLI; --strict fails on unrecognized fields / missing
         # metadata. No API auth needed (this does not call the model). CI=true keeps it non-interactive.

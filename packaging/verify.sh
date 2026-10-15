@@ -34,7 +34,7 @@ fi
 
 # The step list is the contract with ci.yml. Adding a gate here is what makes it runnable locally;
 # adding it to ci.yml alone is what put this file here in the first place.
-STEPS="syntax smoke routing site manifests e2e studio findings map parser i18n subshell"
+STEPS="syntax smoke routing site manifests e2e studio findings map parser i18n subshell skilleval"
 
 step_syntax(){
   bash -n start.sh || return 1
@@ -156,6 +156,17 @@ step_map(){
   diff -r kit/eval/lib/crew-map plugin/eval/lib/crew-map >/dev/null 2>&1 || {
     echo "plugin/eval/lib/crew-map is missing or has drifted from kit/eval/lib/crew-map — run packaging/build-plugin.sh and commit the result"
     diff -rq kit/eval/lib/crew-map plugin/eval/lib/crew-map 2>&1 | head -10; return 1; }
+}
+
+# A skill's description, held to a measurement (K10): only a change that touches a model-picked skill's description
+# is judged, and it passes only when packaging/skill-eval/results.tsv measured THAT text, three runs a case, at or
+# above the case's floor. Free: the measurement is run.mjs, by hand, on the developer's own session; this step
+# reads its file and calls no model. The gate's own cases come first, in a repository it builds for itself.
+step_skilleval(){
+  command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
+  node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
+  node packaging/skill-eval/selftest.mjs || return 1
+  node packaging/skill-eval/check.mjs
 }
 
 # The only step that needs a tool the repo does not carry. CI installs the CLI; a developer machine
