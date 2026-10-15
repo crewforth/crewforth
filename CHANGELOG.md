@@ -67,6 +67,11 @@ versioning follows [SemVer](https://semver.org/).
   so a line already shown at install no longer silences it, and a plugin install shows it too, with the plugin's
   version. `/crew-update` keeps it to one line per update. The READMEs and the site's home page have a Star on GitHub
   button.
+- **`/crew-map`.** It runs the scanner, then has the model describe what it found: at most two sentences per module on
+  what it is for, and a short overview, each citing lines the scan itself read. `crew-map.sh --validate` refuses a
+  description that cites anything else or nothing, or a scanner field changed by hand; a scan again keeps the
+  descriptions that still hold and drops the rest. Studio's Map shows them, and `crew-planner` reads the map on an
+  unfamiliar project.
 
 ### Changed
 

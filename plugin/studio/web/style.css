@@ -646,6 +646,8 @@ body[data-role="viewer"] #new-session { display: none; }
 .mp-tab { font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-dim); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 0; cursor: pointer; }
 .mp-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .mp-isec { display: flex; flex-direction: column; gap: 8px; }
+.mp-overview { white-space: pre-wrap; margin: 4px 0 10px; line-height: 1.5; }
+.mp-cites { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .mp-conn { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .mp-ev { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
 .mp-fcard { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-md); }

@@ -262,6 +262,44 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   }
 }
 
+/* -- 8b. what /crew-map may add: a description per module and an overview, each citing lines the scan read --------
+   eval/lib/crew-map/narrative.mjs holds the rule; the scanner is run here as /crew-map runs it. */
+{
+  const root = copy('node-ws');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli();
+  const base = fs.readFileSync(file, 'utf8');
+  const doc = JSON.parse(base);
+  const mod = doc.nodes.find((x) => x.kind === 'module' && (x.evidence ?? []).length);
+  const cite = `${mod.evidence[0].file}:${mod.evidence[0].line}`;
+  const put = (edit) => { const d = JSON.parse(base); edit(d, d.nodes.find((x) => x.id === mod.id)); fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`); return cli('--validate').status; };
+  const rc = {
+    none: put(() => {}),
+    ok: put((d, m) => { m.narrative = { text: 'Serves the HTTP API. It is the entry point.', cites: [cite] }; d.overview = { text: 'Start at the API package.', cites: [cite] }; }),
+    elsewhere: put((d, m) => { m.narrative = { text: 'Serves the API.', cites: ['packages/nope/x.js:1'] }; }),
+    uncited: put((d, m) => { m.narrative = { text: 'Serves the API.', cites: [] }; }),
+    long: put((d, m) => { m.narrative = { text: 'One. Two. Three.', cites: [cite] }; }),
+    extra: put((d, m) => { m.narrative = { text: 'Serves the API.', cites: [cite], edge: 'to the db' }; }),
+    field: put((d, m) => { m.narrative = { text: 'Serves the API.', cites: [cite] }; m.name = 'renamed'; }),
+  };
+  check('/crew-map --validate: a description citing the module\'s own lines holds; one citing elsewhere, nothing, three sentences or an extra field does not; a scanner field changed by hand does not',
+    rc.none === 0 && rc.ok === 0 && rc.elsewhere === 1 && rc.uncited === 1 && rc.long === 1 && rc.extra === 1 && rc.field === 1, JSON.stringify(rc));
+  put((d, m) => { m.narrative = { text: 'Serves the HTTP API.', cites: [cite] }; });
+  const checked = cli('--check').status;
+  const kept = cli();
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  check('a map with descriptions is up to date for --check, and a scan again keeps a description whose lines it still cites',
+    checked === 0 && kept.status === 0 && after.nodes.find((x) => x.id === mod.id).narrative?.text === 'Serves the HTTP API.' && /1 description\(s\) kept, 0 dropped/.test(kept.stderr),
+    `check ${checked}; ${kept.stderr.trim().split('\n').pop()}`);
+  const f = path.join(root, mod.evidence[0].file);
+  fs.writeFileSync(f, `\n${fs.readFileSync(f, 'utf8')}`);
+  const moved = cli();
+  const gone = JSON.parse(fs.readFileSync(file, 'utf8')).nodes.find((x) => x.id === mod.id).narrative;
+  check('a description whose cited line moved is dropped by the next scan, and said', gone === null && /0 description\(s\) kept, 1 dropped/.test(moved.stderr),
+    moved.stderr.trim().split('\n').pop());
+}
+
 /* -- 9. the rules files ---------------------------------------------------------------------------------------- */
 {
   const rules = JSON.parse(fs.readFileSync(path.join(LIB, 'rules', 'packages.json'), 'utf8'));
