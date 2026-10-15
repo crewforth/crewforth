@@ -13,6 +13,7 @@ Then open Claude Code and run `/crew-doctor` to confirm the setup. Requires bash
 
 [![npm](https://img.shields.io/npm/v/crewforth?style=flat-square&color=6D28D9)](https://www.npmjs.com/package/crewforth)
 [![License](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)](https://github.com/Crewforth/crewforth/blob/main/LICENSE)
+[![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Crewforth/crewforth/main/assets/flow-en-dark.svg">

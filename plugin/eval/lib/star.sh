@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # The one "leave a star" line. Single source of its URL, its text in both languages, and when it stays quiet.
 #
-#   star.sh --once <project>   ONCE PER KIT VERSION per clone. The installers (first install, and every update)
-#                              and doctor.sh on a healthy verdict all call it this way and share one marker, so a
-#                              version shows the line once — whichever of them reaches it first — and never again
-#                              until the Crewforth version changes. The marker holds the version it was shown for.
+#   star.sh --once <project> [doctor]
+#                              ONCE PER KIT VERSION per clone and per caller. The installers (first install, and
+#                              every update) share one marker; doctor (doctor.sh on a healthy verdict, and the
+#                              plugin's /crew-doctor) keeps its own, `doctor`. So a version shows the line at most
+#                              twice, once where it was installed and once where it was checked, and never again
+#                              until the Crewforth version changes. A marker holds the version it was shown for.
+#                              /crew-update runs its doctor with CREW_NO_STAR=1, so one command never shows it twice.
 #   star.sh                    unconditional (tests, and anyone who wants to see it).
 #
 # Nothing else prints it: not a hook, not a session start. Cost: one line (~30 tokens) per version, and only when
@@ -31,11 +34,21 @@ if [ "${1:-}" = --once ]; then
   # Builtin reads, not `head | tr` in a $( ): on Git Bash those two pipelines were 4 of ~11 processes and ~250 ms
   # of ~395 ms per call (measured on stock Windows). `read` takes the first line; the CR is stripped by expansion.
   # The braces matter: a failed `<` reports before a trailing 2>/dev/null applies (measured: 450 bytes of stderr).
-  VER=""; { IFS= read -r VER < "$_dir/.claude/VERSION"; } 2>/dev/null; VER="${VER%$'\r'}"; VER="${VER:-unknown}"
+  VER=""; { IFS= read -r VER < "$_dir/.claude/VERSION"; } 2>/dev/null; VER="${VER%$'\r'}"
+  # The plugin edition has no .claude/VERSION: its version is the manifest's, beside this file at ../../.
+  if [ -z "$VER" ]; then
+    _here="${BASH_SOURCE%[/\\]*}"; [ "$_here" = "${BASH_SOURCE}" ] && _here=.
+    [ -f "$_here/../../.claude-plugin/plugin.json" ] && [ -f "$_here/settings-json.awk" ] && \
+      VER="$(awk -v op=get -v path=version -f "$_here/settings-json.awk" "$_here/../../.claude-plugin/plugin.json" 2>/dev/null)"
+    VER="${VER#\"}"; VER="${VER%\"}"            # the reader prints a JSON string with its quotes
+    case "$VER" in *[!0-9A-Za-z.-]*) VER="" ;; esac
+  fi
+  VER="${VER:-unknown}"
+  _key=crewforth-star; [ "${3:-}" = doctor ] && _key=crewforth-star-doctor
   # GIT_DIR/GIT_WORK_TREE dropped: exported by a caller (a hook), they would point the marker at another repo.
-  MARK="$(cd "$_dir" 2>/dev/null && env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --git-path crewforth-star 2>/dev/null)" || MARK=""
+  MARK="$(cd "$_dir" 2>/dev/null && env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --git-path "$_key" 2>/dev/null)" || MARK=""
   case "$MARK" in
-    '') MARK="$_dir/.claude/star-shown" ;;
+    '') MARK="$_dir/.claude/star-shown"; [ "$_key" = crewforth-star ] || MARK="$MARK-doctor" ;;
     /*|[A-Za-z]:*) ;;                          # absolute (POSIX or a Windows drive path from git)
     *) MARK="$_dir/$MARK" ;;                   # git answers relative to the directory it was asked in
   esac
@@ -65,6 +78,9 @@ _mt() {
 _mt '⭐ If Crewforth saves you a review round, a star helps others find it: %s' "$CREW_REPO_URL"
 # The marker only after the line actually went out: a closed stdout must not record "shown".
 if printf '%s\n' "$_M" && [ -n "$MARK" ]; then
+  # A plugin project may have no .claude/ yet: without one the marker would never be written and the line would
+  # come back on every run.
+  [ -d "${MARK%/*}" ] || mkdir -p "${MARK%/*}" 2>/dev/null
   { printf '%s\n' "$VER" > "$MARK"; } 2>/dev/null
 fi
 exit 0
