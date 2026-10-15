@@ -72,8 +72,11 @@ jobs:
       - name: Verify — installer e2e (start.sh combos + adopt.sh)
         run: bash packaging/e2e.sh
 
+      # An rc's archive says it is one: its VERSION is the tag's version, so an install of it is offered the final.
       - name: Build tarball
-        run: bash make-release.sh
+        run: |
+          if [ "${{ steps.v.outputs.prerelease }}" = true ]; then bash make-release.sh "${{ steps.v.outputs.version }}"
+          else bash make-release.sh; fi
 
       # Before anything is published, so an npm that cannot be installed stops the release with no channel moved.
       # Trusted Publishing needs Node 22.14+ and npm 11.5.1+; moving a dist-tag over OIDC needs npm 11.21.0+, and
@@ -156,6 +159,8 @@ jobs:
         run: |
           if [ "${{ steps.v.outputs.prerelease }}" = true ]; then
             npm version "${{ steps.v.outputs.version }}" --no-git-tag-version
+            # The installer copies VERSION into the project: an rc must say it is one, or its final looks installed.
+            printf '%s\n' "${{ steps.v.outputs.version }}" > VERSION
           fi
           npm publish --access public --tag "${{ steps.v.outputs.npm_tag }}"
 
