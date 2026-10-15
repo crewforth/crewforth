@@ -94,7 +94,7 @@ Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points
 | **Kaynak şeridi** | dosya, tarandığı commit ve o zamandan beri `HEAD`'in kaç commit ilerlediği |
 | **Layers** | Modules, External, Endpoints (her modülün endpoint'leri çip olarak), Findings |
 | **Findings** | bütün bulgular, kanıtlılar önce. Tarayıcının fazla sık yanıldığı için işaretlediği kural varsayılan olarak gizli ve sayılıyor; **Show N hidden by default** geri getiriyor. Bir satır modülünü seçiyor ve kartını bölmenin ortasına getiriyor |
-| **Inspector** | Overview (neye bağlandığı ve düğümün kendi kanıtı), Connections (türe göre, giden ve gelen) ve Findings; her bulgu **Copy as task** taşıyor, bulguyu bir oturuma yapıştırılacak metin olarak kopyalıyor. Her `dosya:satır` yolunu kopyalıyor. **Not measured** her zaman en altta |
+| **Inspector** | Overview (`/crew-map` tarif ettiyse modülün ne için var olduğu ve dayandığı satırlar; neye bağlandığı; düğümün kendi kanıtı; hiçbir şey seçili değilken projenin genel bakışı), Connections (türe göre, giden ve gelen) ve Findings; her bulgu **Copy as task** taşıyor, bulguyu bir oturuma yapıştırılacak metin olarak kopyalıyor. Her `dosya:satır` yolunu kopyalıyor. **Not measured** her zaman en altta |
 | **Legend** | her çizginin ve çerçevenin ne demek olduğu; dışında herhangi bir yere basınca kapanıyor |
 | **Compare with** | bu makinede haritası olan başka bir proje. Onun kendi endpoint'lerinin sunmadığı çağrıları bu projeyle eşleştiriliyor: çağıran modülleri **Clients**'a geliyor, her çizgi kaç çağrının buraya düştüğünü ve kaçının **missing** olduğunu söylüyor, eksikler bulgulara ekleniyor |
 

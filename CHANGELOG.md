@@ -71,6 +71,11 @@ versioning follows [SemVer](https://semver.org/).
   still holds, the crew agents still running, the measured context fill and the session's cost. The installers set it
   only where no status line is set, in the project or in your own settings, and `/crew-doctor` says which one is in
   use.
+- **`/crew-map`.** It runs the scanner, then has the model describe what it found: at most two sentences per module on
+  what it is for, and a short overview, each citing lines the scan itself read. `crew-map.sh --validate` refuses a
+  description that cites anything else or nothing, or a scanner field changed by hand; a scan again keeps the
+  descriptions that still hold and drops the rest. Studio's Map shows them, and `crew-planner` reads the map on an
+  unfamiliar project.
 
 ### Changed
 

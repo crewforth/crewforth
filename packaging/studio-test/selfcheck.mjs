@@ -1622,7 +1622,7 @@ check('prose without a notice yields nothing', none.size === 0);
     const ok = cm.readMap(proj); for (let k = 0; k < 20; k += 1) cm.readMap(proj);
     check('the map is read whole or not at all: missing, not JSON, another schema, a list missing each say so; a good one is read once and kept',
       missing.measured === false && missing.missing === true && missing.reason.endsWith(`Write one there with: ${cm.WRITER}`)
-      && fs.existsSync(path.join(REPO, 'kit', cm.WRITER.replace(/^bash \.claude\//, '')))
+      && cm.WRITER.startsWith('/crew-map') && fs.existsSync(path.join(REPO, 'kit', 'skills', 'crew-map', 'SKILL.md'))
       && bad.measured === false && /not JSON/.test(bad.reason) && later.measured === false && /crewforth\.crew-map\/2/.test(later.reason)
       && noEdges.measured === false && /no edges list/.test(noEdges.reason)
       && ok.measured === true && ok.file === '.crewforth/crew-map.json' && ok.doc.nodes.length === ws.nodes.length && cm._stats.parsed - before === 1,
@@ -1821,6 +1821,34 @@ check('prose without a notice yields nothing', none.size === 0);
       ins.byKind.map(([k]) => k).join() === [...new Set([...ins.connections.out, ...ins.connections.in].map((c) => c.kind))].sort().join()
       && ins.byKind.every(([, v]) => v.out.length + v.in.length > 0) && ins.evidence.length > 0 && ins.evidence.every((x) => /^[^:]+:\d+$/.test(x)),
       `${ins.byKind.map(([k, v]) => `${k} ${v.out.length}+${v.in.length}`).join(', ')}; evidence ${ins.evidence.join(', ')}`);
+    {
+      // What /crew-map adds: the inspector shows a module's description and the lines it cites; with none it says so.
+      const c0 = `${api.evidence[0].file}:${api.evidence[0].line}`;
+      const described = { ...ws2, overview: { text: 'Start at the API package; data goes to postgres.', cites: [c0] },
+        nodes: ws2.nodes.map((n) => (n.id === api.id ? { ...n, narrative: { text: 'Serves the HTTP API.', cites: [c0] } } : n)) };
+      const dn = mpl.nodesOf(described).find((n) => n.id === api.id);
+      const di = mpl.inspectOf(dn, described, mpl.edgesOf(described), mpl.findingsOf(described).shown);
+      check('a module /crew-map described shows its description and the lines it cites; one it did not says it is not written',
+        di.narrative === 'Serves the HTTP API.' && di.narrativeCites.join() === c0 && ins.narrative === null && /^Not written yet/.test(ins.narrativeNote),
+        `${di.narrative} · ${di.narrativeCites.join()}`);
+      const dom = installDom();
+      try {
+        const { MapView } = await import(`../../kit/studio/web/map.js?v3=${Date.now()}`);
+        const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+        const root = document.createElement('div');
+        const view = new MapView(root, { onCopy: () => {}, onZoom: () => {} });
+        view.pane.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600 });
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-d', doc: described, behind: { count: 0 }, others: [], compare: null });
+        const ov = walkAll(root, (x) => x.className === 'mp-overview').map((x) => x.textContent);
+        const from = walkAll(root, (x) => String(x.className).includes('mp-cites')).map((x) => x.textContent);
+        view.select?.(api.id);
+        const fromSel = walkAll(root, (x) => String(x.className).includes('mp-cites')).map((x) => x.textContent);
+        check('with nothing selected the Map shows the project\'s overview and the lines it rests on; a selected module, its description\'s',
+          ov.join() === 'Start at the API package; data goes to postgres.' && from.join() === `From ${c0}`
+          && fromSel.some((t) => t === `From ${c0}`) && walkAll(root, (x) => x.textContent === 'Serves the HTTP API.').length >= 1,
+          `overview ${JSON.stringify(ov)} · cites ${JSON.stringify(from)} · selected ${JSON.stringify(fromSel)}`);
+      } finally { dom(); }
+    }
     {
       const dom = installDom();
       const docListeners = [];

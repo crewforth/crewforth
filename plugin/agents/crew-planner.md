@@ -33,6 +33,8 @@ before planning. You are read-only: when it ends at "ask", return its questions 
 decision — the main thread asks and records the answer.
 
 ## How (applies the `spec-planning` skill)
+- On an unfamiliar project, read `.crewforth/crew-map.json` first when it exists (its modules, what they touch,
+  the gaps, each with the lines it rests on); with none, `/crew-map` writes one, and that is the user's call.
 - Define the problem in a single sentence; clarify what is in scope and out of scope.
 - Break tasks into atomic steps; derive the dependency order.
 - For each step, write acceptance criteria (how "done" is judged).

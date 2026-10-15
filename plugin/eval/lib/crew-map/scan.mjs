@@ -29,6 +29,7 @@ import { scanStacks } from './stacks.mjs';
 import { externals, configuration, codeUrls, endpoints, containers } from './surface.mjs';
 import { detect } from './detect.mjs';
 import { stamp, write, serialize, validate, OUT_DIR } from '../findings/findings.mjs';
+import { carry, strip, validate as validateNarrative } from './narrative.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const HERE = path.dirname(SELF);
@@ -134,7 +135,7 @@ export function scan(root = '.', opts = {}) {
 
 function usage(msg) {
   if (msg) console.error(`crew-map: ${msg}`);
-  console.error('usage: scan.mjs [--root DIR] [--stdout | --check]');
+  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate]');
   return 2;
 }
 
@@ -152,7 +153,7 @@ export function main(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--root') { root = argv[++i]; if (root === undefined) return usage('--root needs a directory'); }
-    else if (a === '--stdout' || a === '--check') { if (mode !== 'write') return usage('--stdout and --check do not go together'); mode = a.slice(2); }
+    else if (a === '--stdout' || a === '--check' || a === '--validate') { if (mode !== 'write') return usage('--stdout, --check and --validate do not go together'); mode = a.slice(2); }
     else return usage(`no such option: ${a}`);
   }
   try { if (!fs.statSync(root).isDirectory()) throw new Error('not a directory'); }
@@ -164,23 +165,35 @@ export function main(argv) {
     return 1;
   }
   if (mode === 'stdout') { process.stdout.write(serialize(doc)); console.error(summary(doc)); return 0; }
+  const file = path.join(root, OUT_DIR, `${NAME}.json`);
+  let old = null; try { old = fs.readFileSync(file, 'utf8'); } catch { /* absent */ }
+  let was = null; try { was = old === null ? null : JSON.parse(old); } catch { /* unreadable: different */ }
+  if (mode === 'validate') {
+    if (!was) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json ${old === null ? 'does not exist' : 'is not JSON'}`); return 1; }
+    const problems = validateNarrative(was, doc, serialize);
+    const written = (was.nodes ?? []).filter((n) => n.narrative != null).length + (was.overview != null ? 1 : 0);
+    if (!problems.length) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json holds: ${written} description(s), each citing lines the scan read; the scanner's fields untouched`); return 0; }
+    for (const p of problems) console.log(`  FAIL ${p.at}: ${p.message}`);
+    console.log(`crew-map: ${problems.length} problem(s); fix the descriptions, never the scanner's fields`);
+    return 1;
+  }
   if (mode === 'check') {
-    const file = path.join(root, OUT_DIR, `${NAME}.json`);
-    let old = null; try { old = fs.readFileSync(file, 'utf8'); } catch { /* absent */ }
     if (old === null) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json does not exist`); return 1; }
     // The content is compared, not the commit it was written at: a map committed to the repository is always
-    // one commit behind the commit that carries it, and that alone does not make it stale.
-    let was = null; try { was = JSON.parse(old); } catch { /* unreadable: different */ }
-    const bare = (d) => { const { source, ...rest } = d; return serialize(rest); };
+    // one commit behind the commit that carries it, and that alone does not make it stale. What the model wrote
+    // (narrative, overview) is not the scan's, so it is left out of the comparison.
+    const bare = (d) => { const { source, ...rest } = strip(d); return serialize(rest); };
     const then = was && was.source && was.source.commit; const now = doc.source && doc.source.commit;
     const at = then && now && then !== now ? ` (written at ${then.slice(0, 12)}, HEAD is ${now.slice(0, 12)})` : '';
     if (was && bare(was) === bare(doc)) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json is up to date${at}`); return 0; }
     console.log(`crew-map: ${OUT_DIR}/${NAME}.json differs from a scan of this tree${at}`);
     return 1;
   }
-  const r = write(doc, root, NAME);
+  // The descriptions /crew-map wrote are kept where they still cite only lines this scan cites; the rest are dropped.
+  const carried = was ? carry(was, doc) : { doc, kept: 0, dropped: 0 };
+  const r = write(carried.doc, root, NAME);
   if (!r.ok) { for (const p of r.problems) console.error(`  FAIL ${p.at}: ${p.code} — ${p.message}`); return 1; }
-  console.error(summary(doc));
+  console.error(summary(doc) + (carried.kept || carried.dropped ? ` · ${carried.kept} description(s) kept, ${carried.dropped} dropped (they cited lines this scan no longer reads)` : ''));
   console.log(r.file);
   return 0;
 }

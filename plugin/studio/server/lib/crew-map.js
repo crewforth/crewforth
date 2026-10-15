@@ -17,7 +17,8 @@ import { execFile } from 'node:child_process';
 export const MAP_FILE = path.join('.crewforth', 'crew-map.json');
 // How a project writes its map, said wherever a map is missing. The one place it is written: the view and the
 // page show what the server sends.
-export const WRITER = 'bash .claude/eval/lib/crew-map/crew-map.sh';
+// /crew-map in Claude Code: the scan, then the descriptions, in either edition (the plugin has no .claude/eval).
+export const WRITER = '/crew-map in Claude Code';
 export const SCHEMA = /^crewforth\.crew-map\/1$/;
 const MAX_BYTES = 8 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 5000;
