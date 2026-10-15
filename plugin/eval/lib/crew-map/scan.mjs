@@ -24,12 +24,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned } from './project.mjs';
+import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned, isTestPath } from './project.mjs';
 import { scanStacks } from './stacks.mjs';
 import { externals, configuration, codeUrls, endpoints, containers } from './surface.mjs';
 import { detect } from './detect.mjs';
 import { stamp, write, serialize, validate, OUT_DIR } from '../findings/findings.mjs';
 import { carry, strip, validate as validateNarrative } from './narrative.mjs';
+
+// Languages with source the scanner has no reader for, by extension.
+const UNREAD = { dart: 'Dart', swift: 'Swift', rb: 'Ruby', php: 'PHP', rs: 'Rust', scala: 'Scala', ex: 'Elixir', exs: 'Elixir',
+  c: 'C', cc: 'C++', cpp: 'C++', m: 'Objective-C', mm: 'Objective-C', lua: 'Lua', clj: 'Clojure', hs: 'Haskell', erl: 'Erlang' };
 
 const SELF = fileURLToPath(import.meta.url);
 const HERE = path.dirname(SELF);
@@ -63,6 +67,13 @@ export function scan(root = '.', opts = {}) {
     }
   }
   for (const f of pj.tooBig) out.notMeasured.push({ what: f, reason: 'over 2 MiB, not read' });
+  // Source in a language no reader here knows: say so, or its modules are absent from the map without a word.
+  const unread = new Map();
+  for (const f of pj.files) {
+    const lang = UNREAD[/\.([a-z]+)$/i.exec(f)?.[1]?.toLowerCase()];
+    if (lang && !isTestPath(f)) unread.set(lang, (unread.get(lang) ?? 0) + 1);
+  }
+  for (const [lang, n] of unread) out.notMeasured.push({ what: `${lang} source (${n} file${n === 1 ? '' : 's'})`, reason: 'no reader for this language: its modules, dependencies and endpoints are not on the map' });
 
   // ---- one edge per (from, to, kind, confidence), its evidence merged ----
   const em = new Map();

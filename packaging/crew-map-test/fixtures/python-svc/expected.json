@@ -25,7 +25,13 @@
     "app is the module's own package",
     "PY_WITH_DEFAULT has a fallback",
     "GET /v1/items/7 matches /v1/items/{item_id} through the router prefix",
-    "api.weather.example is a reserved test name, not an external resource"
+    "GET /v1 is the router prefix itself, served by a route whose own path is empty",
+    "api.weather.example is a reserved test name, not an external resource",
+    "POST /v1/items is declared over three lines, as black writes a long decorator",
+    "faiss-cpu is imported as faiss, on a line that ends in a comment",
+    "f\"{base}/v1/elsewhere\" has a run-time host: it may be another service's, so its absence here proves nothing",
+    "GET /admin is a route whose empty path sits on the decorator line itself",
+    "uvicorn is started from the command line, pytest-asyncio is a pytest plugin, en-core-web-sm is a spaCy model loaded by name"
   ],
   "nodes": [
     "ext:db:postgres",
@@ -40,8 +46,13 @@
     ]
   ],
   "provides": [
+    "mod:python:pysvc GET /admin",
+    "mod:python:pysvc GET /v1",
+    "mod:python:pysvc POST /v1/items",
     "mod:python:pysvc GET /v1/items/{}",
     "mod:python:pysvc POST /jobs"
   ],
-  "notMeasured": []
+  "notMeasured": [
+    "Dart source (1 file)"
+  ]
 }

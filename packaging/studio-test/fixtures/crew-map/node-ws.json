@@ -8,7 +8,7 @@
     "node"
   ],
   "coverage": {
-    "files": 12,
+    "files": 15,
     "modules": 5,
     "listing": "walk"
   },
@@ -95,7 +95,8 @@
       "path": "packages/api",
       "manifest": "packages/api/package.json",
       "tech": [
-        "express@4.19.0"
+        "express@4.19.0",
+        "image:node:22-alpine"
       ],
       "entry": true,
       "entryPoint": {
@@ -166,7 +167,9 @@
       "stack": "node",
       "path": "packages/web",
       "manifest": "packages/web/package.json",
-      "tech": [],
+      "tech": [
+        "next@14.2.0"
+      ],
       "entry": true,
       "entryPoint": {
         "evidence": [
@@ -178,7 +181,7 @@
           }
         ]
       },
-      "dependencies": 3,
+      "dependencies": 5,
       "evidence": [
         {
           "file": "packages/web/package.json",
@@ -289,7 +292,7 @@
           "file": "packages/web/package.json",
           "line": 5,
           "text": "@demo/shared",
-          "sha256": "420b81ee8cb85c5c17d335f17b613995a0fe56eb7152c72cbbf87c82e9a4c460"
+          "sha256": "6c353a424d11b5d32b68684f131ddc51d0e01311650e637b10a3aacd0b08bf86"
         }
       ]
     },
@@ -366,6 +369,34 @@
     "endpoints": [
       {
         "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/health",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 19,
+            "text": "/api/health",
+            "sha256": "bf30823a4a0c6a4df834c22a3e9844e2f4dbd435a6e422587b8679d3b1bef914"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/orders",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 18,
+            "text": "/api/orders",
+            "sha256": "c94b5fdf232c3233ed31ec3ac283a5e26e532aab1302c3f19b71fb6d733e28c0"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
         "method": "POST",
         "path": "/api/orders",
         "resolved": true,
@@ -375,6 +406,20 @@
             "line": 17,
             "text": "/api/orders",
             "sha256": "22876de2ee47fd00cd608aa564df88a244183ca3c3bb05d10739105f172dbebb"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/ready",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 20,
+            "text": "/api/ready",
+            "sha256": "3ae20a134df8b0f46810727bfd8308640168428983812f2a6ab57c4f1b89b2c0"
           }
         ]
       },
@@ -421,6 +466,34 @@
             "line": 10,
             "text": "/api/invoices",
             "sha256": "b6df288d091459311b229a0b7956191228eb1f46d61283db6e88b014e8f83ba1"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/api/orders",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/orders.ts",
+            "line": 6,
+            "text": "/api/orders",
+            "sha256": "9a69ae1142ef79702ab637ceb14262c60c5ed552831ef54e4d7be5ed74dad5ea"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "PATCH",
+        "path": "/api/orders/7",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/orders.ts",
+            "line": 8,
+            "text": "/api/orders/7",
+            "sha256": "011f854e81cb0149acdd80abd11560c45d6e95f96d9fda13e40b024601f2b004"
           }
         ]
       },
@@ -478,7 +551,8 @@
             "text": "${BASE}/health",
             "sha256": "2a3e49ca7ce79fb20ccec7fafcc0bd98f668686cd7d2d1a0e451b1f305645f8b"
           }
-        ]
+        ],
+        "base": "${BASE}"
       }
     ]
   },
@@ -577,7 +651,7 @@
           "file": "packages/web/package.json",
           "line": 5,
           "text": "@demo/shared",
-          "sha256": "420b81ee8cb85c5c17d335f17b613995a0fe56eb7152c72cbbf87c82e9a4c460"
+          "sha256": "6c353a424d11b5d32b68684f131ddc51d0e01311650e637b10a3aacd0b08bf86"
         }
       ],
       "data": {
@@ -645,6 +719,26 @@
         "subject": "mod:node:@demo/web GET /api/invoices",
         "method": "GET",
         "path": "/api/invoices",
+        "module": "mod:node:@demo/web"
+      }
+    },
+    {
+      "id": "endpoint-missing:mod:node:-demo-web-patch-api-orders-7:5ca46f0e",
+      "rule": "endpoint-missing",
+      "title": "PATCH /api/orders/7 is called but no endpoint in this repo provides it",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/web/src/orders.ts",
+          "line": 8,
+          "text": "/api/orders/7",
+          "sha256": "011f854e81cb0149acdd80abd11560c45d6e95f96d9fda13e40b024601f2b004"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/web PATCH /api/orders/7",
+        "method": "PATCH",
+        "path": "/api/orders/7",
         "module": "mod:node:@demo/web"
       }
     },
@@ -726,7 +820,7 @@
           "file": "packages/web/package.json",
           "line": 5,
           "text": "zod",
-          "sha256": "420b81ee8cb85c5c17d335f17b613995a0fe56eb7152c72cbbf87c82e9a4c460"
+          "sha256": "6c353a424d11b5d32b68684f131ddc51d0e01311650e637b10a3aacd0b08bf86"
         }
       ],
       "data": {
@@ -743,6 +837,15 @@
       }
     }
   ],
-  "notMeasured": [],
+  "notMeasured": [
+    {
+      "what": "Kubernetes manifests (1 file)",
+      "reason": "not parsed: services and resources declared there are not on the map"
+    },
+    {
+      "what": "routes registered with a run-time path (1)",
+      "reason": "the path is a variable, not a literal, so the route is not on the map"
+    }
+  ],
   "overview": null
 }

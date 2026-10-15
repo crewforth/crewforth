@@ -22,7 +22,17 @@
       "beautifulsoup4": "bs4", "pillow": "PIL", "pyyaml": "yaml", "psycopg2-binary": "psycopg2", "python-dotenv": "dotenv",
       "scikit-learn": "sklearn", "opencv-python": "cv2", "pyjwt": "jwt", "python-dateutil": "dateutil", "mysqlclient": "MySQLdb",
       "kafka-python": "kafka", "confluent-kafka": "confluent_kafka", "google-cloud-storage": "google", "azure-storage-blob": "azure",
-      "attrs": "attr", "protobuf": "google", "msgpack-python": "msgpack", "typing-extensions": "typing_extensions"
+      "attrs": "attr", "protobuf": "google", "msgpack-python": "msgpack", "typing-extensions": "typing_extensions",
+      "pymupdf": "fitz", "faiss-cpu": "faiss", "faiss-gpu": "faiss", "ffmpeg-python": "ffmpeg", "openai-whisper": "whisper",
+      "python-magic": "magic", "python-docx": "docx", "python-pptx": "pptx", "python-json-logger": "pythonjsonlogger",
+      "pdfminer.six": "pdfminer", "markdown-it-py": "markdown_it", "odfpy": "odf", "lingua-language-detector": "lingua"
     }
+  },
+  "neverImported": {
+    "about": "Packages that work without an import: a server started from the command line, a database driver named in a connection URL, a pytest plugin, a spaCy model loaded by name, a library another one loads (multipart forms, e-mail validation). Declared and never imported, they are not unused. A '*' matches any run of characters. A node entry names the package whose presence makes it so (react-dom under Next.js).",
+    "python": ["uvicorn", "gunicorn", "hypercorn", "daphne", "uvloop", "httptools", "watchfiles", "aiosqlite", "asyncpg", "psycopg2",
+      "psycopg2-binary", "psycopg-binary", "pymysql", "aiomysql", "mysqlclient", "greenlet", "python-multipart", "email-validator",
+      "pytest-*", "*-core-*-sm", "*-core-*-md", "*-core-*-lg", "*-core-*-trf"],
+    "node": { "react-dom": "next" }
   }
 }

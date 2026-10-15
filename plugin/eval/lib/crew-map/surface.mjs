@@ -196,6 +196,7 @@ export function normPath(raw) {
   // A run-time base in front (`${API}`, `{BASE}`) is dropped; what follows it is the path, if it starts with '/'.
   const lead = /^(\$\{[^}]*\}|\{[A-Za-z_][\w.]*\})/.exec(p);
   if (lead) { p = p.slice(lead[0].length); if (!p.startsWith('/')) resolved = false; }
+  const base = lead ? lead[0] : null;
   if (/^https?:\/\//i.test(p)) return null;
   if (p.startsWith('$') || p === '') resolved = false;
   p = p.split(/[?#]/)[0];
@@ -204,22 +205,59 @@ export function normPath(raw) {
   if (!p.startsWith('/')) p = '/' + p;
   p = p.replace(/\/{2,}/g, '/');
   if (p.length > 1) p = p.replace(/\/$/, '');
-  return { path: p.toLowerCase(), resolved };
+  return { path: p.toLowerCase(), resolved, base };
 }
 const join = (a, b) => `${a || ''}/${b || ''}`;
+// The first string argument of a call whose `(` ends at `from` on line i: on that line, or, when nothing follows
+// the `(` (a formatter's way with a long call), on the next line that has something on it. `at` is the line the
+// string is on, which is the line cited.
+const ARG = /^\s*(?:path\s*=\s*)?f?r?(['"`])((?:(?!\1)[^\\]|\\.)*)\1/;
+function firstArg(L, i, from) {
+  const rest = L[i].slice(from);
+  let x = ARG.exec(rest);
+  if (x) return { s: x[2], at: i };
+  if (rest.trim()) return null;
+  for (let j = i + 1; j < Math.min(L.length, i + 4); j++) {
+    if (!L[j].trim()) continue;
+    x = ARG.exec(L[j]);
+    return x ? { s: x[2], at: j } : null;
+  }
+  return null;
+}
+// The names a module calls HTTP through: axios, and every `x = axios.create(…)` in any of its files (a client made
+// in lib/api.ts is called from every component). A name a file itself makes a server of is not one there.
+function httpClients(pj, m) {
+  const out = new Set(['axios']);
+  for (const f of m.files) {
+    if (!/\.(m?[jt]sx?|cjs)$/.test(f)) continue;
+    const src = pj.read(f); if (!src) continue;
+    for (const x of src.text.matchAll(/(\w+)\s*=\s*axios\.create\(/g)) out.add(x[1]);
+  }
+  return out;
+}
 
 export function endpoints(pj, st, out) {
   const provides = []; const consumes = [];
   const mounts = [];
+  let dynamic = 0; // routes a server registers with a path that is not a literal: `app.get(path, …)` in a loop
   const add = (list, m, method, raw, f, i, anchor, unresolved = false) => {
     const n = normPath(raw); if (!n) return;
     if (unresolved) n.resolved = false;
     // A route or a call is cited up to its query: `?apiKey=...` stays out of the document.
     if (/^[/$\{]/.test(anchor)) anchor = anchor.split(/[?#]/)[0] || anchor[0];
+    // A route whose own path is empty (`@router.get("")`, Django's `path('', …)`) is cited by the call that declares
+    // it: an empty quote is not a piece of the line anyone can check.
+    if (!anchor) anchor = /([\w.]+)\(\s*(?:[rf$]?(['"`])\2|$)/.exec(pj.read(f)?.lines[i] ?? '')?.[1] ?? '';
+    if (!anchor) return;
     if (/\.[a-z0-9]{2,5}$/i.test(n.path)) return; // a static file (/icons/x.svg, /app.js), not an API route
-    list.push({ module: m.id, method: method.toUpperCase(), path: n.path, resolved: n.resolved, evidence: [ev(f, i + 1, anchor)] });
+    const e = { module: m.id, method: method.toUpperCase(), path: n.path, resolved: n.resolved, evidence: [ev(f, i + 1, anchor)] };
+    // A call whose host is a run-time value (`${baseURL}/x`, f"{base}/x") may be to this repo or to anyone's: it
+    // can find its provider here, but its absence here proves nothing.
+    if (n.base) e.base = n.base;
+    list.push(e);
   };
   for (const m of st.modules) {
+    let moduleClients = null;
     for (const f of m.files) {
       if (isTestPath(f)) continue;
       const src = pj.read(f); if (!src) continue;
@@ -248,8 +286,8 @@ export function endpoints(pj, st, out) {
       }
       // Node: Express / Fastify / Nest providers; fetch / axios consumers
       if (/\.(m?[jt]sx?|cjs)$/.test(f)) {
-        const clients = new Set(['axios']);
-        for (const x of text.matchAll(/(\w+)\s*=\s*axios\.create\(/g)) clients.add(x[1]);
+        const clients = new Set(moduleClients ??= httpClients(pj, m));
+        for (const x of text.matchAll(/(\w+)\s*=\s*(?:express|fastify|Fastify|Router|express\.Router)\(|(\w+)\s*=\s*new\s+Hono\b/g)) clients.delete(x[1] ?? x[2]);
         // Express routers: a route on a router is served under the path it is mounted at. Mounted in this file, the
         // prefix is known; mounted elsewhere it is not, and the route is listed but never matched.
         const routers = new Set([...text.matchAll(/(\w+)\s*=\s*(?:express\.)?Router\(/g)].map((x) => x[1]));
@@ -261,6 +299,8 @@ export function endpoints(pj, st, out) {
         let nest = null;
         L.forEach((l, i) => {
           if (isComment(l)) return;
+          const dyn = /\b(app|router|server|fastify|api|routes)\.(get|post|put|patch|delete|all)\(\s*[A-Za-z_$][\w.$]*\s*,/.exec(l);
+          if (dyn && !clients.has(dyn[1])) dynamic += 1;
           const ex = /\b(app|router|server|fastify|api|routes)\.(get|post|put|patch|delete|all)\(\s*(['"`])(\/[^'"`]*)\3/.exec(l);
           if (ex && !clients.has(ex[1])) {
             const onRouter = routers.has(ex[1]) || ex[1] === 'router' || ex[1] === 'routes';
@@ -276,8 +316,10 @@ export function endpoints(pj, st, out) {
             const mt = /method\s*:\s*['"](\w+)['"]/.exec(win);
             add(consumes, m, mt ? mt[1] : 'GET', fe[2], f, i, fe[2]);
           }
-          const ax = /\b(\w+)\.(get|post|put|patch|delete)\(\s*(['"`])([^'"`]+)\3/.exec(l);
-          if (ax && clients.has(ax[1]) && !/^https?:/.test(ax[4])) add(consumes, m, ax[2], ax[4], f, i, ax[4]);
+          // `api.get<User[]>("/x")` and a call whose path is on the next line read alike.
+          const ax = /\b(\w+)\.(get|post|put|patch|delete)(?:<[^()]*?>)?\(/.exec(l);
+          const axa = ax && clients.has(ax[1]) ? firstArg(L, i, ax.index + ax[0].length) : null;
+          if (axa && axa.s && !/^https?:/.test(axa.s)) add(consumes, m, ax[2], axa.s, f, axa.at, axa.s);
         });
       }
       // Python: FastAPI / Flask / Django providers; requests / httpx consumers
@@ -286,20 +328,24 @@ export function endpoints(pj, st, out) {
         for (const x of text.matchAll(/(\w+)\s*=\s*(?:APIRouter|Blueprint)\([^)]*?(?:prefix|url_prefix)\s*=\s*['"]([^'"]+)['"]/g)) pre.set(x[1], x[2]);
         L.forEach((l, i) => {
           if (isComment(l)) return;
-          const fa = /^\s*@(\w+)\.(get|post|put|patch|delete)\(\s*['"]([^'"]*)['"]/.exec(l);
-          if (fa) add(provides, m, fa[2], join(pre.get(fa[1]) || '', fa[3]), f, i, fa[3]);
-          const fl = /^\s*@(\w+)\.route\(\s*['"]([^'"]*)['"](.*)$/.exec(l);
-          if (fl) {
-            const ms = /methods\s*=\s*\[([^\]]*)\]/.exec(fl[3]);
+          // A decorator's path on its own line, as black writes a long one, reads like one on the decorator's.
+          const fa = /^\s*@(\w+)\.(get|post|put|patch|delete)\(/.exec(l);
+          const faa = fa && firstArg(L, i, fa[0].length);
+          if (faa) add(provides, m, fa[2], join(pre.get(fa[1]) || '', faa.s), f, faa.s ? faa.at : i, faa.s);
+          const flo = /^\s*@(\w+)\.route\(/.exec(l);
+          const fla = flo && firstArg(L, i, flo[0].length);
+          if (fla) {
+            const fl = [null, flo[1], fla.s];
+            const ms = /methods\s*=\s*\[([^\]]*)\]/.exec(L.slice(i, fla.at + 4).join(' '));
             const methods = ms ? [...ms[1].matchAll(/['"](\w+)['"]/g)].map((x) => x[1]) : ['GET'];
-            for (const mt of methods) add(provides, m, mt, join(pre.get(fl[1]) || '', fl[2]), f, i, fl[2]);
+            for (const mt of methods) add(provides, m, mt, join(pre.get(fl[1]) || '', fl[2]), f, fl[2] ? fla.at : i, fl[2]);
           }
           if (/(^|\/)urls\.py$/.test(f)) {
             const dj = /\b(?:re_)?path\(\s*r?['"]([^'"]*)['"]\s*,\s*(?!include\()/.exec(l);
             if (dj) add(provides, m, '*', dj[1], f, i, dj[1]);
           }
           const rq = /\b(requests|httpx|client|session)\.(get|post|put|patch|delete)\(\s*f?['"]([^'"]+)['"]/.exec(l);
-          if (rq && !/^https?:/.test(rq[3])) add(consumes, m, rq[2], rq[3].replace(/^\{[^}]+\}/, ''), f, i, rq[3]);
+          if (rq && !/^https?:/.test(rq[3])) add(consumes, m, rq[2], rq[3], f, i, rq[3]);
         });
       }
       // Go: net/http, gin, chi providers; http.Get / NewRequest consumers
@@ -335,7 +381,24 @@ export function endpoints(pj, st, out) {
       }
     }
   }
-  return { provides, consumes, mounts: [...new Set(mounts)].sort() };
+  // A route a platform calls rather than code: a compose or Dockerfile healthcheck (`curl -f http://localhost:8000/health`)
+  // and a Kubernetes probe (`httpGet: path: /healthz`). Not on the map as a call, since no module makes it; only the
+  // provider is spared being reported unused.
+  const probes = [];
+  for (const f of pj.files) {
+    const compose = /(^|\/)(docker-)?compose[^/]*\.ya?ml$/.test(f); const docker = /(^|\/)Dockerfile[^/]*$/.test(f);
+    const k8s = /\.ya?ml$/.test(f) && !compose;
+    if (!(compose || docker || k8s) || isTestPath(f)) continue;
+    const src = pj.read(f); if (!src) continue;
+    if (k8s && !/\b(liveness|readiness|startup)Probe\s*:/.test(src.text)) continue;
+    src.lines.forEach((l) => {
+      if (isComment(l)) return;
+      if (k8s) { const kp = /^\s*path\s*:\s*['"]?(\/[^\s'"]*)/.exec(l); if (kp) probes.push(normPath(kp[1]).path); return; }
+      for (const x of l.matchAll(/https?:\/\/([^/\s'"]+)(\/[^\s'"\]),;)]*)/g)) if (isLocalHost(x[1])) probes.push(normPath(x[2]).path);
+    });
+  }
+  if (dynamic) out.notMeasured.push({ what: `routes registered with a run-time path (${dynamic})`, reason: 'the path is a variable, not a literal, so the route is not on the map' });
+  return { provides, consumes, mounts: [...new Set(mounts)].sort(), probes: [...new Set(probes)].sort() };
 }
 
 // ---- containers ---------------------------------------------------------------------------------------------

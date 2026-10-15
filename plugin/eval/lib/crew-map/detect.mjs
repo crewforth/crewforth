@@ -111,6 +111,8 @@ export function detect(ctx) {
   // ---- dep-undeclared / dep-unused (node, python, go) ----
   const builtins = new Set(names.nodeBuiltins.names);
   const pyAlias = names.pythonImportNames.map;
+  const never = names.neverImported ?? { python: [], node: {} };
+  const pyNever = never.python.map((g) => new RegExp(`^${g.toLowerCase().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`));
   const pyImportName = (dist) => (pyAlias[dist.toLowerCase()] || dist).toLowerCase().replace(/-/g, '_');
   const pyLocal = new Set(mods.filter((m) => m.stack === 'python').flatMap((m) => [...(m.localNames || []), ...m.selfNames.map((n) => n.toLowerCase().replace(/-/g, '_'))]));
   for (const m of mods) {
@@ -132,6 +134,7 @@ export function detect(ctx) {
       const used = new Set(roots.keys());
       for (const d of m.deps) {
         if (d.dev || d.name.startsWith('@types/') || used.has(d.name)) continue;
+        if (never.node[d.name] && declared.has(never.node[d.name])) continue;
         out.push(finding('dep-unused', `${m.id} ${d.name}`, `${d.name} is declared but no import of it was found in this repo`, [d.ev], { module: m.id, package: d.name }));
       }
     } else if (m.stack === 'python') {
@@ -144,6 +147,7 @@ export function detect(ctx) {
       const used = new Set([...roots.keys()].map((x) => x.toLowerCase()));
       for (const d of m.deps) {
         if (d.dev || used.has(pyImportName(d.name))) continue;
+        if (pyNever.some((re) => re.test(d.name.toLowerCase()))) continue;
         out.push(finding('dep-unused', `${m.id} ${d.name}`, `${d.name} is declared but no import of it was found in this repo`, [d.ev], { module: m.id, package: d.name }));
       }
     } else {
@@ -200,6 +204,8 @@ export function detect(ctx) {
       for (const c of cons) {
         if (prov.some((p) => epMatch(p, c))) continue;
         if (!firsts.has(c.path.split('/')[1]) || under(c)) continue;
+        // Its host is a run-time value: the call may well be to another service (a model server's /api/tags).
+        if (c.base) continue;
         out.push(finding('endpoint-missing', `${c.module} ${c.method} ${c.path}`, `${c.method} ${c.path} is called but no endpoint in this repo provides it`, c.evidence, { method: c.method, path: c.path, module: c.module }));
       }
     } else if (eps.consumes.length) {
@@ -208,6 +214,8 @@ export function detect(ctx) {
     if (eps.consumes.length) {
       for (const p of prov) {
         if (cons.some((c) => epMatch(p, c))) continue;
+        // A healthcheck or a probe calls it: the platform is its caller.
+        if ((eps.probes ?? []).some((path) => epMatch(p, { method: 'GET', path }))) continue;
         out.push(finding('endpoint-unused', `${p.module} ${p.method} ${p.path}`, `${p.method} ${p.path} is provided but no caller found in this repo`, p.evidence, { method: p.method, path: p.path, module: p.module }));
       }
     } else if (eps.provides.length) {

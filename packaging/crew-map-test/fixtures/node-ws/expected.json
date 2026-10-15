@@ -42,6 +42,10 @@
       "mod:node:@demo/web GET /api/invoices"
     ],
     [
+      "endpoint-missing",
+      "mod:node:@demo/web PATCH /api/orders/7"
+    ],
+    [
       "endpoint-unused",
       "mod:node:@demo/api POST /api/orders"
     ],
@@ -61,7 +65,13 @@
     "server.test.js is a test: its route, call and env read are not on the map",
     "api.get(...) on an axios client is a call, not a route",
     "the WEBHOOK_URL token sits in the userinfo, which is cut before the host is kept",
-    "a regex literal holding from '[^']* is not an import"
+    "a regex literal holding from '[^']* is not an import",
+    "api.get<Order[]>( with its path on the next line is a call through the client made in client.ts",
+    "api.patch(...) in a file that only imports the client is a call, not a route",
+    "import x from \"ghost-pkg\" inside a string is text, not an import",
+    "GET /api/health is called by the Dockerfile's HEALTHCHECK",
+    "GET /api/ready is called by a Kubernetes liveness probe",
+    "react-dom is never imported under Next.js"
   ],
   "nodes": [
     "ext:cache:redis",
@@ -95,9 +105,14 @@
     ]
   ],
   "provides": [
+    "mod:node:@demo/api GET /api/health",
+    "mod:node:@demo/api GET /api/orders",
+    "mod:node:@demo/api GET /api/ready",
     "mod:node:@demo/api GET /api/users",
     "mod:node:@demo/api GET /api/users/{}",
     "mod:node:@demo/api POST /api/orders"
   ],
-  "notMeasured": []
+  "notMeasured": [
+    "routes registered with a run-time path (1)"
+  ]
 }
