@@ -114,6 +114,14 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **The crew map reads what two real projects showed it missing.** Scanned before release, they put three rules
+  well over a 20% false-positive rate, and one scan refused its own document. Read now: a route with an empty path,
+  a decorator whose path is on the next line, `api.get<T>(` and a call split over lines, a client made in one file
+  and called in another (it had read as a server), an import ending in a comment, twelve more import names, and a
+  string in a test that looks like an import. A call with a run-time host is matched but never reported missing.
+  Source in a language the scanner has no reader for, and routes registered with a variable path, are listed in
+  `notMeasured` instead of being silently absent. On the Python project the proven `endpoint-missing` went from 2
+  real out of 10 to 4 out of 4.
 - **Studio's cards no longer flicker while a window is resized.** At Auto density, an edge dragged across the limit
   between cards and chips redrew every card on every frame (measured: 57 times in 60 frames with 43 agents). The view
   still follows the edge at once; the choice between cards and chips is made once the window has stopped for 150 ms.
