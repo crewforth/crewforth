@@ -93,6 +93,10 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio keeps cards for a longer session.** At Auto density a picture may now run up to half again past the pane
   before its cards become chips; it opens at the zoom cards are read at, from its top, and Fit still shows all of it.
   A compact group card says how its agents went as well as their models (`5 done · 3 Sonnet · 2 Opus`).
+- **The session's own write to a critical path is recorded.** Agents not on Opus are refused a critical path; the
+  session's own writes were not looked at at all. They are still not refused (the choice is yours), but each one now
+  leaves a NOTE line in the gate log with the path and the rule that made it critical, which Studio's Gates tab and
+  the status line show.
 
 ### Security
 
