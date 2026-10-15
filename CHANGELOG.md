@@ -5,7 +5,7 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] — 3.2.0
 
 ### Added
 
@@ -129,6 +129,9 @@ versioning follows [SemVer](https://semver.org/).
   response did not account for; they are now the five-minute kind, which is how they were billed.
 - **Doctor's advisor lines match how Claude Code attaches it.** An advisor below the model it would advise is not
   attached at all, so critical work runs without one; the warning said it would advise a stronger model.
+- **`incident-runbook` is picked for an outage that keeps coming back.** Its description named only a production that
+  is degraded or broken; a request about a recurring outage picked it in none of three held-out eval runs before, and
+  in two of three after.
 
 ## [3.1.1] — 2026-10-12
 
