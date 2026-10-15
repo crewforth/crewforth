@@ -28,6 +28,38 @@ versioning follows [SemVer](https://semver.org/).
   card. The findings are listed proven first, with the scanner's hidden rules counted until asked for. The inspector
   copies any `file:line` and copies a finding as a task. Compare with matches another project's calls against this
   one's endpoints. On a phone, the findings and a list of the modules stand in for the pane.
+- **A crew map of the project.** `bash .claude/eval/lib/crew-map/crew-map.sh` reads the modules (Node and TypeScript,
+  Python, Go, .NET, Java and Kotlin), the external resources they touch, the endpoints they provide and call, and
+  writes `.crewforth/crew-map.json`. Every module, line and finding cites the `file:line` it was read from, the same
+  tree gives the same bytes (`--check` holds it in CI), and a configuration value is read only to name its kind. Ten
+  gap rules: five proven by the lines they cite, five concluded from absence and hidden until their false-positive
+  rate is measured.
+- **Findings are held to the lines they cite.** The findings core (`.claude/eval/lib/findings/findings.sh`) checks
+  every citation: the file is inside the project, the lines exist, and they are still the lines that were read. A
+  document that does not verify is reported entry by entry and never written.
+- **A finding is verified by an agent that tries to refute it.** `crew-refuter` gets one claim and its cited lines,
+  not the reasoning, and works on one lens. `refuter-ledger.sh` records its verdict from the agent's own task and
+  answer in `.claude/state/crew-refuter.tsv`. With `--verified`, a `medium` finding needs one verdict and a `high` or
+  `critical` one three, each a line of that ledger.
+- **`crew-docs-agent` writes the text.** README, guides, release notes, legal and privacy texts and store listings had
+  no owner and ran outside model routing. Legal, privacy, consent and terms paths and store metadata are critical
+  paths, so that text runs on the critical tier and a legal or privacy text is audited by `crew-privacy-agent` before
+  it closes.
+- **Doctor names three more things, none of which changes its verdict.** Both editions enabled at once (every hook
+  would run twice), read from `claude plugin list --json`; the advisor, whether it is on, on what and from which
+  settings file, or turned off; and, before any update check has run, the published version, said as not measured
+  instead of nothing.
+- **Studio shows why work was critical, and says when an agent is outside routing.** The gate records its reason
+  (`risk_why`, a new last column of `model-outcomes.tsv`) and the inspector shows it under the task card; an older
+  line shows none rather than a guessed one. An agent that is not `crew-*` gets a Model routing note: the gate leaves
+  it alone, so it has no card.
+- **Studio counts the advisor in what a session cost.** An advisor call is billed at the advisor model's rates and the
+  API keeps it out of a response's top-level usage; Studio now reads it from `usage.iterations` and prices it at its
+  own model. The session table has an Advisor line (calls, tokens, cost) when a call is recorded. Measured on a real
+  session: Studio read $0.0567 before, $0.2110 after, the same as Claude Code's own figure.
+- **Read-only remote viewers for Studio.** The Machines tab makes a viewer link that only reads, lists each viewer
+  with its last request, and revokes it. The server still binds to `127.0.0.1`; watching from another device goes
+  through a tunnel you run (`ssh -L`, Tailscale).
 
 ### Changed
 
@@ -37,6 +69,8 @@ versioning follows [SemVer](https://semver.org/).
   hold is unchanged. The older walk read a here-document's body and a comment as arguments of the commit; it no
   longer does, so a call that only holds the words of a commit inside a here-document body, or `-a` after a `#`,
   asks as any other commit does instead of being refused.
+- **npm releases are published over OIDC.** The release job proves its identity with a short-lived GitHub Actions
+  token (npm Trusted Publishing); the repository holds no npm token, and each version carries a provenance statement.
 
 ### Security
 
@@ -48,12 +82,27 @@ versioning follows [SemVer](https://semver.org/).
   question closes, and so does the gate's own prompt in `default` and `acceptEdits`: `/crew-approve`, which no hook
   can type, is the approval left. The limit: settings passed with `--settings` and managed settings delivered by a
   server cannot be read.
+- **`crewforth.hookschain` is guarded the way `core.hooksPath` is.** The key holds the path of a project hook chain
+  the shim reads on every commit, and `git config crewforth.hookschain …` passed. A write is now refused in every form
+  `core.hooksPath` is (a value, `--unset`, `-c`, `--config-env`, `GIT_CONFIG_` variables); reading it still passes.
 
 ### Fixed
 
 - **Studio's cards no longer flicker while a window is resized.** At Auto density, an edge dragged across the limit
   between cards and chips redrew every card on every frame (measured: 57 times in 60 frames with 43 agents). The view
   still follows the edge at once; the choice between cards and chips is made once the window has stopped for 150 ms.
+- **`crew-commit-agent` and `crew-session-manager` are called.** Both were exempt from the delegation cue and nothing
+  pulled them, so the main thread wrote every commit message and handover itself. The discipline and `/crew-handoff`
+  now call them, and smoke fails when a chain-step agent has no caller.
+- **Doctor names the 2.x plugin enabled beside a 3.x install.** The 2.x plugin, under its old name, wires the same
+  hooks; the check looked for `crewforth@…` only and said one edition while every hook ran twice.
+- **The crew map no longer reads a regex literal as an import.** `from '[^']*…` inside a regular expression was
+  reported as a proven undeclared dependency named `[^`; a specifier counts as a package only when it is named the way
+  npm names one.
+- **A cache write the usage split leaves out is counted.** Studio dropped cache writes that the top-level split of a
+  response did not account for; they are now the five-minute kind, which is how they were billed.
+- **Doctor's advisor lines match how Claude Code attaches it.** An advisor below the model it would advise is not
+  attached at all, so critical work runs without one; the warning said it would advise a stronger model.
 
 ## [3.1.1] — 2026-10-12
 
