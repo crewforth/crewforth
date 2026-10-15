@@ -1,0 +1,10 @@
+# Written by packaging/skill-eval/run.mjs; read by check.mjs. One line per case: does the description pick the
+# skill (kind is) or keep away from a neighbour's request (kind not). claude 2.1.299 · model sonnet ·
+# cost ~$0.43 at list price · complete
+case	skill	kind	source	description	score	worst	runs
+holdout-is-adr-46301897	adr	is	holdout	46cfbae699cb4b02	1.000	1.000	1
+working-is-adr-d8d93313	adr	is	working	46cfbae699cb4b02	1.000	1.000	1
+working-not-adr-252419ae	adr	not	working	46cfbae699cb4b02	1.000	1.000	1
+working-not-adr-4b406c7e	adr	not	working	46cfbae699cb4b02	1.000	1.000	1
+working-not-adr-4e1d4326	adr	not	working	46cfbae699cb4b02	1.000	1.000	1
+working-not-adr-f13c719c	adr	not	working	46cfbae699cb4b02	1.000	1.000	1
