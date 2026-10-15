@@ -8355,6 +8355,17 @@ _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-gp","agent_type":"general-pu
 _V2ENV="CREW_MODEL_ROUTING=off" _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b routing-off-refused:$_v2wrc"
 [ -z "$_v2b" ] && pass "an agent on sonnet is refused a write to a critical path its card did not name, and told to report escalate; the same agent writes elsewhere; an agent on opus (by its call, or by its own transcript) writes there; an agent whose model cannot be read does not; the session's own write is not asked; routing off asks nothing" \
                || fail "write-time check:$_v2b"
+# B2 (K7): the session's own write to a critical path is not refused, and it is recorded: one NOTE line in the gate
+# log naming the path and the rule. A write elsewhere, one outside the project, and one with routing off add none.
+_v2b=""; _b2l="$_v2/b2.tsv"
+_b2(){ : > "$_b2l"; _V2ENV="CREW_GATE_LOG=$_b2l ${2:-}" _v2write "$1"; _b2n="$(grep -c '^NOTE' "$_b2l" 2>/dev/null)"; }
+_b2 "$_v2p/src/payments/p.ts"; [ "$_v2wrc/$_b2n" = 0/1 ] || _v2b="$_v2b [critical: rc $_v2wrc, $_b2n notes]"
+grep -q "^NOTE"$'\t'"§model"$'\t'"note: the session wrote a critical path itself, not through an agent: src/payments/p.ts (payments)" "$_b2l" || _v2b="$_v2b [line: $(head -1 "$_b2l")]"
+_b2 "$_v2p/src/ui/a.ts"; [ "$_v2wrc/$_b2n" = 0/0 ] || _v2b="$_v2b [plain: rc $_v2wrc, $_b2n notes]"
+_b2 "/tmp/elsewhere/payments/p.ts"; [ "$_v2wrc/$_b2n" = 0/0 ] || _v2b="$_v2b [outside: rc $_v2wrc, $_b2n notes]"
+_b2 "$_v2p/src/payments/p.ts" CREW_MODEL_ROUTING=off; [ "$_v2wrc/$_b2n" = 0/0 ] || _v2b="$_v2b [routing off: rc $_v2wrc, $_b2n notes]"
+[ -z "$_v2b" ] && pass "the session's own write to a critical path is allowed and recorded as a NOTE with the path and the rule; a plain write, one outside the project and one with routing off are not recorded" \
+               || fail "the session's critical write (B2):$_v2b"
 
 # ---- 2. the critical paths of a project with no settings file: a Flutter app and a .NET service ---------------
 _v2new; _v2b=""

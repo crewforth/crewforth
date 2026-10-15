@@ -71,7 +71,7 @@ GL="${CREW_GATE_LOG:-.claude/gate-log.tsv}"
 if [ -n "$BASE" ] && [ -f "$GL" ] && [ "$GL" -nt "$BASE" ]; then
   last="$(tail -n 1 "$GL" 2>/dev/null)"
   IFS=$'\t' read -r verdict section _ <<< "$last"
-  case "$verdict" in BLOCK|ASK|ALLOW) OUT+=("🛡 $verdict ${section:-}") ;; esac
+  case "$verdict" in BLOCK|ASK|ALLOW|NOTE) OUT+=("🛡 $verdict ${section:-}") ;; esac
 fi
 
 # ✓ An approval that still holds: the record is in the git directory (a worktree's .git is a file naming it).

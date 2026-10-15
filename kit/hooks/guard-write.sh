@@ -636,6 +636,22 @@ case "$INPUT" in *'"agent_id"'*)
       esac
     fi
   fi ;;
+*)
+  # The session's own write to a critical path (no agent_id: the main thread). Not refused (K7: the user may be
+  # doing exactly this, and an agent is a choice, not a rule); recorded, so it is seen: a NOTE line in the gate log,
+  # which Studio's Gates tab and the status line read. The same definition of "critical path" the agents are held
+  # to; a file outside the project is not the project's critical path.
+  if [ "${CREW_MODEL_ROUTING:-}" != off ] && [ -n "${FP:-}" ]; then
+    _gwm="${BASH_SOURCE%/*}"; [ "$_gwm" = "${BASH_SOURCE}" ] && _gwm=.
+    if [ -f "$_gwm/guard-agent-model.sh" ]; then
+      . "$_gwm/guard-agent-model.sh"
+      if declare -F _am_crit_path >/dev/null 2>&1 && _am_crit_path "$FP"; then
+        case "$_AMRP" in /*|[A-Za-z]:*) ;; *)
+          declare -F _am_log >/dev/null 2>&1 && _am_log "note: the session wrote a critical path itself, not through an agent: $_AMRP ($_AMW)" ;;
+        esac
+      fi
+    fi
+  fi ;;
 esac
 
 # ---- team board: you may not start work nobody knows you started -----------------------------------------------
