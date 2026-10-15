@@ -67,6 +67,10 @@ versioning follows [SemVer](https://semver.org/).
   so a line already shown at install no longer silences it, and a plugin install shows it too, with the plugin's
   version. `/crew-update` keeps it to one line per update. The READMEs and the site's home page have a Star on GitHub
   button.
+- **A status line.** One line under the prompt: the gate's last word in this session, a commit or push approval that
+  still holds, the crew agents still running, the measured context fill and the session's cost. The installers set it
+  only where no status line is set, in the project or in your own settings, and `/crew-doctor` says which one is in
+  use.
 
 ### Changed
 

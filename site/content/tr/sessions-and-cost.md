@@ -23,3 +23,15 @@ Maliyeti kendine ait. Her çağrı bütün konuşmayı advisor modelinin fiyatı
 Kartı izlemez. Danışacağı modelin altında kalan bir advisor hiç eklenmez; yani Sonnet advisor varken Opus'taki bir ajan (kritik iş) tavsiye almaz. Advisor `model-outcomes.tsv`'de yer almaz.
 
 `/advisor off` ile, kalıcı olarak da `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` ile kapatılır. Anthropic API ister; Amazon Bedrock, Google Cloud Agent Platform ya da Microsoft Foundry'de yoktur.
+
+## Durum satırı
+
+İstemin altındaki tek satır, Crewforth'un hook'larının bu oturum hakkında bildiklerini söyler:
+
+```
+🛡 BLOCK §4.2 · ✓ commit approved 24m · ⚙ 2 crew agents · 🔋 34% · ~$1.20
+```
+
+Kapının bu oturumdaki son sözü, bir commit ya da push için verdiğin ve hâlâ geçerli olan onay, bu oturumda başlayıp hâlâ koşan crew ajanları, Claude Code'un ölçtüğü bağlam doluluğu ve Claude Code'un oturum maliyeti tahmini. Her parça yalnız söyleyecek bir şey olduğunda görünür ve oturumdan öncesine ait hiçbir şey göstermez: kapı günlüğü zaman taşımaz, yoksa geçen haftanın bir satırı şimdiki gibi okunurdu.
+
+Kurulum onu yalnız projede ya da kendi ayarlarında hiç durum satırı yoksa ekler, çünkü projenin ayarı seninkini ezer. Kendi satırın varsa dokunmaz; `/crew-doctor` Crewforth'unkinin nasıl açılacağını söyler. Plugin edisyonu durum satırı ayarlayamaz.

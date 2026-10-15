@@ -273,6 +273,8 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "custom hooks and every other permission PRESERVED") s="özel hook'lar ve diğer tüm izinler KORUNDU" ;;
       "custom hooks/permissions PRESERVED") s="özel hook'lar ve izinler KORUNDU" ;;
       "settings.json: was missing in the project -> Crewforth's was installed") s="settings.json: projede yoktu -> Crewforth'unki kuruldu" ;;
+      "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost).") s="Durum satırı: Crewforth'unki (kapının son sözü, geçerli onay, crew ajanları, doluluk, maliyet)." ;;
+      "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor).") s="Durum satırı: seninki korundu; Crewforth'unki tek komutla açılır (/crew-doctor'a bak)." ;;
       "settings.json: hook-aware MERGE (Crewforth hooks refreshed - %s)") s="settings.json: hook'ları gözeten BİRLEŞTİRME (Crewforth hook'ları yenilendi - %s)" ;;
       "settings.json: %s") s='settings.json: %s' ;;
       "merge failed -> project setting PRESERVED (not overwritten)") s='birleştirme başarısız -> proje ayarı KORUNDU (üzerine yazılmadı)' ;;
@@ -1672,6 +1674,15 @@ RET_GONE=""; _IFS="$IFS"; IFS='|'; for _r in $RET_HIT; do
 if [ -n "$SET_NOTE" ]; then HAND_SET="NOT merged — ${SET_NOTE%.}"
 elif [ "$SET_FRESH" = 1 ]; then HAND_SET="Crewforth's settings.json installed (the project had none, so nothing was merged)"
 else HAND_SET="hook-aware merge (Crewforth hooks REFRESHED to current — new events + timeouts land; your own custom hooks/permissions PRESERVED${RET_GONE:+, except the retired §4.4 ask rule(s) REMOVED: $RET_GONE — guard-bash.sh asks for these itself})"; fi
+
+# The status line, only where none is set (a user's own would lose to the project's setting, so it is never
+# replaced). eval/lib/statusline.sh --install decides and writes; this only says what it did.
+if [ -f .claude/eval/lib/statusline.sh ]; then
+  case "$(bash .claude/eval/lib/statusline.sh --install 2>/dev/null)" in
+    installed) say "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost)." ;;
+    kept) say "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor)." ;;
+  esac
+fi
 
 # ============ [STAGE 4] GIT-HOOK ARMING (SHIM) + PROOF ============
 h1m 'Stage 4 — arm the git gates (SHIM via husky) + PROOF'

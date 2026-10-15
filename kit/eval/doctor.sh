@@ -104,6 +104,9 @@ _mt() {
       'the %s plugin is enabled and this project has Crewforth installed in .claude/ — every hook runs twice; turn one off (claude plugin disable %s, or remove the install)') s="%s plugin'i etkin ve bu projede Crewforth .claude/ altında da kurulu — her hook iki kez koşuyor; birini kapatın (claude plugin disable %s ya da kurulumu kaldırın)" ;;
       'one edition: the Crewforth plugin is not enabled beside this install') s="tek edisyon: Crewforth plugin'i bu kurulumun yanında etkin değil" ;;
       'advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)') s='advisor: kapalı (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)' ;;
+      "status line: Crewforth's (from %s)") s="durum satırı: Crewforth'unki (%s içinden)" ;;
+      "status line: your own (from %s); Crewforth's is not used") s="durum satırı: seninki (%s içinden); Crewforth'unki kullanılmıyor" ;;
+      "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)") s="durum satırı: yok; Crewforth'unki: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
       "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
       'advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off') s="advisorModel %s (%s içinde), ama CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 advisor'ı kapatıyor" ;;
       'advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used') s="advisorModel %s (%s içinde), ama %s ayarlı ve advisor Anthropic API ister — kullanılmıyor" ;;
@@ -755,6 +758,19 @@ else
     warn "the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one" "$_adv" ;;
   esac
 fi
+# 9d) The status line. Advisory, never a failure. The installers set Crewforth's only where none is set; a line of
+#     the user's own is never replaced (the project's setting would win over it). A managed layer is not read.
+_slj="${SJ:-.claude/eval/lib/settings-json.awk}"; _sl=""; _slf=""
+for _f in .claude/settings.json .claude/settings.local.json "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
+  [ -f "$_f" ] && [ -f "$_slj" ] || continue
+  _v="$(awk -v op=get -v path=statusLine.command -f "$_slj" "$_f" 2>/dev/null)" || _v=""
+  [ -n "$_v" ] && { _sl="$_v"; _slf="$_f"; break; }
+done
+case "$_sl" in
+  *eval/lib/statusline.sh*) ok "status line: Crewforth's (from %s)" "${_slf/#$HOME/~}" ;;
+  ?*) ok "status line: your own (from %s); Crewforth's is not used" "${_slf/#$HOME/~}" ;;
+  *) [ -f .claude/eval/lib/statusline.sh ] && ok "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
+esac
 
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has
