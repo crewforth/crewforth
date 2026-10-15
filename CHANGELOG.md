@@ -118,7 +118,9 @@ versioning follows [SemVer](https://semver.org/).
   well over a 20% false-positive rate, and one scan refused its own document. Read now: a route with an empty path,
   a decorator whose path is on the next line, `api.get<T>(` and a call split over lines, a client made in one file
   and called in another (it had read as a server), an import ending in a comment, twelve more import names, and a
-  string in a test that looks like an import. A call with a run-time host is matched but never reported missing.
+  string in a test that looks like an import. A call with a run-time host is matched but never reported missing. A
+  route a healthcheck or a Kubernetes probe calls has a caller, and a package that works without an import (a
+  server started from the command line, a database driver named in a URL, a pytest plugin) is not unused.
   Source in a language the scanner has no reader for, and routes registered with a variable path, are listed in
   `notMeasured` instead of being silently absent. On the Python project the proven `endpoint-missing` went from 2
   real out of 10 to 4 out of 4.
