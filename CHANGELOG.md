@@ -114,6 +114,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **An rc says it is one, and its final is offered.** A release candidate installed `.claude/VERSION` as the final's
+  number (3.2.0 for 3.2.0-rc.1), so the update check, doctor and the refresh's "what's new" all read it as the final,
+  and someone who tried the rc was never told the final shipped. The rc's archive and npm package now carry its own
+  version, and one definition (`eval/lib/version.sh`) orders an rc before its final. A version off the network is
+  still held to X.Y.Z.
+- **`adopt.sh --help` prints its usage.** It ran the project detection instead; the usage now comes in English and
+  Turkish, before anything is read.
 - **The crew map reads what two real projects showed it missing.** Scanned before release, they put three rules
   well over a 20% false-positive rate, and one scan refused its own document. Read now: a route with an empty path,
   a decorator whose path is on the next line, `api.get<T>(` and a call split over lines, a client made in one file
