@@ -35,6 +35,7 @@ const seen = JSON.parse(await ev(`JSON.stringify({
   rows: document.querySelectorAll('#models tbody tr').length,
   suggestion: document.querySelector('#models .mv-suggest button')?.textContent ?? null,
   tags: [...new Set([...document.querySelectorAll('#models .mv-tag[data-kind]')].map((t) => t.dataset.kind))].sort().join(','),
+  above: document.querySelectorAll('#models .mv-above').length,
   priced: [...document.querySelectorAll('#models td.mv-num')].some((c) => /\\$/.test(c.textContent)),
   card: [...document.querySelectorAll('#inspector .isec')].some((x) => /Task card/i.test(x.children[0]?.textContent ?? '')),
   steps: document.querySelectorAll('#inspector .isteps li').length,
@@ -42,7 +43,8 @@ const seen = JSON.parse(await ev(`JSON.stringify({
 })`));
 if (seen.rows < 4) die(`the Models view has ${seen.rows} classes; the fixture's record was not read`);
 if (seen.suggestion !== 'Copy command') die('the suggestion and its Copy command button are not on the page');
-if (seen.tags !== 'lowered,raised') die(`expected one raised and one lowered class, saw "${seen.tags}"`);
+if (seen.tags !== 'advisor,lowered,raised') die(`expected a raised, a lowered and an advisor class, saw "${seen.tags}"`);
+if (seen.above !== 1) die(`expected the work above the table under it, saw ${seen.above} box(es)`);
 if (!seen.priced) die('no class has a cost: what the classes cost was not read');
 if (!seen.card || seen.steps < 2) die(`the inspector shows no task card with its steps (card ${seen.card}, steps ${seen.steps})`);
 if (seen.errs.length) die(`the page reported errors: ${JSON.stringify(seen.errs)}`);
