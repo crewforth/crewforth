@@ -22,7 +22,10 @@
       "beautifulsoup4": "bs4", "pillow": "PIL", "pyyaml": "yaml", "psycopg2-binary": "psycopg2", "python-dotenv": "dotenv",
       "scikit-learn": "sklearn", "opencv-python": "cv2", "pyjwt": "jwt", "python-dateutil": "dateutil", "mysqlclient": "MySQLdb",
       "kafka-python": "kafka", "confluent-kafka": "confluent_kafka", "google-cloud-storage": "google", "azure-storage-blob": "azure",
-      "attrs": "attr", "protobuf": "google", "msgpack-python": "msgpack", "typing-extensions": "typing_extensions"
+      "attrs": "attr", "protobuf": "google", "msgpack-python": "msgpack", "typing-extensions": "typing_extensions",
+      "pymupdf": "fitz", "faiss-cpu": "faiss", "faiss-gpu": "faiss", "ffmpeg-python": "ffmpeg", "openai-whisper": "whisper",
+      "python-magic": "magic", "python-docx": "docx", "python-pptx": "pptx", "python-json-logger": "pythonjsonlogger",
+      "pdfminer.six": "pdfminer", "markdown-it-py": "markdown_it", "odfpy": "odf", "lingua-language-detector": "lingua"
     }
   }
 }

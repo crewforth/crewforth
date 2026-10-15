@@ -98,6 +98,15 @@ function nodeStack(pj, out) {
   const mods = out.modules.filter((m) => m.stack === 'node');
   own(out.modules, pj.files, 'node');
   const byName = new Map(mods.map((m) => [m.name, m]));
+  // Is position `at` of a line inside a string literal? `'import x from "a"'` in a test is text, not an import.
+  const inString = (l, at) => {
+    let q = null;
+    for (let k = 0; k < at; k++) {
+      const ch = l[k];
+      if (q) { if (ch === '\\') k += 1; else if (ch === q) q = null; } else if (ch === '"' || ch === "'" || ch === '`') q = ch;
+    }
+    return q !== null;
+  };
   const IMP = [/\bfrom\s+(['"])([^'"]+)\1/g, /^\s*import\s+(['"])([^'"]+)\1/g, /\brequire\(\s*(['"])([^'"]+)\1\s*\)/g, /\bimport\(\s*(['"])([^'"]+)\1\s*\)/g];
   for (const m of mods) {
     for (const d of m.deps) {
@@ -111,6 +120,7 @@ function nodeStack(pj, out) {
         for (const re of IMP) {
           re.lastIndex = 0;
           for (const x of l.matchAll(re)) {
+            if (inString(l, x.index)) continue;
             const spec = x[2];
             if (spec.startsWith('.') || spec.startsWith('/')) {
               const target = P.normalize(P.join(dirOf(f), spec));
@@ -205,7 +215,7 @@ function pythonStack(pj, out) {
       const src = pj.read(f); if (!src) continue;
       src.lines.forEach((l, i) => {
         if (/^\s*__name__\s*==|if\s+__name__\s*==\s*['"]__main__['"]/.test(l) && !m.entry) { m.entry = true; m.entryEv = ev(f, i + 1, '__main__'); }
-        const a = /^\s*import\s+([\w.]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+(?:\s+as\s+\w+)?)*)\s*$/.exec(l);
+        const a = /^\s*import\s+([\w.]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+(?:\s+as\s+\w+)?)*)\s*(?:#.*)?$/.exec(l);
         if (a) for (const part of a[1].split(',')) { const spec = part.trim().split(/\s+/)[0]; m.imports.push({ spec, root: spec.split('.')[0], ev: ev(f, i + 1, spec), file: f }); }
         const b2 = /^\s*from\s+([\w][\w.]*)\s+import\b/.exec(l);
         if (b2) m.imports.push({ spec: b2[1], root: b2[1].split('.')[0], ev: ev(f, i + 1, b2[1]), file: f });

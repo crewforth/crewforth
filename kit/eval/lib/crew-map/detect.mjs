@@ -200,6 +200,8 @@ export function detect(ctx) {
       for (const c of cons) {
         if (prov.some((p) => epMatch(p, c))) continue;
         if (!firsts.has(c.path.split('/')[1]) || under(c)) continue;
+        // Its host is a run-time value: the call may well be to another service (a model server's /api/tags).
+        if (c.base) continue;
         out.push(finding('endpoint-missing', `${c.module} ${c.method} ${c.path}`, `${c.method} ${c.path} is called but no endpoint in this repo provides it`, c.evidence, { method: c.method, path: c.path, module: c.module }));
       }
     } else if (eps.consumes.length) {
