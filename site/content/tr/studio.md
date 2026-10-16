@@ -124,6 +124,8 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 
 **Kip, konuşmanın üstündeki şeritte duruyor ve bir kontrol.** `mode: plan` aynı üç kipin menüsünü açıyor; şimdiki işaretli. Etiket siz tıkladığınızda değil, Claude Code yeni kipi kendisi bildirdiğinde değişiyor; kapıları atlayan bir kipi sunucu, kim isterse istesin, reddediyor.
 
+**Açık konuşmaların hepsi tek bağlantıyı paylaşıyor.** Bir tarayıcı aynı sunucuya altı bağlantı açabiliyor; konuşma başına bir akış, beş açık konuşmada mesaj göndermeyi ve yüklemeyi durduruyordu. Kaç konuşma açık olursa olsun panel iki bağlantı kullanıyor: sayfanın kendi bağlantısı ve konuşmalarınki.
+
 ## Dar pencere
 
 640 px'in altında panel tek sütun. Gezgin bir çekmeceye dönüşüyor, inspector ve konuşma sahnenin tamamını alıp dock'un üstünde bitiyor ve panel List ile açılıyor; orada bir isteğin üç cevabı alt alta duruyor. Graph ve Timeline yine açılıyor ve `Best on a wider screen` diyor. Telefon boyutundaki bir pencerenin aldığı düzen bu. Dar bir masaüstü tarayıcı penceresinde denendi, telefonda ölçülmedi; panel yine yalnızca `127.0.0.1`'i dinliyor.
@@ -164,4 +166,4 @@ Neyin denendiği ve neyin denenmediği: retler, panelin kendi test süitinde ça
 
 Üç kanal da paneli taşıyor. Tek bir komut dosyası iki edisyona birden hizmet ediyor: Claude Code plugin'in kendi kurulum yolunu o metnin içine yazıyor, dolayısıyla panel gerçekte neredeyse orada bulunuyor. Davranış iki edisyonda aynı; tek dürüst boşluk şu: panelin telemetrisi açıldığı projeyi okuyor ve plugin kurulumu projeye Crewforth dosyası koymuyor. O yüzden Gates ve Stats sekmeleri ile pano yanıltıcı bir sıfır yerine "ölçülmedi" diyor, sebebiyle birlikte. Gates sekmesi yine de plugin'in kapılarının o projenin `.claude/gate-log.tsv` dosyasına kaydettiği kapı kararlarını listeliyor.
 
-Panel `~/.claude/projects` dizinini okuyor; orada bu makinedeki **her** Claude Code oturumu duruyor. Proje kökünden başlatmak yalnızca hangi projeyle açılacağını belirliyor.
+Panel `~/.claude/projects` dizinini okuyor; orada bu makinedeki **her** Claude Code oturumu duruyor. Claude Code'un yapılandırması `CLAUDE_CONFIG_DIR` ile başka yere taşındıysa oradaki `projects`'i okuyor. Proje kökünden başlatmak yalnızca hangi projeyle açılacağını belirliyor.

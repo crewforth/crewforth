@@ -124,6 +124,8 @@ Allow is an answer to Claude Code. It does not go around anything:
 
 **The mode is in the strip above the conversation, and it is a control.** `mode: plan` opens a menu of the same three, with the current one marked. The label changes when Claude Code itself reports the new mode, not when you click; a mode that skips the gates is refused by the server, whoever asks.
 
+**Every open conversation shares one connection.** A browser holds six connections to one host, so a stream per conversation stalled sending and loading at five open conversations. However many are open, the panel uses two: the page's own and the conversations'.
+
 ## A narrow window
 
 Below 640 px the panel is one column. The navigator becomes a drawer, the inspector and the conversation each take the whole stage and stop above the dock, and the panel opens on the List, where a request's three answers sit one under the other. The Graph and the Timeline still open, and say `Best on a wider screen`. This is the layout a phone-sized window gets. It was checked in a narrow desktop browser window and is not measured on a phone, and the panel still listens on `127.0.0.1` only.
@@ -164,4 +166,4 @@ What was checked and what was not: the refusals are asserted against a running s
 
 All three channels carry it. One command file serves both editions: Claude Code substitutes the plugin's own install path into it, so the panel is found wherever it actually is. The panel behaves identically in both, with one honest gap — its telemetry reads the project you opened it from, and a plugin install puts no Crewforth files into a project, so the Gates and Stats tabs and the board report "not measured" with the reason rather than a misleading zero. The Gates tab still lists the gate decisions the plugin's guards logged to that project's `.claude/gate-log.tsv`.
 
-It reads `~/.claude/projects`, which holds **every** Claude Code session on the machine. Starting it from a project root only decides which project it opens on.
+It reads `~/.claude/projects`, which holds **every** Claude Code session on the machine, or `projects` under `CLAUDE_CONFIG_DIR` when Claude Code's configuration is moved there. Starting it from a project root only decides which project it opens on.

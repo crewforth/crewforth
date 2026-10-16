@@ -21,6 +21,7 @@ import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentM
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
+import { streamOwned } from './lib/owned-stream.js';
 import { readModels, readRecord, readCosts, readAboveCosts } from './lib/model-outcomes.js';
 import { readMap, behindOf, compareMaps, mapSummary, MAP_FILE } from './lib/crew-map.js';
 
@@ -602,6 +603,10 @@ export async function handle(req, res) {
     if (out.ok) s.noteDecision(toolUseId, body.verdict);
     return sendJson(res, out.ok ? 200 : 400, out);
   }
+
+  // Every open conversation on ONE connection (lib/owned-stream.js). Reading, so it sits beside /events, not
+  // behind the write gate.
+  if (url.pathname === '/api/owned-events') return streamOwned(req, res, url, { getSession, stateAfter: STATE_AFTER });
 
   const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events|mode))?$/);
   if (ownedMatch) {
