@@ -131,7 +131,7 @@ step_studio(){
 }
 
 # The findings core (kit/eval/lib/findings): the document shape and the validator that holds each finding to the
-# lines it cites. A NODE gate like the panel's, with the same rule for a machine without one: SKIPPED, never a
+# lines it cites, and the review pre-pass that writes into it (kit/eval/lib/review-prepass). A NODE gate like the panel's, with the same rule for a machine without one: SKIPPED, never a
 # quiet pass. It ships in eval/lib, the one directory both editions carry, so the plugin copy is asserted to be
 # the payload's bytes for the same reason the panel's is.
 step_findings(){
@@ -139,9 +139,13 @@ step_findings(){
   command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
   node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
   node packaging/findings-test/selfcheck.mjs || return 1
-  diff -r kit/eval/lib/findings plugin/eval/lib/findings >/dev/null 2>&1 || {
-    echo "plugin/eval/lib/findings is missing or has drifted from kit/eval/lib/findings — run packaging/build-plugin.sh and commit the result"
-    diff -rq kit/eval/lib/findings plugin/eval/lib/findings 2>&1 | head -10; return 1; }
+  node packaging/review-prepass-test/selfcheck.mjs || return 1
+  local d
+  for d in findings review-prepass; do
+    diff -r "kit/eval/lib/$d" "plugin/eval/lib/$d" >/dev/null 2>&1 || {
+      echo "plugin/eval/lib/$d is missing or has drifted from kit/eval/lib/$d — run packaging/build-plugin.sh and commit the result"
+      diff -rq "kit/eval/lib/$d" "plugin/eval/lib/$d" 2>&1 | head -10; return 1; }
+  done
 }
 
 # Crew Map's scanner (kit/eval/lib/crew-map): planted defects in eight fixture projects found exactly, the same

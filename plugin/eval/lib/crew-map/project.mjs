@@ -130,14 +130,15 @@ export function risky(text, patterns) {
 // A host is the only part of a connection string or URL the map keeps. Credentials are cut off first; then a host
 // that looks like a secret by Crewforth's own scanner patterns is replaced. Without those patterns every host is
 // replaced: a map with fewer names is a smaller loss than one that published a token.
-export function loadSecretPatterns(fromDir) {
+// skip: pattern lines left out, as written (a project's .secret-allowlist.txt names the exact line it allows).
+export function loadSecretPatterns(fromDir, skip = new Set()) {
   for (const rel of ['../../../hooks/secret-blocklist.txt', '../../../../hooks/secret-blocklist.txt']) {
     const f = path.join(fromDir, rel);
     let text; try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
     const out = [];
     for (const raw of text.split('\n')) {
       const l = raw.replace(/\r$/, '');
-      if (!l || l.startsWith('#')) continue;
+      if (!l || l.startsWith('#') || skip.has(l)) continue;
       const js = l.replace(/\[\[:alnum:\]\]/g, '[A-Za-z0-9]').replace(/\[:alnum:\]/g, 'A-Za-z0-9')
         .replace(/\[:space:\]/g, '\\s').replace(/\[:alpha:\]/g, 'A-Za-z').replace(/\[:digit:\]/g, '0-9');
       try { out.push(new RegExp(js)); } catch { /* a pattern JS cannot read is skipped; the rest still apply */ }

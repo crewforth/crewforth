@@ -39,3 +39,17 @@ bash .claude/eval/lib/findings/findings.sh write --verified NAME FILE # and ever
 ```
 
 With `--verified`, a `medium` finding needs one verifier and a `high` or `critical` one needs three, each a separate `crew-refuter` agent on its own lens. A refuter gets the finding and the cited lines, not the reasoning that produced them, and tries to prove it wrong. Its verdict counts only if it is a line of `.claude/state/crew-refuter.tsv`, which `refuter-ledger.sh` writes from the agent's own task and answer when it stops. A document cannot name a verifier that did not run, and only a confirmed finding keeps its severity. What no check proves is that the cited lines support the claim: that stays a judgement.
+
+## The review pre-pass
+
+Before the review agent reads a change, a deterministic pass reads the lines it adds and writes what it finds as findings, in the same shape:
+
+```bash
+bash .claude/eval/lib/review-prepass/prepass.sh                  # the staged change → .crewforth/review-prepass.json
+bash .claude/eval/lib/review-prepass/prepass.sh --base origin/main  # a branch against its base
+bash .claude/eval/lib/review-prepass/prepass.sh --stdout         # print it, write nothing
+```
+
+It checks, by file: a pattern of the pre-commit gate's secret list (cited by its hash, never quoted; `.secret-allowlist.txt` applies), a console call or debugger left in JavaScript or TypeScript, a breakpoint in Python, `print(` in Dart (not in tests, not in a command-line script), a TODO, FIXME, XXX or HACK opening a comment added in code (not in tests; the word in a string or a pattern is not a marker), shellcheck's findings on a shell file's added lines, a lock file that changed while its manifest did not, and one file gaining more than 500 lines. A file edited again after it was staged, a binary file, and shell files on a machine without shellcheck are listed as not measured; nothing is installed, and without Node it exits 3, which is not a pass.
+
+The review agent starts from that file and writes its own findings beside it, to `.crewforth/review.json`; a `critical` or `high` one goes through `crew-refuter` first and the document is written with `--verified`. Running the pass and reading it is the review skill's discipline: no hook runs it.

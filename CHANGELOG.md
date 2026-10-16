@@ -9,6 +9,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **The review starts from a deterministic pre-pass.** `eval/lib/review-prepass/prepass.sh` reads the lines a
+  change adds (staged, or `--base <ref>` for a branch) and writes `.crewforth/review-prepass.json` in the findings
+  shape: a secret pattern (cited by hash), a debug call or a TODO comment left in code, shellcheck on shell files, a lock
+  file that moved without its manifest, a very large change. The review agent carries those over and writes its
+  own findings to `.crewforth/review.json`, blockers through the refuter. What it could not check (no shellcheck,
+  a file edited after staging, no Node) is said, never read as clean.
+
 - **In `auto`, approve a commit or a push with one click.** The refusal now also offers a fixed question, asked with
   AskUserQuestion: Commit only, Commit + push, Push only, No. A new gate, `guard-question.sh`, answers `ask` on it,
   so a hook that fills in the answer cannot answer it for you (measured in 34 runs and by hand in the terminal), and

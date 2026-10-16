@@ -30,6 +30,8 @@ Read-only; the trigger for the `crew-code-review` skill.
 Before a work package closes (pre-commit), on the changed diff.
 
 ## How (applies the `crew-code-review` skill)
+- First the deterministic pre-pass (`eval/lib/review-prepass/prepass.sh`), carried over as it is; your own findings
+  go to `.crewforth/review.json` in the same findings shape, blockers through crew-refuter (skill §0).
 - Simplicity: flag when 200 lines could be 50.
 - Surgical: catch out-of-scope touches.
 - Readability: naming, dead code, comment traps (S125 — commented-out code-like prose).

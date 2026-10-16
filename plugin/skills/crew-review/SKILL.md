@@ -16,7 +16,8 @@ Run the change set through the review trio (read-only). **The audits go out in p
    - @agent-crew-privacy-agent (`privacy-compliance`) — **when the diff touches personal data**: legal basis,
      minimisation, retention, transfer.
 2. (if SonarQube is in use) **sonarqube-check** — 0/0/0/0 gate (language-agnostic).
-3. **Last, once 1-2 leave no blocker:** @agent-crew-review-agent (crew-code-review) — "does it improve overall
+3. **Last, once 1-2 leave no blocker:** @agent-crew-review-agent (crew-code-review) — it starts from the
+   deterministic pre-pass (`.crewforth/review-prepass.json`) and writes `.crewforth/review.json`; "does it improve overall
    code health": the plan (what changed, the risks), then findings with a severity and a category. "Clean" means
    what crew-code-review means by it: **no critical or high finding open**. A medium or low audit finding does not
    hold the reviewer back; hand it over in the reviewer's prompt and keep it in the report. A critical or high one
