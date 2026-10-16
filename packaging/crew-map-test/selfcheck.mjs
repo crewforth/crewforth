@@ -90,6 +90,11 @@ for (const name of fixtures) {
     const got = doc.nodes.find((x) => x.id === id)?.structure;
     check(`${name}: ${id} is laid out as ${want.folders.map((r) => `${r.folder} ${r.files}`).join(', ')}`, JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
   }
+  // What a module says about itself: the first line of prose in its README, past headings, badges, images and code.
+  for (const [id, want] of Object.entries(exp.aboutLine ?? {})) {
+    const e = doc.nodes.find((x) => x.id === id)?.about?.evidence?.[0];
+    check(`${name}: ${id} says what it is at ${want}`, e && `${e.file}:${e.line}` === want, JSON.stringify(e));
+  }
   // What each module is built with: the exact labels, so a lost label and a stray one both show.
   for (const [id, want] of Object.entries(exp.tech ?? {})) {
     const got = [...(doc.nodes.find((x) => x.id === id)?.tech ?? [])].sort();
@@ -304,12 +309,56 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   check('a map with descriptions is up to date for --check, and a scan again keeps a description whose lines it still cites',
     checked === 0 && kept.status === 0 && after.nodes.find((x) => x.id === mod.id).narrative?.text === 'Serves the HTTP API.' && /1 description\(s\) kept, 0 dropped/.test(kept.stderr),
     `check ${checked}; ${kept.stderr.trim().split('\n').pop()}`);
+  // CM2: a module's layer and domain, and the tour. Each rests on lines the scan read, and is refused otherwise.
+  const other = doc.nodes.find((x) => x.id !== mod.id && (x.evidence ?? []).length);
+  const ocite = `${other.evidence[0].file}:${other.evidence[0].line}`;
+  const ext = doc.nodes.find((x) => x.kind !== 'module' && (x.evidence ?? []).length);
+  const xcite = `${ext.evidence[0].file}:${ext.evidence[0].line}`;
+  const stop = (id, c) => ({ node: id, text: 'Start here.', cites: [c] });
+  const rc2 = {
+    layered: put((d, m) => { m.narrative = { text: 'Serves the HTTP API.', cites: [cite], layer: 'api', domain: 'orders and payments' }; }),
+    badLayer: put((d, m) => { m.narrative = { text: 'Serves the HTTP API.', cites: [cite], layer: 'backend' }; }),
+    sentenceDomain: put((d, m) => { m.narrative = { text: 'Serves the HTTP API.', cites: [cite], domain: 'It handles orders.' }; }),
+    tour: put((d) => { d.tour = [stop(mod.id, cite), stop(other.id, ocite)]; }),
+    tourUnknown: put((d) => { d.tour = [stop('mod:node:nope', cite)]; }),
+    tourElsewhere: put((d) => { d.tour = [stop(mod.id, ocite)]; }),
+    tourTwice: put((d) => { d.tour = [stop(mod.id, cite), stop(mod.id, cite)]; }),
+    tourLong: put((d) => { d.tour = Array.from({ length: 9 }, () => stop(mod.id, cite)); }),
+    tourEmpty: put((d) => { d.tour = []; }),
+    externalLayer: put((d) => { const x = d.nodes.find((n) => n.id === ext.id); x.narrative = { text: 'A dependency.', cites: [xcite], layer: 'data' }; }),
+  };
+  check('/crew-map --validate (CM2): a layer from the list and a short domain hold; a layer not on it, a domain written as a sentence, or a layer on a node that is not a module do not',
+    rc2.layered === 0 && rc2.badLayer === 1 && rc2.sentenceDomain === 1 && rc2.externalLayer === 1, JSON.stringify(rc2));
+  check('/crew-map --validate (CM2): a tour of nodes citing their own lines holds; a stop at no node, citing another node\'s line, a node twice, nine stops or none does not',
+    rc2.tour === 0 && rc2.tourUnknown === 1 && rc2.tourElsewhere === 1 && rc2.tourTwice === 1 && rc2.tourLong === 1 && rc2.tourEmpty === 1, JSON.stringify(rc2));
+  put((d) => { d.tour = [stop('mod:node:nope', cite)]; });
+  const why = cli('--validate');
+  check('a stop at no node is refused for that reason, not only because its cite fails', /is not a node of this map/.test(why.stdout + why.stderr), (why.stdout + why.stderr).trim().split('\n').slice(-2).join(' | '));
+  put((d, m) => { m.narrative = { text: 'Serves the HTTP API.', cites: [cite], layer: 'api' }; d.tour = [stop(mod.id, cite)]; });
+  const kept2 = cli();
+  const after2 = JSON.parse(fs.readFileSync(file, 'utf8'));
+  check('a scan again keeps the layer and the tour while their lines still hold', kept2.status === 0 && after2.nodes.find((x) => x.id === mod.id).narrative?.layer === 'api' && after2.tour?.length === 1, kept2.stderr.trim().split('\n').pop());
+  check('a fresh scan writes tour: null beside overview: null', JSON.parse(base).tour === null && JSON.parse(base).overview === null);
   const f = path.join(root, mod.evidence[0].file);
   fs.writeFileSync(f, `\n${fs.readFileSync(f, 'utf8')}`);
   const moved = cli();
   const gone = JSON.parse(fs.readFileSync(file, 'utf8')).nodes.find((x) => x.id === mod.id).narrative;
-  check('a description whose cited line moved is dropped by the next scan, and said', gone === null && /0 description\(s\) kept, 1 dropped/.test(moved.stderr),
+  check('a description whose cited line moved is dropped by the next scan, and said (the tour on it too)', gone === null && JSON.parse(fs.readFileSync(file, 'utf8')).tour === null && /0 description\(s\) kept, 2 dropped/.test(moved.stderr),
     moved.stderr.trim().split('\n').pop());
+}
+
+/* -- 8c. a description may rest on what a module's README says about it ------------------------------------------ */
+{
+  const root = copy('flutter-app');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli();
+  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const app = d.nodes.find((x) => x.id === 'mod:dart:shop_app');
+  app.narrative = { text: 'The shop mobile app.', cites: ['app/README.md:10'], layer: 'ui' };
+  fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`);
+  const v = cli('--validate');
+  check('a description citing the README line the scan read for the module holds', v.status === 0, (v.stdout + v.stderr).trim().split('\n').pop());
 }
 
 /* -- 9. the rules files ---------------------------------------------------------------------------------------- */

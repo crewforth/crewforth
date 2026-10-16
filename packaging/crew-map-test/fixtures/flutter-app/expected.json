@@ -14,7 +14,8 @@
     "https://api.shopapp.dev/v1/prices in the package is the Worker's own address, not an external API, and its GET /v1/prices is provided",
     "wrangler and typescript are command-line tools, not imports",
     "packages/ui names the host only in a comment, in a look-alike (xapi.…), as the start of a longer host and in its test: it calls nothing",
-    "tools/report is referenced by nothing, and is not an orphan: tool/report.dart has a main() and is run with dart run"
+    "tools/report is referenced by nothing, and is not an orphan: tool/report.dart has a main() and is run with dart run",
+    "app/README.md opens with a heading, a badge, an image and a code block: the line it says what the app is with is the first prose line, line 10"
   ],
   "nodes": [
     "mod:dart:core",
@@ -109,5 +110,8 @@
       ],
       "testFiles": 0
     }
+  },
+  "aboutLine": {
+    "mod:dart:shop_app": "app/README.md:10"
   }
 }
