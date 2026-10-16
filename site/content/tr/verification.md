@@ -53,3 +53,16 @@ bash .claude/eval/lib/review-prepass/prepass.sh --stdout         # bas, hiçbir 
 Dosyaya göre şunlara bakar: pre-commit kapısının gizli anahtar listesindeki bir desen (hash'iyle gösterilir, asla alıntılanmaz; `.secret-allowlist.txt` geçerlidir), JavaScript ya da TypeScript'te bırakılmış bir console çağrısı ya da debugger, Python'da bir breakpoint, Dart'ta `print(` (testlerde ve komut satırı betiklerinde değil), kodda eklenmiş bir yorumu açan TODO, FIXME, XXX ya da HACK (testlerde değil; bir dizedeki ya da desendeki sözcük işaret değildir), bir kabuk dosyasının eklenen satırlarındaki shellcheck bulguları, manifesti değişmeden değişen bir kilit dosyası ve tek dosyaya 500'den fazla satır eklenmesi. Staged olduktan sonra yeniden düzenlenmiş bir dosya, ikili bir dosya ve shellcheck olmayan makinedeki kabuk dosyaları ölçülmedi diye listelenir; hiçbir şey kurulmaz, Node yoksa 3 ile çıkar ve bu bir geçiş değildir.
 
 Review ajanı bu dosyadan başlar ve kendi bulgularını yanına, `.crewforth/review.json`'a yazar; `critical` ya da `high` bir bulgu önce `crew-refuter`'dan geçer ve belge `--verified` ile yazılır. Geçişi koşturmak ve okumak review skill'inin disiplinidir: onu hiçbir hook koşturmaz.
+
+## Review ne kadar isabetli
+
+`review-bench`, review'u etiketli vakalarda koşturur ve sayar: kaç kusuru bulduğunu (recall), bulgularının kaçının bir kusurla ilgili olduğunu (precision) ve her yanlış alarmı adıyla.
+
+```bash
+bash .claude/eval/review-bench.sh --cases DIR                    # yalnız ön geçiş: model yok, maliyet yok
+bash .claude/eval/review-bench.sh --cases DIR --arm agent --max-cost 5   # review ajanı; token harcar
+```
+
+Bir vaka bir dizindir: değişikliğin ne yaptığını söylediği, önceki ve sonraki dosyalar ve kusurun yeri. Crewforth'un kendi seti 27 vaka: geçmişinden bir düzeltme geri alınarak kurulmuş 16 kusur (düzeltmenin kendi açıklama yorumları çıkarılır, yani kusur koddan bulunmak zorundadır), sonradan hiçbir şeyin düzeltmek zorunda kalmadığı 6 değişiklik ve bir desenin görebileceği 5 yazılmış vaka; 8'i holdout. Ön geçişin bu vakalardaki tabanı bir CI kapısıdır: her desen vakası bulunur, yanlış alarm olmaz.
+
+2026-10-16'da Sonnet ile, tek review geçişi, kullanıcının kendi ayarlarından yalıtılmış olarak ölçüldü: **20 kusurun 18'i bulundu** (holdout: 5'te 4) ve **49 bulgunun 34'ü kusurla ilgiliydi**; 27 vaka için 1,62 $. Eşleştirici konuma göre eşleştirir, bu yüzden 20'de 20 saydı: eşleşen iki bulgu doğru satırlara yorum yapıyordu ama kusuru adlandırmıyordu, ve elle kaçırılmış sayıldı. Yanlış alarmların çoğu temiz bir değişiklikte "bunu bir test kapsamıyor" idi. Her yanlış alarmıyla birlikte kayıt depoda `packaging/review-bench/results/2026-10-16-sonnet.json`.

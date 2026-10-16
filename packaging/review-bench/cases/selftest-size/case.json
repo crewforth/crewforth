@@ -1,0 +1,24 @@
+{
+  "id": "selftest-size",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "5c9880524 fix(studio): the selftest's refused map differs in size, not only in schema",
+  "intent": "Refuse a crew-map document with the wrong schema in the selftest.",
+  "strippedComments": 2,
+  "modes": {
+    "before": {
+      "kit/studio/server/index.js": "100755"
+    },
+    "after": {
+      "kit/studio/server/index.js": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "kit/studio/server/index.js",
+      "from": 922,
+      "to": 922
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "missing-hook",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": true,
+  "source": "e9baff027 fix(eval): a missing hook is \"nothing measured\", not a divergence",
+  "intent": "Compare the hook parsers across implementations.",
+  "strippedComments": 4,
+  "modes": {
+    "before": {
+      "claude-starter/eval/parser-conformance.sh": "100755"
+    },
+    "after": {
+      "claude-starter/eval/parser-conformance.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/eval/parser-conformance.sh",
+      "from": 38,
+      "to": 38
+    }
+  ]
+}

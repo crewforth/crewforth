@@ -1,0 +1,24 @@
+{
+  "id": "backslash-entry",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "876ed7ed5 fix(findings): resolve findings.mjs beside the entry when it is named with backslashes",
+  "intent": "Resolve findings.mjs relative to the shell entry.",
+  "strippedComments": 2,
+  "modes": {
+    "before": {
+      "kit/eval/lib/findings/findings.sh": "100755"
+    },
+    "after": {
+      "kit/eval/lib/findings/findings.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "kit/eval/lib/findings/findings.sh",
+      "from": 12,
+      "to": 12
+    }
+  ]
+}

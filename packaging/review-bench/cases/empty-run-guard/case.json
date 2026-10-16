@@ -1,0 +1,29 @@
+{
+  "id": "empty-run-guard",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "e51246d04 fix(studio): the empty-run guard counted skips as evidence",
+  "intent": "Count the evidence of a run before calling it empty.",
+  "strippedComments": 5,
+  "modes": {
+    "before": {
+      "claude-starter/studio/server/index.js": "100755"
+    },
+    "after": {
+      "claude-starter/studio/server/index.js": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/studio/server/index.js",
+      "from": 741,
+      "to": 743
+    },
+    {
+      "file": "claude-starter/studio/server/index.js",
+      "from": 746,
+      "to": 747
+    }
+  ]
+}

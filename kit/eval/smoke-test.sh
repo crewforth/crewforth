@@ -1674,8 +1674,8 @@ if [ "$IS_KIT" = 1 ]; then
   _ch4_t="$(printf '%s\n' "all fo""ur channels carry it" "Dö""rt kanal da taşıyor" "of fo""ur distribution channels" "three channels" "four channel types of RGB" | grep -ciE "$_ch4_re")"
   if [ "$_ch4_t" != 3 ]; then fail "channel-count check cannot tell its twins apart (caught $_ch4_t of the 3 planted, want 3 and none of the 2 clean)"
   elif git -C "$KR" rev-parse --git-dir >/dev/null 2>&1; then
-    _ch4_hits="$(git -C "$KR" grep -niIE "$_ch4_re" -- . ':!CHANGELOG.md' ':!site/src/content/docs/changelog.md' ':!site/src/content/docs/tr/changelog.md' 2>/dev/null)"
-    [ -z "$_ch4_hits" ] && pass "no tracked file gives the old channel count — three ship Crewforth (CHANGELOG exempt; twins 3/3 caught, 0/2 flagged)" \
+    _ch4_hits="$(git -C "$KR" grep -niIE "$_ch4_re" -- . ':!CHANGELOG.md' ':!site/src/content/docs/changelog.md' ':!site/src/content/docs/tr/changelog.md' ':!packaging/review-bench/cases' 2>/dev/null)"
+    [ -z "$_ch4_hits" ] && pass "no tracked file gives the old channel count — three ship Crewforth (CHANGELOG and the review bench's past-version cases exempt; twins 3/3 caught, 0/2 flagged)" \
       || fail "a tracked file still gives the old channel count (there are three): $(printf '%s\n' "$_ch4_hits" | head -3 | tr '\n' ' ')"
   else skip scope "channel-count check not run — not a git checkout of Crewforth's source"; fi
   # THE CLIENT SIDE IS STACK-NEUTRAL (3.0.1): the install summary, the help and the install page named the scope as
@@ -11268,7 +11268,7 @@ sec "== 14c) the 3.0 rename left no old name behind — outside history and the 
 if [ -n "$SGR" ] && [ -d "$SGR/packaging" ] && [ -f "$SGR/VERSION" ] && [ -d "$SGR/kit" ] && [ -f "$SGR/packaging/build-plugin.sh" ]; then
   RN_ALLOW='CHANGELOG.md	196	history: every entry before 3.0 keeps the name it shipped under
 README*.md site/content/*/install.md	4	migration: the 2.x plugin note names the plugin to uninstall — one line in each README and install page, EN + TR
-evals/results/*	6	history: recorded eval runs stay byte-for-byte
+evals/results/* packaging/review-bench/cases/* packaging/review-bench/results/*	684	history: recorded eval runs, and the review bench'"'"'s cases (past versions of Crewforth'"'"'s own files) and results, stay byte-for-byte
 adopt.sh kit/legacy-blobs.tsv	347	migration: finds and moves 2.x names (components, CLAUDE.md, board, auto-mode rules, variables), and the generated list of the 1.x/2.x files it may move
 bin/cli.js	4	migration: add accepts a typed <x>-csk and moves an add record written under the old names
 evals/run.sh	4	compat: reads the 2.x trusted eval parent when the 3.0 one is absent — removed in 4.0

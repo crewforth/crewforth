@@ -1,0 +1,44 @@
+{
+  "id": "cli-path-separator",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "1992c8e6e fix(cli): show project paths with / on every platform",
+  "intent": "Print project paths in the CLI summary.",
+  "strippedComments": 1,
+  "modes": {
+    "before": {
+      "bin/cli.js": "100755"
+    },
+    "after": {
+      "bin/cli.js": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "bin/cli.js",
+      "from": 156,
+      "to": 156
+    },
+    {
+      "file": "bin/cli.js",
+      "from": 165,
+      "to": 165
+    },
+    {
+      "file": "bin/cli.js",
+      "from": 177,
+      "to": 177
+    },
+    {
+      "file": "bin/cli.js",
+      "from": 257,
+      "to": 257
+    },
+    {
+      "file": "bin/cli.js",
+      "from": 271,
+      "to": 271
+    }
+  ]
+}

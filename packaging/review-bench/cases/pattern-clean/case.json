@@ -1,0 +1,17 @@
+{
+  "id": "pattern-clean",
+  "kind": "clean",
+  "stratum": "pattern",
+  "holdout": true,
+  "source": "synthetic",
+  "intent": "Report a failed orders lookup.",
+  "modes": {
+    "before": {
+      "src/orders.js": "100644"
+    },
+    "after": {
+      "src/orders.js": "100644"
+    }
+  },
+  "expect": []
+}

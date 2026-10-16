@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **How right the review is, in numbers.** `eval/review-bench.sh` runs the review on labelled cases and reports
+  recall, precision and every false alarm by name; the pre-pass arm costs nothing, the agent arm runs Claude Code
+  headless as the review agent under a per-case and a per-run dollar cap, isolated from the user's own settings.
+  Crewforth's 27 cases come from its own history (a fix undone, its explanation left out) and 8 are held out; the
+  pre-pass's floor on them is a CI gate. Measured with Sonnet: 18 of 20 defects found, 34 of 49 findings about the defect, $1.62.
+
 - **The review starts from a deterministic pre-pass.** `eval/lib/review-prepass/prepass.sh` reads the lines a
   change adds (staged, or `--base <ref>` for a branch) and writes `.crewforth/review-prepass.json` in the findings
   shape: a secret pattern (cited by hash), a debug call or a TODO comment left in code, shellcheck on shell files, a lock

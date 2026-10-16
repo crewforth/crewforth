@@ -1,0 +1,34 @@
+{
+  "id": "preflight-node",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": true,
+  "source": "c52607b98 fix(preflight): node was never checked, and a machine that cannot run the panel was told it was fine",
+  "intent": "Simplify the preflight report.",
+  "strippedComments": 10,
+  "modes": {
+    "before": {
+      "claude-starter/eval/preflight.sh": "100755"
+    },
+    "after": {
+      "claude-starter/eval/preflight.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/eval/preflight.sh",
+      "from": 41,
+      "to": 41
+    },
+    {
+      "file": "claude-starter/eval/preflight.sh",
+      "from": 73,
+      "to": 73
+    },
+    {
+      "file": "claude-starter/eval/preflight.sh",
+      "from": 86,
+      "to": 86
+    }
+  ]
+}

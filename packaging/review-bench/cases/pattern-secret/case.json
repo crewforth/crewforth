@@ -1,0 +1,23 @@
+{
+  "id": "pattern-secret",
+  "kind": "defect",
+  "stratum": "pattern",
+  "holdout": false,
+  "source": "synthetic",
+  "intent": "Configure the deploy client for the release job.",
+  "modes": {
+    "before": {
+      "src/deploy.ts": "100644"
+    },
+    "after": {
+      "src/deploy.ts": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "src/deploy.ts",
+      "from": 2,
+      "to": 2
+    }
+  ]
+}

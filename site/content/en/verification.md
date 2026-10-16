@@ -53,3 +53,16 @@ bash .claude/eval/lib/review-prepass/prepass.sh --stdout         # print it, wri
 It checks, by file: a pattern of the pre-commit gate's secret list (cited by its hash, never quoted; `.secret-allowlist.txt` applies), a console call or debugger left in JavaScript or TypeScript, a breakpoint in Python, `print(` in Dart (not in tests, not in a command-line script), a TODO, FIXME, XXX or HACK opening a comment added in code (not in tests; the word in a string or a pattern is not a marker), shellcheck's findings on a shell file's added lines, a lock file that changed while its manifest did not, and one file gaining more than 500 lines. A file edited again after it was staged, a binary file, and shell files on a machine without shellcheck are listed as not measured; nothing is installed, and without Node it exits 3, which is not a pass.
 
 The review agent starts from that file and writes its own findings beside it, to `.crewforth/review.json`; a `critical` or `high` one goes through `crew-refuter` first and the document is written with `--verified`. Running the pass and reading it is the review skill's discipline: no hook runs it.
+
+## How right the review is
+
+`review-bench` runs the review on labelled cases and counts: how many defects it found (recall), how many of its findings were about a defect (precision), and every false alarm by name.
+
+```bash
+bash .claude/eval/review-bench.sh --cases DIR                    # the pre-pass only: no model, no cost
+bash .claude/eval/review-bench.sh --cases DIR --arm agent --max-cost 5   # the review agent; spends tokens
+```
+
+A case is a directory: what the change claims to do, the files before and after, and where the defect is. Crewforth's own set is 27 cases: 16 defects taken from its history by undoing a fix (the fix's own explanatory comments are left out, so the defect has to be found in the code), 6 changes that nothing later had to fix, and 5 written cases a pattern can see; 8 are held out. The pre-pass's floor on them is a CI gate: every pattern case found, no false alarm.
+
+Measured on 2026-10-16, Sonnet, one review pass, isolated from the user's own settings: **18 of 20 defects found** (held out: 4 of 5) and **34 of 49 findings were about the defect**; $1.62 for the 27 cases. The matcher matches by place, so it counted 20 of 20: two matched findings commented on the right lines without naming the defect, and were counted as misses by hand. Most false alarms were "no test covers this" on a clean change. The record, with every false alarm, is `packaging/review-bench/results/2026-10-16-sonnet.json` in the repository.

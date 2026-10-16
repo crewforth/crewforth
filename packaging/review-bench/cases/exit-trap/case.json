@@ -1,0 +1,24 @@
+{
+  "id": "exit-trap",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": true,
+  "source": "f4994d526 fix(eval): the EXIT trap removes the assertion log too",
+  "intent": "Clean up the conformance run's temp files on exit.",
+  "strippedComments": 2,
+  "modes": {
+    "before": {
+      "claude-starter/eval/parser-conformance.sh": "100755"
+    },
+    "after": {
+      "claude-starter/eval/parser-conformance.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/eval/parser-conformance.sh",
+      "from": 119,
+      "to": 119
+    }
+  ]
+}

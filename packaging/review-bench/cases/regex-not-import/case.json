@@ -1,0 +1,24 @@
+{
+  "id": "regex-not-import",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "1b65843f9 fix(crew-map): a regex literal is not an import",
+  "intent": "Read import lines in the Node stack reader.",
+  "strippedComments": 1,
+  "modes": {
+    "before": {
+      "kit/eval/lib/crew-map/stacks.mjs": "100644"
+    },
+    "after": {
+      "kit/eval/lib/crew-map/stacks.mjs": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "kit/eval/lib/crew-map/stacks.mjs",
+      "from": 123,
+      "to": 123
+    }
+  ]
+}
