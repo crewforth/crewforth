@@ -107,7 +107,7 @@ On a phone the pane gives way to the findings and a list of the modules; a row o
 **After an update, restart Studio.** A running server keeps the code it started with, while the page is read fresh from disk. When the server is older than the page, a note above the view says to restart it, and a view the old server cannot answer, such as Map, says the same instead of an HTTP error.
 
 <div align="center">
-  <img src="../../../assets/studio-map.png" alt="The Map view of a demo project: modules in bands from clients to external resources, lines between them, and the findings under the pane, each with the file and line it cites." width="100%">
+  <img src="../../../assets/studio-map.png" alt="The Map view of a demo project: modules in their layers from UI to Library, each card with its domain, what it is built with and the outside services it calls, the Tour button, and the findings under the pane, each with the file and line it cites." width="100%">
   <br><sub>Drawn from the map Crewforth's scanner wrote for a demo project; the inferred rules stay hidden until asked for.</sub>
 </div>
 
