@@ -22,6 +22,7 @@ import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
 import { streamOwned } from './lib/owned-stream.js';
+import { stampAtStart } from './lib/code-stamp.js';
 import { readModels, readRecord, readCosts, readAboveCosts } from './lib/model-outcomes.js';
 import { readMap, behindOf, compareMaps, mapSummary, MAP_FILE } from './lib/crew-map.js';
 
@@ -43,6 +44,8 @@ import { spawn } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.resolve(HERE, '..', 'web');
+// The server's own code as it was when it started: an update on disk since then is said to the page (code-stamp.js).
+const codeChanged = stampAtStart(HERE);
 const LOOPBACK = '127.0.0.1';
 
 const MIME = {
@@ -262,6 +265,9 @@ export async function handle(req, res) {
       node: process.version,
       pid: process.pid,
       uptimeMs: Math.round(process.uptime() * 1000),
+      // `changed`: the server's files on disk are not the ones it started with. A page that finds no `code` at all
+      // is talking to a server older than this field, which is the same thing.
+      code: codeChanged(),
     });
   }
 

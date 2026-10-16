@@ -64,3 +64,17 @@ function clock(ms) {
   const two = (n) => String(n).padStart(2, '0');
   return `${two(d.getHours())}:${two(d.getMinutes())}`;
 }
+
+/**
+ * Is the server older than the files it serves? The page is read from disk on every load; the server keeps the
+ * code it started with. After an update the two disagree, and a view the old server has no route for answered
+ * 404 (seen as "Not read — HTTP 404" on the Map view). /api/health says `code.changed` when the server's files
+ * changed since it started; a server with no `code` at all predates the field, and is older than this page.
+ * Returns the sentence to show, or null.
+ */
+export const RESTART_NOTE = 'Studio was updated after this server started, so it is running the old code. Restart it: stop it where it runs (Ctrl-C), then /crew-studio.';
+export function staleServerNote(health) {
+  if (!health || typeof health !== 'object') return null;
+  if (!health.code || typeof health.code !== 'object') return RESTART_NOTE;
+  return health.code.changed === true ? RESTART_NOTE : null;
+}

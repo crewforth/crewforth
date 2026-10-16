@@ -14,6 +14,7 @@ import { _internals } from '../../kit/studio/server/lib/fleet.js';
 import { contextFill } from '../../kit/studio/server/lib/transcript.js';
 import { encodeCwd, projectsRoot } from '../../kit/studio/server/lib/projects.js';
 import { streamOwned, parseOwnedQuery, MAX_STREAM_IDS } from '../../kit/studio/server/lib/owned-stream.js';
+import { codeStamp, stampAtStart } from '../../kit/studio/server/lib/code-stamp.js';
 import { _internals as graphInternals } from '../../kit/studio/server/lib/graph.js';
 import { palette, _internals as paletteInternals } from '../../kit/studio/server/lib/palette.js';
 import { renderMarkdown } from '../../kit/studio/web/md.js';
@@ -2349,6 +2350,8 @@ check('the token gate covers every /api/ path',
   check('an /api/ request with an unknown token is refused with 403', wrong.status === 403, `status ${wrong.status}`);
   const asOwner = await call('GET', '/api/health', { token: owner });
   check('the owner is told it is the owner', asOwner.status === 200 && asOwner.json?.role === 'owner', `status ${asOwner.status}, role ${asOwner.json?.role}`);
+  check('health says whether the server runs the code on disk: a server that just started says unchanged',
+    asOwner.json?.code?.changed === false, JSON.stringify(asOwner.json?.code));
 
   const bare = await call('POST', '/api/remote', { token: owner, body: {} });
   check('adding a viewer needs the write header, like every other write', bare.status === 403 && listViewers().length === 0, `status ${bare.status}`);
@@ -6977,6 +6980,37 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   const chatJs = read(path.join(WEB_ROOT, 'chat.js')) ?? '';
   check('a conversation pane opens no stream of its own: chat.js makes an EventSource in one place, the shared one',
     (chatJs.match(/new (?:EventSource|this\.ES)\(/g) ?? []).length === 1 && !/new EventSource\(/.test(chatJs));
+}
+
+/* == A server older than the page it serves (seen on a real project: Map read "HTTP 404") ================ */
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-stamp-'));
+  try {
+    fs.mkdirSync(path.join(d, 'lib'));
+    fs.writeFileSync(path.join(d, 'index.js'), 'a');
+    fs.writeFileSync(path.join(d, 'lib', 'x.js'), 'b');
+    fs.writeFileSync(path.join(d, 'notes.txt'), 'c');
+    let t = 0; const changed = stampAtStart(d, { everyMs: 10, now: () => t });
+    const before = changed().changed;
+    fs.writeFileSync(path.join(d, 'notes.txt'), 'not code, longer');
+    t = 20; const afterNotCode = changed().changed;
+    fs.writeFileSync(path.join(d, 'lib', 'x.js'), 'b, an update');
+    t = 40; const afterCode = changed().changed;
+    check('the code stamp moves when a server file changes on disk, and not for a file that is not code',
+      before === false && afterNotCode === false && afterCode === true && codeStamp(d).includes(`lib${path.sep}x.js:`),
+      JSON.stringify({ before, afterNotCode, afterCode }));
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  const lvs = await import('../../kit/studio/web/liveness.js');
+  check('the page asks for a restart when the server says its code changed, or says nothing of it (older than the field), and not otherwise',
+    lvs.staleServerNote({ code: { changed: false } }) === null && lvs.staleServerNote({ code: { changed: true } }) === lvs.RESTART_NOTE
+    && lvs.staleServerNote({ ok: true, role: 'owner' }) === lvs.RESTART_NOTE && lvs.staleServerNote(null) === null
+    && /Restart it/.test(lvs.RESTART_NOTE) && /\/crew-studio/.test(lvs.RESTART_NOTE));
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const cssSrc = read(path.join(WEB_ROOT, 'style.css')) ?? '';
+  check('a Map the old server cannot answer says to restart, not its 404, and is read again once health says so; the note wraps',
+    /reason: restartNote \?\? e\.message/.test(appSrc) && /restartNote = staleServerNote\(h\);/.test(appSrc)
+    && /if \(view === 'map'\) loadMap\(true\)/.test(appSrc)
+    && /\.stage-note\[data-kind="restart"\] \.stage-note-text \{ white-space: normal; \}/.test(cssSrc));
 }
 
 process.stdout.write(`${pass}/${pass + fail} assertions passed`

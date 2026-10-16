@@ -100,6 +100,8 @@ Düğümler yukarıdan aşağıya bantlara oturuyor: **Clients**, **Entry points
 
 Telefonda bölmenin yerini bulgular ve modüllerin listesi alıyor; bir satır modülü inspector'da açıyor.
 
+**Güncellemeden sonra Studio'yu yeniden başlatın.** Çalışan sunucu başladığı kodu tutuyor, sayfa ise diskten taze okunuyor. Sunucu sayfadan eskiyse görünümün üstündeki not yeniden başlatmayı söylüyor; Map gibi eski sunucunun cevaplayamadığı bir görünüm de HTTP hatası yerine aynı cümleyi gösteriyor.
+
 <div align="center">
   <img src="../../../assets/studio-map.png" alt="Bir demo projenin Map görünümü: istemcilerden dış kaynaklara bantlara oturmuş modüller, aralarındaki çizgiler ve bölmenin altında bulgular; her biri gösterdiği dosya ve satırla." width="100%">
   <br><sub>Crewforth'un tarayıcısının bir demo proje için yazdığı haritadan çizildi; çıkarımla bulunan kurallar istenene kadar gizli.</sub>

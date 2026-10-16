@@ -543,6 +543,12 @@ body[data-role="viewer"] #new-session { display: none; }
   border-bottom-color: color-mix(in srgb, var(--status-fail) 45%, var(--line));
 }
 .stage-note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A server running older code than the page: the whole sentence is the instruction, so it wraps, not ellipsizes. */
+.stage-note[data-kind="restart"] {
+  color: var(--ink); background: color-mix(in srgb, var(--status-waiting) 12%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--status-waiting) 45%, var(--line));
+}
+.stage-note[data-kind="restart"] .stage-note-text { white-space: normal; }
 /* The last picture stays while the server is away, and is drawn as what it is: old. */
 .stage[data-offline="true"] .canvas,
 .stage[data-offline="true"] .tl,
