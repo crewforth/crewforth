@@ -79,6 +79,17 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A model is chosen to cost what the work needs.** Measured on a real project: 186 crew tasks, 0 on haiku, 73 (39%)
+  above their card's floor, and no verify command ever passing, so the cheaper path never opened. Now:
+  - the card's model is the default: a call above it runs on it (the gate rewrites the call's model), unless the
+    card adds `above: <why>`;
+  - outside the crew, a call asking for opus or fable runs on sonnet, and so does a general-purpose call that names
+    no model in a session that is not on haiku (it took the session's model; measured on Claude Code 2.1.299, the
+    project's settings `env` could not change that, so the gate does);
+  - a verify command in a sub-folder (`cd apps/x && <command>`, 41 of 71 refusals) is run in that folder;
+    `none (why)` is none; and `/crew-doctor` lists the commands that were never allowed to run, with the line that
+    allows each.
+
 - **A commit's command is read by one reader.** `guard-bash.sh` paired quotes in three places: the reader of a call,
   an older walk that looks for a path or `-a` in a commit, and the check of a call the user's approval covers. The
   last two now take their text from the first, and keep only their own question. What a call the user approved may
