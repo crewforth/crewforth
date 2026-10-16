@@ -645,6 +645,26 @@ smallSession({
   copy(src, HERO_CWD);
   const scan = spawnSync(process.execPath, [path.join(repo, 'kit', 'eval', 'lib', 'crew-map', 'scan.mjs'), '--root', HERO_CWD], { encoding: 'utf8' });
   if (scan.status !== 0) throw new Error(`the crew map scanner failed (rc ${scan.status}): ${scan.stderr}`);
+  // What /crew-map would add, written here in its shape so the Map shows its layers and its tour: each description,
+  // layer and stop cites a line the scan read for that module, and the scanner's own --validate must accept it.
+  // @demo/orphan-lib is left undescribed, as /crew-map leaves a module whose lines do not say what it is for.
+  const file = path.join(HERO_CWD, '.crewforth', 'crew-map.json');
+  const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const at = (id) => { const n = doc.nodes.find((x) => x.id === id); return `${n.evidence[0].file}:${n.evidence[0].line}`; };
+  const say = { 'mod:node:@demo/web': ['ui', 'payments dashboard', 'The dashboard merchants use to see their payments.'],
+    'mod:node:@demo/api': ['api', 'payments', 'The payments HTTP API, the one service the dashboard calls.'],
+    'mod:node:@demo/shared': ['library', 'shared types', 'Types and helpers the API and the dashboard share.'],
+    'mod:node:demo-root': ['infra', 'workspace setup', 'The workspace root: it holds the configuration the services read.'] };
+  for (const [id, [layer, domain, text]] of Object.entries(say)) doc.nodes.find((x) => x.id === id).narrative = { text, cites: [at(id)], layer, domain };
+  doc.overview = { text: 'A payments product in one workspace: a dashboard, the API it calls and a shared package, configured from the root.', cites: [at('mod:node:@demo/api')] };
+  doc.tour = [
+    { node: 'mod:node:@demo/web', text: 'A merchant starts in the dashboard.', cites: [at('mod:node:@demo/web')] },
+    { node: 'mod:node:@demo/api', text: 'The dashboard reads payments from the API, which keeps them in Postgres.', cites: [at('mod:node:@demo/api')] },
+    { node: 'mod:node:@demo/shared', text: 'Both build on the shared types, so a change here reaches both.', cites: [at('mod:node:@demo/shared')] },
+  ];
+  fs.writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
+  const check = spawnSync(process.execPath, [path.join(repo, 'kit', 'eval', 'lib', 'crew-map', 'scan.mjs'), '--root', HERO_CWD, '--validate'], { encoding: 'utf8' });
+  if (check.status !== 0) throw new Error(`the demo map's descriptions do not hold (rc ${check.status}): ${check.stdout}${check.stderr}`);
 }
 
 console.log(JSON.stringify({ root: ROOT, hero: HERO, second: SECOND, work: WORK, latest: LATEST }, null, 2));

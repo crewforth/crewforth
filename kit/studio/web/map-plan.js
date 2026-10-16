@@ -1,14 +1,24 @@
 // What the Map view draws, worked out from a crew map. No page in it.
 //
 // The map is Crewforth's (server/lib/crew-map.js reads it). This file puts each node in a band, says which lines
-// a selection lights, orders the findings and words them. It invents no layer: a module whose place the map does
-// not show goes to "Unplaced", and a finding the scanner hides by default stays hidden until asked for.
+// a selection lights, orders the findings and words them. It invents no layer: a module's layer is the one /crew-map
+// wrote for it (citing the lines it rests on); without one, its band is what the scan shows of it, and a module whose
+// place the scan does not show goes to "Unplaced". A finding the scanner hides by default stays hidden until asked.
 
+// The layers /crew-map may write (eval/lib/crew-map/narrative.mjs LAYERS), set between the bands the scan alone
+// gives, so a map with no layer is drawn in the same order as before.
+export const LAYER_KEYS = ['ui', 'api', 'service', 'data', 'infra', 'tool', 'library'];
 export const BANDS = [
+  ['ui', 'UI'],
   ['clients', 'Clients'],
+  ['api', 'API'],
   ['entry', 'Entry points'],
+  ['service', 'Service'],
   ['core', 'Core'],
+  ['data', 'Data'],
   ['infra', 'Infrastructure'],
+  ['library', 'Library'],
+  ['tool', 'Tools'],
   ['external', 'External'],
   ['unplaced', 'Unplaced'],
 ];
@@ -37,8 +47,10 @@ export function findingModules(f, modules) {
  *   one that only calls endpoints → Clients
  *   one another module of this project references → Core · one with an entry point and nothing above → Entry points
  *   anything else → Unplaced, so a guess is never drawn as a fact.
+ * A module /crew-map gave a layer goes to that layer's band first.
  */
 export function bandOf(node, doc) {
+  if (node.kind === 'module' && LAYER_KEYS.includes(node.narrative?.layer)) return node.narrative.layer;
   if (node.kind === 'external') return 'external';
   if (node.kind === 'service') return 'infra';
   if (node.kind === 'client') return 'clients';
@@ -201,6 +213,52 @@ export function cardSub(node, doc) {
   return [tech || node.stack, provided ? `${provided} ${provided === 1 ? 'endpoint' : 'endpoints'}` : null].filter(Boolean).join(' · ');
 }
 
+/**
+ * What a module's card says, as the Map draws it: a kind line (its domain, else its stack, and how many endpoints it
+ * provides), up to three of what it is built with, and the outside services it calls, folded into one line under it.
+ */
+export const CARD_CHIPS = 3;
+export function cardOf(node, doc) {
+  const provided = (doc.provides?.endpoints ?? []).filter((e) => e.module === node.id).length;
+  const kind = [node.narrative?.domain ?? node.stack ?? null, provided ? `${provided} ${provided === 1 ? 'endpoint' : 'endpoints'}` : null].filter(Boolean).join(' · ');
+  const tech = (node.tech ?? []).map((t) => t.replace(/@.*$/, ''));
+  return { kind, chips: tech.slice(0, CARD_CHIPS), more: Math.max(0, tech.length - CARD_CHIPS), outside: outsideOf(node, doc) };
+}
+
+/** The outside services a module calls, by name, in the order they are named: what its card folds under it. */
+export function outsideOf(node, doc) {
+  const byId = new Map((doc.nodes ?? []).map((n) => [n.id, n]));
+  const names = [];
+  for (const e of doc.edges ?? []) {
+    if (e.from !== node.id) continue;
+    const to = byId.get(e.to);
+    if (to?.kind !== 'external') continue;
+    const name = to.label && to.label !== 'unknown' ? to.label : (to.hosts ?? [])[0] ?? to.id.replace(/^ext:[^:]+:/, '');
+    if (!names.includes(name)) names.push(name);
+  }
+  return names.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** The tour /crew-map wrote, the stops whose node is on this map, each with the node's name. */
+export function tourOf(doc) {
+  const byId = new Map((doc.nodes ?? []).map((n) => [n.id, n]));
+  return (Array.isArray(doc.tour) ? doc.tour : []).filter((s) => s && byId.has(s.node) && typeof s.text === 'string')
+    .map((s) => ({ node: s.node, name: byId.get(s.node).name ?? byId.get(s.node).label ?? s.node, text: s.text, cites: (s.cites ?? []).filter((c) => typeof c === 'string') }));
+}
+
+/**
+ * The nodes a search names: by name, folder, what they are built with, their domain, the folders inside them and
+ * what their README says. Case does not matter; an empty search names none.
+ */
+export function searchOf(query, nodes) {
+  const q = String(query ?? '').trim().toLowerCase();
+  if (!q) return new Set();
+  const hay = (n) => [n.name, n.label, n.path, n.stack, ...(n.tech ?? []), ...(n.hosts ?? []), n.narrative?.domain, n.narrative?.layer,
+    ...(n.structure?.folders ?? []).map((f) => f.folder), ...(n.about?.evidence ?? []).map((e) => e.text)]
+    .filter((x) => typeof x === 'string').join('\n').toLowerCase();
+  return new Set(nodes.filter((n) => hay(n).includes(q)).map((n) => n.id));
+}
+
 /** The summary pills: what the map holds, and how many findings the list shows. */
 export function summaryOf(doc, findings) {
   const n = (k) => (doc.nodes ?? []).filter((x) => x.kind === k).length;
@@ -247,6 +305,16 @@ export function inspectOf(node, doc, edges, findings) {
     narrative: typeof node.narrative?.text === 'string' ? node.narrative.text : null,
     narrativeCites: Array.isArray(node.narrative?.cites) ? node.narrative.cites.filter((c) => typeof c === 'string') : [],
     narrativeNote: 'Not written yet: this map holds no description of the module, only what its files show.',
+    // /crew-map's layer and domain, when it wrote them; the band is the layer's (bandOf).
+    layer: LAYER_KEYS.includes(node.narrative?.layer) ? (BANDS.find(([k]) => k === node.narrative.layer)?.[1] ?? null) : null,
+    domain: typeof node.narrative?.domain === 'string' ? node.narrative.domain : null,
+    // What is inside it: the entry point the scan found, its folders with how many source files each holds, tests apart.
+    inside: node.kind === 'module' ? {
+      entry: node.entryPoint?.evidence?.[0] ? `${node.entryPoint.evidence[0].file}:${node.entryPoint.evidence[0].line}` : (node.entryPoint?.file ?? null),
+      folders: (node.structure?.folders ?? []).map((f) => ({ folder: f.folder, files: f.files })),
+      other: node.structure?.otherFiles ?? 0,
+      tests: node.structure?.testFiles ?? 0,
+    } : null,
     connectsTo: out,
     connections: { out, in: into },
     byKind: Object.entries(byKind).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
@@ -274,7 +342,8 @@ export function emptyNote(data) {
   return null;
 }
 
-export const CARD = { module: [200, 64], service: [200, 64], client: [200, 64], external: [104, 52] };
+// A module card holds its name and kind, a row of what it is built with, and the line of outside services under it.
+export const CARD = { module: [280, 104], service: [280, 104], client: [280, 104], group: [280, 104], external: [104, 52] };
 const GAP_X = 24;
 const GAP_Y = 20;
 const LEFT = 140;      // the band's label sits in this column
