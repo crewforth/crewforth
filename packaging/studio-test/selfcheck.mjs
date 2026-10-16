@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { _internals } from '../../kit/studio/server/lib/fleet.js';
-import { contextFill } from '../../kit/studio/server/lib/transcript.js';
+import { contextFill, contextMix } from '../../kit/studio/server/lib/transcript.js';
 import { encodeCwd, projectsRoot } from '../../kit/studio/server/lib/projects.js';
 import { streamOwned, parseOwnedQuery, MAX_STREAM_IDS } from '../../kit/studio/server/lib/owned-stream.js';
 import { codeStamp, stampAtStart } from '../../kit/studio/server/lib/code-stamp.js';
@@ -267,6 +267,20 @@ const fill = contextFill([A_REC, SIDE_REC, POISON_REC]);
 check("a returning subagent's toolUseResult.usage is NOT the session's fill", fill === 801000, `expected 801000, measured ${fill}`);
 check('a sidechain record does not count toward the session', fill !== 831005);
 check('an empty transcript yields null, not zero', contextFill([]) === null);
+{
+  // What the context is made of: the tool-output share since the last compaction (characters), the compactions so far.
+  const u = (t) => ({ type: 'user', message: { content: t } });
+  const as = (t) => ({ type: 'assistant', message: { content: [{ type: 'text', text: t }] } });
+  const tr = (n) => ({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x'.repeat(n) }] } });
+  const cb = { type: 'system', subtype: 'compact_boundary', compactMetadata: { trigger: 'auto', preTokens: 900, postTokens: 40 } };
+  const side = { isSidechain: true, type: 'user', message: { content: [{ type: 'tool_result', content: 'y'.repeat(5000) }] } };
+  const before = contextMix([tr(1000), u('a'.repeat(10))]);
+  const after = contextMix([tr(1000), cb, u('a'.repeat(50)), as('b'.repeat(50)), tr(100), side]);
+  check('the tool-output share counts the main session since the last compaction, in characters; the compactions are counted, the last one\'s tokens kept',
+    before.toolShare === 99 && before.compactions === 0 && before.lastCompact === null
+    && after.toolShare === 50 && after.compactions === 1 && after.lastCompact.trigger === 'auto' && after.lastCompact.before === 900 && after.lastCompact.after === 40
+    && contextMix([]).toolShare === null, JSON.stringify([before, after]));
+}
 
 /* -------------------------------------------------- §6 transcript paths */
 

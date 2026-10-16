@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **What a compaction keeps is written down first.** A PreCompact hook writes the state of the work from the files
+  and the gates (branch, uncommitted files, the last gate refusal, the findings on record, a handover if there is
+  one) inside the repository's git directory, and SessionStart gives it back after the compaction, to the same
+  session only. It never blocks the compaction. Studio's session card adds how much of the context since the last
+  compaction is tool output, and how many times the session was compacted.
+
 - **The Map reads like a project, not a graph.** Studio's Map draws modules in the layers `/crew-map` wrote (UI,
   API, Service, Data, Infrastructure, Library, Tools), each card naming the module in full with its domain, up to
   three of what it is built with and the outside services it calls folded into one line under it. A search dims

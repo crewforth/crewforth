@@ -17,7 +17,7 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { readAll, contextFill } from './transcript.js';
+import { readAll, contextFill, contextMix } from './transcript.js';
 import { agentMetaFiles } from './projects.js';
 import { Usage, withTimes } from './usage.js';
 import { detailOf } from './permissions.js';
@@ -463,6 +463,8 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
     refusedCalls: [...main.agentCalls.values()].filter((c) => c.refused && !c.retried)
       .map((c) => ({ agent: c.subagentType ?? null, model: c.model ?? null, text: c.refused.text })),
     tokens: contextFill(records),
+    // What that context is made of: the tool-output share since the last compaction, and the compactions so far.
+    context: contextMix(records),
     startedAt: main.startedAt,
     endedAt: main.updatedAt,
     usage: withTimes(usage, records),

@@ -98,3 +98,35 @@ export function contextFill(records) {
   }
   return total;
 }
+
+/**
+ * What the context is made of since the last compaction: the share of its text that is tool output, and how many
+ * times the session was compacted, with the last one's tokens before and after. Measured in characters of the main
+ * session's records (text, a tool call's input, a tool's result), not tokens: the transcript keeps no per-block
+ * token count. A compaction is the transcript's own `compact_boundary` record.
+ */
+export function contextMix(records) {
+  let start = 0; let compactions = 0; let last = null;
+  records.forEach((r, i) => {
+    if (r?.isSidechain !== true && r?.type === 'system' && r?.subtype === 'compact_boundary') { start = i + 1; compactions += 1; last = r.compactMetadata ?? null; }
+  });
+  const size = (b) => {
+    if (typeof b === 'string') return b.length;
+    if (b?.type === 'text') return String(b.text ?? '').length;
+    if (b?.type === 'tool_use') return JSON.stringify(b.input ?? {}).length;
+    if (b?.type === 'tool_result') return typeof b.content === 'string' ? b.content.length : (Array.isArray(b.content) ? b.content.reduce((n, x) => n + (x?.type === 'text' ? String(x.text ?? '').length : 0), 0) : 0);
+    return 0;
+  };
+  let tool = 0; let all = 0;
+  for (let i = start; i < records.length; i += 1) {
+    const r = records[i];
+    if (r?.isSidechain === true || (r?.type !== 'user' && r?.type !== 'assistant')) continue;
+    const c = r?.message?.content;
+    for (const b of Array.isArray(c) ? c : [c]) { const n = size(b); all += n; if (b?.type === 'tool_result') tool += n; }
+  }
+  return {
+    toolShare: all ? Math.round((100 * tool) / all) : null,
+    compactions,
+    lastCompact: last ? { trigger: last.trigger ?? null, before: last.preTokens ?? null, after: last.postTokens ?? null } : null,
+  };
+}
