@@ -48,10 +48,76 @@ export function quickReplies(text) {
   return (opts.length >= 2 && opts.length <= 5 && /\?/.test(text)) ? opts : [];
 }
 
+/* ============================================== every open conversation === */
+
+/**
+ * One connection for every open conversation. A pane per EventSource reached the browser's six connections to a
+ * host at five panes beside the page's own stream, and from there a message sent and every request the page made
+ * waited for a pane to close (measured on Windows). The panes register here; the stream is opened again, with
+ * each session's last event number, whenever the set changes or the connection drops, so nothing is replayed
+ * twice and nothing is missed.
+ */
+export class OwnedStream {
+  constructor(api, { EventSourceImpl = globalThis.EventSource, retryMs = 1500 } = {}) {
+    this.api = api;
+    this.ES = EventSourceImpl;
+    this.retryMs = retryMs;
+    this.panes = new Map();     // session id -> pane
+    this.seq = new Map();       // session id -> the last event number taken
+    this.source = null;
+    this.timer = null;
+  }
+
+  attach(pane) { this.panes.set(pane.id, pane); this.#soon(0); }
+
+  detach(pane) {
+    if (this.panes.get(pane.id) !== pane) return;
+    this.panes.delete(pane.id); this.seq.delete(pane.id); this.#soon(0);
+  }
+
+  /** The URL the stream is opened at now: what a reconnect resumes from. */
+  url() {
+    const ids = [...this.panes.keys()];
+    const after = ids.map((id) => `${id}:${this.seq.get(id) ?? 0}`).join(',');
+    return this.api(`/api/owned-events?ids=${encodeURIComponent(ids.join(','))}&after=${encodeURIComponent(after)}`);
+  }
+
+  // Panes opened together (a page restoring its tabs) cost one reconnect, not one each.
+  #soon(ms) { clearTimeout(this.timer); this.timer = setTimeout(() => this.#open(), ms); }
+
+  #open() {
+    if (this.source) { this.source.close(); this.source = null; }
+    if (!this.panes.size) return;
+    const src = new this.ES(this.url());
+    const data = (e) => { try { return JSON.parse(e.data); } catch { return null; } };
+    src.addEventListener('state', (e) => { const d = data(e); if (d) this.panes.get(d.id)?.takeState(d.session); });
+    src.addEventListener('event', (e) => {
+      const d = data(e); const pane = d && this.panes.get(d.id);
+      if (!pane || !d.ev) return;
+      if (Number.isFinite(d.ev.seq)) {
+        if (d.ev.seq <= (this.seq.get(d.id) ?? 0)) return;    // already taken before a reconnect
+        this.seq.set(d.id, d.ev.seq);
+      }
+      pane.takeEvent(d.ev);
+    });
+    src.addEventListener('gone', (e) => { const d = data(e); if (d) this.panes.get(d.id)?.streamLost(); });
+    // The browser would reconnect at the same URL, from the same event numbers, and replay what was taken since.
+    // So the stream is closed and opened again here, from where each session is now.
+    src.onerror = () => {
+      if (this.source !== src) return;
+      for (const pane of this.panes.values()) pane.streamLost();
+      this.#soon(this.retryMs);
+    };
+    this.source = src;
+  }
+
+  close() { clearTimeout(this.timer); if (this.source) { this.source.close(); this.source = null; } this.panes.clear(); this.seq.clear(); }
+}
+
 /* ========================================================== one session === */
 
 class Pane {
-  constructor(session, { api, headers, onChange, onPermissions, hooks = {}, readOnly = false }) {
+  constructor(session, { api, headers, onChange, onPermissions, hub = null, hooks = {}, readOnly = false }) {
     this.api = api;
     this.headers = headers;
     this.onChange = onChange;
@@ -62,7 +128,8 @@ class Pane {
     this.readOnly = readOnly;
     this.session = session;
     this.id = session.sessionId;
-    this.source = null;
+    this.hub = hub;
+    this.connected = false;
     this.messages = [];
     this.streaming = null;
     this.permissions = [];
@@ -163,24 +230,21 @@ class Pane {
   }
 
   connect() {
-    if (this.source) return;
-    this.source = new EventSource(this.api(`/api/owned/${encodeURIComponent(this.id)}/events`));
-    this.source.addEventListener('state', (e) => {
-      try { this.session = JSON.parse(e.data); } catch { return; }
-      this.paintState();
-      this.onChange(this);
-    });
-    this.source.addEventListener('event', (e) => {
-      let ev;
-      try { ev = JSON.parse(e.data); } catch { return; }
-      this.absorb(ev.rec);
-    });
-    this.source.onerror = () => { this.streamBroken = true; this.onChange(this); };
+    if (this.connected || !this.hub) return;
+    this.connected = true;
+    this.hub.attach(this);
   }
 
   disconnect() {
-    if (this.source) { this.source.close(); this.source = null; }
+    if (!this.connected) return;
+    this.connected = false;
+    this.hub.detach(this);
   }
+
+  // What the shared stream hands this pane.
+  takeState(session) { if (!session) return; this.session = session; this.streamBroken = false; this.paintState(); this.onChange(this); }
+  takeEvent(ev) { this.streamBroken = false; this.absorb(ev.rec); }
+  streamLost() { this.streamBroken = true; this.onChange(this); }
 
   /* --------------------------------------------------------- ingestion */
 
@@ -591,6 +655,7 @@ export class Chat {
     this.headers = headers;
     this.hooks = hooks;
     this.panes = new Map();
+    this.hub = new OwnedStream(api);
     this.activeId = null;
     this.onActivate = () => {};
     // (pane, { pending }) — a session's waiting requests changed.
@@ -654,7 +719,7 @@ export class Chat {
     }
     if (!pane) {
       pane = new Pane(session, {
-        api: this.api, headers: this.headers, hooks: this.hooks, onChange: () => this.paintTabs(),
+        api: this.api, headers: this.headers, hooks: this.hooks, onChange: () => this.paintTabs(), hub: this.hub,
         onPermissions: (p, rec) => this.onPermissions(p, rec),
       });
       this.panesEl.append(pane.root);

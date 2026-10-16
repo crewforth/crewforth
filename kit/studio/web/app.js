@@ -14,7 +14,7 @@ import {
   summaryChips, sessionStatus, sessionName, sessionSub, ago, matchesSession, highlight, badgeFor,
   liveSessions, machines, seenAgo, isFirstRun,
 } from './nav.js';
-import { liveness, offlineNote } from './liveness.js';
+import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote } from './usage.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
@@ -715,7 +715,8 @@ async function loadMap(force = false) {
   mapBusy = true;
   let data;
   const q = `session=${encodeURIComponent(asked)}${mapCompare ? `&compare=${encodeURIComponent(mapCompare)}` : ''}`;
-  try { data = await getJson(`/api/map?${q}`); } catch (e) { data = { measured: false, reason: e.message, others: [] }; }
+  // A server older than this page has no Map route: say that, not its 404.
+  try { data = await getJson(`/api/map?${q}`); } catch (e) { data = { measured: false, reason: restartNote ?? e.message, others: [] }; }
   finally { mapBusy = false; }
   if (asked !== current) return;
   mapFor = asked;
@@ -2658,6 +2659,7 @@ chat.onPermissions = () => pollOwned();
    view is being shown in a window too narrow for it. Offline is said first. */
 
 let nextPollAt = null;
+let restartNote = null;          // staleServerNote(/api/health): the server runs older code than the page
 const stageNote = { text: node('span', 'stage-note-text'), retry: node('span', 'sub'), button: node('button', 'btn sm', 'Retry now') };
 stageNote.button.type = 'button';
 stageNote.button.addEventListener('click', () => retryNow());
@@ -2666,11 +2668,12 @@ el.stageNote.append(stageNote.text, stageNote.retry, node('span', 'row-fill'), s
 function paintStageNote() {
   const l = liveness(Date.now(), heard.okAt, heard.failed);
   const off = offlineNote(l.state, heard.okAt, nextPollAt, Date.now());
-  const warn = narrowWarning(view, phoneBand.matches);
+  // Offline first, then a server older than this page, then a window too narrow for the view.
+  const warn = restartNote ?? narrowWarning(view, phoneBand.matches);
   // The last picture stays on screen while the server is away, and is drawn as old.
   el.stage.dataset.offline = String(Boolean(off));
   el.stageNote.hidden = !off && !warn;
-  el.stageNote.dataset.kind = off ? 'offline' : 'narrow';
+  el.stageNote.dataset.kind = off ? 'offline' : restartNote ? 'restart' : 'narrow';
   stageNote.text.textContent = off ? off.text : (warn ?? '');
   stageNote.retry.textContent = off ? off.retry : '';
   stageNote.retry.hidden = !off;
@@ -2815,6 +2818,9 @@ pollFleet(); pollSessions(); pollOwned();
 // Who this page is to the server. A viewer's page says so and offers no way to start a session; the server
 // would refuse it either way.
 getJson('/api/health').then((h) => {
+  restartNote = staleServerNote(h);
+  // A Map read before this answer showed the old server's 404; read it again so it says why.
+  if (restartNote) { paintStageNote(); if (view === 'map') loadMap(true); }
   role = h.role === 'viewer' ? 'viewer' : 'owner';
   document.body.dataset.role = role;
   document.getElementById('role').hidden = role !== 'viewer';

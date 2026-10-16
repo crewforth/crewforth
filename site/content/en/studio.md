@@ -100,6 +100,8 @@ Nodes sit in bands, from the top: **Clients**, **Entry points**, **Core**, **Inf
 
 On a phone the pane gives way to the findings and a list of the modules; a row opens the module in the inspector.
 
+**After an update, restart Studio.** A running server keeps the code it started with, while the page is read fresh from disk. When the server is older than the page, a note above the view says to restart it, and a view the old server cannot answer, such as Map, says the same instead of an HTTP error.
+
 <div align="center">
   <img src="../../../assets/studio-map.png" alt="The Map view of a demo project: modules in bands from clients to external resources, lines between them, and the findings under the pane, each with the file and line it cites." width="100%">
   <br><sub>Drawn from the map Crewforth's scanner wrote for a demo project; the inferred rules stay hidden until asked for.</sub>
@@ -123,6 +125,8 @@ Allow is an answer to Claude Code. It does not go around anything:
 **New session** opens a panel on the right: the project the session runs in, its permission mode, and an optional first message. Three modes are offered. **Plan** is the default: it reads and plans, and cannot change files. **Accept edits** and **Default** edit files and run commands, each call after you allow it in the dock. Modes that skip Crewforth's gates are not offered. If Studio is closed while such a session runs, its requests are denied.
 
 **The mode is in the strip above the conversation, and it is a control.** `mode: plan` opens a menu of the same three, with the current one marked. The label changes when Claude Code itself reports the new mode, not when you click; a mode that skips the gates is refused by the server, whoever asks.
+
+**Every open conversation shares one connection.** A browser holds six connections to one host, so a stream per conversation stalled sending and loading at five open conversations. However many are open, the panel uses two: the page's own and the conversations'.
 
 ## A narrow window
 
@@ -164,4 +168,4 @@ What was checked and what was not: the refusals are asserted against a running s
 
 All three channels carry it. One command file serves both editions: Claude Code substitutes the plugin's own install path into it, so the panel is found wherever it actually is. The panel behaves identically in both, with one honest gap — its telemetry reads the project you opened it from, and a plugin install puts no Crewforth files into a project, so the Gates and Stats tabs and the board report "not measured" with the reason rather than a misleading zero. The Gates tab still lists the gate decisions the plugin's guards logged to that project's `.claude/gate-log.tsv`.
 
-It reads `~/.claude/projects`, which holds **every** Claude Code session on the machine. Starting it from a project root only decides which project it opens on.
+It reads `~/.claude/projects`, which holds **every** Claude Code session on the machine, or `projects` under `CLAUDE_CONFIG_DIR` when Claude Code's configuration is moved there. Starting it from a project root only decides which project it opens on.

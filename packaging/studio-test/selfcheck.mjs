@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url';
 
 import { _internals } from '../../kit/studio/server/lib/fleet.js';
 import { contextFill } from '../../kit/studio/server/lib/transcript.js';
-import { encodeCwd } from '../../kit/studio/server/lib/projects.js';
+import { encodeCwd, projectsRoot } from '../../kit/studio/server/lib/projects.js';
+import { streamOwned, parseOwnedQuery, MAX_STREAM_IDS } from '../../kit/studio/server/lib/owned-stream.js';
+import { codeStamp, stampAtStart } from '../../kit/studio/server/lib/code-stamp.js';
 import { _internals as graphInternals } from '../../kit/studio/server/lib/graph.js';
 import { palette, _internals as paletteInternals } from '../../kit/studio/server/lib/palette.js';
 import { renderMarkdown } from '../../kit/studio/web/md.js';
@@ -24,7 +26,7 @@ import http from 'node:http';
 import { prepare, decide, pending, cleanup, revoke, alwaysList, _internals as permInternals } from '../../kit/studio/server/lib/permissions.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
-import { quickReplies } from '../../kit/studio/web/chat.js';
+import { quickReplies, OwnedStream } from '../../kit/studio/web/chat.js';
 import { installDom } from './dom-stub.mjs';
 import { plan as terminalPlan } from '../../kit/studio/server/lib/terminal.js';
 import { gateLog, gateReport, board, sessionStats, _internals as kitInternals } from '../../kit/studio/server/lib/kit-telemetry.js';
@@ -2348,6 +2350,8 @@ check('the token gate covers every /api/ path',
   check('an /api/ request with an unknown token is refused with 403', wrong.status === 403, `status ${wrong.status}`);
   const asOwner = await call('GET', '/api/health', { token: owner });
   check('the owner is told it is the owner', asOwner.status === 200 && asOwner.json?.role === 'owner', `status ${asOwner.status}, role ${asOwner.json?.role}`);
+  check('health says whether the server runs the code on disk: a server that just started says unchanged',
+    asOwner.json?.code?.changed === false, JSON.stringify(asOwner.json?.code));
 
   const bare = await call('POST', '/api/remote', { token: owner, body: {} });
   check('adding a viewer needs the write header, like every other write', bare.status === 403 && listViewers().length === 0, `status ${bare.status}`);
@@ -6889,6 +6893,124 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     /result\.onScreen = measured\?\.shown === true && result\.onScreenAfter\.shown === true;/.test(prof)
     && /result\.valid = result\.valid && result\.onScreen;/.test(prof) && /process\.exit\(result\.valid \? 0 : 1\)/.test(prof),
     'measured: with the view off screen it read 1.3 ms a redraw; on screen, 5.6 ms');
+}
+
+/* == Where transcripts are read, and one connection for every open conversation (W5, Windows) ============== */
+{
+  // A moved config dir: Claude Code writes its transcripts under CLAUDE_CONFIG_DIR/projects, and Studio read only
+  // ~/.claude/projects, so sessions started under one were not listed and read a cost of 0.
+  const home = path.join(os.tmpdir(), 'home-x');
+  const cfg = path.join(os.tmpdir(), 'cfg moved');
+  check('the transcript root is <config dir>/projects: ~/.claude without CLAUDE_CONFIG_DIR, the moved dir with it, and CREW_STUDIO_PROJECTS_ROOT over both',
+    projectsRoot({}, home) === path.join(home, '.claude', 'projects')
+    && projectsRoot({ CLAUDE_CONFIG_DIR: cfg }, home) === path.join(cfg, 'projects')
+    && projectsRoot({ CLAUDE_CONFIG_DIR: cfg, CREW_STUDIO_PROJECTS_ROOT: '/elsewhere' }, home) === '/elsewhere'
+    && projectsRoot({ CLAUDE_CONFIG_DIR: 'rel-cfg' }, home) === path.resolve('rel-cfg', 'projects'),
+    JSON.stringify([projectsRoot({}, home), projectsRoot({ CLAUDE_CONFIG_DIR: cfg }, home)]));
+
+  // The server side: several sessions on one stream, each event and state carrying its session, each session
+  // resumed from its own point, an unknown one answered with `gone`, everything let go when the client leaves.
+  const fakeSession = (id, n) => {
+    const events = Array.from({ length: n }, (_, i) => ({ seq: i + 1, rec: { type: 'assistant', id } }));
+    const subs = new Set();
+    return {
+      subs, summary: () => ({ sessionId: id, events: events.length }),
+      subscribe(fn, after = 0) { for (const ev of events) if (ev.seq > after) fn(ev); subs.add(fn); return () => subs.delete(fn); },
+      push(rec) { const ev = { seq: events.length + 1, rec }; events.push(ev); for (const f of subs) f(ev); },
+    };
+  };
+  const sa = fakeSession('a', 3); const sb = fakeSession('b', 2);
+  const reg = { a: sa, b: sb };
+  const handlers = {}; const req = { on: (k, f) => { handlers[k] = f; } };
+  let out = ''; let ended = false;
+  const res = { writeHead() {}, write(c) { out += c; }, end() { ended = true; } };
+  const stop = streamOwned(req, res, new URL('http://x/api/owned-events?ids=a,b,zz,a&after=a:2'), { getSession: (id) => reg[id] ?? null, stateAfter: new Set(['result']), beatMs: 60000 });
+  sb.push({ type: 'result' });
+  const frames = out.split('\n\n').filter(Boolean).map((f) => ({ ev: /^event: (\w+)/.exec(f)?.[1], d: JSON.parse(f.split('\ndata: ')[1]) }));
+  const evs = frames.filter((f) => f.ev === 'event');
+  check('one stream carries several sessions: each event names its session, a session resumes from its own point, an unknown one is answered with gone',
+    evs.filter((f) => f.d.id === 'a').map((f) => f.d.ev.seq).join() === '3'
+    && evs.filter((f) => f.d.id === 'b').map((f) => f.d.ev.seq).join() === '1,2,3'
+    && frames.some((f) => f.ev === 'gone' && f.d.id === 'zz')
+    && frames.filter((f) => f.ev === 'state' && f.d.id === 'b').length === 2
+    && sa.subs.size === 1 && sb.subs.size === 1,
+    frames.map((f) => `${f.ev}:${f.d.id}:${f.d.ev?.seq ?? ''}`).join(' '));
+  handlers.close();
+  check('the stream lets every session go when the client leaves', sa.subs.size === 0 && sb.subs.size === 0 && ended === true);
+  stop();
+  const many = Array.from({ length: MAX_STREAM_IDS + 8 }, (_, i) => `s${i}`).join(',');
+  check(`a stream takes at most ${MAX_STREAM_IDS} sessions, each once`,
+    parseOwnedQuery(new URL(`http://x/?ids=${many}`)).ids.length === MAX_STREAM_IDS
+    && parseOwnedQuery(new URL('http://x/?ids=a,a,b')).ids.join() === 'a,b');
+
+  // The page side: five panes open ONE connection, not five; closing one opens it again for the other four with
+  // each session's last event number; an event already taken is not taken twice; a dropped stream resumes.
+  const opened = [];
+  class FakeES {
+    constructor(url) { this.url = url; this.closed = false; this.l = {}; opened.push(this); }
+    addEventListener(k, f) { this.l[k] = f; }
+    close() { this.closed = true; }
+    emit(k, data) { this.l[k]?.({ data: JSON.stringify(data) }); }
+  }
+  const timers = [];
+  const realSet = globalThis.setTimeout; const realClear = globalThis.clearTimeout;
+  globalThis.setTimeout = (f) => { timers.push(f); return timers.length; };
+  globalThis.clearTimeout = (t) => { if (t) timers[t - 1] = null; };
+  const flush = () => { const fs = timers.splice(0); for (const f of fs) if (f) f(); };
+  try {
+    const hub = new OwnedStream((p) => p, { EventSourceImpl: FakeES, retryMs: 10 });
+    const got = {};
+    const mk = (id) => ({ id, takeState() {}, takeEvent(ev) { (got[id] ??= []).push(ev.seq); }, streamLost() { this.lost = true; } });
+    const panes = ['p1', 'p2', 'p3', 'p4', 'p5'].map(mk);
+    for (const p of panes) hub.attach(p);
+    flush();
+    const live = () => opened.filter((e) => !e.closed);
+    const one = live().length === 1 && opened.length === 1 && /ids=p1%2Cp2%2Cp3%2Cp4%2Cp5/.test(opened[0].url);
+    opened[0].emit('event', { id: 'p2', ev: { seq: 1 } }); opened[0].emit('event', { id: 'p2', ev: { seq: 2 } });
+    hub.detach(panes[0]); flush();
+    const reopened = live().length === 1 && opened.length === 2 && /ids=p2%2Cp3%2Cp4%2Cp5/.test(opened[1].url) && /p2%3A2/.test(opened[1].url);
+    opened[1].emit('event', { id: 'p2', ev: { seq: 2 } }); opened[1].emit('event', { id: 'p2', ev: { seq: 3 } });
+    opened[1].onerror(); flush();
+    const resumed = live().length === 1 && opened.length === 3 && /p2%3A3/.test(opened[2].url) && panes[1].lost === true;
+    check('five conversation panes share ONE connection; closing one reopens it for the rest from each session\'s last event; nothing is taken twice; a dropped stream resumes',
+      one && reopened && resumed && (got.p2 ?? []).join() === '1,2,3',
+      `opened ${opened.length}, live ${live().length}, p2 took ${(got.p2 ?? []).join()}, urls ${opened.map((e) => e.url.slice(0, 60)).join(' | ')}`);
+    hub.close();
+  } finally { globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; }
+  const chatJs = read(path.join(WEB_ROOT, 'chat.js')) ?? '';
+  check('a conversation pane opens no stream of its own: chat.js makes an EventSource in one place, the shared one',
+    (chatJs.match(/new (?:EventSource|this\.ES)\(/g) ?? []).length === 1 && !/new EventSource\(/.test(chatJs));
+}
+
+/* == A server older than the page it serves (seen on a real project: Map read "HTTP 404") ================ */
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-stamp-'));
+  try {
+    fs.mkdirSync(path.join(d, 'lib'));
+    fs.writeFileSync(path.join(d, 'index.js'), 'a');
+    fs.writeFileSync(path.join(d, 'lib', 'x.js'), 'b');
+    fs.writeFileSync(path.join(d, 'notes.txt'), 'c');
+    let t = 0; const changed = stampAtStart(d, { everyMs: 10, now: () => t });
+    const before = changed().changed;
+    fs.writeFileSync(path.join(d, 'notes.txt'), 'not code, longer');
+    t = 20; const afterNotCode = changed().changed;
+    fs.writeFileSync(path.join(d, 'lib', 'x.js'), 'b, an update');
+    t = 40; const afterCode = changed().changed;
+    check('the code stamp moves when a server file changes on disk, and not for a file that is not code',
+      before === false && afterNotCode === false && afterCode === true && codeStamp(d).includes(`lib${path.sep}x.js:`),
+      JSON.stringify({ before, afterNotCode, afterCode }));
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  const lvs = await import('../../kit/studio/web/liveness.js');
+  check('the page asks for a restart when the server says its code changed, or says nothing of it (older than the field), and not otherwise',
+    lvs.staleServerNote({ code: { changed: false } }) === null && lvs.staleServerNote({ code: { changed: true } }) === lvs.RESTART_NOTE
+    && lvs.staleServerNote({ ok: true, role: 'owner' }) === lvs.RESTART_NOTE && lvs.staleServerNote(null) === null
+    && /Restart it/.test(lvs.RESTART_NOTE) && /\/crew-studio/.test(lvs.RESTART_NOTE));
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const cssSrc = read(path.join(WEB_ROOT, 'style.css')) ?? '';
+  check('a Map the old server cannot answer says to restart, not its 404, and is read again once health says so; the note wraps',
+    /reason: restartNote \?\? e\.message/.test(appSrc) && /restartNote = staleServerNote\(h\);/.test(appSrc)
+    && /if \(view === 'map'\) loadMap\(true\)/.test(appSrc)
+    && /\.stage-note\[data-kind="restart"\] \.stage-note-text \{ white-space: normal; \}/.test(cssSrc));
 }
 
 process.stdout.write(`${pass}/${pass + fail} assertions passed`

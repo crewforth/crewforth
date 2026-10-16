@@ -114,6 +114,17 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Studio keeps answering with many conversations open.** Each conversation pane held its own stream, and a
+  browser opens six connections to one host: at five panes a message sent and every request the page made waited
+  for a pane to close (on Windows a send did not arrive in 35 s; on macOS the page's own request timed out at 4 s).
+  Every open conversation now shares one stream, resumed from each session's last event when it reconnects.
+- **Studio finds sessions under a moved config dir.** It read `~/.claude/projects` only, so sessions under
+  `CLAUDE_CONFIG_DIR` were not listed and read a cost of 0. It now reads `projects` there, as Claude Code writes.
+- **Studio says when it needs a restart.** A running server keeps the code it started with, and an update
+  replaces the files the page is read from: on a real project the Map view of the new page asked a server from
+  before it and showed "Not read — HTTP 404". The server now says whether its code changed on disk since it
+  started; a page that hears so, or talks to a server too old to say, shows a note to restart it, and Map says the
+  same instead of the 404.
 - **Two agents starting together no longer share one model record on Windows.** A record was taken by renaming
   it, which is a lock on macOS and Linux; on Windows two hook processes both reported the rename as done (seen
   twice on the Windows CI). Each record is now locked first with an exclusive create, a shell builtin that costs no

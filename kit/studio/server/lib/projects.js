@@ -24,10 +24,17 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// Overridable so a second instance can be pointed at a different transcript
-// store — which is also the only way to exercise the peer relay on one machine.
-export const PROJECTS_ROOT = process.env.CREW_STUDIO_PROJECTS_ROOT
-  || path.join(os.homedir(), '.claude', 'projects');
+// Where Claude Code writes its transcripts: <config dir>/projects, the config dir being CLAUDE_CONFIG_DIR when it is
+// set and ~/.claude otherwise. Reading ~/.claude alone, sessions started under a moved config dir (Studio's own
+// included) were not listed and read a cost of 0 (measured on Windows). The studio gate hook reads it the same way.
+// CREW_STUDIO_PROJECTS_ROOT still wins: a second instance pointed at a different store, which is also the only way to
+// exercise the peer relay on one machine.
+export function projectsRoot(env = process.env, home = os.homedir()) {
+  if (env.CREW_STUDIO_PROJECTS_ROOT) return env.CREW_STUDIO_PROJECTS_ROOT;
+  const config = env.CLAUDE_CONFIG_DIR ? path.resolve(env.CLAUDE_CONFIG_DIR) : path.join(home, '.claude');
+  return path.join(config, 'projects');
+}
+export const PROJECTS_ROOT = projectsRoot();
 
 /** Fold a working directory into the directory name Claude Code uses. */
 export function encodeCwd(cwd) {
