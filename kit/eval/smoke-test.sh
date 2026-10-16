@@ -4501,7 +4501,7 @@ else
   PCD="$(mktemp -d)"; PCD="$(cd -P "$PCD" && pwd)"; _pco="$(mktemp)"; _pcr="$(mktemp)"   # outside the repository: a file there is uncommitted
   ( cd "$PCD" && git init -q . && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m base ) >/dev/null 2>&1
   mkdir -p "$PCD/.claude" "$PCD/.crewforth" "$PCD/docs"
-  printf 'x\n' > "$PCD/plain.txt"; printf 'x\n' > "$PCD/odd\"na	me.txt"
+  printf 'x\n' > "$PCD/plain.txt"; printf 'x\n' > "$PCD/odd\"na	me.txt"; printf 'x\n' > "$PCD/ıİşğü.txt"
   printf '{\n  "findings": [\n    {\n      "rule": "a"\n    },\n    {\n      "rule": "b"\n    }\n  ]\n}\n' > "$PCD/.crewforth/review.json"
   printf 'BLOCK\t§4.2\tvendor name\t\n' > "$PCD/.git/crewforth-gate-log.tsv"
   printf '{"session_id":"s-1","cwd":"%s","hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$PCS" > "$_pco" 2>&1; _pcrc=$?
@@ -4513,7 +4513,7 @@ else
   _b=""
   [ "$_pcrc" = 0 ] && [ ! -s "$_pco" ] || _b="$_b [rc $_pcrc, printed: $(head -c 120 "$_pco")]"
   awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_snap" 2>/dev/null || _b="$_b [the snapshot is not valid JSON: ${_sb:0:160}]"
-  case "$_sb" in *'"session_id":"s-1"'*'"trigger":"auto"'*'branch '*'3 uncommitted file(s)'*'§4.2 vendor name'*'review 2'*) ;; *) _b="$_b [snapshot: ${_sb:0:200}]" ;; esac
+  case "$_sb" in *'"session_id":"s-1"'*'"trigger":"auto"'*'branch '*'4 uncommitted file(s)'*'ıİşğü.txt'*'§4.2 vendor name'*'review 2'*) ;; *) _b="$_b [snapshot: ${_sb:0:200}]" ;; esac
   case "$_same" in *'Before this context was compacted'*'review 2'*) ;; *) _b="$_b [not given back after compaction: ${_same:0:120}]" ;; esac
   awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_pcr" 2>/dev/null || _b="$_b [the SessionStart output with an odd file name is not valid JSON]"
   case "$_other$_start" in *'Before this context was compacted'*) _b="$_b [given to another session or on a plain start]" ;; esac
@@ -4523,7 +4523,7 @@ else
   printf '{"session_id":"s-9","cwd":"/nonexistent/x"}' | CLAUDE_PROJECT_DIR= bash "$PCS" >/dev/null 2>&1 || _b="$_b [missing cwd rc $?]"
   printf 'not json' | CLAUDE_PROJECT_DIR="$_nr" bash "$PCS" >/dev/null 2>&1 || _b="$_b [garbage rc $?]"
   printf '{"session_id":"s-9","cwd":"%s"}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$_alone/precompact-snapshot.sh" >/dev/null 2>&1 || _b="$_b [no eval/lib rc $?]"
-  [ -z "$_b" ] && pass "PreCompact writes the state of the work (branch, uncommitted files, the last gate refusal, the findings on record) as valid JSON, even for a file name with a quote and a tab; SessionStart gives it back after a compaction to the same session only, never to another or on a plain start; the hook is rc 0 and silent outside a repository, with no cwd, with no JSON and without eval/lib" \
+  [ -z "$_b" ] && pass "PreCompact writes the state of the work (branch, uncommitted files, the last gate refusal, the findings on record) as valid JSON, even for a file name with a quote and a tab, and names a Turkish file name as written; SessionStart gives it back after a compaction to the same session only, never to another or on a plain start; the hook is rc 0 and silent outside a repository, with no cwd, with no JSON and without eval/lib" \
     || fail "precompact snapshot:$_b"
   rm -rf "$PCD" "$_nr" "$_alone" "$_pco" "$_pcr"
 fi
