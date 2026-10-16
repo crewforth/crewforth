@@ -1,14 +1,16 @@
 // The Map view: the project as Crewforth's crew map shows it.
 //
-// Bands from the clients down to the external resources, on a pane that pans and zooms like the graph's (the
-// shared viewport.js). Lines are solid where a file proves them, dotted where they are inferred, dashed with their
+// Bands from the layers /crew-map wrote (UI, API, Service, Data, Infrastructure, …), or from what the scan shows
+// where it wrote none, on a pane that pans and zooms like the graph's (the shared viewport.js). A module's card
+// carries what it is built with and folds the outside services it calls into one line under it; a search dims the
+// cards it does not name, and the tour /crew-map wrote steps through the map one stop at a time. Lines are solid where a file proves them, dotted where they are inferred, dashed with their
 // own mark where the model proposed them. A card can be placed by hand and stays placed for that project; modules
 // that share a folder can be folded into one card. Under the pane, the findings; beside it, the inspector. On a
 // phone the pane gives way to the findings and a list of the modules. It reads the map the server sends and writes
 // nothing; what leaves the page is copied text: a finding as a task, or a file:line.
 import {
   nodesOf, edgesOf, edgeKey, litEdges, findingsOf, findingCounts, cardSub, summaryOf, sourceOf, inspectOf, taskOf,
-  emptyNote, layoutOf, pathOf, chipsOf, resourceWord, inferredOnly, groupsOf, foldView, placed, BANDS,
+  emptyNote, layoutOf, pathOf, chipsOf, inferredOnly, groupsOf, foldView, placed, BANDS, cardOf, tourOf, searchOf, resourceWord,
 } from './map-plan.js';
 import { Viewport, draggable, swallowClick } from './viewport.js';
 
@@ -30,6 +32,8 @@ const BAND_ORDER = Object.fromEntries(BANDS.map(([k], i) => [k, i]));
 const BAND_WORD = Object.fromEntries(BANDS);
 
 const LAYERS = [['modules', 'Modules'], ['external', 'External'], ['endpoints', 'Endpoints'], ['findings', 'Findings']];
+// How a line between two modules is named on the map.
+const EDGE_WORD = { references: 'uses', calls: 'calls', builds: 'builds' };
 
 export class MapView {
   /**
@@ -51,6 +55,8 @@ export class MapView {
     this.groupOf = {};
     this.lay = null;
     this.fitted = false;
+    this.query = '';
+    this.tourAt = -1;      // the stop shown, or -1 when the tour is off
     this.root.classList.add('mp');
     this.#build();
   }
@@ -61,8 +67,11 @@ export class MapView {
     this.pane = mk('div', 'mp-canvas-pane');
     this.layer = mk('div', 'mp-canvas');
     this.pane.append(this.layer);
+    this.tourBox = mk('div', 'mp-tour');
+    this.tourBox.hidden = true;
+    this.pane.append(this.tourBox);
     this.vp = new Viewport(this.pane, this.layer, {
-      skip: (t) => Boolean(t.closest?.('.mp-card') || t.closest?.('.mp-group-fold')),
+      skip: (t) => Boolean(t.closest?.('.mp-card') || t.closest?.('.mp-group-fold') || t.closest?.('.mp-tour')),
       onApply: () => this.hooks.onZoom?.(this.vp.view.k),
     });
     this.below = mk('div', 'mp-below');
@@ -90,7 +99,7 @@ export class MapView {
 
   setData(data) {
     if (data?.cwd !== this.data?.cwd) {
-      this.selected = null; this.tab = 'overview'; this.fitted = false; this.layWidth = null;
+      this.selected = null; this.tab = 'overview'; this.fitted = false; this.layWidth = null; this.query = ''; this.tourAt = -1;
       this.#restore(data?.cwd);
     }
     this.data = data;
@@ -109,6 +118,7 @@ export class MapView {
   /** Esc closes the legend first, then lets the selection go. Returns whether it had something to close. */
   escape() {
     if (this.legendOpen) { this.legendOpen = false; this.render(); return true; }
+    if (this.tourAt >= 0) { this.tourAt = -1; this.render(); return true; }
     if (!this.selected) return false;
     this.selected = null; this.render(); return true;
   }
@@ -133,6 +143,14 @@ export class MapView {
     return true;
   }
 
+  /** Step the tour to a stop (clamped), selecting its node and bringing it to the middle; -1 ends it. */
+  tour(at) {
+    const stops = this.data?.doc ? tourOf(this.data.doc) : [];
+    if (at < 0 || !stops.length) { this.tourAt = -1; this.render(); return; }
+    this.tourAt = Math.min(at, stops.length - 1);
+    this.select(stops[this.tourAt].node, { reveal: true });
+  }
+
   toggleGroup(id) {
     if (this.folded.has(id)) this.folded.delete(id); else this.folded.add(id);
     this.#persist();
@@ -155,7 +173,8 @@ export class MapView {
     const counts = this.layers.findings ? findingCounts(findings.shown) : {};
     const allEdges = edgesOf(doc, d.compare);
     const all = nodesOf(doc, d.compare);
-    let nodes = all.filter((n) => (n.kind === 'external' ? this.layers.external : this.layers.modules));
+    // An outside service is not a card: it is named on the line under the cards of the modules that call it.
+    let nodes = all.filter((n) => n.kind !== 'external' && this.layers.modules);
     const groups = groupsOf(nodes);
     this.groupOf = {};
     for (const g of Object.values(groups)) for (const m of g.members) if (this.folded.has(g.id)) this.groupOf[m] = g.id;
@@ -179,6 +198,7 @@ export class MapView {
     const lay = this.lay;
     const shownSel = this.selected ? (lay.pos[this.selected] ? this.selected : this.groupOf[this.selected] ?? null) : null;
     const lit = litEdges(edges, shownSel);
+    const found = searchOf(this.query, nodes);
 
     this.top.replaceChildren(this.#head(doc, findings), this.#toolbar(d), this.#source(d));
 
@@ -220,6 +240,7 @@ export class MapView {
       if (shownSel) path.dataset.lit = String(lit.has(edgeKey(e)));
       lines.append(path);
       const tags = [];
+      if (EDGE_WORD[e.kind] && !e.calls) tags.push(mk('span', 'mp-badge', EDGE_WORD[e.kind]));
       if (e.line === 'model') { const m = mk('span', 'mp-pill', 'model'); m.dataset.tone = 'model'; m.title = 'Proposed by the model, not shown by a file'; tags.push(m); }
       if (e.calls) {
         tags.push(mk('span', 'mp-pill', `${e.calls} ${e.calls === 1 ? 'call' : 'calls'}`));
@@ -233,10 +254,15 @@ export class MapView {
       }
     }
     parts.push(lines, ...labels);
-    for (const n of nodes) parts.push(this.#card(n, doc, lay.pos[n.id], counts[n.id] ?? 0, chips[n.id], edges, shownSel));
+    for (const n of nodes) {
+      const card = this.#card(n, doc, lay.pos[n.id], counts[n.id] ?? 0, chips[n.id], edges, shownSel);
+      if (this.query.trim()) card.dataset.match = String(found.has(n.id));
+      parts.push(card);
+    }
     this.layer.replaceChildren(...parts);
     if (!this.fitted) { this.fitted = true; this.fit(); } else this.vp.apply();
 
+    this.#tourBox(doc);
     this.below.replaceChildren(...(this.layers.findings ? [this.#findings(findings)] : []));
     this.#modList(all, counts);
     const picked = this.selected ? all.find((n) => n.id === this.selected) ?? null : null;
@@ -261,6 +287,26 @@ export class MapView {
       bar.append(b);
     }
     bar.append(mk('span', 'row-fill'));
+    const search = mk('input', 'mp-search');
+    search.type = 'search';
+    search.placeholder = 'Search files and modules';
+    search.setAttribute('aria-label', 'Search files and modules');
+    search.value = this.query;
+    search.addEventListener('input', () => { this.query = search.value; this.render(); this.top.querySelector('.mp-search')?.focus(); });
+    search.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const first = [...searchOf(this.query, nodesOf(d.doc, d.compare))][0];
+      if (first) this.select(first, { reveal: true });
+    });
+    bar.append(search);
+    if (tourOf(d.doc).length) {
+      const t = mk('button', 'mp-tog', 'Tour');
+      t.type = 'button';
+      t.setAttribute('aria-pressed', String(this.tourAt >= 0));
+      t.title = 'The stops /crew-map wrote for someone new to the project, in order';
+      t.addEventListener('click', () => this.tour(this.tourAt >= 0 ? -1 : 0));
+      bar.append(t);
+    }
     const pick = mk('select', 'mp-compare');
     pick.setAttribute('aria-label', 'Compare with');
     const none = mk('option', null, d.others?.length ? 'Compare with…' : 'Compare with: no other project has a map');
@@ -322,10 +368,29 @@ export class MapView {
       if (!card.title) card.title = (n.hosts ?? []).join(', ');
     } else {
       const top = mk('span', 'mp-row');
-      top.append(mk('span', 'mp-name', n.name ?? n.id), mk('span', 'row-fill'));
+      const name = mk('span', 'mp-name', n.name ?? n.id);
+      name.title = n.name ?? n.id;
+      top.append(name);
       if (count) { const f = mk('span', 'mp-fb', String(count)); f.title = `${count} ${count === 1 ? 'finding' : 'findings'}`; top.append(f); }
-      const sub = n.kind === 'group' ? `${n.members.length} modules · click to open` : cardSub(n, doc);
-      card.append(top, mk('span', 'sub', sub));
+      top.append(mk('span', 'row-fill'));
+      if (n.kind === 'group') { card.append(top, mk('span', 'sub', `${n.members.length} modules · click to open`)); }
+      else if (n.kind !== 'module') { card.append(top, mk('span', 'sub', cardSub(n, doc))); }
+      else {
+        const c = cardOf(n, doc);
+        if (c.kind) top.append(mk('span', 'mp-kind', c.kind));
+        card.append(top);
+        if (c.chips.length) {
+          const row = mk('span', 'mp-chips');
+          for (const t of c.chips) row.append(mk('span', 'mp-chip', t));
+          if (c.more) { const m = mk('span', 'mp-chip', `+${c.more}`); m.title = (n.tech ?? []).slice(3).map((t) => t.replace(/@.*$/, '')).join(', '); row.append(m); }
+          card.append(row);
+        }
+        if (this.layers.external) {
+          const fold = mk('span', `mp-fold${c.outside.length ? '' : ' none'}`, c.outside.length ? `▸ ${c.outside.join(' · ')}` : 'no outside calls');
+          if (c.outside.length) fold.title = c.outside.join('\n');
+          card.append(fold);
+        }
+      }
       if (chips?.length) { const c = mk('span', 'mp-chips'); for (const t of chips) c.append(mk('span', 'mp-chip', t)); card.append(c); }
     }
     draggable(card, {
@@ -402,6 +467,12 @@ export class MapView {
       close.addEventListener('click', () => this.select(null));
       top.append(mk('span', 'mp-name', v.title), mk('span', 'row-fill'), close);
       parts.push(top);
+      if (v.layer || v.domain) {
+        const pills = mk('div', 'mp-row');
+        if (v.layer) pills.append(mk('span', 'mp-pill', `Layer · ${v.layer}`));
+        if (v.domain) pills.append(mk('span', 'mp-pill', `Domain · ${v.domain}`));
+        parts.push(pills);
+      }
       if (v.path) parts.push(mk('code', 'sub', v.path));
       if (v.chips.length) { const c = mk('div', 'mp-chips'); for (const t of v.chips) c.append(mk('span', 'mp-chip', t)); parts.push(c); }
       const tabs = mk('nav', 'mp-tabs');
@@ -417,6 +488,13 @@ export class MapView {
       if (this.tab === 'overview') {
         sec.append(mk('span', 'lbl', 'What it is for'), mk('p', v.narrative ? null : 'sub', v.narrative ?? v.narrativeNote));
         if (v.narrative && v.narrativeCites.length) sec.append(mk('p', 'sub mp-cites', `From ${v.narrativeCites.join(', ')}`));
+        if (v.inside && (v.inside.entry || v.inside.folders.length)) {
+          sec.append(mk('span', 'lbl', 'Inside'));
+          if (v.inside.entry) { const r = mk('div', 'mp-conn mp-inside'); r.append(this.#cite(v.inside.entry), mk('span', 'mp-ev', 'entry point')); sec.append(r); }
+          for (const f of v.inside.folders) { const r = mk('div', 'mp-conn mp-inside'); r.append(mk('span', 'mp-file', `${f.folder === '.' ? '(root)' : `${f.folder}/`}`), mk('span', 'mp-ev', `${f.files} ${f.files === 1 ? 'file' : 'files'}`)); sec.append(r); }
+          if (v.inside.other) sec.append(mk('p', 'sub', `${v.inside.other} more files in other folders`));
+          if (v.inside.tests) sec.append(mk('p', 'sub', `${v.inside.tests} test ${v.inside.tests === 1 ? 'file' : 'files'}`));
+        }
         sec.append(mk('span', 'lbl', 'Connects to'));
         if (!v.connectsTo.length) sec.append(mk('p', 'sub', 'Nothing on this map.'));
         for (const c of v.connectsTo) sec.append(this.#conn(c));
@@ -457,6 +535,21 @@ export class MapView {
     for (const x of doc.notMeasured) nm.append(mk('p', 'sub', `${x.what} — ${x.reason}`));
     parts.push(nm);
     this.side.replaceChildren(...parts);
+  }
+
+  /** The tour's stop, over the bottom of the pane: which of how many, what to look at, and the way on. */
+  #tourBox(doc) {
+    const stops = tourOf(doc);
+    if (this.tourAt < 0 || !stops.length) { this.tourBox.hidden = true; return; }
+    const s = stops[Math.min(this.tourAt, stops.length - 1)];
+    const head = mk('div', 'mp-row');
+    head.append(mk('span', 'lbl', `Tour · ${this.tourAt + 1} of ${stops.length}`), mk('span', 'mp-name', s.name), mk('span', 'row-fill'));
+    const nav = (label, at, off) => { const b = mk('button', 'btn sm ghost', label); b.type = 'button'; b.disabled = off; b.addEventListener('click', () => this.tour(at)); return b; };
+    head.append(nav('Back', this.tourAt - 1, this.tourAt === 0), nav(this.tourAt === stops.length - 1 ? 'Done' : 'Next', this.tourAt === stops.length - 1 ? -1 : this.tourAt + 1, false));
+    const body = [head, mk('p', null, s.text)];
+    if (s.cites.length) body.push(mk('p', 'sub mp-cites', `From ${s.cites.join(', ')}`));
+    this.tourBox.replaceChildren(...body);
+    this.tourBox.hidden = false;
   }
 
   /** A file:line the viewer can copy. */

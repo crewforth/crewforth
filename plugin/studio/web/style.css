@@ -666,6 +666,25 @@ body[data-role="viewer"] #new-session { display: none; }
 .mp-cite:hover { color: var(--ink); text-decoration: underline; }
 .mp-pill[data-tone="model"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 14%, transparent); }
 /* A phone shows the findings and a list of the modules in place of the pane (spec §11). */
+/* CM3: a module card names itself in full (the kind line gives way), carries what it is built with, and folds the
+   outside services it calls into one line under it. A search dims what it does not name; the tour sits over the
+   bottom of the pane. */
+.mp-mod { gap: 6px; }
+.mp-mod .mp-row .mp-name { flex: none; overflow: visible; }
+.mp-mod .mp-row .mp-kind { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-fold { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-fold.none { color: var(--ink-faint); }
+.mp-card[data-match="false"] { opacity: 0.3; }
+.mp-card[data-match="true"] { border-color: var(--studio-accent); }
+.mp-search { height: 30px; min-width: 200px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
+.mp-search::placeholder { color: var(--ink-dim); }
+.mp-tour { position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 6; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--studio-accent); border-radius: var(--radius-md); background: var(--surface-raised); cursor: default; }
+.mp-tour p { margin: 0; font-size: 14px; line-height: 21px; }
+.mp-tour[hidden] { display: none; }
+.mp-inside { flex-direction: row; align-items: center; gap: 10px; }
+.mp-inside .mp-ev { margin-left: auto; }
+.mp-inside .mp-cite, .mp-inside .mp-file { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-inside .mp-ev:last-child { flex: none; }
 .mp-modlist { display: none; flex-direction: column; gap: 2px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .mp-mrow { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .mp-mrow:hover { background: var(--surface-raised); }

@@ -9,6 +9,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **The Map reads like a project, not a graph.** Studio's Map draws modules in the layers `/crew-map` wrote (UI,
+  API, Service, Data, Infrastructure, Library, Tools), each card naming the module in full with its domain, up to
+  three of what it is built with and the outside services it calls folded into one line under it. A search dims
+  what it does not name; the tour `/crew-map` wrote steps through the map over the bottom of the pane; the
+  inspector shows the layer, the domain and what is inside a module (its entry point, its folders and their file
+  counts). A map with no layers is drawn in the bands the scan gives, as before.
+
 - **The Crew Map says where each module sits, and how to read the project.** `/crew-map` now has the model add,
   to each module, its layer (`ui`, `api`, `service`, `data`, `infra`, `tool`, `library`) and the part of the
   business it serves, and to the map a tour of up to eight stops a newcomer reads in order. Each rests on lines

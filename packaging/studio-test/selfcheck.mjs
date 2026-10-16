@@ -1720,6 +1720,41 @@ check('prose without a notice yields nothing', none.size === 0);
       && lay.bands.map((b) => b.key).join() === 'clients,entry,core,external,unplaced'
       && lay.bands.every((b, i) => i === 0 || b.y === lay.bands[i - 1].y + lay.bands[i - 1].h),
       lay.bands.map((b) => `${b.key}@${b.y}+${b.h}`).join(' '));
+    {
+      // CM3: the layer /crew-map wrote is the band; without one the scan's band stands. A card says its kind, three of
+      // what it is built with and how many more, and the outside services it calls; the tour keeps the stops on this
+      // map; a search names nodes by name, folder and what they are built with; the inspector says layer, domain, inside.
+      const lw = JSON.parse(JSON.stringify(ws));
+      const apiN = lw.nodes.find((n) => n.id === 'mod:node:@demo/api');
+      const c1 = `${apiN.evidence[0].file}:${apiN.evidence[0].line}`;
+      apiN.narrative = { text: 'Serves the API.', cites: [c1], layer: 'api', domain: 'orders' };
+      apiN.tech = ['Express', 'TypeScript', 'Vitest', 'Docker', 'Prisma'];
+      apiN.structure = { folders: [{ folder: 'src', files: 4 }], testFiles: 2 };
+      const nodes2 = mpl.nodesOf(lw);
+      const lay2 = mpl.layoutOf(nodes2, { width: 960 });
+      const card = mpl.cardOf(apiN, lw);
+      const root = lw.nodes.find((n) => n.id === 'mod:node:demo-root');
+      const tour = mpl.tourOf({ ...lw, tour: [{ node: apiN.id, text: 'a', cites: [c1] }, { node: 'mod:x:gone', text: 'b', cites: [] }] });
+      const ins = mpl.inspectOf(nodes2.find((n) => n.id === apiN.id), lw, mpl.edgesOf(lw), []);
+      check('a module /crew-map gave a layer is drawn in that layer\'s band, and a module it did not keeps the band the scan gives it',
+        nodes2.find((n) => n.id === apiN.id).band === 'api' && nodes2.find((n) => n.id === 'mod:node:@demo/shared').band === mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared').band
+        && lay2.bands.some((b) => b.key === 'api' && lay2.pos[apiN.id].y >= b.y && lay2.pos[apiN.id].y < b.y + b.h) && mpl.nodesOf({ ...ws, nodes: [{ ...apiN, narrative: { ...apiN.narrative, layer: 'backend' } }] })[0].band !== 'backend',
+        lay2.bands.map((b) => b.key).join());
+      check('a card says its domain and what it is built with, three of it and how many more, and the outside services it calls, by name',
+        card.kind.startsWith('orders') && card.chips.join() === 'Express,TypeScript,Vitest' && card.more === 2
+        && mpl.cardOf(root, lw).outside.join() === [...new Set(lw.edges.filter((e) => e.from === root.id && e.to.startsWith('ext:'))
+          .map((e) => { const x = lw.nodes.find((n) => n.id === e.to); return x.label && x.label !== 'unknown' ? x.label : x.hosts[0]; }))].sort().join()
+        && mpl.cardOf(root, lw).outside.length === 4 && mpl.cardOf(lw.nodes.find((n) => n.id === 'mod:node:@demo/shared'), lw).outside.length === 0,
+        JSON.stringify([card, mpl.cardOf(root, lw).outside]));
+      check('the tour keeps the stops on this map, by name; a search names by name, folder and what a module is built with, and an empty one names none',
+        tour.length === 1 && tour[0].name === apiN.name && mpl.searchOf('vitest', nodes2).has(apiN.id) && mpl.searchOf('SRC', nodes2).has(apiN.id)
+        && mpl.searchOf('orders', nodes2).has(apiN.id) && mpl.searchOf('  ', nodes2).size === 0 && !mpl.searchOf('vitest', nodes2).has('mod:node:@demo/shared'),
+        JSON.stringify(tour));
+      check('the inspector says the layer and domain /crew-map wrote, and what is inside the module: its folders with their files and its tests',
+        ins.layer === 'API' && ins.domain === 'orders' && ins.inside.folders[0].folder === 'src' && ins.inside.folders[0].files === 4 && ins.inside.tests === 2
+        && mpl.inspectOf(mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared'), ws, mpl.edgesOf(ws), []).layer === null,
+        JSON.stringify([ins.layer, ins.domain, ins.inside]));
+    }
     const t = mpl.taskOf(fwAll.shown.find((f) => !f.proven));
     check('a finding copied as a task says what, where, and, for an inferred one, to check it first',
       /^.+\. Evidence: \S+:\d+/.test(t) && /inferred this; check it before acting on it/.test(t) && /From the crew map \(rule /.test(t)
@@ -1749,14 +1784,46 @@ check('prose without a notice yields nothing', none.size === 0);
         sel.value = '/q'; sel.emit('change');
         const esc = view.escape();
         const after = walkAll(root, isLine).filter((p) => p.dataset.lit !== undefined).length;
-        check('the view draws one card for each node, one line for each edge, one row for each shown finding, and how far behind the map is',
+        // An outside service is not a card (CM3): it is named on the line under the card of every module that calls it.
+        const kindOf = new Map(ws.nodes.map((n) => [n.id, n.kind]));
+        const drawn = ws.nodes.filter((n) => n.kind !== 'external');
+        const between = ws.edges.filter((e) => kindOf.get(e.from) !== 'external' && kindOf.get(e.to) !== 'external');
+        const folds = Object.fromEntries(cards.map((c) => [c.dataset.id, walkAll(c, (e) => String(e.className).startsWith('mp-fold'))[0]?.textContent ?? '']));
+        const unfolded = ws.edges.filter((e) => kindOf.get(e.to) === 'external').filter((e) => {
+          const x = ws.nodes.find((n) => n.id === e.to); return !(folds[e.from] ?? '').includes(x.label && x.label !== 'unknown' ? x.label : x.hosts[0]);
+        });
+        check('the view draws one card for each module and service, one line for each edge between them, one row for each shown finding, and how far behind the map is; every outside service is named under the card of each module that calls it',
           reading === 'Reading the map…' && empty === 'No map yet \u2014 no map here'
-          && cards.length === ws.nodes.length && paths.length === ws.edges.length && rows.length === fw.shown.length && pill === '2 commits behind',
-          `${cards.length} cards, ${paths.length} lines, ${rows.length} rows`);
+          && cards.length === drawn.length && paths.length === between.length && rows.length === fw.shown.length && pill === '2 commits behind'
+          && unfolded.length === 0 && ws.edges.some((e) => kindOf.get(e.to) === 'external'),
+          `${cards.length} cards, ${paths.length} lines, ${rows.length} rows; not named under their caller: ${unfolded.map((e) => `${e.from}>${e.to}`).join(' ')}`);
         check('selecting a module lights its lines only; its findings copy as a task; Compare asks for the other project; Esc lets the selection go',
-          litNow === ws.edges.filter((e) => e.from === 'mod:node:@demo/api' || e.to === 'mod:node:@demo/api').length && litNow > 0
+          litNow === between.filter((e) => e.from === 'mod:node:@demo/api' || e.to === 'mod:node:@demo/api').length && litNow > 0
           && copied.length === 1 && /Evidence: /.test(copied[0]) && compared.join() === '/q' && esc === true && after === 0 && view.escape() === false,
           `${litNow} lit; copied ${copied.length}; compared ${compared.join()}`);
+        // CM3: a map /crew-map described is drawn by its layers, and steps through its tour; a search dims what it does not name.
+        const lw = JSON.parse(JSON.stringify(ws));
+        const api = lw.nodes.find((n) => n.id === 'mod:node:@demo/api');
+        const cite = `${api.evidence[0].file}:${api.evidence[0].line}`;
+        api.narrative = { text: 'Serves the API.', cites: [cite], layer: 'api', domain: 'orders' };
+        lw.tour = [{ node: api.id, text: 'Start at the API.', cites: [cite] }, { node: 'mod:node:gone', text: 'Not on this map.', cites: [cite] }];
+        const r2 = document.createElement('div');
+        const v2 = new MapView(r2, {});
+        v2.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p2', doc: lw, behind: { count: 0 }, others: [], compare: null });
+        const tourBtn = walkAll(r2, (e) => e.className === 'mp-tog' && e.textContent === 'Tour')[0];
+        tourBtn?.emit('click');
+        const box = walkAll(r2, (e) => e.className === 'mp-tour')[0];
+        const boxText = walkAll(box ?? { children: [] }, (e) => e.className === 'lbl')[0]?.textContent;
+        const selAfter = walkAll(r2, (e) => String(e.className).startsWith('mp-card') && e.dataset.selected === 'true')[0]?.dataset.id;
+        const v3root = document.createElement('div'); const v3 = new MapView(v3root, {});
+        v3.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p3', doc: ws, behind: { count: 0 }, others: [], compare: null });
+        const noTour = walkAll(v3root, (e) => e.className === 'mp-tog' && e.textContent === 'Tour').length;
+        const search = walkAll(r2, (e) => e.className === 'mp-search')[0];
+        search.value = 'shared'; search.emit('input');
+        const marks = walkAll(r2, (e) => String(e.className).startsWith('mp-card')).map((c) => `${c.dataset.id}=${c.dataset.match}`);
+        check('a tour /crew-map wrote is a button; it opens at stop 1 of the stops on this map and selects that node; a map with no tour has no button',
+          tourBtn && box && box.hidden === false && boxText === 'Tour · 1 of 1' && selAfter === api.id && noTour === 0, `${boxText} · selected ${selAfter} · ${noTour}`);
+        check('a search marks the cards it names and dims the rest', marks.includes('mod:node:@demo/shared=true') && marks.includes('mod:node:@demo/api=false'), marks.join(' '));
       } finally { dom(); }
     }
     const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
@@ -1818,8 +1885,9 @@ check('prose without a notice yields nothing', none.size === 0);
         const fx2 = Math.max(...b.map((v) => v.x + v.w)); const fy2 = Math.max(...b.map((v) => v.y + v.h));
         const g = l.pos.gA; return g.x < fx2 && g.x + g.w > fx && g.y < fy2 && g.y + g.h > fy;
       };
-      const keyed = mpl.layoutOf(row, { width: 720, rowKey: key });
-      const plain = mpl.layoutOf(row, { width: 720 });
+      // Two cards to a row, so the group's second card wraps under the folded one: that is the frame's trap.
+      const keyed = mpl.layoutOf(row, { width: 900, rowKey: key });
+      const plain = mpl.layoutOf(row, { width: 900 });
       check('an open group starts a row of its own, so its frame holds its own cards and no other; without that the frame took in a folded neighbour',
         !frameHoldsOther(keyed) && frameHoldsOther(plain) && keyed.pos.p.y > keyed.pos.gA.y,
         `with rows: ${JSON.stringify(keyed.pos)}`);
