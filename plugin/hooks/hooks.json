@@ -72,6 +72,9 @@
       { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] },
       { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 } ] }
     ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/precompact-snapshot.sh\"", "timeout": 30 } ] }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact|fork",

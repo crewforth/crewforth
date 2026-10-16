@@ -4492,6 +4492,41 @@ else fail "session-rehydrate git-hooks states read '$_got' (want '--UO---': no h
 rm -rf "$RHG"
 _rj=0; for _o in "$_o1" "$_o2" "$_o4" "$_o6"; do printf '%s' "$_o" > "$RHD/o.json"; awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$RHD/o.json" 2>/dev/null || _rj=$((_rj+1)); done
 [ "$_rj" = 0 ] && pass "each language/handover output is valid JSON (Crewforth's reader, 4 of 4)" || fail "$_rj session-rehydrate output(s) are not valid JSON"
+# V3: just before a compaction, precompact-snapshot.sh writes the state of the work from the files and the gates;
+# after it, session-rehydrate gives that state back, to the same session only. The snapshot never blocks the
+# compaction (PreCompact exit 2 would): rc 0 and silent in every case, a broken one included.
+PCS="$HOOKS/precompact-snapshot.sh"
+if [ ! -x "$PCS" ]; then fail "precompact-snapshot.sh missing/not executable"
+else
+  PCD="$(mktemp -d)"; PCD="$(cd -P "$PCD" && pwd)"; _pco="$(mktemp)"; _pcr="$(mktemp)"   # outside the repository: a file there is uncommitted
+  ( cd "$PCD" && git init -q . && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m base ) >/dev/null 2>&1
+  mkdir -p "$PCD/.claude" "$PCD/.crewforth" "$PCD/docs"
+  printf 'x\n' > "$PCD/plain.txt"; printf 'x\n' > "$PCD/odd\"na	me.txt"
+  printf '{\n  "findings": [\n    {\n      "rule": "a"\n    },\n    {\n      "rule": "b"\n    }\n  ]\n}\n' > "$PCD/.crewforth/review.json"
+  printf 'BLOCK\t§4.2\tvendor name\t\n' > "$PCD/.git/crewforth-gate-log.tsv"
+  printf '{"session_id":"s-1","cwd":"%s","hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$PCS" > "$_pco" 2>&1; _pcrc=$?
+  _snap="$PCD/.git/crewforth-session-snapshot.json"; _sb=""
+  [ -f "$_snap" ] && IFS= read -r _sb < "$_snap"
+  _rs(){ printf '{"session_id":"%s","source":"%s","cwd":"%s"}' "$1" "$2" "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$HOOKS/session-rehydrate.sh" 2>/dev/null; }
+  _same="$(_rs s-1 compact)"; _other="$(_rs s-2 compact)"; _start="$(_rs s-1 startup)"
+  printf '%s' "$_same" > "$_pcr"
+  _b=""
+  [ "$_pcrc" = 0 ] && [ ! -s "$_pco" ] || _b="$_b [rc $_pcrc, printed: $(head -c 120 "$_pco")]"
+  awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_snap" 2>/dev/null || _b="$_b [the snapshot is not valid JSON: ${_sb:0:160}]"
+  case "$_sb" in *'"session_id":"s-1"'*'"trigger":"auto"'*'branch '*'3 uncommitted file(s)'*'§4.2 vendor name'*'review 2'*) ;; *) _b="$_b [snapshot: ${_sb:0:200}]" ;; esac
+  case "$_same" in *'Before this context was compacted'*'review 2'*) ;; *) _b="$_b [not given back after compaction: ${_same:0:120}]" ;; esac
+  awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_pcr" 2>/dev/null || _b="$_b [the SessionStart output with an odd file name is not valid JSON]"
+  case "$_other$_start" in *'Before this context was compacted'*) _b="$_b [given to another session or on a plain start]" ;; esac
+  # Fail-open: no repository, a cwd that is not there, no JSON at all, and the hook alone without eval/lib.
+  _nr="$(mktemp -d)"; _alone="$(mktemp -d)"; cp "$PCS" "$_alone/precompact-snapshot.sh"
+  printf '{"session_id":"s-9","cwd":"%s","trigger":"manual"}' "$_nr" | CLAUDE_PROJECT_DIR="$_nr" bash "$PCS" >/dev/null 2>&1 || _b="$_b [non-repo rc $?]"
+  printf '{"session_id":"s-9","cwd":"/nonexistent/x"}' | CLAUDE_PROJECT_DIR= bash "$PCS" >/dev/null 2>&1 || _b="$_b [missing cwd rc $?]"
+  printf 'not json' | CLAUDE_PROJECT_DIR="$_nr" bash "$PCS" >/dev/null 2>&1 || _b="$_b [garbage rc $?]"
+  printf '{"session_id":"s-9","cwd":"%s"}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$_alone/precompact-snapshot.sh" >/dev/null 2>&1 || _b="$_b [no eval/lib rc $?]"
+  [ -z "$_b" ] && pass "PreCompact writes the state of the work (branch, uncommitted files, the last gate refusal, the findings on record) as valid JSON, even for a file name with a quote and a tab; SessionStart gives it back after a compaction to the same session only, never to another or on a plain start; the hook is rc 0 and silent outside a repository, with no cwd, with no JSON and without eval/lib" \
+    || fail "precompact snapshot:$_b"
+  rm -rf "$PCD" "$_nr" "$_alone" "$_pco" "$_pcr"
+fi
 # Asked of the entry that carries session-rehydrate, not of the file: skill-trust's entry has the same matcher.
 _rw(){ _n="$(awk -v op=len -v path=hooks.SessionStart -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"; _i=0
        while [ "$_i" -lt "${_n:-0}" ]; do _e="$(awk -v op=get -v path="hooks.SessionStart.$_i" -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"

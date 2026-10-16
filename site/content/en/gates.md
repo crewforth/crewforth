@@ -7,10 +7,10 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | **Agents** | {{AGENT_COUNT}} | Thin triggers — *who* owns a domain and *when* they fire |
 | **Skills** | {{SKILL_COUNT}} | The method, written once, applied by whoever needs it |
 | **Commands** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hooks** | 19 | The gates, plus session measurement and routing |
+| **Hooks** | 20 | The gates, plus session measurement and routing |
 | **Discipline** | 1 | Principles, workflow, Definition of Done, prohibitions — imported by your `CLAUDE.md` |
 
-## All 19 hooks
+## All 20 hooks
 
 | Hook | Role |
 |:--|:--|
@@ -27,7 +27,8 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | `guard-powershell.sh` | Sends Crewforth's own scripts back to the Bash tool when the model tries them in PowerShell, where `bash` can be WSL's and the script fails |
 | `context-usage.sh` | Reads the real token count from the transcript and injects it every turn |
 | `session-guard.sh` | Warns once at {{FILL_WARN}}% context fill and once at {{FILL_ALERT}}% — never blocks a turn |
-| `session-rehydrate.sh` | Re-surfaces the handover after `/compact` or `/clear`, and tells a session which language the project was installed in |
+| `precompact-snapshot.sh` | Just before a compaction, writes down the state of the work from the files and the gates: the branch, the uncommitted files, the last refusal in the gate log and the findings on record, at most ~2 KB, inside the repository's git directory. It never blocks the compaction |
+| `session-rehydrate.sh` | Re-surfaces the handover after `/compact` or `/clear`, gives a compacted session back the state `precompact-snapshot.sh` wrote for it (the same session only), and tells a session which language the project was installed in |
 | `skill-trust.sh` | Names any skill or agent Crewforth never shipped and you never accepted |
 | `session-stats.sh` | Reports what the session actually did — failing tool loops, repeated prompts, interrupts. `reflect` and `handoff` read it, so a retrospective rests on the record rather than on recollection |
 | `session-update-check.sh` | Asks once, when a session opens, whether to update when a newer version is published — each edition compared against the channel that will deliver it. The lookup runs detached and at most daily, so an offline or proxied machine costs the session opening nothing; `CREW_NO_UPDATE_CHECK=1` turns it off |

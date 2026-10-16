@@ -35,3 +35,16 @@ One line under the prompt says what Crewforth's hooks know about this session:
 The gate's last word in this session, an approval you gave for a commit or a push that still holds, the crew agents started in this session and still running, the context fill Claude Code measured, and what Claude Code puts the session's cost at. Each part shows only when there is something to say, and nothing from before the session: the gate log carries no time, so a line from last week would otherwise read as now.
 
 The installers set it only where no status line is set, in the project or in your own settings, because the project's setting would win over yours. With one of your own, they leave it and `/crew-doctor` says how to turn Crewforth's on. The plugin edition cannot set a status line.
+
+## Compaction
+
+When the context is compacted, the model keeps its own summary of the conversation. Just before that, the
+`precompact-snapshot.sh` hook writes down what the files and the gates say: the branch, the uncommitted files, the last
+refusal in the gate log, the findings on record under `.crewforth/`, and whether a handover is there, at most about
+2 KB, inside the repository's git directory so it is never committed. When the session starts again after the
+compaction, `session-rehydrate.sh` gives that back, to the same session only. The hook never blocks the compaction.
+
+Studio's session card says how full the context is and how much of the text in it since the last compaction is tool
+output (`141k ctx · 55% tool output`), and, on hover, how many times the session was compacted and the last one's
+tokens before and after. The share is counted in characters, not tokens: the transcript keeps no token count per
+message part.

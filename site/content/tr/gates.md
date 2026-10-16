@@ -7,10 +7,10 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 19 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 20 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 19 hook'un tamamı
+## 20 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
@@ -27,7 +27,8 @@
 | `guard-powershell.sh` | Model Crewforth'un kendi betiklerini PowerShell'de koşturmaya kalkınca onu Bash aracına geri gönderir; PowerShell'de `bash` WSL'inki olabilir ve betik düşer |
 | `context-usage.sh` | Transcript'ten gerçek token sayısını okur ve her tura enjekte eder |
 | `session-guard.sh` | Bağlam doluluğu %{{FILL_WARN}}'i ve %{{FILL_ALERT}}'ı geçtiğinde birer kez uyarır, turu asla kesmez |
-| `session-rehydrate.sh` | `/compact` veya `/clear` sonrasında devir notunu yeniden önünüze getirir; oturuma projenin hangi dilde kurulduğunu söyler |
+| `precompact-snapshot.sh` | Sıkıştırmadan hemen önce işin durumunu dosyalardan ve kapılardan yazar: dal, commit'lenmemiş dosyalar, kapı kaydındaki son ret ve kayıttaki bulgular; en fazla ~2 KB, deponun git dizininde. Sıkıştırmayı asla engellemez |
+| `session-rehydrate.sh` | `/compact` veya `/clear` sonrasında devir notunu yeniden önünüze getirir; sıkıştırılan oturuma `precompact-snapshot.sh`'in onun için yazdığı durumu geri verir (yalnız aynı oturuma); oturuma projenin hangi dilde kurulduğunu söyler |
 | `skill-trust.sh` | Crewforth'un getirmediği ve sizin de kabul etmediğiniz her skill ya da ajanı adıyla bildirir |
 | `session-stats.sh` | Oturumun gerçekte ne yaptığını raporlar: patlayan araç döngüleri, tekrarlanan istekler, kesintiler. `reflect` ve `handoff` bunu okur, böylece geri dönüş hatırlamaya değil kayda dayanır |
 | `session-update-check.sh` | Yeni bir sürüm yayımlandığında, oturum açılırken bir kez güncellenip güncellenmeyeceğini sorar; her sürüm onu getirecek kanala göre karşılaştırılır. Sorgu ayrık koşar ve en fazla günde bir kez yapılır, dolayısıyla çevrimdışı ya da proxy arkasındaki bir makinede oturum açılışı hiçbir şey ödemez; `CREW_NO_UPDATE_CHECK=1` kapatır |

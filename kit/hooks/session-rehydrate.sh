@@ -68,11 +68,34 @@ if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir
   esac
 fi
 [ -n "$HOOKMSG" ] && MSG="${MSG:+$MSG }$HOOKMSG"
-[ -n "$MSG" ] || exit 0   # no handover to offer and nothing to say about language -> stay silent
+
+# THE STATE BEFORE THE COMPACTION. precompact-snapshot.sh wrote it just before this context was compacted: the
+# branch, the uncommitted files, the last gate refusal, the findings on record. Read back only after a compaction and
+# only into the session that wrote it (same session id); its summary is already JSON-escaped, so it is put into the
+# output as it is, and the rest of MSG stays fixed text that needs no escaping and no extra process.
+SNAP=""
+_rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+if [ "$SRC" = compact ] && [ -f "$_rh/../eval/lib/gate-log.sh" ]; then
+  . "$_rh/../eval/lib/gate-log.sh"
+  _sf=""
+  if crew_git_dir "$ROOT" && [ -f "$_CREW_GD/crewforth-session-snapshot.json" ]; then _sf="$_CREW_GD/crewforth-session-snapshot.json"
+  elif [ -f "$ROOT/.claude/state/session-snapshot.json" ]; then _sf="$ROOT/.claude/state/session-snapshot.json"; fi
+  _sid(){ _SID=""; local v="${1#*\"session_id\"}"; [ "$v" = "$1" ] && return 0; v="${v#*\"}"; _SID="${v%%\"*}"; }
+  if [ -n "$_sf" ] && IFS= read -r _sj < "$_sf" 2>/dev/null; then
+    _sid "$IN"; _mine="$_SID"; _sid "$_sj"
+    case "$_sj" in *'"summary":"'*)
+      if [ -n "$_mine" ] && [ "$_mine" = "$_SID" ]; then
+        _sum="${_sj#*\"summary\":\"}"; _sum="${_sum%\"\}*}"
+        SNAP="Before this context was compacted, Crewforth wrote down the state of the work from the files and the gates: $_sum. It is a record of that moment; check the files before relying on it."
+      fi ;;
+    esac
+  fi
+fi
+[ -n "$MSG$SNAP" ] || exit 0   # nothing to offer -> stay silent
 
 # hookSpecificOutput.additionalContext is the documented channel that injects text into the model's context.
 # ONE PATH, no jq: MSG is built from fixed constants with no quote, backslash, control character or newline, so it needs no
 # escaping and every machine emits the same bytes. If you ever make MSG dynamic, escape it the way board-sync.sh
 # does (jq-identical, measured) — a raw quote or tab here makes JSON the CLI silently drops.
-printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$MSG"
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s%s%s"}}\n' "$MSG" "${MSG:+${SNAP:+ }}" "$SNAP"
 exit 0

@@ -79,28 +79,7 @@ MSG="$(cat "$CACHE")
 Board state above is a cached snapshot; $_BS (Bash tool, not PowerShell — or the user can type /crew-board sync) refreshes it."
 
 # ONE PATH, no jq. The JSON is built here on every machine, so a Mac with jq and a Windows box without it emit the
-# same bytes. The escaper is jq-identical, measured on 15 inputs (quote, backslash, tab, CR, C0 controls, DEL,
-# UTF-8, leading/trailing newlines, 5000 chars): 15/15 equal to `jq -cn --arg m`. The one it replaced escaped only
-# the quote, the backslash and the newline, so a tab in an item title produced JSON the CLI cannot parse
-# (measured: jq rc=5) and the board silently vanished from the session — on exactly the no-jq machine this
-# branch existed for. The trailing newline on the printf closes the last record, so a value ending in a newline
-# keeps it. One awk, no subshell per character. A CR that ENDS a line is dropped on purpose: it is a CRLF line
-# ending, not content, and MSYS gawk already drops it on read (text mode) while BSD awk keeps it — measured on
-# Windows. Stripping it here makes every OS emit the same bytes; a CR inside a line is still escaped as \r.
-ESC="$(printf '%s\n' "$MSG" | LC_ALL=C awk 'BEGIN { ORS = ""
-    for (i = 1; i < 32; i++) ctl[i] = sprintf("%c", i)
-    nm[8] = "\\b"; nm[9] = "\\t"; nm[12] = "\\f"; nm[13] = "\\r" }
-  NR > 1 { print "\\n" }
-  { s = $0; sub(/\r$/, "", s)
-    gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s)
-    for (i = 1; i < 32; i++) {
-      if (i == 10 || !index(s, ctl[i])) continue
-      r = (i in nm) ? nm[i] : sprintf("\\u%04x", i)
-      out = ""; while ((p = index(s, ctl[i])) > 0) { out = out substr(s, 1, p - 1) r; s = substr(s, p + 1) }
-      s = out s
-    }
-    d = sprintf("%c", 127)
-    if (index(s, d)) { out = ""; while ((p = index(s, d)) > 0) { out = out substr(s, 1, p - 1) "\\u007f"; s = substr(s, p + 1) }; s = out s }
-    print s }')"
+# same bytes, through Crewforth's one escaper (eval/lib/json-string.awk: jq-identical, measured; why, in its header).
+ESC="$(printf '%s\n' "$MSG" | LC_ALL=C awk -f "$HERE/../eval/lib/json-string.awk")"
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESC"
 exit 0

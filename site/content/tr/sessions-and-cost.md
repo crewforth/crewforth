@@ -35,3 +35,16 @@ Kartı izlemez. Danışacağı modelin altında kalan bir advisor hiç eklenmez;
 Kapının bu oturumdaki son sözü, bir commit ya da push için verdiğin ve hâlâ geçerli olan onay, bu oturumda başlayıp hâlâ koşan crew ajanları, Claude Code'un ölçtüğü bağlam doluluğu ve Claude Code'un oturum maliyeti tahmini. Her parça yalnız söyleyecek bir şey olduğunda görünür ve oturumdan öncesine ait hiçbir şey göstermez: kapı günlüğü zaman taşımaz, yoksa geçen haftanın bir satırı şimdiki gibi okunurdu.
 
 Kurulum onu yalnız projede ya da kendi ayarlarında hiç durum satırı yoksa ekler, çünkü projenin ayarı seninkini ezer. Kendi satırın varsa dokunmaz; `/crew-doctor` Crewforth'unkinin nasıl açılacağını söyler. Plugin edisyonu durum satırı ayarlayamaz.
+
+## Sıkıştırma
+
+Bağlam sıkıştırıldığında model konuşmanın kendi özetini tutar. Hemen öncesinde `precompact-snapshot.sh` hook'u
+dosyaların ve kapıların söylediğini yazar: dal, commit'lenmemiş dosyalar, kapı kaydındaki son ret, `.crewforth/`
+altındaki kayıtlı bulgular ve bir devir notu olup olmadığı; en fazla yaklaşık 2 KB, deponun git dizininde, yani asla
+commit'lenmez. Oturum sıkıştırmadan sonra yeniden başladığında `session-rehydrate.sh` bunu geri verir, yalnız aynı
+oturuma. Hook sıkıştırmayı asla engellemez.
+
+Studio'nun oturum kartı bağlamın ne kadar dolu olduğunu ve son sıkıştırmadan bu yana içindeki metnin ne kadarının
+araç çıktısı olduğunu söyler (`141k ctx · 55% tool output`); üzerine gelince oturumun kaç kez sıkıştırıldığını ve
+sonuncusunun önce ve sonraki token sayısını gösterir. Pay token değil karakterle sayılır: transcript mesaj
+parçası başına token tutmaz.

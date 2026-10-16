@@ -840,8 +840,13 @@ export class Canvas {
     p.name.title = p.name.textContent;
     const bits = [`${n.turns ?? 0} ${n.turns === 1 ? 'turn' : 'turns'}`];
     if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} ctx`);
+    if (n.context?.toolShare != null) bits.push(`${n.context.toolShare}% tool output`);
     p.sub.textContent = bits.join(' · ');
-    p.sub.title = p.sub.textContent;
+    // The share is of the text since the last compaction, in characters; the compactions are the transcript's own.
+    const lc = n.context?.lastCompact;
+    p.sub.title = [p.sub.textContent,
+      n.context?.toolShare != null ? `${n.context.toolShare}% of the text in context since the last compaction is tool output (characters, not tokens)` : null,
+      n.context?.compactions ? `compacted ${n.context.compactions}×${lc?.before != null ? `, last ${lc.trigger ?? ''} ${fmtTokens(lc.before)} → ${fmtTokens(lc.after)}` : ''}` : null].filter(Boolean).join('\n');
     // What the session has running that is not an agent: commands sent to the background.
     p.bg.hidden = !bg;
     p.bg.textContent = bg ? `${bg} in background` : '';
