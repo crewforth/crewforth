@@ -61,6 +61,15 @@
       "tech": [],
       "entry": false,
       "dependencies": 0,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "api/package.json",

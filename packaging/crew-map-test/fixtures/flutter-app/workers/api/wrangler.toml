@@ -1,0 +1,6 @@
+name = "shop-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# One public address.
+routes = [{ pattern = "api.shopapp.dev", custom_domain = true }]

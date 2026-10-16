@@ -95,8 +95,8 @@
       "path": "packages/api",
       "manifest": "packages/api/package.json",
       "tech": [
-        "express@4.19.0",
-        "image:node:22-alpine"
+        "Docker",
+        "Express"
       ],
       "entry": true,
       "entryPoint": {
@@ -110,6 +110,15 @@
         ]
       },
       "dependencies": 5,
+      "structure": {
+        "folders": [
+          {
+            "folder": "src",
+            "files": 1
+          }
+        ],
+        "testFiles": 1
+      },
       "evidence": [
         {
           "file": "packages/api/package.json",
@@ -130,6 +139,15 @@
       "tech": [],
       "entry": false,
       "dependencies": 0,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "packages/orphan-lib/package.json",
@@ -150,6 +168,15 @@
       "tech": [],
       "entry": false,
       "dependencies": 0,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "packages/shared/package.json",
@@ -168,7 +195,8 @@
       "path": "packages/web",
       "manifest": "packages/web/package.json",
       "tech": [
-        "next@14.2.0"
+        "Next.js",
+        "TypeScript"
       ],
       "entry": true,
       "entryPoint": {
@@ -182,6 +210,15 @@
         ]
       },
       "dependencies": 5,
+      "structure": {
+        "folders": [
+          {
+            "folder": "src",
+            "files": 2
+          }
+        ],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "packages/web/package.json",
@@ -199,7 +236,9 @@
       "stack": "node",
       "path": ".",
       "manifest": "package.json",
-      "tech": [],
+      "tech": [
+        "TypeScript"
+      ],
       "entry": true,
       "entryPoint": {
         "evidence": [
@@ -212,6 +251,10 @@
         ]
       },
       "dependencies": 1,
+      "structure": {
+        "folders": [],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "package.json",

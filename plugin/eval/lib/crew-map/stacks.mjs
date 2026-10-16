@@ -1,5 +1,5 @@
 // stacks.mjs — modules, their declared dependencies, their imports and their references to each other, for the
-// five stacks. Every fact carries the line it was read from; what cannot be read is returned as notMeasured.
+// six stacks. Every fact carries the line it was read from; what cannot be read is returned as notMeasured.
 //
 // A module is { id, name, stack, dir, manifest, tech[], evidence[], deps[], refs[], imports[], entry, entryEv,
 //              aliases[], selfNames[], files[] }.
@@ -10,7 +10,7 @@
 // (a namespace prefix, a Gradle line read by pattern).
 
 import path from 'node:path';
-import { parseJsonc, parseToml, parseXml, xKids, xKid, xText, xLine, xFind, Unsupported } from './parse.mjs';
+import { parseJsonc, parseToml, parseXml, parseYaml, yGet, xKids, xKid, xText, xLine, xFind, Unsupported } from './parse.mjs';
 import { ev, evFirst, lineOf, isTestPath } from './project.mjs';
 
 const P = path.posix;
@@ -20,12 +20,28 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isComment = (l) => /^\s*(\/\/|#|\*|\/\*|<!--)/.test(l);
 
 export const SOURCE_EXT = {
-  node: /\.(m?[jt]sx?|cjs|cts|mts)$/, python: /\.py$/, go: /\.go$/, dotnet: /\.cs$/, java: /\.(java|kt)$/,
+  node: /\.(m?[jt]sx?|cjs|cts|mts)$/, python: /\.py$/, go: /\.go$/, dotnet: /\.cs$/, java: /\.(java|kt)$/, dart: /\.dart$/,
 };
 
 function mod(stack, name, manifest, dir) {
   return { id: `mod:${stack}:${name}`, name, stack, dir, manifest, tech: new Set(), evidence: [], deps: [], refs: [],
     imports: [], entry: false, entryEv: null, aliases: [], selfNames: [name], files: [] };
+}
+
+/**
+ * What each module is built with, from rules/tech.json: a package its manifest declares, or a file at its root.
+ * Labels are words a newcomer reads (Hono, Cloudflare Workers, Flutter), not versions; frameworks before tools, in
+ * the order of the rules. Before, only nine npm frameworks were named and a Node module read as "node".
+ */
+export function applyTech(st, pj, rules) {
+  const has = new Set(pj.files);
+  for (const m of st.modules) {
+    const deps = new Set(m.deps.map((d) => `${d.eco}\t${d.name}`));
+    for (const [eco, list] of Object.entries(rules?.packages ?? {})) for (const [name, label] of list) if (deps.has(`${eco}\t${name}`)) m.tech.add(label);
+    const base = m.dir === '.' ? '' : `${m.dir}/`;
+    for (const [file, label] of rules?.files ?? []) if (has.has(`${base}${file}`)) m.tech.add(label);
+    if (m.stack === 'node' && !m.tech.has('TypeScript') && m.files.some((f) => /\.(ts|tsx|mts|cts)$/.test(f))) m.tech.add('TypeScript');
+  }
 }
 
 // A version the map may show. A dependency can be declared by URL (git+https://token@host/repo.git#v1), and a URL
@@ -48,7 +64,7 @@ function runnable(m) {
 
 // Hand each source file to the deepest module of its stack whose directory holds it.
 // A file under a sample project's own manifest (left out of discovery) belongs to that sample, so to nobody here.
-const MANIFEST = /(^|\/)(package\.json|pyproject\.toml|setup\.cfg|requirements[^/]*\.txt|go\.mod|[^/]+\.(cs|fs|vb)proj|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?)$/;
+const MANIFEST = /(^|\/)(package\.json|pyproject\.toml|setup\.cfg|requirements[^/]*\.txt|go\.mod|[^/]+\.(cs|fs|vb)proj|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|pubspec\.yaml)$/;
 function own(modules, files, stack) {
   const mine = modules.filter((m) => m.stack === stack).sort((a, b) => b.dir.length - a.dir.length);
   const samples = files.filter((f) => MANIFEST.test(f) && isTestPath(f)).map(dirOf);
@@ -75,9 +91,6 @@ function nodeStack(pj, out) {
     for (const [sect, dev] of [['dependencies', false], ['devDependencies', true], ['peerDependencies', true], ['optionalDependencies', false]]) {
       if (!v[sect] || typeof v[sect] !== 'object') continue;
       for (const [dn, ver] of Object.entries(v[sect])) m.deps.push({ eco: 'npm', name: dn, version: cleanVersion(ver), dev, peer: sect === 'peerDependencies', ev: ev(f, L([sect, dn]), dn) });
-    }
-    for (const fw of ['next', 'react', 'vue', 'svelte', '@angular/core', 'express', 'fastify', '@nestjs/core', 'vite']) {
-      const d = m.deps.find((x) => x.name === fw && x.version !== 'url'); if (d) m.tech.add(`${fw}@${d.version.replace(/^[\^~>=<\s]+/, '')}`);
     }
     if (v.bin) { m.entry = true; m.entryEv = ev(f, L(['bin']), 'bin'); }
     else if (v.scripts && (v.scripts.start || v.scripts.dev)) { const k = v.scripts.start ? 'start' : 'dev'; m.entry = true; m.entryEv = ev(f, L(['scripts', k]), k); }
@@ -265,6 +278,98 @@ function goStack(pj, out) {
   }
 }
 
+// ---- Dart / Flutter -------------------------------------------------------------------------------------------
+// One module per pubspec.yaml. A `path:` dependency names another module of this repository (a reference); a
+// `sdk: flutter` dependency makes it a Flutter module. Its .dart files import `package:<name>/…`: another module's
+// name is a reference, anything else a package it uses; `dart:` is the SDK. lib/main.dart or bin/ is an entry, and
+// so is a tool/ script with a main() (`dart run tool/x.dart` is how a package's own command is run).
+// Before this reader, a Flutter repository's app and its packages were not on the map at all (measured on a real
+// project: 5 Dart modules, 949 .dart files, none drawn).
+function dartStack(pj, out) {
+  const made = [];
+  for (const f of pj.manifests.filter((x) => P.basename(x) === 'pubspec.yaml')) {
+    const src = pj.read(f); if (!src) continue;
+    let y; try { y = parseYaml(src.text); } catch (e) { out.notMeasured.push({ what: f, reason: `pubspec.yaml outside the subset this scanner reads: ${e.message}` }); continue; }
+    const nm = yGet(y, 'name');
+    if (!nm || nm.v.t !== 'str' || !nm.v.v) { out.notMeasured.push({ what: f, reason: 'pubspec.yaml has no name' }); continue; }
+    const m = mod('dart', nm.v.v, f, dirOf(f));
+    m.evidence.push(ev(f, nm.line, nm.v.v));
+    const paths = [];
+    for (const [key, dev] of [['dependencies', false], ['dev_dependencies', true]]) {
+      const block = yGet(y, key); if (!block || block.v.t !== 'map') continue;
+      for (const d of block.v.e) {
+        const e = ev(f, d.line, d.k);
+        if (d.v.t === 'map') {
+          const sdk = yGet(d.v, 'sdk'); const pth = yGet(d.v, 'path');
+          if (sdk && sdk.v.t === 'str') { if (sdk.v.v === 'flutter' && d.k === 'flutter') m.tech.add('Flutter'); continue; }
+          if (pth && pth.v.t === 'str') { paths.push({ to: P.normalize(P.join(m.dir === '.' ? '' : m.dir, pth.v.v)), name: d.k, ev: e }); continue; }
+          const v = yGet(d.v, 'version'); m.deps.push({ eco: 'pub', name: d.k, version: v && v.v.t === 'str' ? cleanVersion(v.v.v) : '', dev, ev: e });
+        } else {
+          m.deps.push({ eco: 'pub', name: d.k, version: d.v.t === 'str' ? cleanVersion(d.v.v) : '', dev, ev: e });
+        }
+      }
+    }
+    if (yGet(y, 'flutter')) m.tech.add('Flutter');
+    m._paths = paths;
+    out.modules.push(m); made.push(m);
+  }
+  if (!made.length) return;
+  own(out.modules, pj.files, 'dart');
+  const byName = new Map(made.map((m) => [m.name, m]));
+  for (const m of made) {
+    for (const p of m._paths) {
+      const t = made.find((o) => o.dir === p.to) ?? byName.get(p.name);
+      if (t && t !== m) m.refs.push({ to: t.id, toMod: t, ev: p.ev, confidence: 'evidence' });
+    }
+    delete m._paths;
+    for (const f of m.files) {
+      if (/(^|\/)(lib\/main\.dart|bin\/[^/]+\.dart)$/.test(f.slice(m.dir === '.' ? 0 : m.dir.length + 1)) && !m.entry) {
+        m.entry = true; m.entryEv = evFirst(f, pj.read(f)?.lines ?? []);
+      }
+      if (!m.entry && /^tool\/[^/]+\.dart$/.test(f.slice(m.dir === '.' ? 0 : m.dir.length + 1))) {
+        const i = (pj.read(f)?.lines ?? []).findIndex((l) => /^\s*(?:Future<void>|void)\s+main\s*\(/.test(l));
+        if (i >= 0) { m.entry = true; m.entryEv = ev(f, i + 1, 'main'); }
+      }
+      const src = pj.read(f); if (!src) continue;
+      src.lines.forEach((l, i) => {
+        const x = /^\s*(?:import|export)\s+['"]package:([A-Za-z0-9_]+)\/[^'"]*['"]/.exec(l);
+        if (!x) return;
+        const t = byName.get(x[1]);
+        if (t) { if (t !== m && !m.refs.some((r) => r.toMod === t)) m.refs.push({ to: t.id, toMod: t, ev: ev(f, i + 1, x[1]), confidence: 'evidence' }); return; }
+        if (x[1] === m.name) return;
+        m.imports.push({ spec: x[1], root: x[1], ev: ev(f, i + 1, x[1]), file: f });
+      });
+    }
+  }
+  // Flutter declares packages nothing imports (cupertino_icons is a font, flutter_lints a lint set, build_runner a
+  // command), so an unused-package rule would mostly be wrong here: it is not run, and that is said.
+  if (out.modules.some((m) => m.stack === 'dart')) out.notMeasured.push({ what: 'Dart package usage (dep-unused, dep-undeclared)', reason: 'Flutter declares packages that no file imports (fonts, lint sets, code generators), so a declared package is not proven unused' });
+}
+
+// A Flutter app holds its platforms as folders of their own: android/ is a Gradle project, ios/ an Xcode one. They
+// are how the app is built for each platform, not modules of the repository, so they are folded into the app: its
+// tech says Android / iOS, and the Gradle modules under it are not drawn on their own (measured on a real project:
+// two "unplaced" Gradle modules beside a Flutter app the map did not show).
+function foldPlatforms(pj, out) {
+  const apps = out.modules.filter((m) => m.stack === 'dart' && m.tech.has('Flutter'));
+  if (!apps.length) return;
+  const drop = new Set();
+  for (const a of apps) {
+    const base = a.dir === '.' ? '' : `${a.dir}/`;
+    for (const m of out.modules) {
+      if (m === a || m.stack !== 'java') continue;
+      if (m.dir === `${base}android` || m.dir.startsWith(`${base}android/`)) { drop.add(m); a.tech.add('Android'); }
+    }
+    if (pj.files.some((f) => f.startsWith(`${base}ios/`))) a.tech.add('iOS');
+  }
+  if (!drop.size) return;
+  out.modules = out.modules.filter((m) => !drop.has(m));
+  for (const m of out.modules) m.refs = m.refs.filter((r) => !drop.has(r.toMod));
+  // The Gradle notes were about those folders; with no Java module left on the map they speak of nothing.
+  if (!out.modules.some((m) => m.stack === 'java')) out.notMeasured = out.notMeasured.filter((x) => !JAVA_NOTES.has(x.what));
+}
+const JAVA_NOTES = new Set(['Gradle build logic', 'Java/Kotlin package usage (dep-unused, dep-undeclared)']);
+
 // ---- .NET ---------------------------------------------------------------------------------------------------
 function dotnetStack(pj, out) {
   const central = new Map();
@@ -425,12 +530,13 @@ export function scanStacks(pj0) {
   // Its source files still belong to the module that holds them (a test imports that module's dependencies).
   const pj = { ...pj0, manifests: pj0.files.filter((f) => !isTestPath(f)) };
   const out = { modules: [], notMeasured: [], globalAliases: [] };
-  for (const fn of [nodeStack, pythonStack, goStack, dotnetStack, javaStack]) {
+  for (const fn of [nodeStack, pythonStack, goStack, dartStack, dotnetStack, javaStack]) {
     try { fn(pj, out); } catch (e) {
       if (!(e instanceof Unsupported)) throw e;
       out.notMeasured.push({ what: fn.name, reason: e.message });
     }
   }
+  foldPlatforms(pj, out);
   // Two manifests with one name (a copy, a fork in a subdirectory) would share an id: the directory tells them apart.
   const count = new Map();
   for (const m of out.modules) count.set(m.id, (count.get(m.id) || 0) + 1);

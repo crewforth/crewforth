@@ -76,6 +76,19 @@
         ]
       },
       "dependencies": 2,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          },
+          {
+            "folder": "Controllers",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "Api/Api.csproj",
@@ -99,6 +112,10 @@
       ],
       "entry": false,
       "dependencies": 1,
+      "structure": {
+        "folders": [],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "Core/Core.csproj",
@@ -122,6 +139,10 @@
       ],
       "entry": false,
       "dependencies": 0,
+      "structure": {
+        "folders": [],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "Legacy/Legacy.csproj",
@@ -155,6 +176,15 @@
         ]
       },
       "dependencies": 0,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
       "evidence": [
         {
           "file": "Tools/Tools.csproj",

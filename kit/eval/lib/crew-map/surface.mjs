@@ -117,7 +117,7 @@ export function configuration(pj, st, rules, hostOf, ex, out) {
       src.lines.forEach((l, i) => {
         const m = /^\s*(ENV|ARG)\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(l); if (m) def(m[2], f, i + 1, 'dockerfile');
         const from = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)/i.exec(l);
-        if (from) { const o = ownerOf(st.modules, f); if (o) o.tech.add(`image:${from[1]}`); }
+        if (from) { const o = ownerOf(st.modules, f); if (o) o.tech.add('Docker'); }   // the image itself is the line's evidence
       });
     }
   }
@@ -183,6 +183,52 @@ export function codeUrls(pj, st, hostOf, ex, out) {
         }
       });
     }
+  }
+}
+
+// ---- one module calling another at the address it is served on -----------------------------------------------
+// A module says where it is served in its own deployment file: wrangler routes and custom domains (Cloudflare
+// Workers), the app of fly.toml (<app>.fly.dev). Another module that writes that host, quoted on its own or as the
+// host of a URL, calls it: an app that builds Uri(host: 'api.x.app') never spells a URL, and before this a call
+// to the project's own server was drawn as an external API, or not at all.
+const SERVED_FILES = /(^|\/)(wrangler\.toml|wrangler\.jsonc?|fly\.toml)$/;
+export function servedCalls(pj, st, ex, out) {
+  const served = new Map();   // host -> module
+  for (const m of st.modules) {
+    for (const f of pj.files.filter((x) => SERVED_FILES.test(x) && dirOf(x) === m.dir)) {
+      const src = pj.read(f); if (!src) continue;
+      src.lines.forEach((l, i) => {
+        if (isComment(l)) return;
+        const hosts = [];
+        for (const x of l.matchAll(/["']?(?:pattern|route)["']?\s*[=:]\s*["']([^"']+)["']/g)) hosts.push(x[1]);
+        if (/fly\.toml$/.test(f)) { const a = /^\s*app\s*=\s*["']([a-z0-9-]+)["']/.exec(l); if (a) hosts.push(`${a[1]}.fly.dev`); }
+        for (const raw of hosts) {
+          const h = raw.replace(/^https?:\/\//, '').replace(/^\*\.?/, '').split('/')[0].toLowerCase();
+          if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h) || isLocalHost(h) || served.has(h)) continue;
+          served.set(h, m); m.evidence.push(ev(f, i + 1, raw));
+        }
+      });
+    }
+  }
+  out.served = served;
+  if (!served.size) return;
+  for (const [h, to] of served) {
+    const q = h.replace(/[.]/g, '\\.');
+    const re = new RegExp(`(["'\`])${q}\\1|://${q}(?=[/:"'\`]|$)`);
+    for (const m of st.modules) {
+      if (m === to) continue;
+      for (const f of m.files) {
+        if (isTestPath(f)) continue;
+        const src = pj.read(f); if (!src) continue;
+        src.lines.forEach((l, i) => { if (!isComment(l) && re.test(l)) out.edges.push({ from: m.id, to: to.id, kind: 'calls', confidence: 'evidence', via: 'code', evidence: [ev(f, i + 1, h)] }); });
+      }
+    }
+    // The host was read as an external API: it is the project's own module, so its edges go there and the node goes.
+    const id = `ext:http-api:${h}`;
+    if (!ex.ext.has(id)) continue;
+    for (const e of out.edges) if (e.to === id) { e.to = to.id; e.kind = 'calls'; }
+    out.edges = out.edges.filter((e) => e.from !== e.to);
+    ex.ext.delete(id);
   }
 }
 
@@ -320,6 +366,21 @@ export function endpoints(pj, st, out) {
           const ax = /\b(\w+)\.(get|post|put|patch|delete)(?:<[^()]*?>)?\(/.exec(l);
           const axa = ax && clients.has(ax[1]) ? firstArg(L, i, ax.index + ax[0].length) : null;
           if (axa && axa.s && !/^https?:/.test(axa.s)) add(consumes, m, ax[2], axa.s, f, axa.at, axa.s);
+        });
+      }
+      // Dart consumers: a Dio client's relative path, and a full URL (http.get(Uri.parse(…)), Uri.https(host, path))
+      // only when its host is one this project serves; any other host is someone else's API. `$id` is a parameter.
+      if (/\.dart$/.test(f)) {
+        const ours = (h) => out.served?.has(h.toLowerCase());
+        const dp = (s) => s.replace(/\$\{[^}]*\}|\$\w+/g, '{x}');
+        L.forEach((l, i) => {
+          if (isComment(l)) return;
+          const dio = /\b(\w*[dD]io\w*|_?client|_?api)\.(get|post|put|patch|delete)(?:<[^()]*?>)?\(\s*(['"])(\/[^'"]*)\3/.exec(l);
+          if (dio) add(consumes, m, dio[2], dp(dio[4]), f, i, dio[4]);
+          const hp = /\.(get|post|put|patch|delete)\(\s*Uri\.parse\(\s*(['"])https?:\/\/([^/'"$]+)(\/[^'"]*)\2/.exec(l);
+          if (hp && ours(hp[3])) add(consumes, m, hp[1], dp(hp[4]), f, i, hp[4]);
+          const uh = /\bUri\.https?\(\s*(['"])([^'"$]+)\1\s*,\s*(['"])(\/[^'"]*)\3/.exec(l);
+          if (uh && ours(uh[2])) add(consumes, m, 'GET', dp(uh[4]), f, i, uh[4]);
         });
       }
       // Python: FastAPI / Flask / Django providers; requests / httpx consumers
