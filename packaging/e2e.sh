@@ -1338,8 +1338,11 @@ if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
   else
     NB="$WORK/nobash"; rm -rf "$NB"; mkdir -p "$NB"; NODEBIN="$(command -v node)"
     ( cd "$NB" && PATH="$NODEDIR" "$NODEBIN" "$CLI" add --list >/dev/null 2>&1 ) || { echo "FAIL: add --list needed more than node (PATH=$NODEDIR)"; exit 1; }
-    ( cd "$NB" && PATH="$NODEDIR" "$NODEBIN" "$CLI" studio --selftest 2>&1 ) | grep -qE '^[0-9]+/[0-9]+ passed' \
-      || { echo "FAIL: studio --selftest did not run its checks with only node on PATH ($NODEDIR)"; exit 1; }
+    # Kept in a file, not piped into grep -q: this leg failed four times on windows-latest with nothing in the log to
+    # say why. The verdict line is still what proves the self-check ran; on a failure its own output and rc are shown.
+    ( cd "$NB" && PATH="$NODEDIR" "$NODEBIN" "$CLI" studio --selftest ) > "$WORK/studio-nobash.txt" 2>&1; _nbr=$?
+    grep -qE '^[0-9]+/[0-9]+ passed' "$WORK/studio-nobash.txt" \
+      || { echo "FAIL: studio --selftest did not run its checks with only node on PATH ($NODEDIR), rc=$_nbr:"; tail -n 30 "$WORK/studio-nobash.txt"; exit 1; }
     if [ "$(uname -s | cut -c1-5)" = MINGW ] || [ "$(uname -s | cut -c1-4)" = MSYS ]; then
       echo "[no-bash] add --list and studio --selftest ran with PATH=node's dir only · twin N/A on Windows (the wrapper finds Git Bash by absolute path, not PATH)"
     else

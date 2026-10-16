@@ -114,6 +114,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Two agents starting together no longer share one model record on Windows.** A record was taken by renaming
+  it, which is a lock on macOS and Linux; on Windows two hook processes both reported the rename as done (seen
+  twice on the Windows CI). Each record is now locked first with an exclusive create, a shell builtin that costs no
+  process, and only the hook that made the lock takes it.
 - **An rc says it is one, and its final is offered.** A release candidate installed `.claude/VERSION` as the final's
   number (3.2.0 for 3.2.0-rc.1), so the update check, doctor and the refresh's "what's new" all read it as the final,
   and someone who tried the rc was never told the final shipped. The rc's archive and npm package now carry its own

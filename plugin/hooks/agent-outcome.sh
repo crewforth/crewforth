@@ -204,27 +204,36 @@ case "$EV" in
     low=9; cands=""; if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOWS '%(%s)T' -1; else NOWS="$(date +%s)"; fi
     for f in "$_AMD/pending"/*; do
       [ -f "$f" ] || continue
-      t="${f##*/}"; t="${t%%-*}"; case "$t" in ''|*[!0-9]*) ;; *) if [ $((NOWS - t)) -gt 300 ]; then rm -f "$f" 2>/dev/null; continue; fi ;; esac
+      t="${f##*/}"; t="${t%%-*}"; case "$t" in ''|*[!0-9]*) ;; *) if [ $((NOWS - t)) -gt 300 ]; then rm -f "$f" "$_AMD/agents/${f##*/}.take" 2>/dev/null; continue; fi ;; esac
       _am_rec_get "$f" agent || continue; [ "$_AMV" = "$AT" ] || continue
       cands="$cands$f"$'\n'
       _am_rec_get "$f" tier && { _am_rank "$_AMV"; [ "$_AMR" -lt "$low" ] && low="$_AMR"; }
     done
     [ -n "$cands" ] || exit 0
     mkdir -p "$_AMD/agents" 2>/dev/null || exit 0
-    # TAKEN BY RENAME. Two agents of one type start at the same moment, each in its own hook process, and both see
-    # the same oldest record. A rename either happens or fails, so exactly one of them gets it; the other goes on
-    # to the next record. (Reading it and deleting it afterwards gave both agents the same record.)
-    claim="$_AMD/agents/$AID.claim"; got=0
+    # TAKEN UNDER A LOCK, THEN BY RENAME. Two agents of one type start at the same moment, each in its own hook
+    # process, and both see the same oldest record. (Reading it and deleting it afterwards gave both the same record.)
+    # A rename alone was the lock on POSIX, and was not on Windows: two hook processes both reported the same rename
+    # as done (smoke, windows-latest, "2 got it", twice). Why is not measured; a rename there goes through an open
+    # handle, which two processes can both hold. So each record is first locked by creating <record>.take with
+    # O_EXCL (bash's noclobber, a builtin: no process); only the one that made the lock renames, the others go on to
+    # the next record.
+    claim="$_AMD/agents/$AID.claim"; got=0; take=""
+    set -C
     while IFS= read -r f; do
       [ -n "$f" ] || continue
+      take="$_AMD/agents/${f##*/}.take"
+      { : > "$take"; } 2>/dev/null || { take=""; continue; }
       if mv "$f" "$claim" 2>/dev/null; then got=1; break; fi
+      rm -f "$take" 2>/dev/null; take=""          # locked, but the record had gone (dropped as stale): let it be
     done <<< "$cands"
+    set +C
     [ "$got" = 1 ] || exit 0
     _am_rec_get "$claim" tier; _am_rank "$_AMV"
     if [ "$low" -lt "$_AMR" ]; then _am_name "$low"
       { grep -v '^tier=' "$claim"; printf 'asked=%s\ntier=%s\nambiguous=1\n' "$_AMV" "$_AMN"; } > "$_AMD/agents/$AID" 2>/dev/null
     else { cat "$claim"; printf 'asked=%s\n' "$_AMV"; } > "$_AMD/agents/$AID" 2>/dev/null; fi
-    rm -f "$claim" 2>/dev/null
+    rm -f "$claim" "$take" 2>/dev/null
     exit 0 ;;
 
   SubagentStop)

@@ -8756,6 +8756,16 @@ rm -f "$_v2st"/pending/*
 _v2call crew-backend-expert sonnet 'src/ui/race.ts' text true
 _v2start r1 & _v2start r2 & wait
 _rn=0; [ -f "$_v2st/agents/r1" ] && _rn=$((_rn+1)); [ -f "$_v2st/agents/r2" ] && _rn=$((_rn+1)); [ "$_rn" = 1 ] || _v2b="$_v2b [one record, two agents: $_rn got it]"
+ls "$_v2st/agents" 2>/dev/null | grep -qE '\.(take|claim)$' && _v2b="$_v2b a-lock-or-claim-left-behind"
+# A record another hook holds the lock on is not taken: the agent goes on to the next one (the lock is what keeps
+# two agents off one record where a rename alone did not, on Windows).
+rm -rf "$_v2st/agents"; rm -f "$_v2st"/pending/*
+_v2call crew-backend-expert sonnet 'src/ui/l1.ts' text 'test -f l1'; _pl1="$(ls "$_v2st/pending")"
+sleep 1; _v2call crew-backend-expert sonnet 'src/ui/l2.ts' text 'test -f l2'
+mkdir -p "$_v2st/agents"; : > "$_v2st/agents/$_pl1.take"
+_v2start k1
+{ grep -q '^verify=test -f l2' "$_v2st/agents/k1" 2>/dev/null && [ -f "$_v2st/pending/$_pl1" ]; } || _v2b="$_v2b a-locked-record-was-taken-or-the-next-one-was-not"
+rm -f "$_v2st/agents/$_pl1.take" "$_v2st"/pending/*
 # A record nothing claimed within five minutes is nobody's.
 mkdir -p "$_v2st/pending"; printf 'agent=crew-backend-expert\ntier=opus\nchange=text\nrisk=normal\ncard=old\nbg=unset\nesc=-\nverify=none\n' > "$_v2st/pending/1000000000-tuold"
 _v2start o1; { [ ! -f "$_v2st/agents/o1" ] && [ ! -f "$_v2st/pending/1000000000-tuold" ]; } || _v2b="$_v2b a-stale-record-was-given-to-an-agent-or-kept"
