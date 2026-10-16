@@ -8235,7 +8235,7 @@ _v2new(){ rm -rf "$_v2p" "$_v2/home"; mkdir -p "$_v2/home" "$_v2p/.claude" "$_v2
 _v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CREW_MODEL_CAL_N -u CREW_MODEL_CAL_PCT -u CREW_VERIFY_NO_SETSID -u CREW_VERIFY_TIMEOUT -u CLAUDE_CONFIG_DIR -u CREW_MANAGED_SETTINGS HOME="$_v2/home" CLAUDE_PROJECT_DIR="$_v2p" CREW_GATE_LOG=/dev/null ${_V2ENV:-} "$@"; }
 # $1 agent, $2 model, $3 files, $4 change, $5 verify, $6 extra fields -> _v2rc, stderr in $_v2/err
 _v2call(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work.","subagent_type":"%s","model":"%s"%s},"tool_use_id":"tu%s"}' "$3" "$4" "$5" "$1" "$2" "${6:-}" "$RANDOM$RANDOM" > "$_v2/c.json"
-  ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >/dev/null 2>"$_v2/err" ); _v2rc=$?; }
+  ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >"$_v2/out" 2>"$_v2/err" ); _v2rc=$?; }
 _v2start(){ printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"%s","agent_type":"%s"}' "$1" "${2:-crew-backend-expert}" | ( cd "$_v2p" && _v2e bash "$_V2O" >/dev/null 2>&1 ); }
 _v2stop(){ printf '{"session_id":"s","permission_mode":"%s","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/none.jsonl","last_assistant_message":"did it\\n%s"}' "${_V2PM:-auto}" "$1" "$_v2" "${2:-confidence: high}" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
 _v2post(){ printf '{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"prompt":"p"},"tool_response":{"status":"completed","agentId":"%s","content":"x"}}' "$1" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
@@ -8317,6 +8317,45 @@ V2
 if [ "$_v2n" != 60 ]; then fail "FIXTURE: the card table has $_v2n rows, not 60"
 elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; verify none is refused on haiku; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) (47 rows)"
 else fail "card table:$_v2b"; fi
+# The card's floor is also the default: a call above it runs ON it (the gate hands back the same input with `model`
+# replaced, PreToolUse updatedInput), unless the card's next line says `above: <why>`. Measured on a real project:
+# 73 of 186 crew tasks ran above their floor and none on haiku; measured on Claude Code 2.1.299: the rewrite holds.
+_v2new; _v2b=""
+_v2last(){ ls -t "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null | head -1; }
+_v2call crew-review-agent opus 'src/ui/a.ts' audit none ',"run_in_background":true,"isolation":"worktree"'
+_o="$(cat "$_v2/out" 2>/dev/null)"; _r="$(_v2last)"
+case "$_o" in *'"permissionDecision":"allow"'*'"updatedInput":'*) ;; *) _v2b="$_v2b [above the floor, no above: -> no rewrite: rc=$_v2rc ${_o:0:80}]" ;; esac
+_u="$(printf '%s' "$_o" | awk -v op=get -v path=hookSpecificOutput.updatedInput -f "$ROOT/eval/lib/settings-json.awk" - 2>/dev/null | tr -d ' \n')"
+case "$_u" in *'"model":"sonnet"'*'"run_in_background":true'*'"isolation":"worktree"'*|*'"run_in_background":true'*'"isolation":"worktree"'*) ;; *) _v2b="$_v2b [the rewrite lost a field: ${_u:0:120}]" ;; esac
+case "$_u" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [the rewrite is not to the floor: ${_u:0:120}]" ;; esac
+{ grep -q '^tier=sonnet$' "$_r" && grep -q '^lowered=opus$' "$_r"; } 2>/dev/null || _v2b="$_v2b [record: $(tr '\n' ' ' < "$_r" 2>/dev/null | cut -c1-80)]"
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent opus 'src/ui/a.ts' audit 'none\nabove: the audit covers the whole session layer'
+{ [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ] && grep -q '^tier=opus$' "$(_v2last)"; } 2>/dev/null || _v2b="$_v2b [above: did not keep opus: rc=$_v2rc $(head -c 60 "$_v2/out")]"
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit none
+{ [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ]; } || _v2b="$_v2b [a call on its floor was rewritten: $(head -c 60 "$_v2/out")]"
+_v2call crew-frontend-expert sonnet 'src/ui/a.ts' text 'test -d src'
+case "$(tr -d ' ' < "$_v2/out")" in *'"model":"haiku"'*) ;; *) _v2b="$_v2b [work a command checks did not go to haiku: $(head -c 80 "$_v2/out")]" ;; esac
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+# Not a crew agent: no card and no floor, only the expensive end is held. opus or fable with no `above:` line in the
+# task runs on sonnet; with one it stays; a call that names no model, or sonnet, is not touched.
+_v2o(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"Find where X is defined.%s","subagent_type":"general-purpose"%s},"tool_use_id":"tu%s"}' "$1" "$2" "$RANDOM" | ( cd "$_v2p" && _v2e bash "$_V2G" 2>/dev/null ) | tr -d ' '; }
+case "$(_v2o '' ',"model":"opus"')" in *'"updatedInput":'*'"model":"sonnet"'*) ;; *) _v2b="$_v2b [general-purpose on opus was not run on sonnet]" ;; esac
+[ -z "$(_v2o '\nabove: a design question across the codebase' ',"model":"opus"')" ] || _v2b="$_v2b [above: did not keep opus for general-purpose]"
+[ -z "$(_v2o '' ',"model":"sonnet"')" ] || _v2b="$_v2b [a call naming sonnet was rewritten]"
+# Naming no model: general-purpose takes the session's model, so it is given sonnet (CLAUDE_CODE_SUBAGENT_MODEL in
+# the project's settings env did not do it, measured on 2.1.299), unless the session is on haiku; an agent whose
+# definition names its own model is left to it; a project agent with no model line is treated like general-purpose.
+_v2ot(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","transcript_path":"%s","tool_input":{"description":"d","prompt":"Find X.","subagent_type":"%s"},"tool_use_id":"tu%s"}' "$2" "$1" "$RANDOM" | ( cd "$_v2p" && _v2e bash "$_V2G" 2>/dev/null ) | tr -d ' '; }
+printf '{"type":"assistant","message":{"model":"claude-opus-5-5"}}\n' > "$_v2/tr-opus.jsonl"; printf '{"type":"assistant","message":{"model":"claude-haiku-5-5"}}\n' > "$_v2/tr-haiku.jsonl"
+mkdir -p "$_v2p/.claude/agents"; printf -- '---\nname: mine\ndescription: x\n---\nDo it.\n' > "$_v2p/.claude/agents/mine.md"; printf -- '---\nname: cheap\nmodel: haiku\n---\nDo it.\n' > "$_v2p/.claude/agents/cheap.md"
+case "$(_v2ot general-purpose "$_v2/tr-opus.jsonl")" in *'"updatedInput":'*'"model":"sonnet"'*) ;; *) _v2b="$_v2b [general-purpose naming no model under opus was not given sonnet]" ;; esac
+[ -z "$(_v2ot general-purpose "$_v2/tr-haiku.jsonl")" ] || _v2b="$_v2b [a haiku session's general-purpose was raised to sonnet]"
+[ -z "$(_v2ot Explore "$_v2/tr-opus.jsonl")$(_v2ot cheap "$_v2/tr-opus.jsonl")" ] || _v2b="$_v2b [an agent with a model of its own was given one]"
+case "$(_v2ot mine "$_v2/tr-opus.jsonl")" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [a project agent with no model line was not given sonnet]" ;; esac
+[ -z "$_v2b" ] && pass "above the floor runs on the floor: opus for a sonnet card is rewritten to sonnet with every other field kept and recorded as lowered; 'above: <why>' keeps opus; a call on its floor is untouched; checkable text work goes to haiku; an agent outside the crew asking for opus, or inheriting an opus session's model, runs on sonnet unless its task says why; a haiku session and an agent with its own model are left alone" \
+               || fail "model on the floor:$_v2b"
 # The refusal names the way forward that exists (the field was sent, so it can be sent as false), and a call that
 # left the field out and was launched in the background is told so when the launch comes back.
 _v2new; _v2b=""
@@ -8716,12 +8755,38 @@ if command -v iconv >/dev/null 2>&1; then printf '%s' "$_o" | iconv -f UTF-8 -t 
 [ "${#_o}" -le 2600 ] || _v2b="$_v2b [the reason is ${#_o} bytes]"
 [ -z "$_v2b" ] && pass "the one fix is asked once and only where it can be counted: a red verify under stop_hook_active ends as fail with no block, and so does one whose counter cannot be written (both recorded as fail with no fix); the output handed to the agent is cut at 1500 bytes without splitting a character" \
                || fail "the stop hook's one fix:$_v2b"
+# A verify command in a sub-folder, `cd <folder> && <command>` (41 of 71 refusals on one project): judged as the
+# command and run in the folder with no chain. A folder outside the project, one that does not exist, or a second
+# chain after it stays refused. A card that says `none (why)` is none.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/sub"; : > "$_v2p/sub/ok.flag"
+printf 'verify test -f ok.flag\n' > "$_v2p/.claude/crew-model-rules"
+_v2plant c1 'cd sub && test -f ok.flag'; _v2stop c1 >/dev/null
+[ "$(_v2row c1 | cut -d/ -f2)" = pass ] || _v2b="$_v2b [cd sub && test: $(_v2row c1)]"
+for _cc in 'c2:cd ../sub && test -f ok.flag' 'c3:cd nowhere && test -f ok.flag' 'c4:cd sub && test -f ok.flag && touch x' 'c5:cd /tmp && test -f ok.flag'; do
+  _v2plant "${_cc%%:*}" "${_cc#*:}"; _v2stop "${_cc%%:*}" >/dev/null
+  [ "$(_v2row "${_cc%%:*}" | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [${_cc#*:} was not refused: $(_v2row "${_cc%%:*}")]"
+done
+[ ! -e "$_v2p/sub/x" ] || _v2b="$_v2b [a chain after the folder ran]"
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' text 'none (the author ran it)'
+grep -q '^verify=none$' "$(ls -t "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null | head -1)" 2>/dev/null || _v2b="$_v2b [none (why) was not none]"
+# doctor lists the commands refused for not being allowed, with the line that allows them, and not a sentence
+mkdir -p "$_v2p/.claude/state/crew-model/results"
+printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=node tools/build.mjs --check\n' > "$_v2p/.claude/state/crew-model/results/r1"
+printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=actionlint (if installed)\n' > "$_v2p/.claude/state/crew-model/results/r2"
+if [ -f "$ROOT/eval/doctor.sh" ]; then
+  mkdir -p "$_v2p/.claude/eval"; cp -R "$ROOT/eval/." "$_v2p/.claude/eval/" 2>/dev/null
+  _dd="$( cd "$_v2p" && env -u CLAUDE_CODE_SUBAGENT_MODEL CREW_NO_STAR=1 CREW_LANG=en CLAUDE_CONFIG_DIR="$_v2/home" bash .claude/eval/doctor.sh 2>/dev/null | grep 'verify commands never run' )"
+  case "$_dd" in *'2 time(s)'*'verify node tools/build.mjs --check'*) case "$_dd" in *actionlint*) _v2b="$_v2b [doctor offered a sentence as a rule]" ;; esac ;;
+    *) _v2b="$_v2b [doctor: ${_dd:-no line}]" ;; esac
+fi
+[ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands as rules, not a sentence" \
+               || fail "verify in a sub-folder:$_v2b"
 # Which record is whose. Two calls of one type made together are matched by order, which can be wrong; the card in
 # the agent's own transcript settles it.
 _v2new; _v2b=""; _v2st="$_v2p/.claude/state/crew-model"
 _v2tr(){ printf '{"type":"user","message":{"role":"user","content":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work."}}\n' "$2" "$3" "$4" > "$_v2/tr-$1.jsonl"; }
 _v2stopt(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/tr-%s.jsonl","last_assistant_message":"did it\\nconfidence: high"}' "$1" "$_v2" "$1" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
-_v2call crew-backend-expert haiku 'src/ui/one.ts' text 'test -f one.ok'; _v2call crew-backend-expert opus 'src/ui/two.ts' feature 'test -f two.ok'
+_v2call crew-backend-expert haiku 'src/ui/one.ts' text 'test -f one.ok'; _v2call crew-backend-expert opus 'src/ui/two.ts' feature 'test -f two.ok\nabove: two models pending for one agent type'
 # The order the two records are taken in is made known: the haiku call's first, so each agent gets the OTHER's below.
 for _pf in "$_v2st/pending"/*; do if grep -q 'one.ok' "$_pf"; then mv "$_pf" "$_v2st/pending/1-a"; else mv "$_pf" "$_v2st/pending/2-b"; fi; done
 _pt="$(date +%s)"; mv "$_v2st/pending/1-a" "$_v2st/pending/$_pt-a"; mv "$_v2st/pending/2-b" "$_v2st/pending/$_pt-b"

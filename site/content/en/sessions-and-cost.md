@@ -12,7 +12,7 @@ Most of what a session costs is the model that runs each piece of work, so that 
 
 What that came to is recorded, one line per call, in `.claude/state/model-outcomes.tsv`, and stays in your project. Studio reads it (see the Studio page): the **Models** view shows, for each kind of task, the model, how often the first try passed, how often it was repeated one model up, and an estimated cost at API list price. A class whose first try fails too often is held one model up from then on; `/crew-loosen` lowers it again when you decide to.
 
-Two limits. This applies to `crew-*` agents only: Explore, general-purpose and a project's own agents run on the model their call asks for, or else the session's, and are not in the record. And the gate holds a floor, not a ceiling: it refuses a model that is too small for the card, never one that is larger than the work needs.
+The card's model is also the default. A call that asks for more runs on the card's model, unless the card adds a line `above: <why>`; one that asks for less is refused. Agents outside the crew have no card, so only the expensive end is held: a call asking for `opus` or `fable` without `above:` runs on `sonnet`, and so does a general-purpose call (or a project agent with no model of its own) that names no model, which would otherwise take the session's. A session on `haiku`, and an agent whose definition names its own model, are left alone. Those agents are not in the record.
 
 ## The advisor
 

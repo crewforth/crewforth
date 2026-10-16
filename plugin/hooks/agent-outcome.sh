@@ -299,7 +299,9 @@ case "$EV" in
     RES=none; WHYNOT=""
     if [ -n "$VCMD" ] && [ "$VCMD" != none ]; then
       _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
-      if ! _am_verify_ok "$VCMD" "$PM"; then
+      # `cd <folder> && <command>` is judged as the command and run in the folder (guard-agent-model.sh).
+      _am_verify_split "$VCMD"; VDIR="$_AMVD"; VRUN="$_AMVC"
+      if ! _am_verify_ok "$VRUN" "$PM"; then
         # Judged again here, at the moment it would run: the gate judged it when the agent was called, and this
         # is the place the command actually starts. Not run; nothing is concluded about the work.
         RES=blocked; WHYNOT="$_AMVW"; VRC=0
@@ -314,11 +316,11 @@ case "$EV" in
         # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
         # is ended by its Windows process id.
         if [ -z "${CREW_VERIFY_NO_SETSID:-}" ] && command -v setsid >/dev/null 2>&1; then
-          ( cd "$_AMP" 2>/dev/null && exec setsid bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$_AMP/$VDIR" 2>/dev/null && exec setsid bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
         else
           set -m
-          ( cd "$_AMP" 2>/dev/null && exec bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$_AMP/$VDIR" 2>/dev/null && exec bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
           set +m
         fi

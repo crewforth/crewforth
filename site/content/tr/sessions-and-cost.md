@@ -12,7 +12,7 @@ Bir oturumun maliyetinin çoğu, her işi koşan modeldir; bu yüzden model otur
 
 Bunun neye mal olduğu, çağrı başına bir satırla `.claude/state/model-outcomes.tsv` dosyasına yazılır ve projenizde kalır. Studio bunu okur (Studio sayfasına bakın): **Models** görünümü her iş türü için modeli, ilk denemenin ne sıklıkta geçtiğini, ne sıklıkta bir üst modelle tekrarlandığını ve API liste fiyatıyla tahmini maliyeti gösterir. İlk denemesi çok sık düşen bir sınıf o andan sonra bir üst modelde tutulur; karar verdiğinizde `/crew-loosen` onu yeniden indirir.
 
-İki sınır. Bu yalnız `crew-*` ajanlarında uygulanır: Explore, general-purpose ve projenin kendi ajanları çağrılarının istediği modelde, istemediyse ana oturumun modelinde koşar ve kayda düşmez. Ve kapı taban zorlar, tavan zorlamaz: kart için küçük kalan modeli reddeder, işin gerektirdiğinden büyük olanı değil.
+Kartın modeli aynı zamanda varsayılandır. Daha fazlasını isteyen çağrı, kart `above: <neden>` satırı eklemedikçe kartın modelinde koşar; daha azını isteyen reddedilir. Crew dışındaki ajanların kartı yoktur, bu yüzden yalnız pahalı uç tutulur: `above:` olmadan `opus` ya da `fable` isteyen çağrı `sonnet`'te koşar; model belirtmeyen bir general-purpose çağrısı (ya da kendi modeli olmayan bir proje ajanı) da öyle, yoksa oturumun modelini alırdı. `haiku`'daki bir oturuma ve tanımında kendi modeli olan bir ajana dokunulmaz. Bu ajanlar kayda düşmez.
 
 ## Advisor
 

@@ -767,8 +767,8 @@ if printf '{}' | jq -e . >/dev/null 2>&1; then
   # measured on windows-latest ("Could not open D:"), where jq exists and this oracle actually runs.
   for _c in "$U/settings.stale|$U/settings.first" "$R/settings.stale|$R/.claude/settings.json"; do
     _in="${_c%%|*}"; _out="${_c#*|}"
-    # Then the installers set the status line where none is set (eval/lib/statusline.sh --install): the oracle adds
-    # it too, from the same file, when the merged settings carry none (this run's CLAUDE_CONFIG_DIR sets none).
+    # Then the installers set the status line where none is set (eval/lib/settings-default.sh): the oracle adds it
+    # too, from the same file, when the merged settings carry none (this run's CLAUDE_CONFIG_DIR sets none).
     _want="$(jq -n --slurpfile p "$_in" --slurpfile k kit/settings.json "$JQ_ORACLE" \
       | jq --slurpfile s kit/eval/lib/statusline.settings.json 'if has("statusLine") then . else . + $s[0] end' | jq -S .)"
     [ -n "$_want" ] && [ "$_want" = "$(jq -S . "$_out")" ] \

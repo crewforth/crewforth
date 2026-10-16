@@ -107,6 +107,7 @@ _mt() {
       'advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)') s='advisor: kapalı (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)' ;;
       "status line: Crewforth's (from %s)") s="durum satırı: Crewforth'unki (%s içinden)" ;;
       "status line: your own (from %s); Crewforth's is not used") s="durum satırı: seninki (%s içinden); Crewforth'unki kullanılmıyor" ;;
+      "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını .claude/crew-model-rules dosyasına ekle: %s" ;;
       "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)") s="durum satırı: yok; Crewforth'unki: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
       "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
       'advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off') s="advisorModel %s (%s içinde), ama CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 advisor'ı kapatıyor" ;;
@@ -771,6 +772,28 @@ case "$_sl" in
   ?*) ok "status line: your own (from %s); Crewforth's is not used" "${_slf/#$HOME/~}" ;;
   *) [ -f .claude/eval/lib/statusline.sh ] && ok "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
 esac
+
+# 9e) What model routing costs. Advisory. A verify command the hook was never allowed to run cannot vouch for
+#     cheaper work: the ones refused for that reason are listed with the line that allows them (measured on one
+#     project: 23 of 71 refusals).
+_vbn=0; _vbl=""
+for _f in .claude/state/crew-model/results/*; do
+  [ -f "$_f" ] || continue
+  _vb=0; _vw=""; _vc=""
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "$_l" in verify=blocked) _vb=1 ;; whynot=*) _vw="${_l#whynot=}" ;; cmd=*) _vc="${_l#cmd=}" ;; esac
+  done < "$_f"
+  [ "$_vb" = 1 ] || continue
+  case "$_vw" in *"not a test or build command on this hook's list"*) ;; *) continue ;; esac
+  _vc="${_vc:0:80}"; [ -n "$_vc" ] || continue
+  _vbn=$((_vbn+1))
+  case "$_vc" in *'('*|*' + '*) continue ;; esac     # a sentence, not a command: counted, not offered as a rule
+  case "$_vbl" in *"| verify $_vc |"*) ;; *) _vbl="$_vbl| verify $_vc |" ;; esac
+done
+if [ "$_vbn" -gt 0 ]; then
+  _vsep=' || '; _vdot=' · '; _vbs="${_vbl//"$_vsep"/$_vdot}"; _vbs="${_vbs#| }"; _vbs="${_vbs% |}"; _vbs="${_vbs:0:300}"
+  warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s" "$_vbn" "$_vbs"
+fi
 
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has

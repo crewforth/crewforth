@@ -55,16 +55,16 @@ sequence. All are installed: "no owner" is an `ls`.
 
 **Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
 `files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
-· `verify:` the command that proves it, or `none`. **crew-planner** writes the card; with no plan, you do.
+· `verify:` the command that proves it, or `none`. **crew-planner** writes the card, or you do.
 
-| `model` | the card |
+| `model` (`guard-agent-model.sh`: floor = default; `above: <why>` for more) | the card |
 |---|---|
-| `haiku` | text, test-run, mechanical work — only with a `verify:` command |
+| `haiku` | text, test-run, mechanical work — only with `verify:` |
 | `sonnet` | feature, fix-known, refactor, test-write, audit, review; anything with `verify: none` |
-| `opus` | **critical**: migration, security, architecture, fix-unknown, or a file on a critical path (auth, payments, migrations…) — its test-write, audit and review too |
+| `opus` | **critical**: migration, security, architecture, fix-unknown, or a critical-path file (auth, payments, migrations…) — its test-write, audit, review too |
 
 The referee follows the RISK, not the author's model. Verify fails → the agent fixes once; again → re-run ONCE one
-model up; again → AskUserQuestion. The same for a report that ends `confidence: low`. `guard-agent-model.sh` holds it.
+model up; again → AskUserQuestion. The same for a report that ends `confidence: low`.
 
 **Naming an agent in prose is a hope; `@agent-<name>` is a guarantee** — measured here: 0/3 vs 3/3. Use that form
 whenever an agent must run, and tell the user they can too.

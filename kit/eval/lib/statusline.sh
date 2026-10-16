@@ -25,24 +25,9 @@ _here="${BASH_SOURCE%[/\\]*}"; [ "$_here" = "${BASH_SOURCE}" ] && _here=.
 # the project's setting would win over it. Prints one word: installed · kept (one is set) · none (no settings.json)
 # · failed (the file is left as it was). A managed settings layer is not read. The merge is Crewforth's own JSON reader.
 if [ "${1:-}" = --install ]; then
-  P=".claude/settings.json"; SJ="$_here/settings-json.awk"
-  [ -f "$P" ] && [ -f "$SJ" ] || { echo none; exit 0; }
-  for f in "$P" ".claude/settings.local.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
-    [ -f "$f" ] && awk -v op=get -v path=statusLine -f "$SJ" "$f" >/dev/null 2>&1 && { echo kept; exit 0; }
-  done
-  # The setting itself is data beside this file (statusline.settings.json): one definition, read here and nowhere else.
-  K="$_here/statusline.settings.json"; [ -f "$K" ] || { echo failed; exit 0; }
-  t="$P.statusline.$$"
-  r=failed
-  # The project's file goes FIRST: the merge refreshes the first file's .claude/hooks/ entries from the first file,
-  # so put second it would lose every Crewforth hook (measured: the installed project's own smoke failed 30
-  # checks). The second file has one member, statusLine, which the first lacks: that is the one change. Written
-  # through the file, so a symlink and its mode survive.
-  if awk -v op=merge -v retired= -f "$SJ" "$P" "$K" > "$t" 2>/dev/null && [ -s "$t" ] \
-     && awk -v op=validate -f "$SJ" "$t" 2>/dev/null && awk -v op=get -v path=statusLine -f "$SJ" "$t" >/dev/null 2>&1; then
-    cat "$t" > "$P" && r=installed
-  fi
-  rm -f "$t"; echo "$r"; exit 0
+  # The setting itself is data beside this file (statusline.settings.json); the rule for putting a default in is
+  # one helper, shared with the subagent model's default.
+  exec bash "$_here/settings-default.sh" --install statusLine "$_here/statusline.settings.json"
 fi
 
 IFS= read -r -d '' IN || true

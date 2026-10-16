@@ -414,9 +414,9 @@ _am_crit_path(){  # $1 = a path or a glob -> 0 critical (_AMW says by what), 1 n
 
 # ---- THE CARD ---------------------------------------------------------------------------------------------------
 _AM_CHANGES=' text feature fix-known fix-unknown refactor migration security architecture test-run test-write audit '
-_am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY; 1 and CARD_WHY
+_am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (CARD_ABOVE); 1 and CARD_WHY
   local s="$1" l k v n=0 seen=""
-  CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""
+  CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""
   s="${s//$'\r'/}"
   while [ "$n" -lt 3 ] && [ -n "$s" ]; do
     l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
@@ -440,7 +440,16 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY; 1
   [ -n "$CARD_FILES" ] || { CARD_WHY="files: is empty (name the files or globs, or the folder)"; return 1; }
   case "$_AM_CHANGES" in *" $CARD_CHANGE "*) ;; *) CARD_WHY="change: is '${CARD_CHANGE:0:40}', not one of:$_AM_CHANGES"; return 1 ;; esac
   [ -n "$CARD_VERIFY" ] || { CARD_WHY="verify: is empty (a command, or none)"; return 1; }
-  case "$CARD_VERIFY" in none|None|NONE|-) CARD_VERIFY=none ;; esac
+  case "$CARD_VERIFY" in none|None|NONE|-|'none '*|'none('*|'None '*|'NONE '*) CARD_VERIFY=none ;; esac   # "none (the author ran it)" is none
+  # Optional, right after the three: `above: <why>` keeps a model above the card's floor. Without it a call above
+  # the floor is run on the floor (the cost of a model nobody needed is what this gate exists to stop).
+  while [ -n "$s" ]; do
+    l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
+    while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
+    [ -n "$l" ] || continue
+    case "$l" in above:*) v="${l#above:}"; while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done; CARD_ABOVE="${v:0:200}" ;; esac
+    break
+  done
   return 0
 }
 _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
@@ -459,6 +468,53 @@ _am_digest(){  # after _am_card -> CARD_ID: 12 hex of what the card says, so "th
   t="$(printf '%s\n%s\n%s\n' "$CARD_FILES" "$CARD_CHANGE" "$CARD_VERIFY" | git hash-object --stdin 2>/dev/null)" || t=""
   case "$t" in ''|*[!0-9a-f]*) t="$(printf '%s\n%s\n%s\n' "$CARD_FILES" "$CARD_CHANGE" "$CARD_VERIFY" | cksum 2>/dev/null)"; t="${t%% *}"; printf -v t '%012x' "${t:-0}" 2>/dev/null || t=000000000000 ;; esac
   CARD_ID="${t:0:12}"
+}
+# A call to an agent that is not Crewforth's (general-purpose, a project's own): no card and no floor, so only the
+# expensive end is held, the same rewrite as a crew call above its floor.
+#   * It names opus or fable, and its task has no `above: <why>` line: it runs on sonnet.
+#   * It names no model, and the agent takes the session's (general-purpose, or a project or user agent whose
+#     definition has no model of its own): it runs on sonnet, unless the session itself is on haiku, read from the
+#     end of its transcript. An agent whose definition names a model (Explore, claude-code-guide) is left to it:
+#     a model in the call would override a cheaper one there.
+# Measured on 2.1.299: a general-purpose call that named no model ran on the session's model; CLAUDE_CODE_SUBAGENT_MODEL
+# in the project's settings `env` did not change that (in the shell's environment it did), so the hook sets it.
+_am_outside(){  # $1 = the tool_input text, $2 = the agent's name
+  local m pr to=sonnet ui name="$2" f d l ln inherit=0 tp last
+  case "$name" in ''|*[!A-Za-z0-9._-]*) name="an agent" ;; esac
+  _json_keycount "$1" prompt; [ "$_KC" = 1 ] || return 0
+  _json_slice "$1" prompt >/dev/null; pr="${_JS:0:6000}"; _json_unescape "$pr" >/dev/null; pr=$'\n'"${_JU//$'\r'/}"
+  case "$pr" in *$'\n'above:*|*$'\n'[$' \t']above:*) return 0 ;; esac
+  _json_keycount "$1" model
+  if [ "$_KC" = 0 ]; then
+    case "$name" in
+      general-purpose) inherit=1 ;;
+      'an agent') ;;
+      *) for d in "${CLAUDE_PROJECT_DIR:-.}/.claude/agents" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents"; do
+           f="$d/$name.md"; [ -f "$f" ] || continue
+           inherit=1; ln=0
+           while IFS= read -r l || [ -n "$l" ]; do
+             ln=$((ln+1)); [ "$ln" -le 40 ] || break
+             case "$l" in ---*) [ "$ln" -gt 1 ] && break ;; model:*) case "${l#model:}" in *inherit*|'') ;; *) inherit=0 ;; esac ;; esac
+           done < "$f"
+           break
+         done ;;
+    esac
+    [ "$inherit" = 1 ] || return 0
+    _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; tp="$_JU"
+    if [ -n "$tp" ] && [ -f "$tp" ]; then
+      last="$(tail -c 65536 "$tp" 2>/dev/null)"; last="${last##*\"model\":\"}"; last="${last%%\"*}"
+      case "$last" in *haiku*) return 0 ;; esac
+    fi
+    m="the session's model"
+  else
+    [ "$_KC" = 1 ] || return 0
+    _json_slice "$1" model >/dev/null; _json_unescape "$_JS" >/dev/null; _am_tier "$_JU"; m="$_AMT"
+    case "$m" in opus|fable) ;; *) return 0 ;; esac
+  fi
+  ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || return 0
+  case "$ui" in '{'*'}') ;; *) return 0 ;; esac
+  _am_log "note: $name (not a crew agent) asked for $m, run on $to; add 'above: <why>' to its task to keep a model above it"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s (a line above: <why> in its task keeps a model above it)","updatedInput":%s}}\n' "$name" "$m" "$to" "$ui"
 }
 _am_rec_get(){  # $1 = a record file, $2 = key -> _AMV (lines are key=value)
   local l; _AMV=""
@@ -609,6 +665,19 @@ _am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 a Bash(...) rule of th
   done <<< "$_AMSF"
   return 1
 }
+# A verify command in a sub-folder: `cd apps/mobile && flutter test`, the usual shape in a repository of several
+# projects (measured on one: 41 of 71 refused verify commands had it). Split into the folder and the one command,
+# so the command is judged alone and run in that folder with no chain. Only a relative folder inside the project,
+# with no .. step, that exists; anything else is left whole, and is refused as a chain as before.
+_am_verify_split(){  # $1 = the command -> _AMVD the folder ("" = the project root), _AMVC the command
+  local c="$1" d r
+  _AMVD=""; _AMVC="$c"
+  case "$c" in 'cd '*' && '*) ;; *) return 0 ;; esac
+  d="${c#cd }"; d="${d%% && *}"; r="${c#cd "$d" && }"
+  case "$d" in ''|/*|~*|*[!A-Za-z0-9._/-]*|..|../*|*/..|*/../*) return 0 ;; esac
+  [ -n "$r" ] && [ -d "${_AMP:-.}/$d" ] || return 0
+  _AMVD="$d"; _AMVC="$r"
+}
 _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMVB says by what); 1 and _AMVW says why not
   local c="$1" pm="${2:-default}" f r rc k g
   _AMVW=""; _AMVB=""
@@ -729,7 +798,7 @@ _json_keycount "$ti" subagent_type
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names subagent_type more than once, so which agent it starts cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" subagent_type >/dev/null; _json_unescape "$_JS" >/dev/null; st="$_JU"
 st="${st##*:}"                                  # a plugin names its agents <plugin>:crew-…
-case "$st" in crew-*) ;; *) exit 0 ;; esac
+case "$st" in crew-*) ;; *) _am_outside "$ti" "$st"; exit 0 ;; esac
 case "$st" in *[!A-Za-z0-9_-]*) echo "GUARD (agent model): the agent's name holds a character this gate does not read, so the call is refused." >&2; _am_log "an agent name it cannot read"; exit 2 ;; esac
 _json_keycount "$ti" model
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names model more than once, so which model it asks for cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
@@ -802,6 +871,23 @@ if [ "$rank" -lt "$floor" ]; then
   echo "GUARD (agent model): $st runs on $fname or above for this card ($why), and this call asks for $m. Repeat the same call with model $fname." >&2
   _am_log "below the floor of the card"; exit 2
 fi
+# ---- above the floor: run on the floor, unless the card says why not ----
+# The floor is what the work needs; a model above it is cost nobody asked for (measured on a real project: 73 of 186
+# crew tasks ran above their floor, 0 on haiku). Unless the card carries `above: <why>`, the call is let through ON
+# THE FLOOR: the hook hands Claude Code the same input with `model` replaced (PreToolUse updatedInput; measured on
+# 2.1.299: a call asking for opus ran on haiku alone). The rewrite is one awk over the payload, on this path only.
+lowered=""
+low=$floor; [ "$low" -lt 1 ] && low=1
+if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ]; then
+  _am_name "$low"; to="$_AMN"
+  ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || ui=""
+  case "$ui" in '{'*'}') ;; *) ui="" ;; esac
+  if [ -n "$ui" ]; then
+    lowered="$m"
+    _am_log "note: $st asked for $m, run on $to, the floor of this card (${why:-no floor above haiku}); add 'above: <why>' to the card to keep $m"
+    m="$to"
+  fi
+fi
 # ---- where it runs, and what its verify command is ----
 _json_keycount "$ti" run_in_background
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names run_in_background more than once, so where it runs cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
@@ -828,7 +914,11 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
   # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
-  { printf 'agent=%s\ntier=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nwhy=%s\n' "$st" "$m" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  { printf 'agent=%s\ntier=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+fi
+# The call, on the floor: the same input with `model` replaced, and allowed. Nothing else is printed on this path.
+if [ -n "$lowered" ]; then
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui"
 fi
 exit 0
 }

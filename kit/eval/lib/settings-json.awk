@@ -9,6 +9,9 @@
 #       line, quotes off, escapes as written (rc 1 = not an array)
 #       path = dot-separated keys, a number indexes an array (0-based), empty = the root. rc 1 = no such path
 #       (or, for len, a scalar there), 10 = FILE is not a JSON object.
+#   awk -v op=get -v path=P -v setk=M -v setv=RAWJSON -f settings-json.awk FILE   the object at P with member M set
+#       to RAWJSON (added when absent): a payload rewritten in one field, every other field and escape kept
+#       (rc 1 = nothing at P, or not an object)
 #   awk -v op=overlay -v key=K [-v setk=M -v setv=RAWJSON] -f settings-json.awk FILE1 FILE2
 #       FILE1 with FILE1.K shallow-merged from FILE2.K (FILE2 wins, FILE1's other members and order kept), then
 #       member M set to RAWJSON. rc 10 = FILE1 (or its K) is not an object, 11 = FILE2 has no object at K.
@@ -70,6 +73,10 @@ function at(id,path,  n,sg,i){ n=split(path,sg,".")
   return id }
 function mk(t){ NN++; T[NN]=t; N[NN]=0; return NN }
 function add(o,k,c){ N[o]++; K[o,N[o]]=k; C[o,N[o]]=c }
+# Member k of object o set to the raw JSON v, added at the end when o has none (overlay and get share it).
+function setm(o,k,v,  sn,i,x){ sn=mk("s"); V[sn]=v; x=0
+  for(i=1;i<=N[o];i++) if(K[o,i]=="\"" k "\""){ C[o,i]=sn; x=1 }
+  if(!x) add(o,"\"" k "\"",sn) }
 function canon(id,  i,j,n,s,t,ord){
   if(T[id]=="s") return V[id]
   if(T[id]=="a"){ s="["; for(i=1;i<=N[id];i++) s=s (i>1 ? "," : "") canon(C[id,i]); return s "]" }
@@ -130,7 +137,8 @@ END{
   if(op=="gets"){ if(!(r=doc(1))) exit 10; n=split(path,pp,"|"); o=""
     for(i=1;i<=n;i++){ x=at(r,pp[i]); o=o (i>1?"\t":"") (x ? put(x,"") : "") } print o; exit 0 }
   if(op=="get" || op=="len"){ if(!(r=doc(1))) exit 10; if(!(r=at(r,path))) exit 1
-    if(op=="get"){ print put(r,""); exit 0 } if(T[r]=="s") exit 1; print N[r]; exit 0 }
+    if(op=="get"){ if(setk!=""){ if(T[r]!="o") exit 1; setm(r,setk,setv) } print put(r,""); exit 0 }
+    if(T[r]=="s") exit 1; print N[r]; exit 0 }
   if(op=="strings"){ if(!(r=doc(1))) exit 10; if(!(r=at(r,path))) exit 1; if(T[r]!="a") exit 1
     for(i=1;i<=N[r];i++){ c=C[r,i]; if(T[c]=="s" && substr(V[c],1,1)=="\"") print substr(V[c],2,length(V[c])-2) }
     exit 0 }
@@ -138,9 +146,7 @@ END{
     qv=get(q,kk); if(T[qv]!="o") exit 11; tv=get(t,kk); if(tv && T[tv]!="o") exit 10
     nv=mk("o"); for(i=1;i<=N[tv];i++){ x=get(qv,K[tv,i]); add(nv,K[tv,i], x ? x : C[tv,i]) }
     for(i=1;i<=N[qv];i++) if(!get(nv,K[qv,i])) add(nv,K[qv,i],C[qv,i])
-    if(setk!=""){ sn=mk("s"); V[sn]=setv; x=0
-      for(i=1;i<=N[nv];i++) if(K[nv,i]=="\"" setk "\""){ C[nv,i]=sn; x=1 }
-      if(!x) add(nv,"\"" setk "\"",sn) }
+    if(setk!="") setm(nv,setk,setv)
     x=0; for(i=1;i<=N[t];i++) if(K[t,i]==kk){ C[t,i]=nv; x=1 }
     if(!x) add(t,kk,nv)
     print put(t,""); exit 0 }
