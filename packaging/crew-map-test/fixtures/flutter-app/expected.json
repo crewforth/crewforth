@@ -1,0 +1,113 @@
+{
+  "about": "A Flutter app with a local package by path and a Cloudflare Worker it calls: the app is one module (android/ and ios/ are its platforms), the package another, and the Worker is served at the host its wrangler.toml routes name, so a module that writes that host calls it.",
+  "findings": [
+    [
+      "endpoint-missing",
+      "mod:dart:shop_app GET /v1/stock/{}"
+    ]
+  ],
+  "nearMisses": [
+    "android/app/build.gradle.kts is the app's Android build, folded into the app and not a Java module of its own",
+    "flutter and flutter_test are SDK packages, declared with sdk: flutter",
+    "api.shop.example is a reserved test name, not an external resource",
+    "test/widget_test.dart is a test and does not make the app an entry point twice",
+    "https://api.shopapp.dev/v1/prices in the package is the Worker's own address, not an external API, and its GET /v1/prices is provided",
+    "wrangler and typescript are command-line tools, not imports",
+    "packages/ui names the host only in a comment, in a look-alike (xapi.…), as the start of a longer host and in its test: it calls nothing",
+    "tools/report is referenced by nothing, and is not an orphan: tool/report.dart has a main() and is run with dart run"
+  ],
+  "nodes": [
+    "mod:dart:core",
+    "mod:dart:report",
+    "mod:dart:shop_app",
+    "mod:dart:ui",
+    "mod:node:shop-api"
+  ],
+  "edges": [
+    [
+      "mod:dart:shop_app",
+      "mod:dart:core",
+      "references",
+      "evidence"
+    ],
+    [
+      "mod:dart:shop_app",
+      "mod:node:shop-api",
+      "calls",
+      "evidence"
+    ],
+    [
+      "mod:dart:core",
+      "mod:node:shop-api",
+      "calls",
+      "evidence"
+    ],
+    [
+      "mod:dart:shop_app",
+      "mod:dart:ui",
+      "references",
+      "evidence"
+    ]
+  ],
+  "provides": [
+    "mod:node:shop-api GET /v1/prices"
+  ],
+  "notMeasured": [
+    "Dart package usage (dep-unused, dep-undeclared)",
+    "Swift source (1 file)"
+  ],
+  "absentNotMeasured": [
+    "Gradle build logic",
+    "endpoint-unused"
+  ],
+  "tech": {
+    "mod:dart:shop_app": [
+      "Android",
+      "Dio",
+      "Flutter",
+      "Riverpod",
+      "iOS"
+    ],
+    "mod:dart:core": [
+      "http"
+    ],
+    "mod:node:shop-api": [
+      "Cloudflare Workers",
+      "Hono",
+      "TypeScript"
+    ],
+    "mod:dart:ui": [
+      "Flutter"
+    ]
+  },
+  "absentEdges": [
+    [
+      "mod:dart:ui",
+      "mod:node:shop-api"
+    ]
+  ],
+  "structure": {
+    "mod:dart:shop_app": {
+      "folders": [
+        {
+          "folder": "lib",
+          "files": 2
+        },
+        {
+          "folder": "lib/data",
+          "files": 1
+        }
+      ],
+      "testFiles": 1
+    },
+    "mod:node:shop-api": {
+      "folders": [
+        {
+          "folder": "src",
+          "files": 1
+        }
+      ],
+      "testFiles": 0
+    }
+  }
+}

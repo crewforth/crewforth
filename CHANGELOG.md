@@ -125,6 +125,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **The Crew Map says what a project is made of.** A Flutter project read as a pile of Gradle modules and its
+  server as an external API (seen on a real project). The scanner now reads Dart: one module per `pubspec.yaml`,
+  its packages and `path:` references, and a Flutter app's `android/` and `ios/` folders as platforms of the app.
+  Each module says what it is built with (Hono, Cloudflare Workers, Flutter, Riverpod…, from `rules/tech.json`)
+  and what is inside it (folders with file counts, tests apart). A module served at a host its wrangler routes or
+  `fly.toml` name is called, module to module, by any module that writes that host; a Dart call to that host or a
+  Dio call's relative path is matched to the endpoints provided. A `.dart` file no `pubspec.yaml` owns is listed
+  as not measured, as is Dart package usage: Flutter declares packages nothing imports.
+
 - **A commit message and a reworded paragraph no longer go to the expensive model.** Two floors of the model gate
   raised prose for no gain (seen on a real project): with no verify command a commit message was held to sonnet,
   though the commit hook checks it, and a two-sentence fix under a critical path such as `legal/` was held to opus.

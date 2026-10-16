@@ -25,14 +25,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned, isTestPath } from './project.mjs';
-import { scanStacks } from './stacks.mjs';
-import { externals, configuration, codeUrls, endpoints, containers } from './surface.mjs';
+import { scanStacks, applyTech } from './stacks.mjs';
+import { externals, configuration, codeUrls, servedCalls, endpoints, containers } from './surface.mjs';
 import { detect } from './detect.mjs';
 import { stamp, write, serialize, validate, OUT_DIR } from '../findings/findings.mjs';
 import { carry, strip, validate as validateNarrative } from './narrative.mjs';
 
 // Languages with source the scanner has no reader for, by extension.
-const UNREAD = { dart: 'Dart', swift: 'Swift', rb: 'Ruby', php: 'PHP', rs: 'Rust', scala: 'Scala', ex: 'Elixir', exs: 'Elixir',
+const UNREAD = { swift: 'Swift', rb: 'Ruby', php: 'PHP', rs: 'Rust', scala: 'Scala', ex: 'Elixir', exs: 'Elixir',
   c: 'C', cc: 'C++', cpp: 'C++', m: 'Objective-C', mm: 'Objective-C', lua: 'Lua', clj: 'Clojure', hs: 'Haskell', erl: 'Erlang' };
 
 const SELF = fileURLToPath(import.meta.url);
@@ -43,6 +43,30 @@ const MAX_EV = 5;
 const load = (f) => JSON.parse(fs.readFileSync(path.join(HERE, 'rules', f), 'utf8'));
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
+/**
+ * What is inside a module, for a reader who has not opened it: its folders and how many source files each holds.
+ * A folder holding nearly everything (lib/ of a Flutter app, src/ of a package) is opened one level, at most twice,
+ * so the rows say lib/data and lib/features and not just lib. Tests are counted apart. Twelve rows at most.
+ */
+const MAX_ROWS = 12;
+function structure(m) {
+  const base = m.dir === '.' ? '' : `${m.dir}/`;
+  let rel = m.files.filter((f) => !isTestPath(f)).map((f) => f.slice(base.length));
+  const tests = m.files.length - rel.length;
+  let at = '';
+  const group = (list) => { const g = new Map(); for (const r of list) { const k = r.includes('/') ? r.split('/')[0] : ''; g.set(k, (g.get(k) ?? 0) + 1); } return g; };
+  for (let d = 0; d < 2 && rel.length; d++) {
+    const [top, n] = [...group(rel)].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))[0];
+    if (!top || n / rel.length < 0.8 || !rel.some((r) => r.startsWith(`${top}/`) && r.split('/').length > 2)) break;
+    at += `${top}/`; rel = rel.filter((r) => r.startsWith(`${top}/`)).map((r) => r.slice(top.length + 1));
+  }
+  const rows = [...group(rel)].map(([k, n]) => ({ folder: k ? `${at}${k}` : (at.replace(/\/$/, '') || '.'), files: n }))
+    .sort((a, b) => b.files - a.files || cmp(a.folder, b.folder));
+  const shown = rows.slice(0, MAX_ROWS);
+  const rest = rows.slice(MAX_ROWS).reduce((s, r) => s + r.files, 0);
+  return { folders: shown, ...(rest ? { otherFiles: rest } : {}), testFiles: tests };
+}
+
 // opts.hostFilter replaces the masking: ONLY the gate's must-fail twin uses it. No command-line flag reaches it.
 export function scan(root = '.', opts = {}) {
   const pj = openProject(root);
@@ -51,10 +75,12 @@ export function scan(root = '.', opts = {}) {
   const rules = load('packages.json'); const names = load('names.json');
   const stdlib = new Set(load('python-stdlib.json').modules);
   const st = scanStacks(pj);
+  applyTech(st, pj, load('tech.json'));
   const out = { edges: [], notMeasured: st.notMeasured, configUrls: [], codeHosts: new Set(), patterns };
   const ex = externals(pj, st, rules, hostOf, out);
   const cfg = configuration(pj, st, rules, hostOf, ex, out);
   codeUrls(pj, st, hostOf, ex, out);
+  servedCalls(pj, st, ex, out);
   const eps = endpoints(pj, st, out);
   const services = containers(pj, st, rules, hostOf, ex, cfg, out);
   const findings = detect({ st, cfg, eps, names, stdlib, notMeasured: out.notMeasured, configUrls: out.configUrls, codeHosts: out.codeHosts });
@@ -73,6 +99,9 @@ export function scan(root = '.', opts = {}) {
     const lang = UNREAD[/\.([a-z]+)$/i.exec(f)?.[1]?.toLowerCase()];
     if (lang && !isTestPath(f)) unread.set(lang, (unread.get(lang) ?? 0) + 1);
   }
+  // Dart is read through its pubspec.yaml: a .dart file no package owns has no module to be drawn in, so it is said.
+  const loose = pj.files.filter((f) => /\.dart$/.test(f) && !isTestPath(f) && !st.modules.some((m) => m.stack === 'dart' && m.files.includes(f))).length;
+  if (loose) out.notMeasured.push({ what: `Dart source outside any pubspec.yaml (${loose} file${loose === 1 ? '' : 's'})`, reason: 'no package owns it: it is not on the map' });
   for (const [lang, n] of unread) out.notMeasured.push({ what: `${lang} source (${n} file${n === 1 ? '' : 's'})`, reason: 'no reader for this language: its modules, dependencies and endpoints are not on the map' });
 
   // ---- one edge per (from, to, kind, confidence), its evidence merged ----
@@ -94,6 +123,7 @@ export function scan(root = '.', opts = {}) {
       // line to cite: the entry is then the file, and it says so.
       ...(m.entry ? { entryPoint: m.entryEv ? { evidence: [m.entryEv] } : { file: m.entryFile, evidence: [] } } : {}),
       dependencies: m.deps.length,
+      structure: structure(m),
       ...capped(m.evidence), narrative: null })),
     ...services.map((s) => ({ id: s.id, kind: 'service', name: s.name, ...(s.image ? { image: s.image } : {}), ...capped(s.evidence), narrative: null })),
     ...[...ex.ext.values()].map((n) => ({ id: n.id, kind: 'external', resource: n.resource, label: n.label, hosts: [...n.hosts].sort(), ...capped(n.evidence), narrative: null })),

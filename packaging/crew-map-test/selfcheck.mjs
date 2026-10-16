@@ -79,10 +79,22 @@ for (const name of fixtures) {
   for (const [from, to, kind, conf] of exp.edges) {
     check(`${name}: edge ${from} → ${to} (${kind}, ${conf})`, doc.edges.some((e) => e.from === from && e.to === to && e.kind === kind && e.confidence === conf));
   }
+  for (const [from, to] of exp.absentEdges ?? []) check(`${name}: no edge ${from} → ${to}`, !doc.edges.some((e) => e.from === from && e.to === to), doc.edges.filter((e) => e.from === from && e.to === to).map((e) => `${e.kind} ${e.evidence[0].file}:${e.evidence[0].line}`).join('; '));
   // By module: a call misread as a route lands in the CALLER's module, and only the module shows it.
   const prov = [...new Set(doc.provides.endpoints.map((e) => `${e.module} ${e.method} ${e.path}`))].sort();
   check(`${name}: provides exactly ${exp.provides.length} endpoint(s), each in its module`, JSON.stringify(prov) === JSON.stringify([...exp.provides].sort()), prov.join(', '));
   for (const s of exp.notMeasured) check(`${name}: notMeasured names "${s}"`, doc.notMeasured.some((x) => x.what.includes(s)), doc.notMeasured.map((x) => x.what).join('; '));
+  for (const s of exp.absentNotMeasured ?? []) check(`${name}: notMeasured does not name "${s}"`, !doc.notMeasured.some((x) => x.what.includes(s)), doc.notMeasured.map((x) => x.what).join('; '));
+  // What is inside each module: its folders (one level into a folder holding nearly all), counts, tests apart.
+  for (const [id, want] of Object.entries(exp.structure ?? {})) {
+    const got = doc.nodes.find((x) => x.id === id)?.structure;
+    check(`${name}: ${id} is laid out as ${want.folders.map((r) => `${r.folder} ${r.files}`).join(', ')}`, JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
+  }
+  // What each module is built with: the exact labels, so a lost label and a stray one both show.
+  for (const [id, want] of Object.entries(exp.tech ?? {})) {
+    const got = [...(doc.nodes.find((x) => x.id === id)?.tech ?? [])].sort();
+    check(`${name}: ${id} is built with ${want.join(', ') || 'nothing named'}`, JSON.stringify(got) === JSON.stringify([...want].sort()), got.join(', '));
+  }
   const wrongClass = doc.findings.filter((f) => (INFERRED.has(f.rule) ? f.confidence !== 'inferred' || f.data.defaultHidden !== true : f.confidence !== 'proven' || f.data.defaultHidden));
   check(`${name}: inferred rules are hidden by default, proven ones are not`, wrongClass.length === 0, wrongClass.map((f) => f.id).join(' '));
   check(`${name}: every finding cites at least one line`, doc.findings.every((f) => f.evidence.length > 0));
