@@ -125,6 +125,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **The gate log is written in every project, and Studio shows a refused agent call.** A project that tracks
+  `.claude/` had no gate log at all: no record of a refusal, no 🛡 on the status line, no note of a model lowered to
+  its card's floor (seen on a real project). The log now goes inside the repository's own `.git` there
+  (`crewforth-gate-log.tsv`, never committed); one rule (`eval/lib/gate-log.sh`) serves every gate and reader. A
+  call the model gate refused starts no agent, so the canvas showed nothing while the session said "2 failed"; the
+  session's card now says how many calls were refused and not made again, with the gate's words on hover.
+- **`/crew-doctor` offers a verify rule that works, in every mode.** For `cd sub && ./check.sh` it offered the line
+  with the `cd` in it, which allows nothing (the rule names the command alone), and in default mode it offered
+  nothing, because that refusal is worded differently. Measured on Windows.
 - **Studio keeps answering with many conversations open.** Each conversation pane held its own stream, and a
   browser opens six connections to one host: at five panes a message sent and every request the page made waited
   for a pane to close (on Windows a send did not arrive in 35 s; on macOS the page's own request timed out at 4 s).

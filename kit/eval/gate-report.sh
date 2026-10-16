@@ -29,6 +29,8 @@ HOOKS="./.claude/hooks"; [ -d "$HOOKS" ] || HOOKS="./hooks"
 [ -f "$HOOKS/guard-bash.sh" ] || { echo "gate-report: guard-bash.sh not found (run from the project root)" >&2; exit 4; }
 
 # Default log location, so `--log` is not required once logging is on.
+# The same rule the gates write by (eval/lib/gate-log.sh): .claude/gate-log.tsv, or the repository's .git.
+if [ -z "$LOG" ] && [ -f ./.claude/eval/lib/gate-log.sh ]; then . ./.claude/eval/lib/gate-log.sh; crew_gate_log_read; LOG="$_CREW_GL"; fi
 [ -z "$LOG" ] && [ -f "./.claude/gate-log.tsv" ] && LOG="./.claude/gate-log.tsv"
 
 TMP="${TMPDIR:-/tmp}/crew-gate-$$"; mkdir -p "$TMP"; trap 'rm -rf "$TMP"' EXIT

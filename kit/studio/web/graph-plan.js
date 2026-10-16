@@ -276,8 +276,9 @@ export function tallestFor(paneHeight) {
   return Math.max(AUTO.tallest, fits);
 }
 
-/** A session's card: one line taller while it has commands running in the background, and never wider. */
-export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ? SIZE.session.line : 0);
+/** A session's card: one line taller for commands running in the background, one for refused agent calls. */
+export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ? SIZE.session.line : 0)
+  + (n?.refusedCalls?.length ? SIZE.session.line : 0);
 
 /* ----------------------------------------------------------------- plan --- */
 

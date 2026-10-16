@@ -717,7 +717,10 @@ export class Canvas {
       // ran out of the card.
       p.bg = mk('div', 'cv-sub cv-indent cv-bg');
       p.bg.hidden = true;
-      el.append(row, p.name, p.sub, p.bg);
+      // Agent calls the model gate refused, which started no agent: a line of their own, the gate's words on hover.
+      p.refused = mk('div', 'cv-sub cv-indent cv-refused');
+      p.refused.hidden = true;
+      el.append(row, p.name, p.sub, p.bg, p.refused);
     } else if (it.kind === 'group') {
       el.classList.add('cv-group');
       p.tile = mk('span', 'cv-tile');
@@ -843,6 +846,10 @@ export class Canvas {
     p.bg.hidden = !bg;
     p.bg.textContent = bg ? `${bg} in background` : '';
     p.bg.title = bg ? n.backgroundNow.map((c) => `In the background: ${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
+    const refused = n.refusedCalls ?? [];
+    p.refused.hidden = !refused.length;
+    p.refused.textContent = refused.length ? `${refused.length} refused by the model gate` : '';
+    p.refused.title = refused.map((r) => `${r.agent ?? 'an agent'}${r.model ? ` (${r.model})` : ''}: ${r.text}`).join('\n');
     el.title = 'Click to inspect this session';
     el.setAttribute('aria-label', `Session, ${st?.word ?? 'state not measured'}, ${p.name.textContent}, ${p.sub.textContent}`);
   }

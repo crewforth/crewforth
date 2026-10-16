@@ -598,6 +598,14 @@ check('prose without a notice yields nothing', none.size === 0);
     N('arev').firstTry.asked === 'haiku' && N('arev').firstTry.floor === 'sonnet' && N('atest1').firstTry === null
     && g.nodes.filter((n) => n.kind === 'agent').length === 5, 'a refused call starts no agent, and none is drawn for it');
   check('a refusal nothing repeated is tied to nothing', g.nodes.every((n) => n.firstTry == null || n.id === 'arev'));
+  // A refused call nothing repeated started no agent, so the session's card is the only place it can show (seen on
+  // a real project: an empty canvas while the session said "2 failed"). The one that was repeated is on its node.
+  const S0 = g.nodes.find((n) => n.kind === 'session');
+  const gp0 = await import('../../kit/studio/web/graph-plan.js');
+  check('a refused call nothing repeated is on the session card, with the gate\'s words; a repeated one is not, and the card grows a line for it',
+    S0?.refusedCalls?.length === 1 && S0.refusedCalls[0].agent === 'crew-test-expert' && /has to name its model/.test(S0.refusedCalls[0].text)
+    && gp0.sessionHeight({ refusedCalls: [{}] }) > gp0.sessionHeight({}) && /refused by the model gate/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''),
+    JSON.stringify(S0?.refusedCalls));
   const calls = new Map([
     ['c1', { order: 1, subagentType: 'crew-review-agent', description: 'Review the diff', model: 'haiku', refused: { text: 'GUARD (agent model): x', floor: 'sonnet' } }],
     ['c2', { order: 2, subagentType: 'crew-review-agent', description: 'Review something else', model: 'sonnet' }],
@@ -3228,7 +3236,7 @@ check('verdicts are counted', own.measured && typeof own.counts?.BLOCK === 'numb
 
 const noLog = gateLog(os.tmpdir());
 check('a project with no gate log says so rather than showing an empty list',
-  noLog.measured === false && /no .claude\/gate-log/.test(noLog.reason ?? ''),
+  noLog.measured === false && /no gate log/.test(noLog.reason ?? '') && /\.claude\/gate-log\.tsv/.test(noLog.reason ?? '') && /crewforth-gate-log\.tsv/.test(noLog.reason ?? ''),
   noLog.reason);
 check('"not measured" never carries entries', (noLog.entries ?? []).length === 0);
 

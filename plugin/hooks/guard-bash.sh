@@ -148,7 +148,9 @@ _join_cmd(){  # CMD -> CMD with its continued lines joined
 # ---- /CREW-JOIN
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
+# Where the gate log goes: one rule for every gate and reader (eval/lib/gate-log.sh).
+[ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"; unset _crew_d
 # Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
 # of this hook. `read` returns 1 at end of input; the text is read regardless.
 IFS= read -r -d '' INPUT || true
@@ -168,20 +170,17 @@ IFS= read -r -d '' INPUT || true
 # token, and `/crew-gates` never prints it — the report is rule names and counts. Recording it by default would
 # buy nothing and add a place for a secret to sit. `CREW_GATE_LOG_CMD=1` puts it back for debugging a false
 # positive, which is the only thing it is good for.
-# Where the default log may go. An explicit CREW_GATE_LOG is the operator's call and is used as given. The
-# DEFAULT path is only used when writing there cannot surprise anyone: outside a git repo, or inside one where
-# the path is already ignored. A kit install gitignores .claude/, so this is the normal case — but the plugin
-# edition drops into repos the installer never touched, and this repo proved the failure itself: the suite left
-# a gate-log.tsv sitting in `git status` as an untracked file waiting to be committed. One `git check-ignore`
-# runs only when a decision is logged (a block, an approval prompt or a CLAUDE_GIT_OK allow); ordinary commands
-# never reach it.
+# Where the log goes. An explicit CREW_GATE_LOG is the operator's call and is used as given. .claude/gate-log.tsv
+# only where writing there cannot surprise anyone: outside a git repo, or where git ignores it (a kit install
+# ignores .claude/; the plugin edition drops into repos the installer never touched, and this repo proved the
+# failure: the suite left a gate-log.tsv in `git status` waiting to be committed). Elsewhere it goes inside the
+# repository's .git, which is never committed. git is asked only when a decision is logged (a block, an approval
+# prompt or a CLAUDE_GIT_OK allow); ordinary commands never reach it.
+# Since 3.2.0 a repository that tracks .claude/ gets the log inside its .git (eval/lib/gate-log.sh), where it was
+# not written at all before.
 _gatelog_path(){
-  if [ -n "${CREW_GATE_LOG:-}" ]; then printf '%s' "$CREW_GATE_LOG"; return; fi
-  [ -d ".claude" ] || return 0
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null || return 0
-  fi
-  printf '%s' ".claude/gate-log.tsv"
+  declare -F crew_gate_log_write >/dev/null || return 0
+  crew_gate_log_write; printf '%s' "$_CREW_GL"
 }
 gatelog(){  # $1 = verdict (BLOCK|ASK|ALLOW)  $2 = section  $3 = rule
   # Resolve the path ONCE per hook run and remember it HERE, not inside _gatelog_path: that function is invoked

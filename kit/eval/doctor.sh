@@ -776,6 +776,7 @@ esac
 # 9e) What model routing costs. Advisory. A verify command the hook was never allowed to run cannot vouch for
 #     cheaper work: the ones refused for that reason are listed with the line that allows them (measured on one
 #     project: 23 of 71 refusals).
+[ -f .claude/eval/lib/verify-cmd.sh ] && . .claude/eval/lib/verify-cmd.sh   # the rule names the command a cd prefix leads to
 _vbn=0; _vbl=""
 for _f in .claude/state/crew-model/results/*; do
   [ -f "$_f" ] || continue
@@ -784,7 +785,12 @@ for _f in .claude/state/crew-model/results/*; do
     case "$_l" in verify=blocked) _vb=1 ;; whynot=*) _vw="${_l#whynot=}" ;; cmd=*) _vc="${_l#cmd=}" ;; esac
   done < "$_f"
   [ "$_vb" = 1 ] || continue
-  case "$_vw" in *"not a test or build command on this hook's list"*) ;; *) continue ;; esac
+  # Both ways of saying "nothing allows it": in auto/bypassPermissions (not on the runner list) and in the other
+  # modes (Claude Code itself would not run it unallowed). Measured on Windows: the second was not listed at all.
+  case "$_vw" in *"not a test or build command on this hook's list"*|*"does not run a command the user has not allowed"*) ;; *) continue ;; esac
+  # A rule names the command alone: `cd sub && ./check.sh` is allowed by `verify ./check.sh` (measured on Windows:
+  # the line with the cd in it did not allow it).
+  declare -F crew_verify_split >/dev/null && { crew_verify_split "$_vc" .; _vc="$_AMVC"; }
   _vc="${_vc:0:80}"; [ -n "$_vc" ] || continue
   _vbn=$((_vbn+1))
   case "$_vc" in *'('*|*' + '*) continue ;; esac     # a sentence, not a command: counted, not offered as a rule
