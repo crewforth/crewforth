@@ -28,8 +28,8 @@ the scan itself read, and a gate holds it to that. **Never commit.** Show the di
 3. **Describe.** Read `.crewforth/crew-map.json`, and as much of the cited source as you need. Then edit that
    file, changing ONLY these fields:
    - each `module` node's `narrative`: `{ "text": "…", "cites": ["file:line", …], "layer": "…", "domain": "…" }`.
-     What the module is for, in at most two sentences. Every cite is a `file:line` from THAT node's own
-     `evidence`; cite at least one. `layer` is where it sits, one of `ui` (what a person uses: an app, a site),
+     What the module is for, in at most two sentences. Every cite is a `file:line` the scan read for THAT node: its
+     `evidence`, its `entryPoint`, or its `about` (the first prose line of its README); cite at least one. `layer` is where it sits, one of `ui` (what a person uses: an app, a site),
      `api` (serves requests to others), `service` (runs work: a worker, a job), `data` (holds or shapes data),
      `infra` (deploys and runs the rest), `tool` (a script or CLI for the team), `library` (code other modules
      import); `domain` is the part of the business it serves, a short phrase ("payments", "mail import"). Both

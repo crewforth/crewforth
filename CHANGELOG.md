@@ -14,6 +14,8 @@ versioning follows [SemVer](https://semver.org/).
   business it serves, and to the map a tour of up to eight stops a newcomer reads in order. Each rests on lines
   the scan read; `--validate` refuses a layer not on the list, a domain written as a sentence, a tour stop at no
   node, citing another node's lines or visiting a node twice, and a scan again drops what no longer holds.
+  A module's README is read too: its first line of prose is a line a description may rest on (measured on a real
+  project, four of ten modules had nothing else to describe them by).
 
 - **How right the review is, in numbers.** `eval/review-bench.sh` runs the review on labelled cases and reports
   recall, precision and every false alarm by name; the pre-pass arm costs nothing, the agent arm runs Claude Code

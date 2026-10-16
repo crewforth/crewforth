@@ -24,7 +24,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned, isTestPath } from './project.mjs';
+import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned, isTestPath, ev } from './project.mjs';
 import { scanStacks, applyTech } from './stacks.mjs';
 import { externals, configuration, codeUrls, servedCalls, endpoints, containers } from './surface.mjs';
 import { detect } from './detect.mjs';
@@ -49,6 +49,26 @@ const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * so the rows say lib/data and lib/features and not just lib. Tests are counted apart. Twelve rows at most.
  */
 const MAX_ROWS = 12;
+
+/**
+ * What a module says about itself: the first line of prose in its own README (a heading, a badge, an image, an
+ * HTML tag or a code fence is not prose). Kept apart from the evidence, which is cut at five lines, so a
+ * description always has a line to rest on that says what the module is for. Measured on a real project: four of
+ * ten modules were left undescribed because the only line the scan cited for them was the manifest's name.
+ */
+function aboutOf(pj, m) {
+  const base = m.dir === '.' ? '' : `${m.dir}/`;
+  const f = pj.files.find((x) => x.startsWith(base) && /^readme(\.(md|markdown|txt|rst))?$/i.test(x.slice(base.length)));
+  const src = f && pj.read(f); if (!src) return null;
+  let fence = false;
+  for (const [i, raw] of src.lines.entries()) {
+    const l = raw.trim();
+    if (/^(```|~~~)/.test(l)) { fence = !fence; continue; }
+    if (fence || !l || /^(#|=+$|-+$|\[!|!\[|<|\||>\s*\[!)/.test(l)) continue;
+    return { evidence: [ev(f, i + 1, l.slice(0, 60))] };
+  }
+  return null;
+}
 function structure(m) {
   const base = m.dir === '.' ? '' : `${m.dir}/`;
   let rel = m.files.filter((f) => !isTestPath(f)).map((f) => f.slice(base.length));
@@ -124,6 +144,7 @@ export function scan(root = '.', opts = {}) {
       ...(m.entry ? { entryPoint: m.entryEv ? { evidence: [m.entryEv] } : { file: m.entryFile, evidence: [] } } : {}),
       dependencies: m.deps.length,
       structure: structure(m),
+      ...((() => { const a = aboutOf(pj, m); return a ? { about: a } : {}; })()),
       ...capped(m.evidence), narrative: null })),
     ...services.map((s) => ({ id: s.id, kind: 'service', name: s.name, ...(s.image ? { image: s.image } : {}), ...capped(s.evidence), narrative: null })),
     ...[...ex.ext.values()].map((n) => ({ id: n.id, kind: 'external', resource: n.resource, label: n.label, hosts: [...n.hosts].sort(), ...capped(n.evidence), narrative: null })),

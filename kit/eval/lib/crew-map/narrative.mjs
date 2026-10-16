@@ -21,10 +21,11 @@ const MAX_STOPS = 8;
 const MAX_DOMAIN = 60;
 export const LAYERS = ['ui', 'api', 'service', 'data', 'infra', 'tool', 'library'];
 
-/** The "file:line" a node's evidence lets a narrative cite. */
+/** The "file:line" a narrative of this node may cite. */
 export function citesOf(node) {
   const out = new Set();
-  for (const e of Array.isArray(node?.evidence) ? node.evidence : []) {
+  // Its evidence, its entry point and what its README says about it: every line the scan read for this node.
+  for (const e of [node?.evidence, node?.entryPoint?.evidence, node?.about?.evidence].flatMap((x) => (Array.isArray(x) ? x : []))) {
     if (e && typeof e.file === 'string' && Number.isInteger(e.line)) out.add(`${e.file}:${e.line}`);
   }
   return out;

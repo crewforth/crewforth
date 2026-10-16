@@ -90,6 +90,11 @@ for (const name of fixtures) {
     const got = doc.nodes.find((x) => x.id === id)?.structure;
     check(`${name}: ${id} is laid out as ${want.folders.map((r) => `${r.folder} ${r.files}`).join(', ')}`, JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
   }
+  // What a module says about itself: the first line of prose in its README, past headings, badges, images and code.
+  for (const [id, want] of Object.entries(exp.aboutLine ?? {})) {
+    const e = doc.nodes.find((x) => x.id === id)?.about?.evidence?.[0];
+    check(`${name}: ${id} says what it is at ${want}`, e && `${e.file}:${e.line}` === want, JSON.stringify(e));
+  }
   // What each module is built with: the exact labels, so a lost label and a stray one both show.
   for (const [id, want] of Object.entries(exp.tech ?? {})) {
     const got = [...(doc.nodes.find((x) => x.id === id)?.tech ?? [])].sort();
@@ -340,6 +345,20 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   const gone = JSON.parse(fs.readFileSync(file, 'utf8')).nodes.find((x) => x.id === mod.id).narrative;
   check('a description whose cited line moved is dropped by the next scan, and said (the tour on it too)', gone === null && JSON.parse(fs.readFileSync(file, 'utf8')).tour === null && /0 description\(s\) kept, 2 dropped/.test(moved.stderr),
     moved.stderr.trim().split('\n').pop());
+}
+
+/* -- 8c. a description may rest on what a module's README says about it ------------------------------------------ */
+{
+  const root = copy('flutter-app');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli();
+  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const app = d.nodes.find((x) => x.id === 'mod:dart:shop_app');
+  app.narrative = { text: 'The shop mobile app.', cites: ['app/README.md:10'], layer: 'ui' };
+  fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`);
+  const v = cli('--validate');
+  check('a description citing the README line the scan read for the module holds', v.status === 0, (v.stdout + v.stderr).trim().split('\n').pop());
 }
 
 /* -- 9. the rules files ---------------------------------------------------------------------------------------- */
