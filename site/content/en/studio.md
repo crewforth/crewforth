@@ -50,6 +50,8 @@ Selecting an agent in any view opens the inspector, with four tabs: **Overview**
 
 **The model.** Each card carries the model its agent ran on (`Sonnet 5.5`), read from the agent's own transcript. The inspector's **Model** section has both sides: **Ran on**, and **Asked for**, the model its call named, or that it named none and took the agent's default. An agent that repeats a task one model up says the step on its card (`Sonnet → Opus`). The Show menu can keep only the agents of one model lit.
 
+**A call the model gate refused.** It starts no agent, so it has no card. While the session has not made the call again, the session's card says so on a line of its own (`2 refused by the model gate`), with the agent and the gate's words on hover. A call made again after a refusal carries what was asked first, on the card of the agent that ran.
+
 **What the session spent.** The session's card opens a short table: how long it has run, **Tokens** (new ones: input, output and cache writes), **From cache** (the same context read back, counted apart because it would otherwise be nearly all of the number), and **Cost** for the session and for its agents. Cost is each response's usage at API list price. A session that consulted Claude Code's advisor also shows **Advisor**: how many calls, their tokens and their cost, priced at the advisor model's own rates. The API leaves those tokens out of a response's top-level usage, so they are read from its `iterations` and added to the totals; a session with no call has no such line. A model the price table has no row for has no price: the row then says `No estimate` and names the model, rather than counting it as zero.
 
 <div align="center">

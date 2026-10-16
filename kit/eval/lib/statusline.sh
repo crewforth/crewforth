@@ -52,7 +52,7 @@ if [ -n "$SID" ] && [ -d .claude ]; then
 fi
 
 # 🛡 The gate's last word in this session.
-GL="${CREW_GATE_LOG:-.claude/gate-log.tsv}"
+GL=""; [ -f "$_here/gate-log.sh" ] && { . "$_here/gate-log.sh"; crew_gate_log_read; GL="$_CREW_GL"; }   # one rule (gate-log.sh)
 if [ -n "$BASE" ] && [ -f "$GL" ] && [ "$GL" -nt "$BASE" ]; then
   last="$(tail -n 1 "$GL" 2>/dev/null)"
   IFS=$'\t' read -r verdict section _ <<< "$last"

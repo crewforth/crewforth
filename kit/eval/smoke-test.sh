@@ -6380,6 +6380,14 @@ GNI="$(mktemp -d)"; ( cd "$GNI" && git init -q . && mkdir -p .claude )
 ( cd "$GNI" && gjson 'git reset --hard' | bash "$ROOT/hooks/guard-bash.sh" >/dev/null 2>&1 )
 [ -e "$GNI/.claude/gate-log.tsv" ] && fail "gate log wrote into a repo where the path is not gitignored" \
                                    || pass "gate log declines a path git would track"
+# ...and since 3.2.0 writes inside the repository's .git instead, which is never committed: a project that tracks
+# .claude/ had no record of a refusal at all (seen on a real project: no 🛡, no note of a lowered model).
+# The readers find it there (eval/lib/gate-log.sh, the one rule), and `git status` stays clean.
+_gni_read="$( cd "$GNI" && . "$ROOT/eval/lib/gate-log.sh" && crew_gate_log_read && printf '%s' "$_CREW_GL" )"
+_gni_st="$( cd "$GNI" && git status --porcelain --untracked-files=all 2>/dev/null | grep -c gate-log )"
+{ [ -s "$GNI/.git/crewforth-gate-log.tsv" ] && grep -q '^BLOCK' "$GNI/.git/crewforth-gate-log.tsv" && [ "$_gni_st" = 0 ] && [ "$_gni_read" = ./.git/crewforth-gate-log.tsv ]; } \
+  && pass "where git would track it, the gate log goes inside .git: written, found by the readers, and git status stays clean" \
+  || fail "gate log inside .git: file $([ -s "$GNI/.git/crewforth-gate-log.tsv" ] && echo written || echo MISSING), git status shows it ${_gni_st}x, reader found '${_gni_read}'"
 ( cd "$GNI" && echo '.claude/' > .gitignore && gjson 'git reset --hard' | bash "$ROOT/hooks/guard-bash.sh" >/dev/null 2>&1 )
 [ -s "$GNI/.claude/gate-log.tsv" ] && pass "gate log writes once the path is gitignored" \
                                    || fail "gate log stayed silent even though the path is ignored"
@@ -8773,13 +8781,16 @@ grep -q '^verify=none$' "$(ls -t "$_v2p/.claude/state/crew-model/pending/"* 2>/d
 mkdir -p "$_v2p/.claude/state/crew-model/results"
 printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=node tools/build.mjs --check\n' > "$_v2p/.claude/state/crew-model/results/r1"
 printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=actionlint (if installed)\n' > "$_v2p/.claude/state/crew-model/results/r2"
+# The other way of saying "nothing allows it" (default mode), for a command in a sub-folder: counted, and offered as
+# the rule that matches it, the command without its `cd` (measured on Windows: the line with the cd in it did not).
+printf "verify=blocked\nwhynot=in 'default' mode Claude Code does not run a command the user has not allowed, so neither does a hook\ncmd=cd sub && ./check.sh\n" > "$_v2p/.claude/state/crew-model/results/r3"
 if [ -f "$ROOT/eval/doctor.sh" ]; then
   mkdir -p "$_v2p/.claude/eval"; cp -R "$ROOT/eval/." "$_v2p/.claude/eval/" 2>/dev/null
   _dd="$( cd "$_v2p" && env -u CLAUDE_CODE_SUBAGENT_MODEL CREW_NO_STAR=1 CREW_LANG=en CLAUDE_CONFIG_DIR="$_v2/home" bash .claude/eval/doctor.sh 2>/dev/null | grep 'verify commands never run' )"
-  case "$_dd" in *'2 time(s)'*'verify node tools/build.mjs --check'*) case "$_dd" in *actionlint*) _v2b="$_v2b [doctor offered a sentence as a rule]" ;; esac ;;
+  case "$_dd" in *'3 time(s)'*'verify node tools/build.mjs --check'*'verify ./check.sh'*) case "$_dd" in *actionlint*|*'verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_dd}]" ;; esac ;;
     *) _v2b="$_v2b [doctor: ${_dd:-no line}]" ;; esac
 fi
-[ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands as rules, not a sentence" \
+[ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands, in either mode, as the rule that matches them (no cd prefix), not a sentence" \
                || fail "verify in a sub-folder:$_v2b"
 # Which record is whose. Two calls of one type made together are matched by order, which can be wrong; the card in
 # the agent's own transcript settles it.

@@ -1210,6 +1210,8 @@ button.tl-lab { cursor: pointer; }
    and do not shrink. */
 .cv-sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cv-sub[hidden] { display: none; }
+/* Agent calls the model gate refused: no agent started, so this line is the only trace on the canvas. */
+.cv-refused { color: var(--status-waiting); }
 .cv-node > .cv-row, .cv-node > .cv-under, .cv-node > .cv-name, .cv-node > .cv-sub { max-width: 100%; }
 .cv-word { font-size: 11px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 

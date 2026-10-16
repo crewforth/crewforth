@@ -50,6 +50,8 @@ Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört 
 
 **Model.** Her kart, ajanının koştuğu modeli taşıyor (`Sonnet 5.5`); ajanın kendi transcript'inden okunuyor. Inspector'ın **Model** bölümünde iki taraf da var: **Ran on** ve **Asked for**, yani çağrının adını verdiği model, ya da hiç ad vermediği ve ajanın varsayılanını aldığı. Bir işi bir üst modelde tekrarlayan ajan bu adımı kartında söylüyor (`Sonnet → Opus`). Show menüsü yalnız tek bir modelin ajanlarını yanık bırakabiliyor.
 
+**Model kapısının reddettiği çağrı.** Hiç ajan başlatmaz, bu yüzden kartı yoktur. Oturum çağrıyı yeniden yapmadıkça oturumun kartı bunu kendi satırında söyler (`2 refused by the model gate`); üstüne gelince ajan ve kapının cümlesi görünür. Retten sonra yeniden yapılan çağrı, ilk istenen modeli koşan ajanın kartında taşır.
+
 **Oturumun harcadığı.** Oturumun kartı kısa bir tablo açıyor: ne kadardır koştuğu, **Tokens** (yeni olanlar: girdi, çıktı ve önbelleğe yazılanlar), **From cache** (geri okunan aynı bağlam; ayrı sayılıyor, çünkü yoksa sayının neredeyse tamamı o olurdu) ve oturum ile ajanları için **Cost**. Maliyet, her cevabın kullanımının API liste fiyatıyla karşılığı. Claude Code'un advisor'ına danışmış bir oturum ayrıca **Advisor** satırını gösteriyor: kaç çağrı, token'ları ve maliyetleri; maliyet advisor modelinin kendi fiyatıyla. API bu token'ları yanıtın üst düzey kullanımına katmıyor, bu yüzden `iterations` alanından okunup toplamlara ekleniyor; hiç çağrı olmayan oturumda böyle bir satır yok. Fiyat tablosunda satırı olmayan bir modelin fiyatı yok: satır o zaman onu sıfır saymak yerine `No estimate` yazıyor ve modelin adını veriyor.
 
 <div align="center">

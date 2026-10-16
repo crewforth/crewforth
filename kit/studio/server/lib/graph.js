@@ -139,6 +139,7 @@ export function linkRetries(calls) {
     if (!c.refused) return;
     const again = list.slice(i + 1).find((n) => n.subagentType === c.subagentType && n.description === c.description);
     if (!again) return;
+    c.retried = true;
     // A call refused twice keeps the first thing that was asked.
     again.firstTry = c.firstTry ?? { asked: c.model, floor: c.refused.floor, text: c.refused.text };
   });
@@ -456,6 +457,11 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
     version: main.version,
     status: 'session',
     turns: main.userTurns,
+    // Agent calls the model gate refused and the session has not made again: no agent started, so nothing else on
+    // the canvas says they happened (seen on a real project: two refused calls, an empty canvas, "2 failed" only in
+    // the session's own view). A refused call made again is shown on the call that ran (`firstTry`).
+    refusedCalls: [...main.agentCalls.values()].filter((c) => c.refused && !c.retried)
+      .map((c) => ({ agent: c.subagentType ?? null, model: c.model ?? null, text: c.refused.text })),
     tokens: contextFill(records),
     startedAt: main.startedAt,
     endedAt: main.updatedAt,

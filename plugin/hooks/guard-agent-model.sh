@@ -557,13 +557,10 @@ _am_floor_now(){  # $1 agent, $2 change, $3 risk -> _AMF_TIER (the raised floor,
 
 # ---- the gate log: a refusal of this gate is recorded like any other gate's -------------------------------------
 _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog; the call's text is never recorded.
-  local gl="${CREW_GATE_LOG:-}" v=BLOCK
+  local gl="" v=BLOCK
   case "$1" in "note: "*) v=NOTE ;; esac          # something worth knowing that refused nothing
-  if [ -z "$gl" ]; then
-    [ -d ".claude" ] || return 0
-    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null || return 0; fi
-    gl=".claude/gate-log.tsv"
-  fi
+  declare -F crew_gate_log_write >/dev/null || return 0
+  crew_gate_log_write; gl="$_CREW_GL"; [ -n "$gl" ] || return 0
   printf '%s\t§model\t%s\t\n' "$v" "$1" >> "$gl" 2>/dev/null || true
 }
 
@@ -594,6 +591,7 @@ _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog
 #   5. THE SHELL GATE AGREES, asked under a session id that is not the session's: only "nothing to say" or an
 #      explicit allow passes.
 _AM_HERE="${BASH_SOURCE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE}" ] && _AM_HERE=.
+[ -f "$_AM_HERE/../eval/lib/gate-log.sh" ] && . "$_AM_HERE/../eval/lib/gate-log.sh"   # where the gate log goes
 # CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
 _AM_RUNNERS=('npm test' 'npm t' 'pnpm test' 'yarn test' 'bun test' 'deno test'
   'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
@@ -665,19 +663,9 @@ _am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 a Bash(...) rule of th
   done <<< "$_AMSF"
   return 1
 }
-# A verify command in a sub-folder: `cd apps/mobile && flutter test`, the usual shape in a repository of several
-# projects (measured on one: 41 of 71 refused verify commands had it). Split into the folder and the one command,
-# so the command is judged alone and run in that folder with no chain. Only a relative folder inside the project,
-# with no .. step, that exists; anything else is left whole, and is refused as a chain as before.
-_am_verify_split(){  # $1 = the command -> _AMVD the folder ("" = the project root), _AMVC the command
-  local c="$1" d r
-  _AMVD=""; _AMVC="$c"
-  case "$c" in 'cd '*' && '*) ;; *) return 0 ;; esac
-  d="${c#cd }"; d="${d%% && *}"; r="${c#cd "$d" && }"
-  case "$d" in ''|/*|~*|*[!A-Za-z0-9._/-]*|..|../*|*/..|*/../*) return 0 ;; esac
-  [ -n "$r" ] && [ -d "${_AMP:-.}/$d" ] || return 0
-  _AMVD="$d"; _AMVC="$r"
-}
+# How a verify command is read (the `cd <folder> && <command>` split): eval/lib/verify-cmd.sh, shared with doctor.
+[ -f "$_AM_HERE/../eval/lib/verify-cmd.sh" ] && . "$_AM_HERE/../eval/lib/verify-cmd.sh"
+_am_verify_split(){ _AMVD=""; _AMVC="$1"; declare -F crew_verify_split >/dev/null && crew_verify_split "$1" "${_AMP:-.}"; return 0; }
 _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMVB says by what); 1 and _AMVW says why not
   local c="$1" pm="${2:-default}" f r rc k g
   _AMVW=""; _AMVB=""

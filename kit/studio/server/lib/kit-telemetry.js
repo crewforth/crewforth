@@ -52,11 +52,36 @@ function kitPaths(cwd) {
  * empty unless CREW_GATE_LOG_CMD=1 was set, and there is no timestamp at all —
  * both facts are returned rather than papered over.
  */
+/**
+ * Where the gate log is, by the rule the gates write by (eval/lib/gate-log.sh): .claude/gate-log.tsv, else the
+ * repository's own .git/crewforth-gate-log.tsv (a project that tracks .claude/ has it there), searched from the
+ * project root up. null when there is none yet.
+ */
+export function gateLogPath(cwd) {
+  const own = path.join(cwd, '.claude', 'gate-log.tsv');
+  if (fs.existsSync(own)) return own;
+  let d = cwd;
+  for (let n = 0; n < 12; n += 1) {
+    const g = path.join(d, '.git');
+    let st = null;
+    try { st = fs.statSync(g); } catch { /* not here */ }
+    if (st?.isDirectory()) { const f = path.join(g, 'crewforth-gate-log.tsv'); return fs.existsSync(f) ? f : null; }
+    if (st?.isFile()) {
+      const m = /^gitdir: (.+)$/m.exec(fs.readFileSync(g, 'utf8'));
+      if (!m) return null;
+      const gd = path.resolve(d, m[1].trim()); const f = path.join(gd, 'crewforth-gate-log.tsv');
+      return fs.existsSync(f) ? f : null;
+    }
+    const up = path.dirname(d); if (up === d) return null; d = up;
+  }
+  return null;
+}
+
 export function gateLog(cwd, { limit = 200 } = {}) {
-  const file = path.join(cwd, '.claude', 'gate-log.tsv');
+  const file = gateLogPath(cwd);
   let st;
-  try { st = fs.statSync(file); } catch {
-    return { measured: false, reason: 'no .claude/gate-log.tsv in this project', entries: [] };
+  try { st = fs.statSync(file ?? ''); } catch {
+    return { measured: false, reason: 'no gate log in this project yet (.claude/gate-log.tsv, or .git/crewforth-gate-log.tsv where .claude/ is tracked)', entries: [] };
   }
 
   // Only the tail: this file reached 21,730 lines in Crewforth's own checkout and
@@ -119,9 +144,9 @@ export async function gateReport(cwd) {
   // should read is one level up. Both layouts are given what they expect rather
   // than the script being asked to guess.
   const from = kit.kind === 'installed' ? cwd : path.dirname(kit.hooks);
-  const logPath = path.join(cwd, '.claude', 'gate-log.tsv');
+  const logPath = gateLogPath(cwd);
   const env = { ...process.env };
-  if (kit.kind !== 'installed' && fs.existsSync(logPath)) env.CREW_GATE_LOG = logPath;
+  if (logPath) env.CREW_GATE_LOG = logPath;
 
   const r = await run('bash', [script, '--json'], { cwd: from, env });
   // 3 means there is no log to read, which the script calls "not an error"; 4

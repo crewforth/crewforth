@@ -72,7 +72,8 @@ trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esa
 _gate_main(){
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
+[ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"; unset _crew_d   # where the gate log goes
 # Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
 # of this hook. `read` returns 1 at end of input; the text is read regardless.
 IFS= read -r -d '' INPUT || true
@@ -365,12 +366,7 @@ block(){  # $1 = rule name for the log (must keep the `gate-file edit` prefix โ€
   # and with the same rule about the payload: the path is NOT recorded unless CREW_GATE_LOG_CMD=1, because
   # /crew-gates reports rule names and counts and never the argument. Logged after the verdict; it cannot
   # change it. CREW_GATE_LOG overrides the path; point it at /dev/null to turn recording off.
-  _GL="${CREW_GATE_LOG:-}"
-  if [ -z "$_GL" ] && [ -d ".claude" ]; then
-    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null; then
-      _GL=".claude/gate-log.tsv"
-    fi
-  fi
+  _GL=""; declare -F crew_gate_log_write >/dev/null && { crew_gate_log_write; _GL="$_CREW_GL"; }
   if [ -n "$_GL" ]; then
     if [ "${CREW_GATE_LOG_CMD:-0}" = 1 ]; then
       printf 'BLOCK\tยง4.5\t%s\t%s\n' "$1" \
