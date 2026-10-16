@@ -11,7 +11,8 @@
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/kit/eval/lib/crew-env.sh" ] && . "$_crew_d/kit/eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/kit/eval/lib/crew-env.sh" ] && . "$_crew_d/kit/eval/lib/crew-env.sh"
+[ -f "$_crew_d/kit/eval/lib/version.sh" ] && . "$_crew_d/kit/eval/lib/version.sh"; unset _crew_d   # an rc orders before its final
 HERE="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 
 # --version (or -v) is answered first, before the payload check below: it reads only VERSION, so it works
@@ -22,6 +23,44 @@ for _a in "$@"; do
     exit 0
   fi
 done
+
+# --help (or -h) is answered here too, before anything is read: an unknown flag is ignored further down, so without
+# this `adopt.sh --help` ran the detection instead of saying what the script does. The language comes from --lang or
+# CREW_LANG; the rest of the script asks for it later, which is too late for a help text.
+_hl="${CREW_LANG:-}"; _hh=0; _ht=0
+for _a in "$@"; do
+  if [ "$_ht" = 1 ]; then _ht=0; _hl="$_a"; continue; fi
+  case "$_a" in -h|--help) _hh=1 ;; --lang) _ht=1 ;; --lang=*) _hl="${_a#--lang=}" ;; esac
+done
+if [ "$_hh" = 1 ]; then
+  if [ "$_hl" = tr ]; then
+    cat <<'USAGE_TR'
+Kullanım: bash adopt.sh [SEÇENEKLER]   (ya da: npx crewforth adopt [SEÇENEKLER])
+Crewforth'u MEVCUT bir projeye kurar ya da kurulu olanı yeniler. Önce projeyi okur ve ne yapacağını gösterir;
+projenin kendi dosyalarına, hook'larına ve status line'ına dokunmaz. Değişiklikleri hazırlar (stage), commit atmaz.
+  --here         değişiklikleri şu anki dalda yap
+  --new-branch   değişiklikleri yeni bir inceleme dalında yap (ilk kurulumda varsayılan)
+  --yes, -y      her soruya evet de (gözetimsiz kurulum)
+  --lang tr|en   dil (verilmezse sorulur)
+  --version, -v  Crewforth sürümünü yazdırıp çık
+  --help, -h     bu metni yazdırıp çık
+USAGE_TR
+  else
+    cat <<'USAGE'
+Usage: bash adopt.sh [OPTIONS]   (or: npx crewforth adopt [OPTIONS])
+Installs Crewforth into an EXISTING project, or refreshes an install. It reads the project first and shows what it
+will do; the project's own files, hooks and status line are left alone. Changes are staged, never committed.
+  --here         make the changes on the current branch
+  --new-branch   make the changes on a fresh review branch (the default for a first adopt)
+  --yes, -y      answer yes at every gate (unattended)
+  --lang tr|en   language (asked when not given)
+  --version, -v  print Crewforth's version and exit
+  --help, -h     print this text and exit
+USAGE
+  fi
+  exit 0
+fi
+unset _hl _hh _ht
 
 SRC="$HERE/kit"
 [ -d "$SRC" ] || { echo "ERROR: kit/ not found (must be in the same directory as adopt.sh)."; exit 1; }
@@ -1540,14 +1579,15 @@ fi
 # A fresh adopt has no "before", so it gets no file (and a stale one from an earlier update is removed).
 rm -f .claude/.state/whats-new.md 2>/dev/null
 _kv="$(printf '%s' "$KIT_VER" | tr -d '\r')"
-case "$_kv" in *[!0-9.]*|'') _kv="" ;; [0-9]*.[0-9]*.[0-9]*) ;; *) _kv="" ;; esac   # an odd old version compares as 0.0.0 — every section would look new
+_kv="$(crew_local_version "$_kv" 2>/dev/null)" || _kv=""   # an odd old version compares as 0.0.0 — every section would look new
 if [ "$KIT_PRESENT" = 1 ] && [ -n "$_kv" ] && [ -f "$HERE/CHANGELOG.md" ] && [ -f "$HERE/VERSION" ]; then
   mkdir -p .claude/.state 2>/dev/null
-  awk -v from="$_kv" -v to="$(head -1 "$HERE/VERSION" | tr -d '\r')" '
-    function cmp(a,b,  x,y,i){ split(a,x,"."); split(b,y,"."); for(i=1;i<=3;i++){ if(x[i]+0>y[i]+0) return 1; if(x[i]+0<y[i]+0) return -1 } return 0 }
+  # The upper bound is the target's X.Y.Z: an rc's notes are its final's section ("[Unreleased] — 3.2.0").
+  awk -v from="$_kv" -v to="$(head -1 "$HERE/VERSION" | tr -d '\r')" "${CREW_VCMP_AWK:-}"'
+    BEGIN { sub(/-.*/, "", to) }
     /^## \[/ { v=$0; sub(/^## \[/,"",v); w=v; sub(/\].*/,"",v)
                 if (v=="Unreleased") { v=w; sub(/^[^—]*— */,"",v); sub(/[^0-9.].*/,"",v) }
-                keep = (v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ && cmp(v,from)>0 && cmp(v,to)<=0) }
+                keep = (v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ && vcmp(v,from)>0 && vcmp(v,to)<=0) }
     keep' "$HERE/CHANGELOG.md" | tr -d '\r' > .claude/.state/whats-new.md 2>/dev/null
   [ -s .claude/.state/whats-new.md ] || rm -f .claude/.state/whats-new.md
 fi

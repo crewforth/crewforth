@@ -4971,6 +4971,8 @@ sec "== 7u) update prompt: ASKS about a release, never installs one, never spend
 UPD="$(mktemp -d)"; mkdir -p "$UPD/.claude/.state" "$UPD/.claude/hooks"
 printf '3.0.0\n' > "$UPD/.claude/VERSION"
 UH="$HOOKS/session-update-check.sh"; cp "$UH" "$UPD/.claude/hooks/"
+# The hook reads and orders the install's version through eval/lib/version.sh, beside it in an install.
+mkdir -p "$UPD/.claude/eval/lib"; cp "$ROOT/eval/lib/version.sh" "$UPD/.claude/eval/lib/"
 uc(){ ( printf '{"hook_event_name":"SessionStart","source":"startup","cwd":"%s"}' "$UPD" \
         | env -u CI -u CREW_NO_UPDATE_CHECK -u CREW_LANG CLAUDE_CODE_SESSION_ATTENDED=1 LANG=C LC_ALL= LC_MESSAGES= \
           CLAUDE_PROJECT_DIR="$UPD" CREW_UPDATE_URL="${1:-http://10.255.255.1/blackhole}" bash "$UH" 2>/dev/null ); }
@@ -5099,10 +5101,25 @@ cp "$UH" "$UPD/uh-twin.sh"; printf 'npx --yes crewforth@latest update --here --y
 if [ "$_ni" = 0 ] && [ "$(_noinst "$UPD/uh-twin.sh")" -ge 1 ]; then pass "the update hook runs no installer (npx, npm, adopt.sh, start.sh): 0 lines; the twin with one is caught"
 else fail "the update hook contains an installer call ($_ni line(s)) — it must only ask, or the twin was not caught"; fi
 
+# 12b) AN INSTALLED RC IS OFFERED ITS FINAL. The installer copies VERSION into the project, and an rc's says
+#      X.Y.Z-rc.N: 3.2.0 published over an installed 3.2.0-rc.1 is newer (it used to read as the same 3.2.0, and the
+#      rc's user was never told the final shipped). An older final is not offered, and what the network answers is
+#      still held to X.Y.Z: an rc off the network is no version.
+printf '3.2.0-rc.1\n' > "$UPD/.claude/VERSION"
+ucache 3.2.0
+case "$(uc)" in *'"Crewforth v3.2.0 is out (installed: v3.2.0-rc.1). Update now?"'*) pass "an installed 3.2.0-rc.1 is offered the final 3.2.0" ;;
+                *) fail "an installed 3.2.0-rc.1 was not offered the final 3.2.0 (got: $(uc | head -c 120))" ;; esac
+ucache 3.1.1
+[ -z "$(uc)" ] && pass "an installed rc is not offered an older final (3.1.1 under 3.2.0-rc.1)" || fail "3.1.1 was offered over an installed 3.2.0-rc.1"
+ucache 3.2.0-rc.2
+[ -z "$(uc)" ] && pass "an rc answered off the network is no version: nothing asked" || fail "a pre-release from the network was put in a question"
+printf '3.0.0\n' > "$UPD/.claude/VERSION"; ustate
+
 # 13) THE PLUGIN EDITION. Its version is its own manifest, its release is the marketplace repo's copy, its state is
 #     user-level (a plugin serves every project), and its Update path is the plugin command — measured to work from
 #     inside a session, applying on restart.
-PLG="$UPD/plugin"; mkdir -p "$PLG/.claude-plugin" "$PLG/hooks"; cp "$UH" "$PLG/hooks/"
+PLG="$UPD/plugin"; mkdir -p "$PLG/.claude-plugin" "$PLG/hooks" "$PLG/eval/lib"; cp "$UH" "$PLG/hooks/"
+cp "$ROOT/eval/lib/version.sh" "$PLG/eval/lib/"
 printf '{"name":"crewforth","version":"3.0.0"}\n' > "$PLG/.claude-plugin/plugin.json"
 XDG="$UPD/xdg"; mkdir -p "$XDG/crewforth"
 printf '3.1.0 %s\n' "$(date +%s)" > "$XDG/crewforth/update-check"
@@ -11375,6 +11392,22 @@ $(printf '%s\n%s\n%s\n' "$_ka" "$_kb" "$_kc" | grep . | head -n 6 | sed "s|$KR/|
     [ -n "$(_dn "$_kd/done-twin.sh")" ] && pass "the installers' closing lines name no kit (EN key and TR value); a planted 'kit/ deleted' is caught" \
       || fail "twin: the closing-line check missed a planted 'kit/ deleted' — it reads nothing"
   fi
+  # adopt.sh --help answers before it reads anything. An unknown flag is ignored further down, so --help used to run
+  # the detection (seen on Windows in the 3.2.0-rc.1 trial). Read in a git repo holding only adopt.sh: no kit/, both
+  # languages, and nothing written. Twin: the same script without its --help branch must not print the usage.
+  _ah_run(){ ( cd "$1" && CREW_LANG=en bash adopt.sh --help; echo "rc=$?"; bash adopt.sh -h --lang tr; echo "rc=$?" ) 2>&1; }
+  mkdir -p "$_kd/ah" "$_kd/ah-twin"; git init -q "$_kd/ah" 2>/dev/null; git init -q "$_kd/ah-twin" 2>/dev/null
+  cp "$KR/adopt.sh" "$_kd/ah/"; sed 's/-h|--help) _hh=1 ;;//' "$KR/adopt.sh" > "$_kd/ah-twin/adopt.sh"
+  _ah="$(_ah_run "$_kd/ah")"; _aht="$(_ah_run "$_kd/ah-twin")"
+  _ahw="$(git -C "$_kd/ah" status --porcelain 2>/dev/null | grep -vx '?? adopt.sh')"
+  case "$_ah" in
+    *'Usage: bash adopt.sh'*'rc=0'*'Kullanım: bash adopt.sh'*'rc=0'*)
+      if [ -n "$_ahw" ]; then fail "adopt.sh --help wrote into the project: $(printf '%s' "$_ahw" | head -n 2 | tr '\n' ' ')"
+      else case "$_aht" in *'Usage: bash adopt.sh'*) fail "twin: adopt.sh without its --help branch still printed the usage — the check reads nothing" ;;
+             *) pass "adopt.sh --help prints its usage in English and Turkish, rc 0, with no kit/ and nothing written (a twin without it does not)" ;; esac
+      fi ;;
+    *) fail "adopt.sh --help did not print its usage in both languages with rc 0: $(printf '%s' "$_ah" | head -n 3 | tr '\n' ' ')" ;;
+  esac
   rm -rf "$_kd"
 else
   skip scope "printed-text wording check skipped (installed project — the installers live in the source repository)"

@@ -44,7 +44,9 @@
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
+# How an install's own version is read and ordered (an rc before its final): one definition, eval/lib/version.sh.
+[ -f "$_crew_d/../eval/lib/version.sh" ] && . "$_crew_d/../eval/lib/version.sh"; unset _crew_d
 
 URL="${CREW_UPDATE_URL:-https://registry.npmjs.org/-/package/crewforth/dist-tags}"
 # plugin-stable, not main: the marketplace installs the plugin from that branch, and only an approved release
@@ -139,7 +141,10 @@ PJSON="$PR_ROOT/.claude-plugin/plugin.json"
 # plugin's copy steps aside whenever a project install is present, instead of asking the project's question too.
 if [ "$IS_PLUGIN" = 1 ] && [ -f "$CL/VERSION" ]; then exit 0; fi
 if [ -f "$CL/VERSION" ]; then
-  read -r _cv < "$CL/VERSION" 2>/dev/null || _cv=""; CUR="$(sane_version "$_cv")" || exit 0
+  # The install's own file, so an rc (X.Y.Z-rc.N) is a version here; what npm answers is still held to X.Y.Z.
+  read -r _cv < "$CL/VERSION" 2>/dev/null || _cv=""
+  declare -F crew_local_version >/dev/null || exit 0
+  CUR="$(crew_local_version "$_cv")" || exit 0
   STATE="$CL/.state"                                            # repo-local: the install lives in the repo
   FEED="${CREW_UPDATE_URL:-$URL}"; KEY=latest; EDITION=project
   ANSWER='bash .claude/hooks/session-update-check.sh --answer'
@@ -186,12 +191,8 @@ fi
 [ -n "$LATEST" ] || exit 0
 LATEST="$(sane_version "$LATEST")" || exit 0
 
-# Numeric field compare, one awk. Pre-release suffixes degrade to their numeric prefix (`1-rc2` -> 1), which is
-# the harmless direction: it can suppress a question, never invent one.
-awk -v a="$LATEST" -v b="$CUR" 'BEGIN{
-  split(a,x,"."); split(b,y,".");
-  for(i=1;i<=3;i++){ if(x[i]+0 > y[i]+0) exit 0; if(x[i]+0 < y[i]+0) exit 1 }
-  exit 1 }' || exit 0
+# One awk, eval/lib/version.sh's order: 3.2.0 is newer than an installed 3.2.0-rc.1, so the rc's user is asked.
+awk -v a="$LATEST" -v b="$CUR" "${CREW_VCMP_AWK:-}"' BEGIN { exit !(vcmp(a, b) > 0) }' 2>/dev/null || exit 0
 
 # Skipped for good? Asked (or answered "later") within the last day?
 if [ -f "$STATE/update-skip" ]; then read -r _sk < "$STATE/update-skip" 2>/dev/null || _sk=""; [ "${_sk//[!0-9.]/}" = "$LATEST" ] && exit 0; fi

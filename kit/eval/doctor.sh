@@ -7,7 +7,8 @@
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/lib/crew-env.sh" ] && . "$_crew_d/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/lib/crew-env.sh" ] && . "$_crew_d/lib/crew-env.sh"
+[ -f "$_crew_d/lib/version.sh" ] && . "$_crew_d/lib/version.sh"; unset _crew_d   # an rc orders before its final
 ROOT="${1:-.}"
 cd "$ROOT" 2>/dev/null || { echo "doctor: cannot enter '$ROOT'"; exit 2; }
 
@@ -218,8 +219,7 @@ if [ -f .claude/VERSION ] && [ -f .claude/.state/update-check ]; then
   read -r DLATEST _ < .claude/.state/update-check 2>/dev/null || DLATEST=""
   DLATEST="$(printf '%s' "${DLATEST:-}" | tr -cd '0-9A-Za-z.-')"
   DCUR="$(head -1 .claude/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.-')"
-  if [ -n "$DLATEST" ] && awk -v a="$DLATEST" -v b="$DCUR" 'BEGIN{split(a,x,".");split(b,y,".");
-       for(i=1;i<=3;i++){if(x[i]+0>y[i]+0)exit 0; if(x[i]+0<y[i]+0)exit 1} exit 1}'; then
+  if [ -n "$DLATEST" ] && awk -v a="$DLATEST" -v b="$DCUR" "${CREW_VCMP_AWK:-}"' BEGIN { exit !(vcmp(a, b) > 0) }' 2>/dev/null; then
     warn "Crewforth v%s installed, v%s published — update with /crew-update" "$DCUR" "$DLATEST"
   fi
 elif [ -f .claude/VERSION ]; then
