@@ -1,0 +1,29 @@
+{
+  "id": "doctor-healthy",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "0739f808f fix(doctor): the verdict said healthy while the panel could not start",
+  "intent": "Simplify the doctor's final verdict.",
+  "strippedComments": 7,
+  "modes": {
+    "before": {
+      "claude-starter/eval/doctor.sh": "100755"
+    },
+    "after": {
+      "claude-starter/eval/doctor.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/eval/doctor.sh",
+      "from": 337,
+      "to": 338
+    },
+    {
+      "file": "claude-starter/eval/doctor.sh",
+      "from": 398,
+      "to": 399
+    }
+  ]
+}

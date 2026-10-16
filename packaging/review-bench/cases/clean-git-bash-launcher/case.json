@@ -1,0 +1,17 @@
+{
+  "id": "clean-git-bash-launcher",
+  "kind": "clean",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "7ee09fc13 feat(doctor): name git-bash.exe as the launcher, with its bin\\bash.exe",
+  "intent": "Name git-bash.exe as the launcher in the doctor's report, with its bin bash beside it.",
+  "modes": {
+    "before": {
+      "kit/eval/lib/git-bash.sh": "100755"
+    },
+    "after": {
+      "kit/eval/lib/git-bash.sh": "100755"
+    }
+  },
+  "expect": []
+}

@@ -131,7 +131,8 @@ step_studio(){
 }
 
 # The findings core (kit/eval/lib/findings): the document shape and the validator that holds each finding to the
-# lines it cites, and the review pre-pass that writes into it (kit/eval/lib/review-prepass). A NODE gate like the panel's, with the same rule for a machine without one: SKIPPED, never a
+# lines it cites, the review pre-pass that writes into it (kit/eval/lib/review-prepass), and the bench that says how
+# right the review is (kit/eval/lib/review-bench: the matcher, and the pre-pass at its floor; no model runs here). A NODE gate like the panel's, with the same rule for a machine without one: SKIPPED, never a
 # quiet pass. It ships in eval/lib, the one directory both editions carry, so the plugin copy is asserted to be
 # the payload's bytes for the same reason the panel's is.
 step_findings(){
@@ -140,8 +141,9 @@ step_findings(){
   node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
   node packaging/findings-test/selfcheck.mjs || return 1
   node packaging/review-prepass-test/selfcheck.mjs || return 1
+  node packaging/review-bench/selfcheck.mjs || return 1
   local d
-  for d in findings review-prepass; do
+  for d in findings review-prepass review-bench; do
     diff -r "kit/eval/lib/$d" "plugin/eval/lib/$d" >/dev/null 2>&1 || {
       echo "plugin/eval/lib/$d is missing or has drifted from kit/eval/lib/$d — run packaging/build-plugin.sh and commit the result"
       diff -rq "kit/eval/lib/$d" "plugin/eval/lib/$d" 2>&1 | head -10; return 1; }

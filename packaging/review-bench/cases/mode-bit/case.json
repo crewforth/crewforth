@@ -1,0 +1,23 @@
+{
+  "id": "mode-bit",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "b495e30f1 fix(crew-map): crew-map.sh is executable",
+  "intent": "Tidy the crew-map entry script's file metadata.",
+  "modes": {
+    "before": {
+      "kit/eval/lib/crew-map/crew-map.sh": "100755"
+    },
+    "after": {
+      "kit/eval/lib/crew-map/crew-map.sh": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "kit/eval/lib/crew-map/crew-map.sh",
+      "from": null,
+      "to": null
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "pattern-lockfile",
+  "kind": "defect",
+  "stratum": "pattern",
+  "holdout": false,
+  "source": "synthetic",
+  "intent": "Refresh the dependency lock.",
+  "modes": {
+    "before": {
+      "package.json": "100644",
+      "package-lock.json": "100644"
+    },
+    "after": {
+      "package.json": "100644",
+      "package-lock.json": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "package-lock.json",
+      "from": 4,
+      "to": 4
+    }
+  ]
+}

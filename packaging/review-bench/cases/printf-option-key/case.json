@@ -1,0 +1,29 @@
+{
+  "id": "printf-option-key",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": true,
+  "source": "6f3914280 fix(installer): end printf option parsing in _mt so no key can start with '-'",
+  "intent": "Write manifest entries with printf in the installer.",
+  "strippedComments": 4,
+  "modes": {
+    "before": {
+      "start.sh": "100644"
+    },
+    "after": {
+      "start.sh": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "start.sh",
+      "from": 161,
+      "to": 161
+    },
+    {
+      "file": "start.sh",
+      "from": 483,
+      "to": 484
+    }
+  ]
+}

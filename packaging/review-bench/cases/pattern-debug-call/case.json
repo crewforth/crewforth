@@ -1,0 +1,23 @@
+{
+  "id": "pattern-debug-call",
+  "kind": "defect",
+  "stratum": "pattern",
+  "holdout": false,
+  "source": "synthetic",
+  "intent": "Return the orders list from the orders route.",
+  "modes": {
+    "before": {
+      "src/orders.js": "100644"
+    },
+    "after": {
+      "src/orders.js": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "src/orders.js",
+      "from": 5,
+      "to": 5
+    }
+  ]
+}

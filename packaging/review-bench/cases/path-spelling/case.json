@@ -1,0 +1,24 @@
+{
+  "id": "path-spelling",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "0fc19e800 fix(install): ask git which directory this is, not which spelling it uses",
+  "intent": "Detect whether the installer runs inside the kit's own checkout more simply.",
+  "strippedComments": 9,
+  "modes": {
+    "before": {
+      "start.sh": "100644"
+    },
+    "after": {
+      "start.sh": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "start.sh",
+      "from": 344,
+      "to": 344
+    }
+  ]
+}
