@@ -125,6 +125,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A commit message and a reworded paragraph no longer go to the expensive model.** Two floors of the model gate
+  raised prose for no gain (seen on a real project): with no verify command a commit message was held to sonnet,
+  though the commit hook checks it, and a two-sentence fix under a critical path such as `legal/` was held to opus.
+  A text change now runs on haiku without a verify command, the commit agent too; on a critical path a text change
+  whose every file is prose (`.md`, `.txt`, `.rst`, `.adoc`) is written on sonnet, and the audit of it stays on opus.
+  One code file on the card keeps it on opus, and an agent on sonnet still writes no code there. A project that
+  wants opus for such text says so in `.claude/crew-model-rules` (`floor * text critical opus`).
 - **The gate log is written in every project, and Studio shows a refused agent call.** A project that tracks
   `.claude/` had no gate log at all: no record of a refusal, no 🛡 on the status line, no note of a model lowered to
   its card's floor (seen on a real project). The log now goes inside the repository's own `.git` there

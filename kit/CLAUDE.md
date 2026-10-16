@@ -59,9 +59,9 @@ sequence. All are installed: "no owner" is an `ls`.
 
 | `model` (`guard-agent-model.sh`: floor = default; `above: <why>` for more) | the card |
 |---|---|
-| `haiku` | text, test-run, mechanical work — only with `verify:` |
-| `sonnet` | feature, fix-known, refactor, test-write, audit, review; anything with `verify: none` |
-| `opus` | **critical**: migration, security, architecture, fix-unknown, or a critical-path file (auth, payments, migrations…) — its test-write, audit, review too |
+| `haiku` | text, commit agent; test-run, mechanical work with `verify:` |
+| `sonnet` | feature, fix-known, refactor, test-write, audit, review; other `verify: none`; critical-path prose |
+| `opus` | **critical**: migration, security, architecture, fix-unknown, or a critical-path file (auth, payments, legal…), and its referees |
 
 The referee follows the RISK, not the author's model. Verify fails → the agent fixes once; again → re-run ONCE one
 model up; again → AskUserQuestion. The same for a report that ends `confidence: low`.

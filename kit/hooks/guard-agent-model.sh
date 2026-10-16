@@ -14,10 +14,15 @@
 #   * RISK CLASS. `critical` when the change is migration, security, architecture or fix-unknown, or a file is on a
 #     critical path (auth, payments, billing, migrations, security, crypto, secrets, *.sql, schema.prisma;
 #     .claude/crew-model-rules adds and removes paths). Otherwise `normal`.
-#   * critical work runs on opus, whatever the agent. The one exception is test-run: running the tests is objective.
+#   * critical work runs on opus, whatever the agent. Two exceptions: test-run (running the tests is objective), and
+#     a text change whose every file is prose (.md .txt .rst .adoc), which runs on sonnet or above: a reworded
+#     paragraph under legal/ is read by a person, and opus for it is the cost this gate exists to stop. A project
+#     that wants opus there says so in .claude/crew-model-rules (floor * text critical opus).
 #   * the referee is as strong as the risk: test-write and audit on sonnet or above (opus when critical, by the rule
 #     above); review, privacy, planner and database agents on sonnet or above; the security agent on opus.
-#   * work with no verify command runs on sonnet or above: haiku goes only to work a command can check.
+#   * work with no verify command runs on sonnet or above: haiku goes only to work a command can check. Not for
+#     change: text, nor for the commit agent: a reader is all prose ever has, and a commit message is checked by
+#     the commit-msg hook (seen on a real project: a commit message proposed on sonnet for that reason alone).
 #   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh),
 #     until the user lowers it again with /crew-loosen (one model, once for each raise).
 #   * a card whose verify failed is not run again on the same or a lower model, and not a third time at all.
@@ -412,6 +417,18 @@ _am_crit_path(){  # $1 = a path or a glob -> 0 critical (_AMW says by what), 1 n
   return "$hit"
 }
 
+_am_prose(){  # $1 = a path or a glob -> 0 when it is prose a person reads (the exception for a text change)
+  case "$1" in *.md|*.MD|*.markdown|*.txt|*.TXT|*.rst|*.adoc) return 0 ;; esac
+  return 1
+}
+_am_all_prose(){  # after _am_card -> 0 when every file of the card is prose
+  local f r=0 unglob=0
+  case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+  for f in ${CARD_FILES//,/ }; do _am_prose "$f" || { r=1; break; }; done
+  [ "$unglob" = 1 ] && set +f
+  return "$r"
+}
+
 # ---- THE CARD ---------------------------------------------------------------------------------------------------
 _AM_CHANGES=' text feature fix-known fix-unknown refactor migration security architecture test-run test-write audit '
 _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (CARD_ABOVE); 1 and CARD_WHY
@@ -747,6 +764,8 @@ _am_write_check(){  # $1 = the payload, $2 = the file about to be written -> ret
     if [ -f "$f" ]; then m="$(grep -m1 -o '"model":"[^"]*"' "$f" 2>/dev/null)" || m=""; _am_tier "$m"; tier="$_AMT"; fi
   fi
   case "$tier" in opus|fable) return 0 ;; esac
+  # A text change on sonnet may write prose there: the call was let through on that floor for exactly that.
+  if [ "$tier" = sonnet ] && _am_prose "$_AMRP" && _am_rec_get "$_AMD/agents/$aid" change && [ "$_AMV" = text ]; then return 0; fi
   _am_log "critical path: write by an agent not on opus"
   echo "GUARD (agent model): $_AMRP is on a critical path ($_AMW) and this agent runs on ${tier:-a model that could not be read}; only an agent on opus writes there. Do not reach the file another way. Stop, and end your report with the two lines: escalate: $_AMRP / confidence: low" >&2
   exit 2
@@ -820,9 +839,11 @@ if ! _am_card "$prompt"; then
 fi
 _am_state; _am_risk; _am_digest
 # ---- the floor of THIS card: the highest of what applies, and the reason that set it ----
-if [ "$CARD_VERIFY" = none ] && [ "$floor" -lt 2 ]; then floor=2; why="no verify command, so nothing checks the work but a reader"; fi
+if [ "$CARD_VERIFY" = none ] && [ "$CARD_CHANGE" != text ] && [ "$st" != crew-commit-agent ] && [ "$floor" -lt 2 ]; then floor=2; why="no verify command, so nothing checks the work but a reader"; fi
 case "$CARD_CHANGE" in test-write|audit) if [ "$floor" -lt 2 ]; then floor=2; why="change: $CARD_CHANGE, the referee of the work"; fi ;; esac
-if [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" != test-run ] && [ "$floor" -lt 3 ]; then floor=3; why="critical work: $CARD_RISKWHY"; fi
+if [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" = text ] && _am_all_prose; then
+  if [ "$floor" -lt 2 ]; then floor=2; why="a text change on a critical path: $CARD_RISKWHY"; fi
+elif [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" != test-run ] && [ "$floor" -lt 3 ]; then floor=3; why="critical work: $CARD_RISKWHY"; fi
 # A class the user's rules or the record of outcomes hold higher. Neither can lower anything here.
 _am_rules
 for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do

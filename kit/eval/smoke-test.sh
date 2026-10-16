@@ -8276,21 +8276,26 @@ done <<'V2'
 2|crew-backend-expert|sonnet|prisma/schema.prisma|feature|none|
 2|crew-backend-expert|sonnet|config/SECRETS_local.env|text|none|
 0|crew-backend-expert|sonnet|docs/author.md, src/cryptography/hash.ts|feature|none|
-2|crew-backend-expert|sonnet|legal/terms-of-service.md|text|none|
-2|crew-backend-expert|sonnet|docs/privacy-policy.md|text|none|
+0|crew-backend-expert|sonnet|legal/terms-of-service.md|text|none|
+0|crew-backend-expert|sonnet|docs/privacy-policy.md|text|none|
 2|crew-backend-expert|sonnet|src/PrivacyController.cs|feature|none|
 2|crew-backend-expert|sonnet|src/consent/banner.ts|feature|none|
-2|crew-backend-expert|sonnet|content/terms/index.md|text|none|
-2|crew-backend-expert|sonnet|fastlane/metadata/en-US/description.txt|text|none|
-2|crew-backend-expert|sonnet|store/listing.md|text|none|
-2|crew-backend-expert|sonnet|metadata/android/en-US/full_description.txt|text|none|
+0|crew-backend-expert|sonnet|content/terms/index.md|text|none|
+0|crew-backend-expert|sonnet|fastlane/metadata/en-US/description.txt|text|none|
+0|crew-backend-expert|sonnet|store/listing.md|text|none|
+0|crew-backend-expert|sonnet|metadata/android/en-US/full_description.txt|text|none|
 0|crew-backend-expert|opus|legal/terms-of-service.md|text|none|
+2|crew-backend-expert|haiku|legal/terms-of-service.md|text|none|
+2|crew-backend-expert|sonnet|legal/terms-of-service.md, src/legal/consent.ts|text|none|
+2|crew-backend-expert|sonnet|legal/terms-of-service.md|feature|none|
 0|crew-backend-expert|sonnet|src/searchTerms.ts|feature|none|
 0|crew-backend-expert|sonnet|src/store/index.ts|feature|none|
 0|crew-backend-expert|sonnet|fastlane/metadata/en-US/images/icon.png|text|none|
 0|crew-backend-expert|sonnet|docs/legalese.md|text|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|none|
-2|crew-backend-expert|haiku|src/ui/a.ts|text|none|
+0|crew-backend-expert|haiku|src/ui/a.ts|text|none|
+2|crew-backend-expert|haiku|src/ui/a.ts|fix-known|none|
+0|crew-commit-agent|haiku|src/ui/a.ts|fix-known|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|text|none|
 0|crew-backend-expert|haiku|src/ui/a.ts|text|true|
 0|crew-test-expert|haiku|src/ui/**|test-run|true|
@@ -8322,8 +8327,8 @@ done <<'V2'
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|git commit -m x|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|rm -rf /|
 V2
-if [ "$_v2n" != 60 ]; then fail "FIXTURE: the card table has $_v2n rows, not 60"
-elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; verify none is refused on haiku; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) (47 rows)"
+if [ "$_v2n" != 65 ]; then fail "FIXTURE: the card table has $_v2n rows, not 65"
+elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; a text change whose every file is prose (legal, privacy, terms, a store listing) passes on sonnet and is refused on haiku, and one card file that is not prose holds it to opus; verify none is refused on haiku, except for a text change and the commit agent; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) ($_v2n rows)"
 else fail "card table:$_v2b"; fi
 # The card's floor is also the default: a call above it runs ON it (the gate hands back the same input with `model`
 # replaced, PreToolUse updatedInput), unless the card's next line says `above: <why>`. Measured on a real project:
@@ -8409,15 +8414,20 @@ done
 _v2new; _v2b=""
 _v2call crew-backend-expert sonnet 'src/ui/a.ts' refactor true; _v2start ag-son
 _v2call crew-backend-expert opus 'src/payments/p.ts' feature none; _v2start ag-op
+_v2call crew-docs-agent sonnet 'legal/terms.md' text none; _v2start ag-txt crew-docs-agent
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; { [ "$_v2wrc" = 2 ] && grep -q 'escalate: src/payments/p.ts' "$_v2/werr" && grep -q '^GUARD (agent model): ' "$_v2/werr"; } || _v2b="$_v2b sonnet-agent-wrote-payments:$_v2wrc"
 _v2write "$_v2p/src/ui/a.ts"        ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b sonnet-agent-refused-on-ui:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-op","agent_type":"crew-backend-expert"';  [ "$_v2wrc" = 0 ] || _v2b="$_v2b opus-agent-refused:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-unknown","agent_type":"general-purpose"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b unknown-model-wrote-payments:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts"; [ "$_v2wrc" = 0 ] || _v2b="$_v2b the-session-refused:$_v2wrc"
+# A text change on sonnet writes prose on a critical path; not code there, and not prose for any other change.
+_v2write "$_v2p/legal/terms.md"     ',"agent_id":"ag-txt","agent_type":"crew-docs-agent"';     [ "$_v2wrc" = 0 ] || _v2b="$_v2b sonnet-text-refused-legal-prose:$_v2wrc"
+_v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-txt","agent_type":"crew-docs-agent"';     [ "$_v2wrc" = 2 ] || _v2b="$_v2b sonnet-text-wrote-payments-code:$_v2wrc"
+_v2write "$_v2p/legal/terms.md"     ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b sonnet-refactor-wrote-legal-prose:$_v2wrc"
 mkdir -p "$_v2/t/subagents"; printf '{"type":"assistant","message":{"model":"claude-opus-5-5"}}\n' > "$_v2/t/subagents/agent-ag-gp.jsonl"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-gp","agent_type":"general-purpose"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b opus-by-its-transcript-refused:$_v2wrc"
 _V2ENV="CREW_MODEL_ROUTING=off" _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b routing-off-refused:$_v2wrc"
-[ -z "$_v2b" ] && pass "an agent on sonnet is refused a write to a critical path its card did not name, and told to report escalate; the same agent writes elsewhere; an agent on opus (by its call, or by its own transcript) writes there; an agent whose model cannot be read does not; the session's own write is not asked; routing off asks nothing" \
+[ -z "$_v2b" ] && pass "an agent on sonnet is refused a write to a critical path its card did not name, and told to report escalate; the same agent writes elsewhere; an agent on opus (by its call, or by its own transcript) writes there; an agent whose model cannot be read does not; the session's own write is not asked; routing off asks nothing; an agent on sonnet with a text card writes prose there (legal/terms.md) and not code, and one with any other card writes neither" \
                || fail "write-time check:$_v2b"
 # B2 (K7): the session's own write to a critical path is not refused, and it is recorded: one NOTE line in the gate
 # log naming the path and the rule. A write elsewhere, one outside the project, and one with routing off add none.
@@ -8864,7 +8874,7 @@ _kn="$(awk -F'\t' '$2 == "k2" { print $5 "/" $13 }' "$_v2st/../model-outcomes.ts
 # The gate's and the write-time check's refusals are in the gate log; an agent id that cannot be read does not open
 # the write-time check; run_in_background named twice is refused.
 _v2new; _v2b=""; _V2ENV="CREW_GATE_LOG=$_v2/gl.tsv"; : > "$_v2/gl.tsv"
-_v2call crew-database-expert sonnet 'src/payments/p.ts' feature none; _v2call crew-backend-expert haiku 'src/ui/a.ts' text none
+_v2call crew-database-expert sonnet 'src/payments/p.ts' feature none; _v2call crew-backend-expert haiku 'src/ui/a.ts' fix-known none
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"nobody-known","agent_type":"x"'
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"","agent_type":"x"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b an-empty-agent-id-opened-the-check:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"a b/../c","agent_type":"x"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b an-unreadable-agent-id-opened-the-check:$_v2wrc"
@@ -9008,11 +9018,11 @@ _v2call crew-backend-expert sonnet 'src/payments/p.ts' feature none; [ "$_v2rc" 
 # What a lowering cannot reach: the floors the card and the agent carry. Two raised floors are planted and lowered;
 # the model below still fails where another rule holds it, and passes where only the lowered floor did.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"
-printf 'crew-backend-expert\ttext\tnormal\tsonnet\t6\t3\t2026-01-01T00:00:00Z\ncrew-database-expert\tfeature\tnormal\topus\t6\t3\t2026-01-01T00:00:00Z\n' > "$_v2fl"
-_o="$(_v2say '/crew-loosen crew-backend-expert text normal')$(_v2say '/crew-loosen crew-database-expert feature normal')"
+printf 'crew-backend-expert\tfix-known\tnormal\tsonnet\t6\t3\t2026-01-01T00:00:00Z\ncrew-database-expert\tfeature\tnormal\topus\t6\t3\t2026-01-01T00:00:00Z\n' > "$_v2fl"
+_o="$(_v2say '/crew-loosen crew-backend-expert fix-known normal')$(_v2say '/crew-loosen crew-database-expert feature normal')"
 case "$_o" in *'from sonnet to haiku'*'from opus to sonnet'*) ;; *) _v2b="$_v2b FIXTURE:the-two-floors-were-not-lowered" ;; esac
-_v2call crew-backend-expert haiku 'src/ui/f1.ts' text true;   [ "$_v2rc" = 0 ] || _v2b="$_v2b the-lowered-class-is-still-refused-on-haiku:$_v2rc"
-_v2call crew-backend-expert haiku 'src/ui/f1.ts' text none;   [ "$_v2rc" = 2 ] || _v2b="$_v2b verify-none-went-to-haiku-after-a-lowering"
+_v2call crew-backend-expert haiku 'src/ui/f1.ts' fix-known true;   [ "$_v2rc" = 0 ] || _v2b="$_v2b the-lowered-class-is-still-refused-on-haiku:$_v2rc"
+_v2call crew-backend-expert haiku 'src/ui/f1.ts' fix-known none;   [ "$_v2rc" = 2 ] || _v2b="$_v2b verify-none-went-to-haiku-after-a-lowering"
 _v2call crew-database-expert sonnet 'src/ui/f2.ts' feature true; [ "$_v2rc" = 0 ] || _v2b="$_v2b the-lowered-class-is-still-refused-on-sonnet:$_v2rc"
 _v2call crew-database-expert haiku 'src/ui/f2.ts' feature true;  { [ "$_v2rc" = 2 ] && grep -q 'runs on sonnet or above' "$_v2/err"; } || _v2b="$_v2b an-agents-own-floor-was-lowered"
 _v2call crew-database-expert sonnet 'db/migrations/1.sql' feature true ',"run_in_background":false'; [ "$_v2rc" = 2 ] || _v2b="$_v2b critical-work-went-below-opus-after-a-lowering"
