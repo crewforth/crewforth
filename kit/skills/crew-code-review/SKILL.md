@@ -17,6 +17,21 @@ Trigger phrases: "code-review", "review the code", "review the PR", "review my c
 A review runs in four steps — **group, plan, review, fact-check** — and reports few findings that are right rather
 than many that might be. Every step below says what it produces.
 
+## 0. The pre-pass first, and the findings in one shape
+Before reading the diff, run the deterministic pre-pass (`eval/lib/review-prepass/` in either edition):
+`bash <dir>/prepass.sh` for the staged change, `--base <ref>` for a branch. It writes
+`.crewforth/review-prepass.json`: secret patterns, a debug call or TODO left in code, shellcheck on shell files, a
+lock file that moved without its manifest, a very large change. **Carry those over, do not re-derive them**; your
+time goes to what a pattern cannot see. rc 3 (no Node) or a `notMeasured` line means that part was NOT checked:
+say so in the review, never read it as clean.
+
+Write your own findings in the same shape (`crewforth.findings/1`: `rule` `review-<category>`, `severity`,
+`confidence`, `evidence` with `file`, `line` and a `text` quote, `detail` = what to do instead) and store them with
+`bash <dir>/../findings/findings.sh write review <file>`. A `critical` or `high` finding first goes to
+**crew-refuter** (claim + `file:line`, one call per lens, in parallel) and the document is written with
+`--verified`, which then refuses any `medium`-or-higher finding without its verifiers. This is model discipline:
+no hook runs the pre-pass or reads `review.json`.
+
 ## 1. Scope
 - **Review the lines this change adds or edits.** Deleted code is context for understanding them, not a target.
 - Code that is correct, or that the change did not touch, gets no comment.
@@ -142,6 +157,7 @@ five questions that decide *answer in the thread* vs *edit the code*: **`referen
 item leaves with a disposition from the triage table above — a reasoned refusal is an answer, silence is not.
 
 ## DoD (this skill's contribution)
+- The pre-pass ran (or its rc 3 / `notMeasured` is reported as unchecked), and the findings are in `.crewforth/review.json`.
 - The plan (what changed, the risks) came before the findings; every file in each group was read.
 - Every finding has a severity, a category and a reason, in the finding format above.
 - Scope creep and hidden complexity are flagged.

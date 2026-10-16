@@ -39,3 +39,17 @@ bash .claude/eval/lib/findings/findings.sh write --verified NAME FILE # ve her b
 ```
 
 `--verified` ile bir `medium` bulgu bir, `high` ya da `critical` bir bulgu üç doğrulayıcı ister; her biri kendi merceğinde ayrı bir `crew-refuter` ajanı. Çürütücü bulguyu ve gösterilen satırları alır, onları üreten akıl yürütmeyi almaz, ve bulguyu yanlış çıkarmaya çalışır. Hükmü ancak `.claude/state/crew-refuter.tsv`'nin bir satırıysa sayılır; o dosyayı ajan durduğunda `refuter-ledger.sh` ajanın kendi görevinden ve cevabından yazar. Bir belge koşmamış bir doğrulayıcıyı adlandıramaz ve yalnız doğrulanmış bir bulgu önem derecesini korur. Hiçbir kontrolün kanıtlamadığı şey, gösterilen satırların iddiayı desteklediğidir: o bir yargı olarak kalır.
+
+## Review ön geçişi
+
+Review ajanı bir değişikliği okumadan önce, deterministik bir geçiş eklenen satırları okur ve bulduğunu aynı biçimde bulgu olarak yazar:
+
+```bash
+bash .claude/eval/lib/review-prepass/prepass.sh                  # staged değişiklik → .crewforth/review-prepass.json
+bash .claude/eval/lib/review-prepass/prepass.sh --base origin/main  # bir dal, tabanına karşı
+bash .claude/eval/lib/review-prepass/prepass.sh --stdout         # bas, hiçbir şey yazma
+```
+
+Dosyaya göre şunlara bakar: pre-commit kapısının gizli anahtar listesindeki bir desen (hash'iyle gösterilir, asla alıntılanmaz; `.secret-allowlist.txt` geçerlidir), JavaScript ya da TypeScript'te bırakılmış bir console çağrısı ya da debugger, Python'da bir breakpoint, Dart'ta `print(` (testlerde ve komut satırı betiklerinde değil), kodda eklenmiş bir yorumu açan TODO, FIXME, XXX ya da HACK (testlerde değil; bir dizedeki ya da desendeki sözcük işaret değildir), bir kabuk dosyasının eklenen satırlarındaki shellcheck bulguları, manifesti değişmeden değişen bir kilit dosyası ve tek dosyaya 500'den fazla satır eklenmesi. Staged olduktan sonra yeniden düzenlenmiş bir dosya, ikili bir dosya ve shellcheck olmayan makinedeki kabuk dosyaları ölçülmedi diye listelenir; hiçbir şey kurulmaz, Node yoksa 3 ile çıkar ve bu bir geçiş değildir.
+
+Review ajanı bu dosyadan başlar ve kendi bulgularını yanına, `.crewforth/review.json`'a yazar; `critical` ya da `high` bir bulgu önce `crew-refuter`'dan geçer ve belge `--verified` ile yazılır. Geçişi koşturmak ve okumak review skill'inin disiplinidir: onu hiçbir hook koşturmaz.
