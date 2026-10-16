@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **The Crew Map says where each module sits, and how to read the project.** `/crew-map` now has the model add,
+  to each module, its layer (`ui`, `api`, `service`, `data`, `infra`, `tool`, `library`) and the part of the
+  business it serves, and to the map a tour of up to eight stops a newcomer reads in order. Each rests on lines
+  the scan read; `--validate` refuses a layer not on the list, a domain written as a sentence, a tour stop at no
+  node, citing another node's lines or visiting a node twice, and a scan again drops what no longer holds.
+
 - **How right the review is, in numbers.** `eval/review-bench.sh` runs the review on labelled cases and reports
   recall, precision and every false alarm by name; the pre-pass arm costs nothing, the agent arm runs Claude Code
   headless as the review agent under a per-case and a per-run dollar cap, isolated from the user's own settings.

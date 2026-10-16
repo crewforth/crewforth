@@ -437,5 +437,6 @@
       "reason": "this repository calls none of its own endpoints, so their callers are elsewhere"
     }
   ],
-  "overview": null
+  "overview": null,
+  "tour": null
 }

@@ -152,6 +152,7 @@ export function scan(root = '.', opts = {}) {
     findings,
     notMeasured: [...nm.values()].sort((a, b) => cmp(`${a.what}\u0000${a.reason}`, `${b.what}\u0000${b.reason}`)),
     overview: null,
+    tour: null,
   };
   // The last net, whatever cited it: a quote is cut before anything that looks like a credential, and a line that
   // carries values (by its file, or by what is on it) is never hashed.

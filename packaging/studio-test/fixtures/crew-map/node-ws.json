@@ -890,5 +890,6 @@
       "reason": "the path is a variable, not a literal, so the route is not on the map"
     }
   ],
-  "overview": null
+  "overview": null,
+  "tour": null
 }

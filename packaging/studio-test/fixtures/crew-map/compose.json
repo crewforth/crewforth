@@ -222,5 +222,6 @@
       "reason": "not parsed: services and resources declared there are not on the map"
     }
   ],
-  "overview": null
+  "overview": null,
+  "tour": null
 }
