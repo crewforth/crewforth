@@ -98,7 +98,9 @@ crew_preview(){
       _pv_words "x $cmd" rm
       for w in $_PV_W; do
         case "$w" in -*|'') continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
-        one="$w"; case "$one" in /*) ;; *) one="$root/$one" ;; esac
+        # A drive-letter path (D:/x, as Git Bash passes it) is absolute too: measured on Windows, it read as relative
+        # and the line said "not there" for a folder that was.
+        one="$w"; case "$one" in /*|[A-Za-z]:[/\\]*) ;; *) one="$root/$one" ;; esac
         if [ ! -e "$one" ]; then out="${out:+$out; }$w: not there"; continue; fi
         c="$(cd "$one" 2>/dev/null && pwd -P)" || c="$(cd "$(dirname "$one")" 2>/dev/null && pwd -P)/${one##*/}"
         case "$c/" in "$root"/*) ;; *) out="${out:+$out; }$w: outside the project, not counted"; continue ;; esac
@@ -114,8 +116,15 @@ crew_preview(){
       _CREW_PV="Preview: ${line:-nothing staged}."
       ;;
     push-ask)
-      local subj="" k=0
-      _pv_upstream
+      local subj="" k=0 rem="" ref=""
+      # A push that names its remote and branch (git push origin feat/x) sends to that branch, not the upstream.
+      _pv_words "$cmd" push
+      for w in $_PV_W; do case "$w" in -*) ;; *) if [ -z "$rem" ]; then rem="$w"; elif [ -z "$ref" ]; then ref="$w"; fi ;; esac; done
+      ref="${ref#+}"; ref="${ref##*:}"
+      if [ -n "$rem" ] && [ -n "$ref" ] && [ "$ref" != HEAD ]; then
+        if [ -f "${_CREW_GD:-.git}/refs/remotes/$rem/$ref" ] || git rev-parse -q --verify "refs/remotes/$rem/$ref" >/dev/null 2>&1; then _PV_UP="$rem/$ref"
+        else _CREW_PV="Preview: $rem/$ref is not known here; the push would create it on the remote."; return 0; fi
+      else _pv_upstream; fi
       if [ -n "$_PV_UP" ]; then
         # One process: the subjects of what it sends, counted here and the first three named.
         while IFS= read -r line; do k=$((k+1)); [ "$k" -le 3 ] && subj="${subj:+$subj; }${line:0:72}"; done < <(git log --format=%s "$_PV_UP..HEAD" 2>/dev/null)
