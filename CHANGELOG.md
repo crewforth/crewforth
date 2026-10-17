@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **Continue here says what it will do before it is pressed.** Studio continues a session it did not start as
+  that same session when nothing else holds it open, and starts a copy when something does; the read-only foot now
+  says which it will be before the press, from the check it acts on, and offers the command that opens the session
+  in the desktop app again (`claude --desktop --resume <id>`) to copy. Measured with a real session: its id stayed
+  the same from a terminal, through Studio, and back to a terminal, in one transcript.
+
 - **A stopped command says what it would have touched.** When the shell gate stops `git reset --hard`,
   `git clean -f`, `git push --force` or `rm -r`, or asks about a commit or a push, one line says what it would
   have done: the uncommitted changes and commits it discards, the paths a dry run lists, the remote commits it
