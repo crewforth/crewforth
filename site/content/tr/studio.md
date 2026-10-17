@@ -136,36 +136,28 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 
 ## Dar pencere
 
-640 px'in altında panel tek sütun. Gezgin bir çekmeceye dönüşüyor, inspector ve konuşma sahnenin tamamını alıp dock'un üstünde bitiyor ve panel List ile açılıyor; orada bir isteğin üç cevabı alt alta duruyor. Graph ve Timeline yine açılıyor ve `Best on a wider screen` diyor. Telefon boyutundaki bir pencerenin aldığı düzen bu. Dar bir masaüstü tarayıcı penceresinde denendi, telefonda ölçülmedi; panel yine yalnızca `127.0.0.1`'i dinliyor.
+640 px'in altında panel tek sütun. Gezgin bir çekmeceye dönüşüyor, inspector ve konuşma sahnenin tamamını alıp dock'un üstünde bitiyor ve panel List ile açılıyor; orada bir isteğin üç cevabı alt alta duruyor. Graph ve Timeline yine açılıyor ve `Best on a wider screen` diyor. Telefon boyutundaki bir pencerenin aldığı düzen bu. Dar bir masaüstü tarayıcı penceresinde ve aynı Wi-Fi'daki bir Android telefonda denendi (aşağıda).
 
 ## Başka bir cihazdan izlemek
 
-Panelin bağlantısı, oturum başlatan ve araç çağrılarını cevaplayan token'ı taşıyor; yani telefona verilecek bir bağlantı değil. **Viewer**, okuyan ve hiçbir şeyi değiştirmeyen ikinci bir token. Gezginin **Machines** sekmesinde, **Remote viewers** altında, **Add viewer** bir tane üretiyor ve bağlantısını bir kez gösteriyor; yanında **Copy link** duruyor.
+Panelin bağlantısı oturum başlatan ve araç çağrılarını yanıtlayan token'ı taşıyor; bu yüzden bir telefona verilecek bağlantı değil. **Viewer**, okuyan ve hiçbir şeyi değiştirmeyen ikinci bir token. Gezginin **Machines** sekmesinde, **Remote viewers** altında **Add viewer** bir tane oluşturuyor ve bağlantısını bir kez gösteriyor: bir **QR kod** olarak ve yanında **Copy link** ile metin olarak. Kodu aynı Wi-Fi'daki bir telefonla okutun, panel orada açılsın. ssh yok, tünel yok, uygulama yok.
 
 | | |
 |:--|:--|
-| Viewer ne yapabilir | panelin yaptığı her `GET`: oturumlar, üç görünüm, Models, konuşmalar, dock'ta bekleyen istekler |
-| Ne yapamaz | bunun dışındaki her şey. Oturum başlatmayı, bir isteği cevaplamayı, kip değiştirmeyi ve mesaj göndermeyi sunucu, isteğe hiç bakmadan `403` ile reddediyor. Viewer listesini okumayı da |
-| Siz ne görürsünüz | her viewer'ın adını, en son ne zaman sorduğunu ve kaç istek yaptığını; canlı bir akışı açık tuttuğu sürece de `watching now` |
-| **Revoke** | token bir sonraki istekten itibaren çalışmıyor ve viewer'ın açık tuttuğu akış kapatılıyor |
-| Ne kadar yaşar | onu üreten sunucu kadar. Viewer'lar, panelin kendi token'ı gibi bellekte tutuluyor; yeniden başlatma hepsini bitiriyor. En fazla sekiz tane |
+| Nerede açılır | yalnızca aynı Wi-Fi'da. En az bir viewer canlıyken sunucu bu makinenin özel Wi-Fi adresini de (10.x, 172.16–31.x, 192.168.x) dinliyor ve orada viewer token'ından başka bir şeye yanıt vermiyor: panelin kendi token'ı ağdan `401` ile reddediliyor. Viewer yokken `127.0.0.1` dışında hiçbir şey dinlemiyor |
+| Ne kadar sürer | **sekiz saat**, sonra telefon **Session expired** gösteriyor. Geri alırsanız ya da sunucu durursa daha erken; viewer'lar bellekte tutuluyor ve yeniden başlatma hepsini bitiriyor. En çok sekiz |
+| Transcript'ler | **varsayılan olarak gizli.** Sunucu böyle bir bağlantıya transcript'ten gelen hiçbir metin göndermiyor: istem yok, yanıt yok, aracın girdisi ya da çıktısı yok, bir ajanın kısa görev adı bile yok. Telefon ajanları, durumlarını, modellerini, sürelerini ve maliyetlerini görüyor; konuşma ve bir ajanın ayrıntısı reddediliyor. Göstermek için **Add viewer**'dan önce **Show transcripts on the next link**'i işaretleyin |
+| Viewer neyi yapamaz | okumaktan başka her şeyi. Oturum başlatmak, bir isteği yanıtlamak, modu değiştirmek ve mesaj göndermek, istek incelenmeden sunucu tarafından `403` ile reddediliyor. Viewer listesini okumak da öyle |
+| **Revoke** | token hemen çalışmayı bırakıyor, viewer'ın açık tuttuğu akış kapanıyor ve son viewer'la birlikte Wi-Fi dinleyicisi de kapanıyor |
+| Ne görürsünüz | her viewer'ın adı, ne zamana kadar geçerli olduğu, transcript gösterip göstermediği, bağlandığı adres, en son ne zaman istekte bulunduğu ve canlı bir akışı açık tuttuğu sürece `watching now`. Sunucu ayrıca her viewer bağlantısı ve her ret için bir satır yazıyor: ne zaman, hangi adresten, hangi viewer, yanıt ne |
 
-**Sunucu yine yalnızca `127.0.0.1`'i dinliyor ve viewer bunu değiştirmiyor.** Başka bir cihazdan içeri giden yol, kendi çalıştırdığınız bir tünel; Studio tünel başlatmıyor ve port açmıyor. Sunucuyu loopback'te bırakan iki yol:
+**Güvenlik duvarı bir kez soruyor.** Sunucu Wi-Fi adresini ilk dinlediğinde macOS `node`'un gelen bağlantıları kabul edip etmeyeceğini, Windows Defender Firewall ise hangi ağlara izin verileceğini soruyor: **Private networks**'ü seçin, Public'i değil. Yanıtlanana kadar telefon yanıt alamıyor. Cihazları birbirinden ayıran misafir ya da yalıtılmış bir Wi-Fi (client isolation) telefonun makineye ulaşmasına hiç izin vermiyor.
 
-```bash
-# ssh: portu öbür cihazdan yönlendirin, sonra bağlantıyı kopyalandığı gibi açın
-ssh -N -L 7777:127.0.0.1:7777 siz@bu-makine
+Ağın dışından içeri bir yol yok ve Studio böyle bir yol açmıyor. Bir viewer'ın sayfası üst çubukta **Read-only** diyor (gizliyse **Read-only · transcripts hidden**) ve **New session** düğmesi yok.
 
-# Tailscale: portu tailnet'inizin içinde sunun, sonra bağlantıyı bu makinenin tailnet adıyla açın
-tailscale serve 7777
-#   https://<bu-makine>.<tailnet-iniz>.ts.net/?token=<viewer'ın token'ı>
-```
+Neyin denetlendiği, neyin denetlenmediği: retler, sekiz saat (saat ileri alınarak), gizli transcript'ler ve dinleyicinin kapanması, panelin kendi test takımında çalışan sunuculara karşı, her biri onu bozan bir ikizle doğrulanıyor; QR kodu her sürümde ve her maskede bağımsız bir çözücü tarafından okundu; aynı Wi-Fi'daki bir Android telefon onu okutup paneli açtı, salt okunur ve transcript'ler gizli. Revoke Wi-Fi portunu kapattı. Ölçülmeyen: iPhone ve Windows (güvenlik duvarı istemi).
 
-Kopyalanan bağlantı `127.0.0.1` diyor. Aynı porttaki bir ssh yönlendirmesinden olduğu gibi çalışıyor; tailnet üzerinden `?token=…` kısmını tutun ve öncesini tünelinizin verdiği adresle değiştirin. Viewer'ın sayfası üst çubukta **Read-only** yazıyor ve **New session** düğmesi yok. Öbür kontroller yine çiziliyor; birine basmak sunucunun reddini getiriyor.
-
-Neyin denendiği ve neyin denenmediği: retler, panelin kendi test süitinde çalışan bir sunucuya karşı doğrulanıyor; bir viewer bağlantısı aynı makinedeki bir tarayıcıda açıldı ve iptal edilince akışı kapandı. Telefondan, ssh ya da Tailscale üzerinden ölçülmedi.
-
-**Studio, Crewforth ile birlikte kuruluyor.** `start.sh` ve `adopt.sh` `.claude/` altında altı dizin açıyor, Studio da altıncısı. Yani Crewforth kurulu her projede **`/crew-studio`** ile açıyorsunuz; komut menüsü olmadan `node .claude/studio/server/index.js --open`. Hiç npm bağımlılığı yok, Node 18+ istiyor, yalnızca `127.0.0.1`'e bağlanıyor ve her API yolunda o koşuya özel bir token arıyor. **Makinede Node yoksa Crewforth onu kendi getiriyor.** `.claude/studio/ensure-node.sh --plan` ne indireceğini olduğu gibi gösteriyor: nodejs.org'daki güncel LTS, yayımlanmış SHA-256'ya karşı doğrulanıyor ve `~/.claude/studio-runtime` altına açılıyor. Siz evet demeden hiçbir şey kurmuyor. Yönetici hakkı istemiyor, paket yöneticisine dokunmuyor, PATH'i değiştirmiyor; o tek dizini silmek yaptığı her şeyi geri alıyor.
+**Studio, Crewforth ile birlikte kuruluyor.** `start.sh` ve `adopt.sh` `.claude/` altında altı dizin açıyor, Studio da altıncısı. Yani Crewforth kurulu her projede **`/crew-studio`** ile açıyorsunuz; komut menüsü olmadan `node .claude/studio/server/index.js --open`. Hiç npm bağımlılığı yok, Node 18+ istiyor, `127.0.0.1`'e (ve bir viewer canlıyken, yalnızca viewer bağlantıları için bu makinenin Wi-Fi adresine) bağlanıyor ve her API yolunda bir token arıyor. **Makinede Node yoksa Crewforth onu kendi getiriyor.** `.claude/studio/ensure-node.sh --plan` ne indireceğini olduğu gibi gösteriyor: nodejs.org'daki güncel LTS, yayımlanmış SHA-256'ya karşı doğrulanıyor ve `~/.claude/studio-runtime` altına açılıyor. Siz evet demeden hiçbir şey kurmuyor. Yönetici hakkı istemiyor, paket yöneticisine dokunmuyor, PATH'i değiştirmiyor; o tek dizini silmek yaptığı her şeyi geri alıyor.
 
 | Kanal | Studio |
 |:--|:--|

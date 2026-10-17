@@ -208,6 +208,7 @@ class Pane {
       this.note(`History not read: ${e.message}`, 'bad');
       return;
     }
+    if (conv?.transcriptsHidden) { this.note('Transcripts are hidden on this link', 'muted'); return; }
     if (conv?.measured === false) { this.note(`History not measured — ${conv.reason}`, 'bad'); return; }
 
     const frag = document.createDocumentFragment();

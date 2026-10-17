@@ -38,7 +38,10 @@ import { open as openTerminal, plan as terminalPlan, desktopLine } from './lib/t
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
 import { remoteRoster } from './lib/roster.js';
-import { addViewer, listViewers, viewerByToken, revokeViewer, noteRequest, viewerMay, MAX_VIEWERS } from './lib/remote.js';
+import { addViewer, listViewers, viewerByToken, revokeViewer, noteRequest, noteRefusal, viewerMay, MAX_VIEWERS, VIEWER_TTL_MS,
+  liveCount, remoteLog, sweep as sweepViewers, onViewersChange, onLog } from './lib/remote.js';
+import { redact, transcriptOnly } from './lib/redact.js';
+import { lanListener } from './lib/lan.js';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
@@ -98,8 +101,12 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
+// The answers that go to a viewer whose link hides transcripts: every one of them passes through redact() on its way
+// out, here and in the event stream, so no route has to remember to.
+const REDACTED = new WeakSet();
+
 function sendJson(res, status, value) {
-  send(res, status, JSON.stringify(value, null, 2), {
+  send(res, status, JSON.stringify(REDACTED.has(res) ? redact(value) : value, null, 2), {
     'content-type': 'application/json; charset=utf-8',
   });
 }
@@ -114,8 +121,12 @@ function sendJson(res, status, value) {
 const TOKEN = process.env.CREW_STUDIO_TOKEN || randomUUID();
 const TOKEN_GENERATED = !process.env.CREW_STUDIO_TOKEN;
 
+// The Wi-Fi listener (lib/lan.js): set by main() once the port is known, and opened and closed with the number of
+// live viewers. Null in the self-check unless it makes one.
+let LAN = null;
+
 /** For the self-check, which asks a real server as the owner and as a viewer. */
-export const _internals = { token: TOKEN };
+export const _internals = { token: TOKEN, setLan: (l) => { LAN = l; } };
 
 // Peers are other machines running Studio, reached over a forwarded port. This
 // server still listens on loopback only; a peer never widens that.
@@ -130,9 +141,12 @@ function whoAsks(req, url) {
   const header = req.headers['authorization'];
   const bearer = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null;
   const given = [bearer, url.searchParams.get('token')].filter(Boolean);
-  if (given.includes(TOKEN)) return { role: 'owner' };
+  // The panel's own token is accepted on loopback only. From the Wi-Fi it is not a token at all: a phone holding it
+  // would hold the panel, and nothing on the network should.
+  if (!req.crewLan && given.includes(TOKEN)) return { role: 'owner' };
   for (const t of given) {
     const viewer = viewerByToken(t);
+    if (viewer?.expired) return { role: 'expired', label: viewer.expired };
     if (viewer) return { role: 'viewer', viewer };
   }
   return null;
@@ -247,14 +261,30 @@ export async function handle(req, res) {
   // it for /style.css served an unstyled page and protected nothing: the shell
   // holds no secrets, and every /api/ path below is still gated.
   const who = url.pathname.startsWith('/api/') ? whoAsks(req, url) : null;
+  // From the Wi-Fi, no token (or the panel's own) is 401: the network is asked who it is. On loopback the answer
+  // stays 403, as it always was.
   if (url.pathname.startsWith('/api/') && !who) {
-    return sendJson(res, 403, { ok: false, reason: 'token required' });
+    if (req.crewLan) noteRefusal(req, { status: 401, reason: 'no viewer token' });
+    return sendJson(res, req.crewLan ? 401 : 403, { ok: false, reason: 'token required' });
+  }
+  if (who?.role === 'expired') {
+    noteRefusal(req, { viewer: who.label, status: 401, reason: 'expired' });
+    return sendJson(res, 401, { ok: false, expired: true, reason: 'this link has expired: viewer links last eight hours' });
   }
   // A viewer is refused HERE, before any handler: no route below has to remember that a viewer exists, and a
-  // route added tomorrow is read-only for a viewer without anyone writing a line for it.
+  // route added tomorrow is read-only for a viewer without anyone writing a line for it. The same holds for a
+  // link that hides transcripts: the routes that are nothing but transcript are refused here, and every other
+  // answer is filtered on its way out (REDACTED).
   if (who?.role === 'viewer') {
     const may = viewerMay(req.method, url.pathname);
-    if (!may.ok) return sendJson(res, 403, { ok: false, reason: may.reason });
+    if (!may.ok) { noteRefusal(req, { viewer: who.viewer.label, status: 403, reason: may.reason }); return sendJson(res, 403, { ok: false, reason: may.reason }); }
+    if (!who.viewer.transcripts) {
+      if (transcriptOnly(url.pathname)) {
+        noteRefusal(req, { viewer: who.viewer.label, status: 403, reason: 'transcripts hidden' });
+        return sendJson(res, 403, { ok: false, transcriptsHidden: true, reason: 'transcripts are hidden on this link' });
+      }
+      REDACTED.add(res);
+    }
     noteRequest(who.viewer, req, res);
   }
 
@@ -262,6 +292,7 @@ export async function handle(req, res) {
     return sendJson(res, 200, {
       ok: true,
       role: who.role,
+      ...(who.role === 'viewer' ? { transcripts: who.viewer.transcripts, expiresAt: who.viewer.expiresAt } : {}),
       node: process.version,
       pid: process.pid,
       uptimeMs: Math.round(process.uptime() * 1000),
@@ -532,7 +563,8 @@ export async function handle(req, res) {
      the owner reaches this far; a viewer was refused above. */
 
   if (url.pathname === '/api/remote' && req.method === 'GET') {
-    return sendJson(res, 200, { measured: true, viewers: listViewers(), max: MAX_VIEWERS, now: Date.now() });
+    return sendJson(res, 200, { measured: true, viewers: listViewers(), max: MAX_VIEWERS, ttlMs: VIEWER_TTL_MS, now: Date.now(),
+      lan: LAN ? LAN.state() : { listening: false, addresses: [], errors: [] }, log: remoteLog(30) });
   }
 
   const remoteMatch = url.pathname.match(/^\/api\/remote(?:\/([^/]+))?$/);
@@ -542,11 +574,16 @@ export async function handle(req, res) {
     if (req.method === 'POST' && !remoteMatch[1]) {
       const body = await readBody(req);
       if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
-      const made = addViewer(body.label);
-      return sendJson(res, made.ok ? 201 : 409, { ...made, viewers: listViewers() });
+      const made = addViewer(body.label, { transcripts: body.transcripts === true });
+      // The Wi-Fi listener opens with the first viewer; its links are known once it listens.
+      if (made.ok && LAN) await LAN.sync(liveCount());
+      const lanUrls = made.ok && LAN ? LAN.urls(made.viewer.token) : [];
+      return sendJson(res, made.ok ? 201 : 409, { ...made, lanUrls, lan: LAN ? LAN.state() : null, viewers: listViewers() });
     }
     if (req.method === 'DELETE' && remoteMatch[1]) {
-      return sendJson(res, 200, { ...revokeViewer(decodeURIComponent(remoteMatch[1])), viewers: listViewers() });
+      const out = revokeViewer(decodeURIComponent(remoteMatch[1]));
+      if (LAN) await LAN.sync(liveCount());
+      return sendJson(res, 200, { ...out, lan: LAN ? LAN.state() : null, viewers: listViewers() });
     }
     return sendJson(res, 405, { ok: false, reason: 'POST to add a viewer, or DELETE a viewer id' });
   }
@@ -747,7 +784,7 @@ async function stream(req, res, url) {
   });
 
   const send = (event, data) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    res.write(`event: ${event}\ndata: ${JSON.stringify(REDACTED.has(res) ? redact(data) : data)}\n\n`);
   };
 
   // A session the panel just started has no transcript until its first turn
@@ -991,9 +1028,11 @@ async function main() {
         '  --help       this text\n\n' +
         'Set CREW_STUDIO_TOKEN to require a bearer token, CREW_STUDIO_PEERS for a\n' +
         'comma-separated peer list.\n\n' +
-        'To watch from another device, add a viewer under Machines in the panel\n' +
-        'and open its link through a tunnel of your own. A viewer reads and\n' +
-        'changes nothing, and the server stays on loopback.\n\n' +
+        'To watch from a phone on the same Wi-Fi, add a viewer under Machines in\n' +
+        'the panel and scan its QR code. A viewer reads and changes nothing, its\n' +
+        'link lasts eight hours, and transcripts stay hidden unless you show them.\n' +
+        'While a viewer is live the server also listens on this machine\'s Wi-Fi\n' +
+        'address, for viewer links only; with none it is on loopback alone.\n\n' +
         'Peers are normally reached over a forwarded port, which keeps every\n' +
         'Studio on loopback:\n' +
         '  ssh -N -L 7778:127.0.0.1:7777 other-machine\n' +
@@ -1010,12 +1049,21 @@ async function main() {
   // Only a server that is about to run does this; asking for --help or --selftest removes nothing.
   sweepLeft();
 
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     handle(req, res).catch((e) => {
       process.stderr.write(`crewforth-studio: unhandled: ${e?.stack ?? e}\n`);
       if (!res.headersSent) send(res, 500, 'internal error');
     });
-  });
+  };
+  const server = http.createServer(handler);
+
+  // Viewers on the same Wi-Fi: a second listener on this machine's private address, open only while a viewer is
+  // live (lib/lan.js). It closes when the last one is revoked or expires; the sweep ends expired ones even when no
+  // request comes to notice them.
+  LAN = lanListener({ handler, port: args.port });
+  onViewersChange((n) => { LAN.sync(n); });
+  onLog((e) => process.stdout.write(`            viewer ${e.event}: ${e.viewer ?? 'unknown'}${e.ip ? ` from ${e.ip}` : ''}${e.over ? ` (${e.over})` : ''}${e.result ? ` — ${e.result}` : ''}\n`));
+  setInterval(sweepViewers, 60 * 1000).unref();
 
   // A BUSY PORT IS NOT AUTOMATICALLY A PROBLEM. Before 2.10.2 this printed "try --port n+1" and exited 1, which
   // is the right answer only when a stranger holds the port. When the holder is our OWN panel -- the common case,
@@ -1096,6 +1144,7 @@ async function main() {
       // leaks running sessions is worse than one that never started them.
       stopAll();
       dropSpools();
+      LAN?.close();
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 2000).unref();
     });

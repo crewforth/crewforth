@@ -136,36 +136,28 @@ Allow is an answer to Claude Code. It does not go around anything:
 
 ## A narrow window
 
-Below 640 px the panel is one column. The navigator becomes a drawer, the inspector and the conversation each take the whole stage and stop above the dock, and the panel opens on the List, where a request's three answers sit one under the other. The Graph and the Timeline still open, and say `Best on a wider screen`. This is the layout a phone-sized window gets. It was checked in a narrow desktop browser window and is not measured on a phone, and the panel still listens on `127.0.0.1` only.
+Below 640 px the panel is one column. The navigator becomes a drawer, the inspector and the conversation each take the whole stage and stop above the dock, and the panel opens on the List, where a request's three answers sit one under the other. The Graph and the Timeline still open, and say `Best on a wider screen`. This is the layout a phone-sized window gets. It was checked in a narrow desktop browser window and on an Android phone over the same Wi-Fi (below).
 
 ## Watching from another device
 
-The panel's link carries the token that starts sessions and answers tool calls, so it is not a link to hand to a phone. A **viewer** is a second token that reads and changes nothing. In the navigator's **Machines** tab, under **Remote viewers**, **Add viewer** makes one and shows its link once, with **Copy link** beside it.
+The panel's link carries the token that starts sessions and answers tool calls, so it is not a link to hand to a phone. A **viewer** is a second token that reads and changes nothing. In the navigator's **Machines** tab, under **Remote viewers**, **Add viewer** makes one and shows its link once, as a **QR code** and as text with **Copy link** beside it. Scan the code with a phone on the same Wi-Fi and the panel opens there. No ssh, no tunnel, no app.
 
 | | |
 |:--|:--|
-| What a viewer can do | every `GET` the panel makes: the sessions, the three views, Models, the conversations, the requests waiting in the dock |
-| What it cannot | anything else. Starting a session, answering a request, changing a mode and sending a message are refused by the server with `403`, before the request is looked at. So is reading the list of viewers |
-| What you see | each viewer's name, when it last asked and how many requests it has made, and `watching now` while it holds a live stream open |
-| **Revoke** | the token stops working from the next request, and a stream the viewer holds open is closed |
-| How long it lasts | as long as the server that made it. Viewers are kept in memory, like the panel's own token; a restart ends all of them. Eight at most |
+| Where it opens | on the same Wi-Fi only. While at least one viewer is live, the server also listens on this machine's private Wi-Fi address (10.x, 172.16–31.x, 192.168.x), and there it answers a viewer's token and nothing else: the panel's own token is refused from the network with `401`. With no viewer, nothing listens beyond `127.0.0.1` |
+| How long it lasts | **eight hours**, then the phone shows **Session expired**. Sooner if you revoke it or the server stops; viewers are kept in memory, and a restart ends all of them. Eight at most |
+| Transcripts | **hidden by default.** The server sends such a link no text from a transcript: no prompt, no reply, no tool input or output, not even an agent's short task. The phone sees the agents, their state, model, timing and cost; the conversation and an agent's detail are refused. Tick **Show transcripts on the next link** before **Add viewer** to show them |
+| What a viewer cannot do | anything but read. Starting a session, answering a request, changing a mode and sending a message are refused by the server with `403`, before the request is looked at. So is reading the list of viewers |
+| **Revoke** | the token stops working at once, a stream the viewer holds open is closed, and with the last viewer the Wi-Fi listener closes too |
+| What you see | each viewer's name, until when it lasts, whether it shows transcripts, the address it connected from, when it last asked, and `watching now` while it holds a live stream open. The server also prints a line for each viewer connection and each refusal: when, from which address, which viewer, and the answer |
 
-**The server still listens on `127.0.0.1` only, and a viewer does not change that.** The way in from another device is a tunnel you run yourself; Studio starts none and opens no port. Two that keep the server on loopback:
+**The firewall asks once.** The first time the server listens on the Wi-Fi address, macOS asks whether `node` may accept incoming connections, and Windows Defender Firewall asks which networks to allow: choose **Private networks**, not Public. Until it is answered, the phone gets no answer. A guest or isolated Wi-Fi that keeps devices apart (client isolation) does not let the phone reach the machine at all.
 
-```bash
-# ssh: forward the port from the other device, then open the link as it was copied
-ssh -N -L 7777:127.0.0.1:7777 you@this-machine
+There is no way in from outside the network, and Studio opens none. A viewer's page says **Read-only** in the top bar (**Read-only · transcripts hidden** when they are) and has no **New session** button.
 
-# Tailscale: serve the port inside your tailnet, then open the link with this machine's tailnet name
-tailscale serve 7777
-#   https://<this-machine>.<your-tailnet>.ts.net/?token=<the viewer's token>
-```
+What was checked and what was not: the refusals, the eight hours (with the clock moved), the hidden transcripts and the listener closing are asserted against running servers in the panel's own test suite, each with a twin that breaks it; the QR code was read by an independent decoder on every version and mask; and an Android phone on the same Wi-Fi opened the panel by scanning it, read-only with transcripts hidden. Revoking it closed the Wi-Fi port. Not measured: an iPhone, and Windows (its firewall prompt).
 
-The copied link names `127.0.0.1`. Through an ssh forward on the same port it works as it is; through a tailnet, keep the `?token=…` part and replace what comes before it with the address your tunnel gives. A viewer's page says **Read-only** in the top bar and has no **New session** button. The other controls are still drawn, and pressing one gets the server's refusal.
-
-What was checked and what was not: the refusals are asserted against a running server in the panel's own test suite, and a viewer link was opened in a browser on the same machine, where revoking it closed its stream. It was not measured from a phone, nor through ssh or Tailscale.
-
-**Studio installs with Crewforth.** `start.sh` and `adopt.sh` create six directories under `.claude/` and Studio is the sixth, so in any project that has Crewforth you open it with **`/crew-studio`** — or, without the command menu, `node .claude/studio/server/index.js --open`. It has zero npm dependencies, wants Node 18+, binds to `127.0.0.1` only and requires a per-run token on every API path. **No Node on the machine? Crewforth goes and gets one.** `.claude/studio/ensure-node.sh --plan` shows exactly what it would fetch — the current LTS from nodejs.org, checked against the published SHA-256 and unpacked into `~/.claude/studio-runtime` — and installs nothing until you say yes. No admin rights, no package manager, no PATH edit; deleting that one directory undoes it.
+**Studio installs with Crewforth.** `start.sh` and `adopt.sh` create six directories under `.claude/` and Studio is the sixth, so in any project that has Crewforth you open it with **`/crew-studio`** — or, without the command menu, `node .claude/studio/server/index.js --open`. It has zero npm dependencies, wants Node 18+, binds to `127.0.0.1` (and, while a viewer is live, this machine's Wi-Fi address, for viewer links only) and requires a token on every API path. **No Node on the machine? Crewforth goes and gets one.** `.claude/studio/ensure-node.sh --plan` shows exactly what it would fetch — the current LTS from nodejs.org, checked against the published SHA-256 and unpacked into `~/.claude/studio-runtime` — and installs nothing until you say yes. No admin rights, no package manager, no PATH edit; deleting that one directory undoes it.
 
 | Channel | Studio |
 |:--|:--|
