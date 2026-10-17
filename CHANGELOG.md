@@ -9,6 +9,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **A stopped command says what it would have touched.** When the shell gate stops `git reset --hard`,
+  `git clean -f`, `git push --force` or `rm -r`, or asks about a commit or a push, one line says what it would
+  have done: the uncommitted changes and commits it discards, the paths a dry run lists, the remote commits it
+  overwrites, the files under a target inside the project, what a commit takes and a push sends. Read only, after
+  the decision and in a subshell of its own, so a failing preview never changes the decision. The push question
+  became cheaper too: the branch is read from HEAD without a process.
+
 - **What a compaction keeps is written down first.** A PreCompact hook writes the state of the work from the files
   and the gates (branch, uncommitted files, the last gate refusal, the findings on record, a handover if there is
   one) inside the repository's git directory, and SessionStart gives it back after the compaction, to the same

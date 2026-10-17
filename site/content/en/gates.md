@@ -66,6 +66,21 @@ The gates stop accidents, not determined attempts. On a command line there is al
 
 The Bash guard appends a line to `.claude/gate-log.tsv` for each block, approval prompt and `CLAUDE_GIT_OK` pre-authorisation (`BLOCK` / `ASK` / `ALLOW`), and the gate-file write guard one for each block, with the section and the rule; the command is recorded only with `CREW_GATE_LOG_CMD=1`. It is on by default when the project's `.claude/` directory exists: in `.claude/gate-log.tsv` where git ignores it or the project is not a repository, and otherwise in the repository's own `.git/crewforth-gate-log.tsv`, which is never committed. The model gate writes its refusals and notes (a model lowered to the card's floor) to the same log. `CREW_GATE_LOG=<path>` sends it elsewhere and `/dev/null` turns it off. The commit scan refuses without writing a line. It is write-only and written after the verdict, so it cannot change one. Useful when you need to know whether a gate stopped something or the model simply never went there — those two leave identical traces.
 
+## What a stopped command would have touched
+
+When `guard-bash.sh` stops a destructive command, or asks about a commit or a push, it says what the command would have touched, in one line under the refusal or in the question:
+
+| Command | The line |
+|:--|:--|
+| `git reset --hard` | how many uncommitted changes to tracked files it discards, and with a target (`HEAD~3`) how many commits it drops from the branch |
+| `git clean -f…` | the same command as a dry run (`-n`, with its `-d`, `-x`, `-X`) and how many paths it lists |
+| `git push --force` | how many commits the remote branch has that this one does not, as of the last fetch |
+| `rm -r…` | the files under each named target inside the project; a target outside it, or a pattern, is said and not counted |
+| an asked commit | the files and lines it takes |
+| an asked push | how many commits it sends, the first three by subject |
+
+It only reads (status, diff, rev-list, log, `clean -n`, `find`, at most 10 000 files), fetches nothing, and runs after the decision in a subshell of its own, so a preview that fails or ends its shell leaves the refusal or the question as it was. A `Remove-Item` in PowerShell gets no preview.
+
 ## The advisor is not a gate
 
 If you turn on Claude Code's advisor, the model decides when to consult it, and nothing caps or forces a call. So it adds a second opinion, not a guarantee: no gate waits for it, a verify command still decides whether work passed, and a medium-or-higher finding still needs a fresh `crew-refuter` that has not seen the reasoning, which an advisor reading the whole conversation is not. What it costs is on the Sessions and cost page.

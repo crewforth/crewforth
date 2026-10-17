@@ -66,6 +66,21 @@ Kapılar kazaları durdurur, kararlı denemeleri değil. Komut satırında bir d
 
 Bash guard'ı her blok, onay istemi ve `CLAUDE_GIT_OK` ön onayı için (`BLOCK` / `ASK` / `ALLOW`), kapı dosyası yazma guard'ı da her blok için `.claude/gate-log.tsv` dosyasına bölüm ve kuralla birlikte bir satır ekler; komut yalnızca `CREW_GATE_LOG_CMD=1` verilirse yazılır. Projenin `.claude/` dizini varsa varsayılan olarak açıktır: git'in yok saydığı ya da repo olmayan projede `.claude/gate-log.tsv` dosyasında, aksi hâlde reponun kendi `.git/crewforth-gate-log.tsv` dosyasında; bu dosya hiçbir zaman commit'lenmez. Model kapısı retlerini ve notlarını (kartın tabanına indirilen bir model gibi) aynı kayda yazar. `CREW_GATE_LOG=<yol>` kaydı başka yere gönderir, `/dev/null` kapatır. Commit taraması satır yazmadan reddeder. Yalnızca yazar ve karardan **sonra** yazılır, dolayısıyla kararı değiştiremez. Bir şeyi kapının mı durdurduğunu yoksa modelin o yola hiç girmediğini mi bilmeniz gerektiğinde işe yarar, çünkü ikisi geriye tıpatıp aynı izi bırakır.
 
+## Durdurulan bir komutun neye dokunacağı
+
+`guard-bash.sh` yıkıcı bir komutu durdurduğunda ya da bir commit veya push için sorduğunda, komutun neye dokunacağını retin altında ya da sorunun içinde tek satırla söyler:
+
+| Komut | Satır |
+|:--|:--|
+| `git reset --hard` | izlenen dosyalardaki kaç commit'lenmemiş değişikliği silecek, bir hedefle (`HEAD~3`) daldan kaç commit düşecek |
+| `git clean -f…` | aynı komutun kuru koşusu (`-n`, `-d`, `-x`, `-X` bayraklarıyla) ve listelediği yol sayısı |
+| `git push --force` | son fetch'e göre uzak dalda olup bu dalda olmayan commit sayısı |
+| `rm -r…` | proje içindeki her hedefin altındaki dosyalar; proje dışındaki bir hedef ya da bir desen söylenir, sayılmaz |
+| sorulan bir commit | alacağı dosyalar ve satırlar |
+| sorulan bir push | göndereceği commit sayısı, ilk üçü başlığıyla |
+
+Yalnız okur (status, diff, rev-list, log, `clean -n`, `find`, en fazla 10 000 dosya), hiçbir şey fetch etmez ve karardan sonra kendi alt kabuğunda koşar; yani başarısız olan ya da kabuğunu sonlandıran bir önizleme reti ya da soruyu olduğu gibi bırakır. PowerShell'deki `Remove-Item` önizleme almaz.
+
 ## Advisor bir kapı değil
 
 Claude Code'un advisor'ını açarsanız ona ne zaman danışılacağına model karar verir; çağrıyı sınırlayan ya da zorlayan bir şey yoktur. Yani ikinci bir görüş ekler, güvence eklemez: hiçbir kapı onu beklemez, işin geçip geçmediğine yine verify komutu karar verir, ve orta ya da daha yüksek bir bulgu yine akıl yürütmeyi görmemiş taze bir `crew-refuter` ister; bütün konuşmayı okuyan bir advisor bu değildir. Neye mal olduğu Oturum ve maliyet sayfasında.

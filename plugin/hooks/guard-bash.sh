@@ -150,7 +150,12 @@ _join_cmd(){  # CMD -> CMD with its continued lines joined
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
 # Where the gate log goes: one rule for every gate and reader (eval/lib/gate-log.sh).
-[ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"; unset _crew_d
+[ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"
+# What a stopped or asked command would have touched (eval/lib/preview.sh), read only when one is stopped or asked.
+_CREW_PV_LIB="$_crew_d/../eval/lib/preview.sh"; unset _crew_d
+# The preview of a command. ALWAYS called as "$(_pv_line …)": the command substitution is the subshell that keeps an
+# exit or a failure in the library from ending this hook or changing its decision (smoke plants both).
+_pv_line(){ [ -f "$_CREW_PV_LIB" ] || return 0; . "$_CREW_PV_LIB" 2>/dev/null && crew_preview "$1" "$2" 2>/dev/null && printf '%s' "${_CREW_PV:-}"; return 0; }
 # Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
 # of this hook. `read` returns 1 at end of input; the text is read regardless.
 IFS= read -r -d '' INPUT || true
@@ -719,6 +724,8 @@ block(){
   gatelog BLOCK "$2" "$1"
   echo "GUARD (§$2): '$1' stopped AT THE TOOL LEVEL." >&2
   [ -z "${_BLOCK_NOTE:-}" ] || echo "$_BLOCK_NOTE" >&2
+  # What it would have touched, when the rule names a kind (_PV_KIND): read only, after the decision is made.
+  if [ -n "${_PV_KIND:-}" ]; then _pvo="$(_pv_line "$_PV_KIND" "${_PV_CMD:-$CMD}")"; [ -n "$_pvo" ] && echo "$_pvo" >&2; fi
   case "${3:-}" in
     loss)     echo "Nothing here is undone by retrying — but the refusal is not the end of the task. Do the same job the reversible way: name the paths instead of sweeping, and look first (git clean -n, ls) so you act on what you can see. Only if the broad form is genuinely required does the user run it in their own terminal." >&2 ;;
     history)  echo "This rewrites or discards work that is already committed. Ask the person who shares the branch; a new commit usually reaches the same end without rewriting." >&2 ;;
@@ -864,15 +871,15 @@ _push_forces(){   # $1 = one captured `git push …` span -> 0 when a force flag
 _git_d45(){  # $1 = command text; block() exits on the first rule it breaks
   local CMD="$1" HAS_GIT=0 _PUSHSEG _seg                                         # has() reads CMD: this one
   case "$CMD" in *[Gg][Ii][Tt]*) HAS_GIT=1 ;; esac
-  { git_has "$CMD" 'reset'  && has '--hard'; }                                                && block "git reset --hard" "4.5" history
+  { git_has "$CMD" 'reset'  && has '--hard'; }                                                && { _PV_KIND=reset; _PV_CMD="$CMD"; block "git reset --hard" "4.5" history; }
   if [ "$HAS_GIT" = 1 ] && git_has "$CMD" 'push'; then
     _grep_out "$CMD" -oE 'git[[:space:]]+([^;&|]*[[:space:]])?push([^;&|]*)'; _PUSHSEG="$_GO"
     while IFS= read -r _seg; do
       [ -n "$_seg" ] || continue
-      _push_forces "$_seg" && { block "git push --force" "4.5" history; break; }
+      _push_forces "$_seg" && { _PV_KIND=push; _PV_CMD="$_seg"; block "git push --force" "4.5" history; break; }
     done <<< "$_PUSHSEG"
   fi
-  { git_has "$CMD" 'clean'  && has '-[A-Za-z]*f'; }                                           && block "git clean -f" "4.5" loss
+  { git_has "$CMD" 'clean'  && has '-[A-Za-z]*f'; }                                           && { _PV_KIND=clean; _PV_CMD="$CMD"; block "git clean -f" "4.5" loss; }
   return 0
 }
 # ---- the quoted argument of a command that does not run it ---------------------------------------------------
@@ -1108,7 +1115,7 @@ case "$CMD" in *branch*) _HAS_BRANCH=1 ;; *) _HAS_BRANCH=0 ;; esac
 # short cluster, so `rm -Rf /`, `rm -fR /`, `rm -f -r /` and `rm --recursive --force /` all walked past while
 # `rm -rf /` was blocked. Same class as the chmod hole found in evals/permission-pressure: one spelling gated,
 # another reaching the identical state. Case, flag order and the long form are all the same command.
-case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && block "destructive rm -rf" "4.5" loss
+case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
 # ADDED (3.1.0): `.` and `..` as a target carry none of those three characters and are the widest targets there are —
 # `rm -rf .` at a project root takes the whole tree, `..` its parent (both passed). Narrower than the test above on
 # purpose, so that it adds no noise: `rm` must stand at a command position, `sudo` or not (`git rm -r --cached .`, `npm rm`,
@@ -1120,7 +1127,7 @@ case "$CMD" in *[Rr][Mm]*)
   _rmc="$CMD"
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
   case "$CMD" in *\\"$_RMNL"*) [ "${#CMD}" -le 4096 ] && _rmc="${CMD//\\$_RMNL/ }" ;; esac
-  [[ $_rmc =~ $_RMDOT ]] && block "destructive rm -rf" "4.5" loss ;; esac
+  [[ $_rmc =~ $_RMDOT ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; } ;; esac
 # A whole-tree `git checkout -- .` / `git restore .` destroys every uncommitted change with no reflog and no
 # undo — the same loss as `reset --hard`, which has been gated since the beginning, by a command that was not.
 # Not hypothetical: a verification subagent ran exactly this over uncommitted work in this repo and took the
@@ -3341,17 +3348,26 @@ if git_has "$CMD_SEEN" 'commit|push'; then
       BRANCH_WARN=""
       # symbolic-ref names the branch even before its first commit, where rev-parse answers "HEAD" and the very
       # first commit onto main went by without this line. A detached HEAD reads empty: not the default branch.
-      case "$(git symbolic-ref --short -q HEAD 2>/dev/null)" in
+      # Read from HEAD with builtins (the gate log's crew_git_dir finds the git dir, a linked worktree's too): the
+      # preview below pays one subshell to keep this hook's decision out of its reach, and this pays it back.
+      _hb=""; if declare -F crew_git_dir >/dev/null 2>&1 && crew_git_dir . && [ -f "$_CREW_GD/HEAD" ]; then
+        IFS= read -r _hb < "$_CREW_GD/HEAD"; _hb="${_hb%$'\r'}"; case "$_hb" in "ref: refs/heads/"*) _hb="${_hb#ref: refs/heads/}" ;; *) _hb="" ;; esac
+      else _hb="$(git symbolic-ref --short -q HEAD 2>/dev/null)"; fi
+      case "$_hb" in
         main|master) BRANCH_WARN="⚠️  This commits DIRECTLY to the default branch. Prefer a feature branch unless you meant to.
 
 " ;;
       esac
       _commit_agent_note
+      # What it takes or sends: the staged change for a commit, the commits for a push (read only).
+      _PVA=""; case "$CMD" in *push*) _PVA="$(_pv_line push-ask "$CMD")" ;; *) _PVA="$(_pv_line commit "$CMD")" ;; esac
       ask_user "§4.4 commit/push approval gate. Claude wants to run:
 
 $SHORT
 
-${BRANCH_WARN}${_CAN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
+${_PVA:+$_PVA
+
+}${BRANCH_WARN}${_CAN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
       ;;
     auto|dontAsk)
       _commit_agent_note; [ -n "$_CAN" ] && printf '%s' "$_CAN" >&2
