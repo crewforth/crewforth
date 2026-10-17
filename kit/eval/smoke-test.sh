@@ -3407,6 +3407,40 @@ pass|rm -f file.txt
 pass|rm file.txt
 pass|rmdir empty/
 RMCASES
+# V4: a stopped or asked command says what it would have touched (eval/lib/preview.sh): the changes a reset discards,
+# the paths a clean deletes, the files under an rm target inside the project, what a commit takes and a push sends.
+# Read only, and after the decision: a preview library that fails or ends its shell leaves the decision as it was.
+PVR="$(mktemp -d)"; PVR="$(cd -P "$PVR" && pwd)"; PVO="$(mktemp)"; PVE="$(mktemp)"; PVX="$(mktemp -d)"
+( cd "$PVR" && git init -q . && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m base \
+  && printf '1\n' > a.txt && printf '2\n' > b.txt && git add . && git -c user.email=a@b -c user.name=a commit -q -m two \
+  && printf 'x\n' >> a.txt && printf 'y\n' >> b.txt && mkdir -p out/sub && : > out/sub/1 && : > out/2 && : > junk.log ) >/dev/null 2>&1
+_pvrun(){ printf '{"session_id":"s","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' "$1" "$PVR" \
+  | ( cd "$PVR" && CLAUDE_PROJECT_DIR="$PVR" CREW_GATE_LOG=/dev/null bash "${2:-$HOOKS}/guard-bash.sh" ) > "$PVO" 2> "$PVE"; _pvrc=$?; }
+_pvb=""
+_pvrun "git reset --hard"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: it would discard 2 uncommitted change' "$PVE"; } || _pvb="$_pvb [reset: rc $_pvrc · $(grep Preview "$PVE")]"
+_pvrun "git reset --hard HEAD~1"; grep -q 'and drop 1 commit(s) from the branch' "$PVE" || _pvb="$_pvb [reset HEAD~1: $(grep Preview "$PVE")]"
+_pvrun "git clean -fd"; { [ "$_pvrc" = 2 ] && grep -q 'lists 2 path(s) it would delete' "$PVE"; } || _pvb="$_pvb [clean: $(grep Preview "$PVE")]"
+_pvrun "rm -rf out/"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: out/: 2 file(s)' "$PVE"; } || _pvb="$_pvb [rm inside: $(grep Preview "$PVE")]"
+_pvrun "rm -rf $PVX/"; { [ "$_pvrc" = 2 ] && grep -q 'outside the project, not counted' "$PVE"; } || _pvb="$_pvb [rm outside: $(grep Preview "$PVE")]"
+# The asked ones: a commit (past §4.6, with the review record) and a push to a remote of its own.
+( cd "$PVR" && git add a.txt && mkdir -p .claude && D=$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin) && H=$(git rev-parse HEAD) \
+  && printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "2026-01-01T00:00:00Z" > .claude/review-pass.json ) >/dev/null 2>&1
+_pvrun "git commit -m wip"; { [ "$_pvrc" = 0 ] && grep -q 'Preview: 1 file changed, 1 insertion' "$PVO"; } || _pvb="$_pvb [commit ask: rc $_pvrc · $(grep -o 'Preview[^\\]*' "$PVO")]"
+( cd "$PVR" && git init -q --bare "$PVX/r.git" && git remote add origin "$PVX/r.git" && git push -q -u origin HEAD:main && git branch -q -u origin/main \
+  && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m "one ahead" ) >/dev/null 2>&1
+_pvrun "git push"; { [ "$_pvrc" = 0 ] && grep -q 'Preview: it sends 1 commit(s) to origin/main' "$PVO"; } || _pvb="$_pvb [push ask: rc $_pvrc · $(grep -o 'Preview[^\\]*' "$PVO")]"
+# A push that names its branch sends to that one: an existing one is counted, an unknown one would be created.
+_pvrun "git push origin main"; grep -q 'Preview: it sends 1 commit(s) to origin/main' "$PVO" || _pvb="$_pvb [named push: $(grep -o 'Preview[^\\]*' "$PVO")]"
+_pvrun "git push origin feat/new"; grep -q 'Preview: origin/feat/new is not known here; the push would create it' "$PVO" || _pvb="$_pvb [push to a new branch: $(grep -o 'Preview[^\\]*' "$PVO")]"
+# A broken preview library: one that exits, one that does not parse. The decision stays rc 2 and nothing is said.
+_pvh="$(mktemp -d)"; cp -R "$HOOKS" "$_pvh/hooks"; mkdir -p "$_pvh/eval"; cp -R "$ROOT/eval/lib" "$_pvh/eval/lib"
+printf 'crew_preview(){ exit 0; }\n' > "$_pvh/eval/lib/preview.sh"; _pvrun "git reset --hard" "$_pvh/hooks"
+{ [ "$_pvrc" = 2 ] && ! grep -q Preview "$PVE"; } || _pvb="$_pvb [a preview that exits changed the decision: rc $_pvrc]"
+printf 'crew_preview(){ ( \n' > "$_pvh/eval/lib/preview.sh"; _pvrun "rm -rf out/" "$_pvh/hooks"
+[ "$_pvrc" = 2 ] || _pvb="$_pvb [a preview that does not parse changed the decision: rc $_pvrc]"
+[ -z "$_pvb" ] && pass "a stopped command says what it would have touched: reset (2 changes, and 1 commit for HEAD~1), clean (2 paths, dry run), rm (2 files inside the project; a target outside it not counted); an asked commit and push say what they take and send (a push that names a new branch says it would create it); a preview library that exits or does not parse leaves the decision at rc 2" \
+  || fail "risk preview:$_pvb"
+rm -rf "$PVR" "$PVX" "$_pvh"; rm -f "$PVO" "$PVE"
 # §4.5 whole-tree revert. `reset --hard` was gated from the start; `git checkout -- .` does the same damage and
 # was not — a verification subagent used it over uncommitted work in this repo and the tree went with it. The
 # single-file form stays allowed (everyday, recoverable), and the two ways around a naive matcher — `git -C`
