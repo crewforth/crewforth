@@ -9,6 +9,16 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **Watch Studio from a phone on the same Wi-Fi.** **Add viewer** shows its read-only link as a QR code; a phone on
+  the same network scans it and the panel opens there, with no ssh and no tunnel. While a viewer is live the server
+  also listens on the machine's private Wi-Fi address, for viewer tokens only (the panel's own token gets `401` from
+  the network); with none, nothing listens beyond `127.0.0.1`. A viewer lasts eight hours, then the phone shows
+  Session expired; revoking it closes its stream at once, and the last one closes the Wi-Fi listener. Transcripts
+  are hidden by default: the server sends such a link no transcript text at all (an allow-list of fields, applied to
+  every answer and to the event stream), and shows them only for a link added with them ticked. Every viewer
+  connection and refusal is logged. Measured with an Android phone; the firewall asks once (macOS: allow `node`;
+  Windows: Private networks).
+
 - **The advisor, measured.** `review-bench --advisor <model>` runs the agent arm with an advisor and reports each
   run's cost by model and its advisor calls; a case of `kind: "task"` is an implementation graded by a check the
   session never saw. Against Opus alone on five review cases and a task (24 runs), Sonnet with an Opus advisor
