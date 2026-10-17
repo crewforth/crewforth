@@ -6198,6 +6198,20 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
       /Continues it in Studio\. If it is still open somewhere else, Studio starts a copy instead/.test(chatJs)
       && /the original does not see this, and messages here never reach your terminal/.test(chatJs),
       'the design\'s sentence promised a copy every time; a session nothing else holds is continued itself');
+    // V6: what Continue here will do is said BEFORE the press, from the check it acts on; the way back to the desktop app is a command to copy.
+    {
+      const tm = await import(`../../kit/studio/server/lib/terminal.js?v6=${Date.now()}`);
+      const line = tm.desktopLine({ cwd: "/p/it's here", sessionId: 'abc-1' });
+      check('the desktop command reopens the session from its own directory, quoted as the terminal command is',
+        line === "cd '/p/it'\\''s here' && claude --desktop --resume 'abc-1'", line);
+      const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+      check('the terminal route says what Continue here will do, from the same check createSession acts on, and the desktop command',
+        /const held = await isHeldOpen\(id\);/.test(idx) && /continueAs: held \? 'copy' : 'same', desktop:/.test(idx)
+        && /const forked = resume \? await isHeldOpen\(String\(resume\)\) : false;/.test(read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? ''));
+      check('the foot says it before the press: the same session (its id and history stay) or a copy, and offers the desktop command to copy',
+        /continueAs === 'same'[\s\S]*Continues this same session in Studio: its id and history stay/.test(chatJs)
+        && /continueAs === 'copy'[\s\S]*so Studio starts a copy/.test(chatJs) && /Open it in the desktop app again/.test(chatJs));
+    }
     check('the terminal command at the foot is the server\'s, read before anything runs',
       /\/api\/session\/\$\{encodeURIComponent\(this\.id\)\}\/terminal/.test(chatJs) && /r\?\.plan\?\.line \?\? 'not measured/.test(chatJs));
     check('options are offered on the reply waiting for an answer, not on the history',

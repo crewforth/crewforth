@@ -31,10 +31,10 @@ import { palette } from './lib/palette.js';
 import { latestVersion, latestVersionCached, kitStatus } from './lib/kit.js';
 import { parsePeers, askAll, ask } from './lib/peers.js';
 import {
-  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES,
+  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES, isHeldOpen,
 } from './lib/session.js';
 import { decide, pending, alwaysList, revoke, sweepLeft } from './lib/permissions.js';
-import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
+import { open as openTerminal, plan as terminalPlan, desktopLine } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
 import { remoteRoster } from './lib/roster.js';
@@ -502,8 +502,12 @@ export async function handle(req, res) {
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
 
     if (req.method === 'GET') {
-      // What WOULD run, so the panel can show it before anything is launched.
-      return sendJson(res, 200, { measured: true, cwd, plan: cwd ? terminalPlan({ cwd, sessionId: id }) : null });
+      // What WOULD run, so the panel can show it before anything is launched; and, before Continue here is pressed,
+      // what it will do: continue this same session (nothing else holds it), or start a copy (something does). The
+      // answer is the one createSession acts on, asked the same way.
+      const held = await isHeldOpen(id);
+      return sendJson(res, 200, { measured: true, cwd, plan: cwd ? terminalPlan({ cwd, sessionId: id }) : null,
+        continueAs: held ? 'copy' : 'same', desktop: cwd ? desktopLine({ cwd, sessionId: id }) : null });
     }
 
     const gate = writeAllowed(req);

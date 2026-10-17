@@ -290,7 +290,7 @@ class OwnedSession {
  * answer is "yes": an unreadable fleet must not be the reason two processes
  * end up writing one transcript.
  */
-async function isHeldOpen(id) {
+export async function isHeldOpen(id) {
   try {
     const fleet = await getFleet();
     const rows = fleet?.sessions ?? fleet ?? [];

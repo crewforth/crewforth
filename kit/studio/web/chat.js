@@ -559,9 +559,12 @@ class Pane {
     cont.type = 'button';
     cont.addEventListener('click', () => this.hooks.onContinue?.(this, cont));
     const contRow = el('div', 'chat-ro-row');
-    contRow.append(cont, el('span', 'sub',
-      'Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: '
-      + 'the original does not see this, and messages here never reach your terminal.'));
+    // Said before the press, from the server's own check (the one Continue here acts on): the same session, or a copy.
+    // Until the server answers, and if it cannot: the sentence true of both outcomes.
+    const FALLBACK = 'Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: '
+      + 'the original does not see this, and messages here never reach your terminal.';
+    const contText = el('span', 'sub', FALLBACK);
+    contRow.append(cont, contText);
 
     const term = el('button', 'btn sm', 'Open in terminal');
     term.type = 'button';
@@ -572,13 +575,32 @@ class Pane {
     const termRow = el('div', 'chat-ro-row');
     termRow.append(term, termText);
 
-    this.roEl.replaceChildren(lead, contRow, termRow);
+    // Back to the desktop app: the command, to copy and run where the app is.
+    const deskLine = el('code', 'chat-ro-cmd');
+    const deskCopy = el('button', 'btn sm', 'Copy');
+    deskCopy.type = 'button';
+    deskCopy.addEventListener('click', () => { if (deskLine.dataset.cmd) navigator.clipboard?.writeText(deskLine.dataset.cmd).then(() => { deskCopy.textContent = 'Copied'; }, () => {}); });
+    const deskText = el('span', 'sub');
+    deskText.append('Open it in the desktop app again: ', deskLine);
+    const deskRow = el('div', 'chat-ro-row');
+    deskRow.append(deskCopy, deskText);
 
-    // The command is the server's, read before anything runs. One that could not be worked out is said so.
+    this.roEl.replaceChildren(lead, contRow, termRow, deskRow);
+
+    // The commands are the server's, read before anything runs. One that could not be worked out is said so.
     fetch(this.api(`/api/session/${encodeURIComponent(this.id)}/terminal`), { cache: 'no-store' })
       .then((r) => r.json())
-      .then((r) => { line.textContent = r?.plan?.line ?? 'not measured — no working directory recorded'; })
-      .catch((e) => { line.textContent = `not read — ${e.message}`; });
+      .then((r) => {
+        line.textContent = r?.plan?.line ?? 'not measured — no working directory recorded';
+        deskLine.textContent = r?.desktop ?? 'not measured — no working directory recorded';
+        if (r?.desktop) deskLine.dataset.cmd = r.desktop; else deskCopy.disabled = true;
+        contText.textContent = r?.continueAs === 'same'
+          ? 'Continues this same session in Studio: its id and history stay, and the desktop app or a terminal that opens it later sees what you add here. Nothing else has it open now.'
+          : r?.continueAs === 'copy'
+            ? 'It is open somewhere else right now, so Studio starts a copy: the original does not see this, and messages here never reach your terminal or the desktop app.'
+            : FALLBACK;
+      })
+      .catch((e) => { line.textContent = `not read — ${e.message}`; deskLine.textContent = `not read — ${e.message}`; deskCopy.disabled = true; });
   }
 
   paintState() {
