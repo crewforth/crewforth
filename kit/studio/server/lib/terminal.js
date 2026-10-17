@@ -56,18 +56,18 @@ export function desktopLine({ cwd, sessionId, platform = process.platform }) {
  * Returns null when nothing here knows how to open a terminal, so the caller
  * can say so rather than fail silently.
  */
-export function plan({ cwd, sessionId, command, platform = process.platform }) {
-  if (command === undefined && !isSessionId(sessionId)) return null;
+export function plan({ cwd, sessionId, platform = process.platform }) {
+  if (!isSessionId(sessionId)) return null;
 
   if (platform === 'win32') {
     // Windows Terminal when present, the console host otherwise. wt sets the directory itself; what runs inside is
     // cmd.exe, so the line shown is a cmd line: double quotes, `cd /d` for another drive, and the id bare (a UUID).
-    const inner = command ?? `claude --resume ${sessionId}`;
+    const inner = `claude --resume ${sessionId}`;
     const wt = ['wt.exe', '-d', cwd, 'cmd.exe', '/k', inner];
     return { platform: 'win32', via: 'wt.exe', shell: 'cmd', line: `cd /d "${cwd}" && ${inner}`, argv: wt };
   }
 
-  const inner = command ?? `claude --resume ${q(sessionId)}`;
+  const inner = `claude --resume ${q(sessionId)}`;
   const line = `cd ${q(cwd)} && ${inner}`;
 
   if (platform === 'darwin') {
@@ -93,12 +93,16 @@ export function plan({ cwd, sessionId, command, platform = process.platform }) {
   return { platform, via: 'candidates', line, candidates };
 }
 
-/** Launch it, detached, and report what was run. */
-export function open({ cwd, sessionId, command }) {
+/**
+ * Launch it, detached, and report what was run. What runs is always `claude --resume <id>`: the route used to take a
+ * `command` from the request body and run it in place of that, with no id check, and the panel never sent one. An
+ * unused way to run anything in a terminal, behind a token that remote access puts on the network, was removed.
+ */
+export function open({ cwd, sessionId }) {
   if (!cwd || !fs.existsSync(cwd)) return { ok: false, reason: `no such directory: ${cwd}` };
 
-  if (command === undefined && !isSessionId(sessionId)) return { ok: false, reason: `not a session id: ${sessionId}` };
-  const p = plan({ cwd, sessionId, command });
+  if (!isSessionId(sessionId)) return { ok: false, reason: `not a session id: ${sessionId}` };
+  const p = plan({ cwd, sessionId });
   if (!p) return { ok: false, reason: `no terminal launcher known for ${process.platform}` };
 
   const attempts = p.argv ? [p.argv] : p.candidates.map(([bin, args]) => [bin, ...args]);

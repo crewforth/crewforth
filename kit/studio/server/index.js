@@ -519,7 +519,6 @@ export async function handle(req, res) {
     const out = openTerminal({
       cwd: typeof body.cwd === 'string' ? body.cwd : cwd,
       sessionId: id,
-      command: typeof body.command === 'string' ? body.command : undefined,
     });
     return sendJson(res, out.ok ? 200 : 400, out);
   }
