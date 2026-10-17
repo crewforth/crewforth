@@ -591,9 +591,11 @@ class Pane {
     fetch(this.api(`/api/session/${encodeURIComponent(this.id)}/terminal`), { cache: 'no-store' })
       .then((r) => r.json())
       .then((r) => {
-        line.textContent = r?.plan?.line ?? 'not measured — no working directory recorded';
-        deskLine.textContent = r?.desktop ?? 'not measured — no working directory recorded';
-        if (r?.desktop) deskLine.dataset.cmd = r.desktop; else deskCopy.disabled = true;
+        line.textContent = r?.plan?.line ?? 'not measured — no working directory or session id recorded';
+        // On Windows the command is a PowerShell line (no one line works in cmd and PowerShell 5.1 both): say so.
+        deskLine.textContent = r?.desktop?.line ?? 'not measured — no working directory or session id recorded';
+        if (r?.desktop?.line) deskLine.dataset.cmd = r.desktop.line; else deskCopy.disabled = true;
+        if (r?.desktop?.shell === 'PowerShell') deskText.append(' (in PowerShell)');
         contText.textContent = r?.continueAs === 'same'
           ? 'Continues this same session in Studio: its id and history stay, and the desktop app or a terminal that opens it later sees what you add here. Nothing else has it open now.'
           : r?.continueAs === 'copy'
