@@ -23,6 +23,8 @@ versioning follows [SemVer](https://semver.org/).
   On Windows the desktop command is a PowerShell line, and the terminal Studio opens runs `claude --resume <id>`
   without single quotes, which cmd.exe handed to the program as part of the id. An id that is not a session id
   builds no command at all.
+  The terminal Studio opens runs `claude --resume <id>` and nothing else: the route no longer takes a `command`
+  from the request, which it ran unchecked and the panel never sent.
 
 - **A stopped command says what it would have touched.** When the shell gate stops `git reset --hard`,
   `git clean -f`, `git push --force` or `rm -r`, or asks about a commit or a push, one line says what it would

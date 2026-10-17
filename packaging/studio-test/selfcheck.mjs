@@ -3292,6 +3292,13 @@ check('the plan is inspectable before anything launches', typeof tp.line === 'st
   check('an id that is not a session id builds no terminal command and no desktop command, and launches nothing',
     terminalPlan({ cwd: 'D:\\p', sessionId: bad, platform: 'win32' }) === null && terminalPlan({ cwd: '/p', sessionId: bad, platform: 'darwin' }) === null
     && tDesk({ cwd: '/p', sessionId: bad }) === null && refused.ok === false && /not a session id/.test(refused.reason ?? ''), JSON.stringify(refused));
+  // What a terminal runs is never the caller's: a `command` is not taken from the request, and a plan asked with one
+  // still runs `claude --resume <id>` (and still refuses an id that is not one). Asked of plan(), which launches nothing.
+  const idxT = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  const withCmd = terminalPlan({ cwd: '/p', sessionId: SID, command: 'calc', platform: 'darwin' });
+  check('the terminal route takes no command from the request: what it opens is always claude --resume <id>',
+    !/body\.command/.test(idxT) && /claude --resume '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d'$/.test(withCmd?.line ?? '') && !(withCmd?.line ?? '').includes('calc')
+    && terminalPlan({ cwd: '/p', sessionId: bad, command: 'calc', platform: 'darwin' }) === null, JSON.stringify(withCmd));
 }
 
 /* ------------------------------------------- §16 the kit's own numbers ---
