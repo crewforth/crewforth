@@ -50,7 +50,14 @@ _pv_words(){  # $1 = command -> _PV_W (the words after the git subcommand $2, qu
   _PV_W="$s"
 }
 
+# With pathname expansion off for the whole preview: the words of the command are split, never expanded here, so
+# `rm -rf build/*` is said as a pattern instead of each file the hook's own shell would find (measured on Windows).
 crew_preview(){
+  local _pvf=0; case "$-" in *f*) _pvf=1 ;; esac
+  set -f; _crew_preview "$@"; [ "$_pvf" = 1 ] || set +f
+  return 0
+}
+_crew_preview(){
   _CREW_PV=""
   local kind="$1" cmd="$2" n t w a flags line
   case "$kind" in
@@ -116,18 +123,22 @@ crew_preview(){
       _CREW_PV="Preview: ${line:-nothing staged}."
       ;;
     push-ask)
-      local subj="" k=0 rem="" ref=""
-      # A push that names its remote and branch (git push origin feat/x) sends to that branch, not the upstream.
+      local subj="" k=0 rem="" ref="" src="" tip=HEAD
+      # A push that names its remote and branch (git push origin feat/x) sends to that branch, not the upstream; and
+      # what it sends is the named LOCAL branch's commits (src of src:dst, or the name itself), not the current one's.
       _pv_words "$cmd" push
       for w in $_PV_W; do case "$w" in -*) ;; *) if [ -z "$rem" ]; then rem="$w"; elif [ -z "$ref" ]; then ref="$w"; fi ;; esac; done
-      ref="${ref#+}"; ref="${ref##*:}"
+      ref="${ref#+}"; src="${ref%%:*}"; ref="${ref##*:}"
+      if [ -n "$src" ] && [ "$src" != HEAD ]; then
+        if [ -f "${_CREW_GD:-.git}/refs/heads/$src" ] || git rev-parse -q --verify "refs/heads/$src" >/dev/null 2>&1; then tip="refs/heads/$src"; fi
+      fi
       if [ -n "$rem" ] && [ -n "$ref" ] && [ "$ref" != HEAD ]; then
         if [ -f "${_CREW_GD:-.git}/refs/remotes/$rem/$ref" ] || git rev-parse -q --verify "refs/remotes/$rem/$ref" >/dev/null 2>&1; then _PV_UP="$rem/$ref"
         else _CREW_PV="Preview: $rem/$ref is not known here; the push would create it on the remote."; return 0; fi
       else _pv_upstream; fi
       if [ -n "$_PV_UP" ]; then
         # One process: the subjects of what it sends, counted here and the first three named.
-        while IFS= read -r line; do k=$((k+1)); [ "$k" -le 3 ] && subj="${subj:+$subj; }${line:0:72}"; done < <(git log --format=%s "$_PV_UP..HEAD" 2>/dev/null)
+        while IFS= read -r line; do k=$((k+1)); [ "$k" -le 3 ] && subj="${subj:+$subj; }${line:0:72}"; done < <(git log --format=%s "$_PV_UP..$tip" 2>/dev/null)
         [ "$k" -gt 3 ] && subj="$subj …"
         _CREW_PV="Preview: it sends $k commit(s) to $_PV_UP${subj:+ — $subj}."
       else
