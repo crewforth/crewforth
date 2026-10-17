@@ -86,7 +86,7 @@ function tree(dir) { const out = []; const walk = (d) => { if (!fs.existsSync(d)
 // The case as a repository: before committed, after staged. Returns { root, env, diff }.
 export function build(c, tmp) {
   const root = path.join(tmp, c.id); fs.mkdirSync(root, { recursive: true });
-  fs.writeFileSync(path.join(tmp, 'gitconfig'), '[user]\n\tname = bench\n\temail = bench@bench.invalid\n[core]\n\tautocrlf = false\n\tfileMode = true\n[init]\n\tdefaultBranch = main\n');
+  fs.writeFileSync(path.join(tmp, 'gitconfig'), '[user]\n\tname = bench\n\temail = bench@bench.invalid\n[core]\n\tautocrlf = false\n\tfileMode = false\n[init]\n\tdefaultBranch = main\n');
   const env = ENV(tmp);
   const put = (side) => {
     for (const s of tree(path.join(c.dir, side))) {
@@ -96,11 +96,16 @@ export function build(c, tmp) {
       fs.chmodSync(out, c.modes?.[side]?.[f] === '100755' ? 0o755 : 0o644);
     }
   };
-  git(root, env, 'init', '-q', '.');
-  put('before'); git(root, env, 'add', '-A'); git(root, env, 'commit', '-qm', 'base', '--allow-empty');
+  // A file's mode is written into the index, not read from the disk: Windows has no executable bit, so a case whose
+  // whole diff is a mode (mode-bit) built as no diff at all there. `git init` probes the disk and writes its own
+  // core.filemode into the repository (true on macOS and Linux, false on Windows), so it is set after init, to false,
+  // and every platform takes this one path.
+  const modes = (side) => { for (const [f, m] of Object.entries(c.modes?.[side] ?? {})) git(root, env, 'update-index', `--chmod=${m === '100755' ? '+x' : '-x'}`, '--', f); };
+  git(root, env, 'init', '-q', '.'); git(root, env, 'config', 'core.fileMode', 'false');
+  put('before'); git(root, env, 'add', '-A'); modes('before'); git(root, env, 'commit', '-qm', 'base', '--allow-empty');
   if (c.kind !== 'task') {
     for (const s of tree(path.join(c.dir, 'before'))) if (!fs.existsSync(path.join(c.dir, 'after', s))) fs.rmSync(path.join(root, realPath(s)));
-    put('after'); git(root, env, 'add', '-A');
+    put('after'); git(root, env, 'add', '-A'); modes('after');
   }
   fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.claude/\n.crewforth/\n');
   const diff = git(root, env, 'diff', '--cached', '--no-ext-diff', '-U3');

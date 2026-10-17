@@ -98,7 +98,9 @@ check('the producer is review-prepass', docA.producer?.name === NAME);
 
 // ---- 2. shellcheck: present (its findings on the added lines only), absent (said, not skipped) ---------------------
 const B = repo('shell', { 'run.sh': '#!/bin/sh\necho ok\n' }, { 'run.sh': '#!/bin/sh\necho ok\necho $1\nrm -rf $DIR/x\n', 'notes.txt': 'x\n' });
-const stub = path.join(TMP, 'shellcheck-stub');
+// A Node script, not a shell one: Windows cannot start a `#!/bin/sh` file from spawnSync, and this check failed there
+// for that reason alone (the product runs shellcheck.exe). prepass runs a CREW_SHELLCHECK ending in .mjs with Node.
+const stub = path.join(TMP, 'shellcheck-stub.mjs');
 // The stub answers as shellcheck -f json1 does: one comment per line, on lines 2 (unchanged), 3 and 4 (added).
 const scOut = path.join(TMP, 'shellcheck-out.json');
 fs.writeFileSync(scOut, JSON.stringify({ comments: [
@@ -106,8 +108,7 @@ fs.writeFileSync(scOut, JSON.stringify({ comments: [
   { file: 'run.sh', line: 3, level: 'info', code: 2086, message: 'Double quote to prevent globbing and word splitting.' },
   { file: 'run.sh', line: 4, level: 'warning', code: 2115, message: 'Use "${var:?}" to ensure this never expands to /* .' },
 ] }));
-fs.writeFileSync(stub, `#!/bin/sh\n[ "$1" = --version ] && { echo 'ShellCheck - shell script analysis tool'; exit 0; }\ncat '${scOut}'\nexit 1\n`);
-fs.chmodSync(stub, 0o755);
+fs.writeFileSync(stub, `import fs from 'node:fs';\nif (process.argv[2] === '--version') { console.log('ShellCheck - shell script analysis tool'); process.exit(0); }\nprocess.stdout.write(fs.readFileSync(${JSON.stringify(scOut)}, 'utf8'));\nprocess.exit(1);\n`);
 const docB = withEnv({ CREW_SHELLCHECK: stub }, () => prepass(B.root));
 check('shellcheck: its findings on added lines are kept (SC2086 info, SC2115 warning → low)',
   has(docB, 'prepass-shellcheck', 'run.sh:3') && has(docB, 'prepass-shellcheck', 'run.sh:4')

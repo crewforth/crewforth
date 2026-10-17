@@ -152,12 +152,15 @@ export function prepass(root = '.', { base = null } = {}) {
   // ---- shell: shellcheck's findings on the added lines ----
   const shells = [...byFile.keys()].filter((f) => SHELL.test(f) || /^#!.*\b(ba|z|da)?sh\b/.test(linesOf(f)?.[0] ?? '')).sort();
   if (shells.length) {
+    // CREW_SHELLCHECK names another shellcheck. One ending in .mjs is run with this Node: the self-check's stand-in,
+    // which a Windows runner could not start as a `#!/bin/sh` script (spawnSync runs no interpreter line there).
     const sc = process.env.CREW_SHELLCHECK || 'shellcheck';
-    const v = spawnSync(sc, ['--version'], { encoding: 'utf8' });
+    const run = (args, opts) => (sc.endsWith('.mjs') ? spawnSync(process.execPath, [sc, ...args], opts) : spawnSync(sc, args, opts));
+    const v = run(['--version'], { encoding: 'utf8' });
     if (v.status !== 0) doc.notMeasured.push({ what: `prepass-shellcheck (${shells.length} shell file${shells.length === 1 ? '' : 's'})`, reason: 'shellcheck is not installed here, so the shell files were not linted; nothing was installed' });
     else {
       for (const f of shells) {
-        const r = spawnSync(sc, ['-f', 'json1', '-x', f], { cwd: rootReal, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+        const r = run(['-f', 'json1', '-x', f], { cwd: rootReal, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         let out; try { out = JSON.parse(r.stdout || '{}'); } catch { doc.notMeasured.push({ what: f, reason: 'shellcheck gave no output this pass can read' }); continue; }
         const at = new Map(byFile.get(f).map((a) => [a.line, a]));
         for (const c of out.comments ?? []) {
