@@ -2644,6 +2644,15 @@ check('the token gate covers every /api/ path',
   await new Promise((done) => loop.close(done));
 }
 
+// W12 (Windows): a viewer revoked through the API left its QR code and link on the panel until Done was pressed.
+{
+  const appR = read(path.join(STUDIO, 'web', 'app.js')) ?? '';
+  const poll = appR.match(/async function pollRemote\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  check('the link shown once leaves the panel when its viewer is gone, whoever revoked it or however it ended',
+    /remote = await getJson\('\/api\/remote'\)/.test(poll) && /if \(handed && !\(remote\.viewers \?\? \[\]\)\.some\(\(v\) => v\.id === handed\.id\)\) handed = null;/.test(poll)
+    && poll.indexOf('handed = null') < poll.indexOf('paintMachines()'), poll.slice(0, 300));
+}
+
 /* -- REM-1: the QR code ------------------------------------------------------------------------------------------
    Made in the page by web/qr.js. Its correctness was measured against an independent decoder (OpenCV, two detectors:
    packaging/studio-test/qr-oracle, run by hand) on every version 1-10 and every mask; this pins those exact codes, so

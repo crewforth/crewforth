@@ -2084,6 +2084,9 @@ let handed = null;            // the link of the viewer just added: the server s
 async function pollRemote() {
   if (role !== 'owner') return;
   try { remote = await getJson('/api/remote'); } catch { return; }
+  // The link shown once leaves with its viewer: revoked from elsewhere (the API, another tab) or past its eight
+  // hours, it no longer opens anything, and a QR code left on screen would say it does.
+  if (handed && !(remote.viewers ?? []).some((v) => v.id === handed.id)) handed = null;
   paintMachines();
 }
 
