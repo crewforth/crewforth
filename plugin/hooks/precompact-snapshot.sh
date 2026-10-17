@@ -37,7 +37,8 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   GD="$(git rev-parse --absolute-git-dir 2>/dev/null)" || GD=""
   BR="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || BR=""
   [ -n "$BR" ] && LINES+=("branch $BR")
-  CH="$(git status --porcelain 2>/dev/null)" || CH=""
+  # quotePath off: a name in Turkish (or any non-ASCII) is given as written, not as octal escapes (seen on Windows).
+  CH="$(git -c core.quotePath=false status --porcelain 2>/dev/null)" || CH=""
   if [ -n "$CH" ]; then
     n=0; names=""
     while IFS= read -r l; do n=$((n+1)); [ "$n" -le 5 ] && names="${names:+$names, }${l:3}"; done <<< "$CH"
