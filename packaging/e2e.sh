@@ -1408,6 +1408,21 @@ W="$(wiz yes-alone)"
 #      had a network clone of a base project to decline; there is none now, so no scaffold may appear at all.
 [ ! -e "$W/backend" ] && [ ! -e "$W/frontend" ] || { echo "FAIL: --yes scaffolded ./backend or ./frontend"; exit 1; }
 echo "[wizard] --yes installs unattended, reads nothing, and scaffolds nothing"
+# 15 · An organisation preset: --preset strict writes its block at the top of crew-model-rules; a preset that is not
+#      there stops the installer before anything is installed; adopt.sh takes the same flag on a project of its own.
+WP="$(wiz preset-ok)"
+( cd "$WP" && bash start.sh --yes --preset strict >"$WP/out.txt" 2>&1 </dev/null ) || { echo "FAIL: start.sh --yes --preset strict failed"; tail -5 "$WP/out.txt"; exit 1; }
+IFS= read -r _pl < "$WP/.claude/crew-model-rules" 2>/dev/null || _pl=""
+case "$_pl" in '# ---- preset: strict '*) ;; *) echo "FAIL: --preset strict did not write its block (first line: ${_pl:-none})"; exit 1 ;; esac
+[ "$( cd "$WP" && bash .claude/eval/lib/preset.sh --show )" = strict ] || { echo "FAIL: the installed preset.sh does not show strict"; exit 1; }
+WP="$(wiz preset-bad)"
+_prc=0; ( cd "$WP" && bash start.sh --yes --preset no-such-preset >"$WP/out.txt" 2>&1 </dev/null ) || _prc=$?
+[ "$_prc" = 1 ] && [ ! -d "$WP/.claude" ] || { echo "FAIL: start.sh --preset no-such-preset gave rc $_prc and installed: $( [ -d "$WP/.claude" ] && echo yes || echo no )"; exit 1; }
+WP="$(wiz preset-adopt)"; cp adopt.sh VERSION "$WP/"
+( cd "$WP" && git init -q && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m base \
+  && bash adopt.sh --yes --here --preset solo >"$WP/out.txt" 2>&1 </dev/null ) || { echo "FAIL: adopt.sh --yes --preset solo failed"; tail -5 "$WP/out.txt"; exit 1; }
+grep -qx 'verify npm test' "$WP/.claude/crew-model-rules" 2>/dev/null || { echo "FAIL: adopt.sh --preset solo did not write its block"; exit 1; }
+echo "[wizard] --preset writes its block (start.sh, adopt.sh), and a preset that is not there installs nothing"
 
 # 2 · TWO DIFFERENT STDINs, and the difference is the whole point. CLOSED stdin reaches EOF, so every `read`
 #     answers "" and the installer declines. OPEN-BUT-EMPTY never reaches EOF, so a bare `read` waits forever —

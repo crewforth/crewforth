@@ -1,0 +1,7 @@
+{
+  "about": "Crewforth as it ships: no line of its own. Every key a preset may hold is here, empty. critical.add and critical.remove are globs made critical or not (a critical path runs on opus and only an agent on opus writes there); floors are [agent, change, risk, model] with * for any, a model a class of work runs on at least; verify are commands the model gate may run as a card's verify command; lang (en or tr) is used only where the project has no language yet.",
+  "name": "default",
+  "critical": { "add": [], "remove": [] },
+  "floors": [],
+  "verify": []
+}

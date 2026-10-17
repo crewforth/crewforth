@@ -8536,6 +8536,32 @@ _v2call crew-backend-expert sonnet 'docs/security.md' text none; [ "$_v2rc" = 0 
 _v2call crew-backend-expert sonnet 'Api/Services/AuthorService.cs' feature none; [ "$_v2rc" = 0 ] || _v2b="$_v2b AuthorService-read-as-auth"
 [ -z "$_v2b" ] && pass "with no settings file the scan finds the critical paths of a Flutter app and a .NET service (a folder once, not per file; AuthorService and author.md are not auth); crew-model-rules adds and removes paths, at SessionStart too, and the gate follows it" \
                || fail "critical paths:$_v2b"
+# V5: an organisation preset (eval/lib/preset.sh) is a block at the top of crew-model-rules. The project's own lines
+# stay below it and win where the file's rule lets them; applying again changes nothing; an invalid one writes nothing.
+_v2new; _v2b=""; PSH="$ROOT/eval/lib/preset.sh"; _psr="$_v2p/.claude/crew-model-rules"; _psx="$(mktemp -d)"
+printf '# ours\n- infra\n' > "$_psr"
+( cd "$_v2p" && bash "$PSH" --apply strict ) >/dev/null 2>&1 || _v2b="$_v2b [strict did not apply]"
+{ IFS= read -r _l1 < "$_psr"; case "$_l1" in '# ---- preset: strict '*) ;; *) false ;; esac; } || _v2b="$_v2b [first line: ${_l1:-none}]"
+grep -qx '+ deploy' "$_psr" && grep -qx 'floor crew-review-agent \* \* opus' "$_psr" && grep -qx -- '- infra' "$_psr" && grep -qx '# ours' "$_psr" || _v2b="$_v2b [block or own lines missing]"
+[ "$(grep -n -- '^- infra$' "$_psr" | cut -d: -f1)" -gt "$(grep -n '^+ infra$' "$_psr" | cut -d: -f1)" ] || _v2b="$_v2b [the project's own line is not below the block]"
+cp "$_psr" "$_psx/a"; ( cd "$_v2p" && bash "$PSH" --apply strict ) >/dev/null 2>&1; cmp -s "$_psr" "$_psx/a" || _v2b="$_v2b [a second apply changed the file]"
+[ "$( cd "$_v2p" && bash "$PSH" --show )" = strict ] || _v2b="$_v2b [--show]"
+# The gate follows it: review on sonnet is refused under strict, and the project's `- infra` undoes the preset's `+ infra`.
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit none; { [ "$_v2rc" = 2 ] && grep -q 'floor crew-review-agent \* \* opus' "$_v2/err"; } || _v2b="$_v2b [review on sonnet under strict: rc $_v2rc]"
+_v2call crew-backend-expert sonnet 'infra/main.tf' feature 'test -d src'; [ "$_v2rc" = 0 ] || _v2b="$_v2b [infra stayed critical though the project removed it: rc $_v2rc]"
+_v2call crew-backend-expert sonnet 'deploy/run.sh' feature 'test -d src'; [ "$_v2rc" = 2 ] || _v2b="$_v2b [deploy is not critical under strict: rc $_v2rc]"
+( cd "$_v2p" && bash "$PSH" --apply solo ) >/dev/null 2>&1; ! grep -q '^+ deploy' "$_psr" && grep -qx 'verify npm test' "$_psr" && grep -qx -- '- infra' "$_psr" || _v2b="$_v2b [switching to solo left the old block or lost the own line]"
+# Invalid presets: each refused with rc 1, the file untouched.
+cp "$_psr" "$_psx/b"; _bad=0
+for _bj in '{"name":"x","oops":1}' '{"name":"x","floors":[["a","b","c","gpt"]]}' '{"name":"x","verify":["npm test; rm -rf /"]}' '{"name":"X Y"}' 'not json'; do
+  printf '%s' "$_bj" > "$_psx/bad.json"; ( cd "$_v2p" && bash "$PSH" --apply "$_psx/bad.json" ) >/dev/null 2>&1; _rc=$?
+  { [ "$_rc" = 1 ] && cmp -s "$_psr" "$_psx/b"; } || { _bad=$((_bad+1)); _v2b="$_v2b [accepted or wrote: $_bj rc $_rc]"; }
+done
+( cd "$_v2p" && bash "$PSH" --apply no-such-preset ) >/dev/null 2>&1 && _v2b="$_v2b [a preset that is not there applied]"
+_dl="$(cd "$_v2p" && bash "$ROOT/eval/doctor.sh" . 2>/dev/null | grep -c 'organisation preset: solo')"; [ "$_dl" = 1 ] || _v2b="$_v2b [doctor did not name the preset: $_dl]"
+[ -z "$_v2b" ] && pass "an organisation preset is a block at the top of crew-model-rules: the project's own lines stay below it and win (its '- infra' undoes the preset's), the gate follows it (review held to opus under strict), applying again changes no byte, switching replaces the block, five invalid presets and a missing one write nothing, and doctor names the one in force" \
+               || fail "presets:$_v2b"
+rm -rf "$_psx"
 
 # ---- 3. verify, one fix inside the agent, then one model up, then the user -----------------------------------
 _v2new; _v2b=""

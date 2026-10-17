@@ -7,6 +7,8 @@
 #   awk -v op=gets -v path='a.b|c.d' -f settings-json.awk FILE   several values in one read, tab-separated, "" if absent
 #   awk -v op=strings -v path=permissions.deny -f settings-json.awk FILE   each string element of that array, one per
 #       line, quotes off, escapes as written (rc 1 = not an array)
+#   awk -v op=keys [-v path=P] -f settings-json.awk FILE   the member names of the object there, one per line, quotes
+#       off, in file order (rc 1 = not an object)
 #       path = dot-separated keys, a number indexes an array (0-based), empty = the root. rc 1 = no such path
 #       (or, for len, a scalar there), 10 = FILE is not a JSON object.
 #   awk -v op=get -v path=P -v setk=M -v setv=RAWJSON -f settings-json.awk FILE   the object at P with member M set
@@ -142,6 +144,8 @@ END{
   if(op=="strings"){ if(!(r=doc(1))) exit 10; if(!(r=at(r,path))) exit 1; if(T[r]!="a") exit 1
     for(i=1;i<=N[r];i++){ c=C[r,i]; if(T[c]=="s" && substr(V[c],1,1)=="\"") print substr(V[c],2,length(V[c])-2) }
     exit 0 }
+  if(op=="keys"){ if(!(r=doc(1))) exit 10; if(!(r=at(r,path))) exit 1; if(T[r]!="o") exit 1
+    for(i=1;i<=N[r];i++){ k=K[r,i]; print substr(k,2,length(k)-2) } exit 0 }
   if(op=="overlay"){ if(!(t=doc(1))) exit 10; if(!(q=doc(2))) exit 11; kk="\"" key "\""
     qv=get(q,kk); if(T[qv]!="o") exit 11; tv=get(t,kk); if(tv && T[tv]!="o") exit 10
     nv=mk("o"); for(i=1;i<=N[tv];i++){ x=get(qv,K[tv,i]); add(nv,K[tv,i], x ? x : C[tv,i]) }

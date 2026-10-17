@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **An organisation preset.** `--preset <name|file>` on the installers (and `preset.sh --apply` later) writes an
+  organisation's critical paths, model floors, verify commands and language as one marked block at the top of
+  `.claude/crew-model-rules`; the project's own lines stay below it and win where the rules let them. Three ship:
+  `default`, `strict`, `solo`. An invalid preset is refused before anything is installed; `doctor` names the one
+  in force. It covers the surfaces the gates read today; which agents a project gets is not part of it.
+
 - **Continue here says what it will do before it is pressed.** Studio continues a session it did not start as
   that same session when nothing else holds it open, and starts a copy when something does; the read-only foot now
   says which it will be before the press, from the check it acts on, and offers the command that opens the session
