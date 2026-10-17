@@ -3271,12 +3271,28 @@ process.stdout.write('\n== §14 no raw shell, no python ==\n');
 // Behaviour: the plan a terminal launch would run, quoted.
 process.stdout.write('\n== §15 handing a session to a real terminal ==\n');
 
-const tp = terminalPlan({ cwd: "/tmp/it's here", sessionId: 'abc-123' });
+const SID = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+const tp = terminalPlan({ cwd: "/tmp/it's here", sessionId: SID, platform: 'darwin' });
 check('a path with a quote in it cannot break out of the command',
   tp.line.includes("/tmp/it'\\''s here") || tp.line.includes(String.raw`it'\''s here`),
   tp.line);
-check('the session id is quoted too', tp.line.includes("'abc-123'"));
+check('the session id is quoted too', tp.line.includes(`'${SID}'`));
 check('the plan is inspectable before anything launches', typeof tp.line === 'string' && tp.line.length > 0);
+// Windows (W10, measured there): cmd.exe hands single quotes to the program as part of the id, so `--resume '<id>'`
+// resumed nothing. What runs inside wt is cmd, so the line is a cmd line and the id goes bare.
+{
+  const wp = terminalPlan({ cwd: 'D:\\p q', sessionId: SID, platform: 'win32' });
+  check('on Windows the terminal runs `claude --resume <id>` with no single quote, and the line shown is a cmd line',
+    wp?.argv?.[0] === 'wt.exe' && wp.argv[2] === 'D:\\p q' && wp.argv[5] === `claude --resume ${SID}` && !wp.argv.join(' ').includes("'")
+    && wp.line === `cd /d "D:\\p q" && claude --resume ${SID}` && wp.shell === 'cmd', JSON.stringify(wp));
+  // The id comes from the URL; in a cmd line `&` starts a second command. Nothing is built for what is not a UUID.
+  const bad = 'x&calc';
+  const { open: tOpen, desktopLine: tDesk } = await import('../../kit/studio/server/lib/terminal.js');
+  const refused = tOpen({ cwd: os.tmpdir(), sessionId: bad });
+  check('an id that is not a session id builds no terminal command and no desktop command, and launches nothing',
+    terminalPlan({ cwd: 'D:\\p', sessionId: bad, platform: 'win32' }) === null && terminalPlan({ cwd: '/p', sessionId: bad, platform: 'darwin' }) === null
+    && tDesk({ cwd: '/p', sessionId: bad }) === null && refused.ok === false && /not a session id/.test(refused.reason ?? ''), JSON.stringify(refused));
+}
 
 /* ------------------------------------------- §16 the kit's own numbers ---
    The panel reports what the kit's tools said, including when they said they
@@ -6201,9 +6217,15 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
     // V6: what Continue here will do is said BEFORE the press, from the check it acts on; the way back to the desktop app is a command to copy.
     {
       const tm = await import(`../../kit/studio/server/lib/terminal.js?v6=${Date.now()}`);
-      const line = tm.desktopLine({ cwd: "/p/it's here", sessionId: 'abc-1' });
+      const sid = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+      const d = tm.desktopLine({ cwd: "/p/it's here", sessionId: sid, platform: 'darwin' });
       check('the desktop command reopens the session from its own directory, quoted as the terminal command is',
-        line === "cd '/p/it'\\''s here' && claude --desktop --resume 'abc-1'", line);
+        d?.shell === 'sh' && d.line === `cd '/p/it'\\''s here' && claude --desktop --resume '${sid}'`, JSON.stringify(d));
+      // W10: cmd does not take single quotes and PowerShell 5.1 rejects `&&`; on Windows it is a PowerShell line.
+      const w = tm.desktopLine({ cwd: "D:\\it's here", sessionId: sid, platform: 'win32' });
+      check('on Windows the desktop command is a PowerShell line: a literal path with its quote doubled, `;` and not `&&`, and the panel says PowerShell',
+        w?.shell === 'PowerShell' && w.line === `Set-Location -LiteralPath 'D:\\it''s here'; claude --desktop --resume ${sid}`
+        && /r\?\.desktop\?\.shell === 'PowerShell'/.test(chatJs) && /r\?\.desktop\?\.line/.test(chatJs), JSON.stringify(w));
       const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
       check('the terminal route says what Continue here will do, from the same check createSession acts on, and the desktop command',
         /const held = await isHeldOpen\(id\);/.test(idx) && /continueAs: held \? 'copy' : 'same', desktop:/.test(idx)

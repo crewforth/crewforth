@@ -14,6 +14,9 @@ versioning follows [SemVer](https://semver.org/).
   says which it will be before the press, from the check it acts on, and offers the command that opens the session
   in the desktop app again (`claude --desktop --resume <id>`) to copy. Measured with a real session: its id stayed
   the same from a terminal, through Studio, and back to a terminal, in one transcript.
+  On Windows the desktop command is a PowerShell line, and the terminal Studio opens runs `claude --resume <id>`
+  without single quotes, which cmd.exe handed to the program as part of the id. An id that is not a session id
+  builds no command at all.
 
 - **A stopped command says what it would have touched.** When the shell gate stops `git reset --hard`,
   `git clean -f`, `git push --force` or `rm -r`, or asks about a commit or a push, one line says what it would
