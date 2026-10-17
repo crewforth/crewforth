@@ -1,0 +1,6 @@
+{
+  "id": "parse-duration",
+  "kind": "task",
+  "intent": "Implement parseDuration in src/duration.js (an ES module; keep the export). It takes a string like \"1h30m\" and returns milliseconds as a number. Units: ms, s, m, h, d. Parts are written largest unit first, each unit at most once, and may be separated by spaces (\"1h 30m\"). A part's number may have a decimal fraction (\"1.5h\"). A leading \"-\" makes the whole duration negative. \"0\" alone is 0. Anything else (an empty string, a number with no unit, an unknown unit, a unit twice or out of order, a non-string) throws a TypeError. Do not add dependencies. When you are done, say so in one line.",
+  "check": ["node", "check.mjs"]
+}

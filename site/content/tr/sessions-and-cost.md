@@ -22,6 +22,8 @@ Maliyeti kendine ait. Her çağrı bütün konuşmayı advisor modelinin fiyatı
 
 Kartı izlemez. Danışacağı modelin altında kalan bir advisor hiç eklenmez; yani Sonnet advisor varken Opus'taki bir ajan (kritik iş) tavsiye almaz. Advisor `model-outcomes.tsv`'de yer almaz.
 
+Tek başına Opus'a karşı ölçüldüğünde hiç çağrılmadı. Aynı beş review vakası ve bir uygulama görevi, her kolda iki kez, 24 koşu: Opus advisor açıkken Sonnet onu 12 koşusunun hiçbirinde çağırmadı, yani o kol Sonnet fiyatına tek başına Sonnet'ti. Ekilmiş 6 kusurun 6'sını yakaladı (tek başına Opus 6'da 5), 31 bulgusunun 15'i bir kusurun üstündeydi (Opus 26'da 9), ikisi de görevi iki kez bitirdi, süreleri yakındı, maliyet 1,06 $'a karşı 2,23 $. Örnek küçük ve advisor çağrıldığında ne kattığı hakkında bir şey söylemiyor; söylediği, onu açmanın bu koşuların yaptığını ve maliyetini değiştirmediği. Bu yüzden Crewforth onun için bir kural eklemiyor. `packaging/advisor-bench/` ölçümü yeniden koşar, `review-bench --advisor` kendi vakalarınızı ölçer.
+
 `/advisor off` ile, kalıcı olarak da `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` ile kapatılır. Anthropic API ister; Amazon Bedrock, Google Cloud Agent Platform ya da Microsoft Foundry'de yoktur.
 
 ## Durum satırı

@@ -1,0 +1,427 @@
+{
+  "arm": "agent",
+  "model": "opus",
+  "advisor": null,
+  "split": "all",
+  "cases": 5,
+  "ran": 5,
+  "tasks": {
+    "done": 0,
+    "of": 0
+  },
+  "ms": 267318,
+  "advisorCalls": 0,
+  "recall": {
+    "caught": 2,
+    "of": 3,
+    "pct": 66.7
+  },
+  "recallNoHint": {
+    "caught": 2,
+    "of": 3,
+    "pct": 66.7
+  },
+  "recallHint": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "byStratum": {
+    "pattern": {
+      "caught": 0,
+      "of": 0,
+      "pct": null
+    },
+    "judgement": {
+      "caught": 2,
+      "of": 3,
+      "pct": 66.7
+    }
+  },
+  "precision": {
+    "matched": 4,
+    "of": 12,
+    "pct": 33.3
+  },
+  "falseAlarms": [
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 393,
+      "severity": "medium",
+      "title": "_log_refusal retries on every non-zero _commit_push, including rc 3 (denied/offline), unlike _mutate"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 384,
+      "severity": "low",
+      "title": "New board write path (refusals.log) has no test"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "No test covers the new 502 path"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "medium",
+      "title": "Client-facing error says \"TODO list unavailable\" on the orders route"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "The guard assumes listOrders reports failure by returning a falsy value"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "Three statements on one line in an if block"
+    },
+    {
+      "case": "printf-option-key",
+      "file": "start.sh",
+      "line": 629,
+      "severity": "low",
+      "title": "The stated intent ('manifest entries with printf') does not match the diff, which never touches the manifest block"
+    },
+    {
+      "case": "regex-not-import",
+      "file": "kit/eval/lib/crew-map/stacks.mjs",
+      "line": 101,
+      "severity": "high",
+      "title": "Package-name guard on Node import roots removed: prose in strings is recorded as imports"
+    }
+  ],
+  "cost": 0.89,
+  "errors": [],
+  "rows": [
+    {
+      "id": "clean-board-refusals",
+      "kind": "clean",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": null,
+      "findings": [
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "medium",
+          "title": "_log_refusal retries on every non-zero _commit_push, including rc 3 (denied/offline), unlike _mutate",
+          "rule": "retry-only-on-race"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "low",
+          "title": "New board write path (refusals.log) has no test",
+          "rule": "new-behavior-without-test"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.24561460000000002,
+      "turns": 8,
+      "ms": 57802,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.24561460000000002,
+          "input": 16,
+          "output": 4875,
+          "cacheRead": 107573,
+          "cacheWrite": 15817
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 16,
+        "output": 4875,
+        "cacheRead": 107573,
+        "cacheWrite": 15817
+      },
+      "error": null,
+      "caught": null,
+      "claims": 2,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "medium",
+          "title": "_log_refusal retries on every non-zero _commit_push, including rc 3 (denied/offline), unlike _mutate"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "low",
+          "title": "New board write path (refusals.log) has no test"
+        }
+      ]
+    },
+    {
+      "id": "pattern-clean",
+      "kind": "clean",
+      "stratum": "pattern",
+      "holdout": true,
+      "hint": null,
+      "findings": [
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "No test covers the new 502 path",
+          "rule": "missing-test"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "medium",
+          "title": "Client-facing error says \"TODO list unavailable\" on the orders route",
+          "rule": "misleading-error-message"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "The guard assumes listOrders reports failure by returning a falsy value",
+          "rule": "unverified-failure-contract"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Three statements on one line in an if block",
+          "rule": "dense-statement"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1312948,
+      "turns": 6,
+      "ms": 43241,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.1312948,
+          "input": 12,
+          "output": 3195,
+          "cacheRead": 51694,
+          "cacheWrite": 7126
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 12,
+        "output": 3195,
+        "cacheRead": 51694,
+        "cacheWrite": 7126
+      },
+      "error": null,
+      "caught": null,
+      "claims": 4,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "No test covers the new 502 path"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "medium",
+          "title": "Client-facing error says \"TODO list unavailable\" on the orders route"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "The guard assumes listOrders reports failure by returning a falsy value"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Three statements on one line in an if block"
+        }
+      ]
+    },
+    {
+      "id": "printf-option-key",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": true,
+      "hint": false,
+      "findings": [
+        {
+          "file": "start.sh",
+          "line": 161,
+          "severity": "medium",
+          "title": "Dropping `--` from `printf -v _M` lets any '-'-leading key or translation abort the installer",
+          "rule": "printf-format-as-option"
+        },
+        {
+          "file": "start.sh",
+          "line": 483,
+          "severity": "low",
+          "title": "A comment at one call site stands in for a guard; it is also incomplete (says '--' when any '-' fails)",
+          "rule": "comment-as-constraint"
+        },
+        {
+          "file": "start.sh",
+          "line": 629,
+          "severity": "low",
+          "title": "The stated intent ('manifest entries with printf') does not match the diff, which never touches the manifest block",
+          "rule": "scope-mismatch"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.17935820000000002,
+      "turns": 8,
+      "ms": 58484,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.17935820000000002,
+          "input": 16,
+          "output": 4184,
+          "cacheRead": 82071,
+          "cacheWrite": 9900
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 16,
+        "output": 4184,
+        "cacheRead": 82071,
+        "cacheWrite": 9900
+      },
+      "error": null,
+      "caught": true,
+      "claims": 3,
+      "matched": 2,
+      "falseAlarms": [
+        {
+          "case": "printf-option-key",
+          "file": "start.sh",
+          "line": 629,
+          "severity": "low",
+          "title": "The stated intent ('manifest entries with printf') does not match the diff, which never touches the manifest block"
+        }
+      ]
+    },
+    {
+      "id": "regex-not-import",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/lib/crew-map/stacks.mjs",
+          "line": 101,
+          "severity": "high",
+          "title": "Package-name guard on Node import roots removed: prose in strings is recorded as imports",
+          "rule": "regression"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1355662,
+      "turns": 8,
+      "ms": 47106,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.1355662,
+          "input": 14,
+          "output": 2622,
+          "cacheRead": 67711,
+          "cacheWrite": 8691
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 14,
+        "output": 2622,
+        "cacheRead": 67711,
+        "cacheWrite": 8691
+      },
+      "error": null,
+      "caught": false,
+      "claims": 1,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "regex-not-import",
+          "file": "kit/eval/lib/crew-map/stacks.mjs",
+          "line": 101,
+          "severity": "high",
+          "title": "Package-name guard on Node import roots removed: prose in strings is recorded as imports"
+        }
+      ]
+    },
+    {
+      "id": "sigpipe-grep-q",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 150,
+          "severity": "medium",
+          "title": "known= check moved from here-string to printf|grep -q; same SIGPIPE pattern under pipefail",
+          "rule": "pipefail-grep-q-sigpipe"
+        },
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 172,
+          "severity": "high",
+          "title": "Stale-miss check pipes cat|cut into grep -q under pipefail; SIGPIPE makes a real golden prompt look stale",
+          "rule": "pipefail-grep-q-sigpipe"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.20054400000000003,
+      "turns": 10,
+      "ms": 60685,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.20054400000000003,
+          "input": 20,
+          "output": 5191,
+          "cacheRead": 103260,
+          "cacheWrite": 9499
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 20,
+        "output": 5191,
+        "cacheRead": 103260,
+        "cacheWrite": 9499
+      },
+      "error": null,
+      "caught": true,
+      "claims": 2,
+      "matched": 2,
+      "falseAlarms": []
+    }
+  ]
+}

@@ -3,7 +3,8 @@
 # The shell entry to eval/lib/review-bench/bench.mjs; it finds a Node that RUNS and hands over.
 #
 #   bash review-bench.sh --cases DIR [--arm prepass|agent] [--split all|train|holdout] [--only id,id]
-#                        [--model sonnet] [--case-budget 0.75] [--max-cost 12] [--floors FILE] [--out FILE] [--no-tools]
+#                        [--model sonnet] [--advisor opus] [--case-budget 0.75] [--max-cost 12] [--floors FILE]
+#                        [--out FILE] [--no-tools]
 #
 # --arm prepass (the default) runs no model and costs nothing. --arm agent runs Claude Code headless as
 # crew-review-agent on every case and SPENDS TOKENS: each case is capped by --case-budget (US dollars) and the run

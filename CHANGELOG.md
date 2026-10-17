@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **The advisor, measured.** `review-bench --advisor <model>` runs the agent arm with an advisor and reports each
+  run's cost by model and its advisor calls; a case of `kind: "task"` is an implementation graded by a check the
+  session never saw. Against Opus alone on five review cases and a task (24 runs), Sonnet with an Opus advisor
+  never called it: 6 of 6 defects caught against 5 of 6, for $1.06 against $2.23. No rule is added; the runs and
+  their numbers are in `packaging/advisor-bench/`.
+
 - **An organisation preset.** `--preset <name|file>` on the installers (and `preset.sh --apply` later) writes an
   organisation's critical paths, model floors, verify commands and language as one marked block at the top of
   `.claude/crew-model-rules`; the project's own lines stay below it and win where the rules let them. Three ship:

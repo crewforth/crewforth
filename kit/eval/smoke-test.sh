@@ -11369,7 +11369,7 @@ sec "== 14c) the 3.0 rename left no old name behind — outside history and the 
 if [ -n "$SGR" ] && [ -d "$SGR/packaging" ] && [ -f "$SGR/VERSION" ] && [ -d "$SGR/kit" ] && [ -f "$SGR/packaging/build-plugin.sh" ]; then
   RN_ALLOW='CHANGELOG.md	196	history: every entry before 3.0 keeps the name it shipped under
 README*.md site/content/*/install.md	4	migration: the 2.x plugin note names the plugin to uninstall — one line in each README and install page, EN + TR
-evals/results/* packaging/review-bench/cases/* packaging/review-bench/results/*	684	history: recorded eval runs, and the review bench'"'"'s cases (past versions of Crewforth'"'"'s own files) and results, stay byte-for-byte
+evals/results/* packaging/review-bench/cases/* packaging/review-bench/results/* packaging/advisor-bench/results/*	729	history: recorded eval runs, and the review bench'"'"'s cases (past versions of Crewforth'"'"'s own files) and results, and the advisor bench'"'"'s results on them, stay byte-for-byte
 adopt.sh kit/legacy-blobs.tsv	347	migration: finds and moves 2.x names (components, CLAUDE.md, board, auto-mode rules, variables), and the generated list of the 1.x/2.x files it may move
 bin/cli.js	4	migration: add accepts a typed <x>-csk and moves an add record written under the old names
 evals/run.sh	4	compat: reads the 2.x trusted eval parent when the 3.0 one is absent — removed in 4.0
