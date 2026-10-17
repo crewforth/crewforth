@@ -57,6 +57,8 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | Ship | `/crew-ship` | `crew-review-agent` records a clean review; `crew-commit-agent` proposes the commit and waits for you |
 | Hand off | `/crew-handoff` | `handoff` writes the state down for the next session |
 
+A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost. Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
+
 **13 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
 
 ## The agents
@@ -77,17 +79,19 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | `crew-review-agent` | the code-health review a commit needs |
 | `crew-commit-agent` | the commit proposal, which waits for your approval |
 | `crew-session-manager` | session fill and the handoff |
+| `crew-docs-agent` | README, guides, release notes, legal and privacy texts, store listings |
+| `crew-refuter` | one review finding at a time: tries to refute it from the lines it cites |
 
 ## Gates
 
 | Rule | Enforced by |
 |:--|:--|
 | Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is a command you type: `/crew-approve`, which approves the commit or push that was just refused (or spell it out: `/crew-approve commit`, `push`, `commit+push`). In `auto` you can also answer one fixed question with a click. Where a `PermissionRequest` hook may be wired, which can answer a prompt before you do, the question and the gate's own prompt close and `/crew-approve` is the way, in every mode. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
-| A commit needs a clean review of that exact diff | `guard-bash.sh` and the record `crew-review-agent` writes |
-| Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused | `guard-bash.sh` |
+| A commit needs a clean review of that exact diff. The review starts from a deterministic pre-pass (secrets, debug calls, shellcheck, a lock file without its manifest), every finding cites the lines it is about, and `crew-refuter` tries to refute the ones that block | `guard-bash.sh`, `review-prepass` and the record `crew-review-agent` writes |
+| Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused, with one line saying what they would have touched: the changes and commits discarded, the files removed, the remote commits overwritten | `guard-bash.sh` |
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |
 | No API key, token or private key reaches a commit | `pre-commit` secret scan |
-| A gate file cannot be edited or deleted to switch the gate off | `guard-write.sh` |
+| A gate file cannot be edited or deleted, nor the git settings that point at the hooks (`core.hooksPath`, `crewforth.hookschain`) changed, to switch the gate off | `guard-write.sh`, `guard-bash.sh` |
 | A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, work nothing can verify on `sonnet` or above, `haiku` only where a command checks it. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
 | An agent's work is verified when it stops: red once, the agent fixes it; red again, the task is repeated one model up and the same model is refused; red there too, you are asked | `agent-outcome.sh` and `guard-agent-model.sh` |
 
@@ -115,7 +119,7 @@ Studio is a local panel that draws a delegation as it happens, in three views: a
 /plugin install crewforth@crewforth
 ```
 
-When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. The three files Crewforth owns under `.claude/` (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) are refreshed on every update; a copy you edited is kept in `.claude/.legacy-backup/` first, and named. On Windows, use Git Bash; the gates run only when Claude Code finds it. When it does not, the tools that write or run commands are stopped, and the message and `/crew-doctor` name the path to set. Every option: [crewforth.com/install](https://crewforth.com/install).
+When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. The three files Crewforth owns under `.claude/` (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) are refreshed on every update; a copy you edited is kept in `.claude/.legacy-backup/` first, and named. On Windows, use Git Bash; the gates run only when Claude Code finds it. When it does not, the tools that write or run commands are stopped, and the message and `/crew-doctor` name the path to set. An organisation can carry its settings (critical paths, model floors, verify commands, language) to every project with `--preset strict`, `--preset solo` or a JSON file of its own: [crewforth.com/extending](https://crewforth.com/extending). Every option: [crewforth.com/install](https://crewforth.com/install).
 
 ## How we measure
 
