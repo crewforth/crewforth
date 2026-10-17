@@ -23,6 +23,14 @@ function osaQuote(s) {
 }
 
 /**
+ * The command that opens the session in the Claude Desktop app again (`claude --desktop`, CLI 2.1.299), from its
+ * own directory: `--resume <id>` looks for the session among that directory's.
+ */
+export function desktopLine({ cwd, sessionId }) {
+  return `cd ${q(cwd)} && claude --desktop --resume ${q(sessionId)}`;
+}
+
+/**
  * Build the launch for this platform.
  * Returns null when nothing here knows how to open a terminal, so the caller
  * can say so rather than fail silently.
