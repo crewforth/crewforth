@@ -21,7 +21,10 @@ import { renderMarkdown } from '../../kit/studio/web/md.js';
 import { ALLOWED_MODES } from '../../kit/studio/server/lib/session.js';
 import { parsePeers } from '../../kit/studio/server/lib/peers.js';
 import { writeAllowed, signature, handle as studioHandle, _internals as serverInternals } from '../../kit/studio/server/index.js';
-import { addViewer, revokeViewer, noteRequest, viewerMay, viewerByToken, listViewers, MAX_VIEWERS, _reset as resetViewers } from '../../kit/studio/server/lib/remote.js';
+import { addViewer, revokeViewer, noteRequest, viewerMay, viewerByToken, listViewers, MAX_VIEWERS, _reset as resetViewers,
+  VIEWER_TTL_MS, _setClock, onViewersChange, remoteLog, sweep as sweepViewers, noteRefusal } from '../../kit/studio/server/lib/remote.js';
+import { redact, transcriptOnly } from '../../kit/studio/server/lib/redact.js';
+import { lanListener, lanAddresses } from '../../kit/studio/server/lib/lan.js';
 import http from 'node:http';
 import { prepare, decide, pending, cleanup, revoke, alwaysList, _internals as permInternals } from '../../kit/studio/server/lib/permissions.js';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -2505,6 +2508,163 @@ check('the token gate covers every /api/ path',
     && viewerMay('GET', '/api/remote').ok === false && viewerMay('GET', '/api/remote/abc').ok === false);
 
   await new Promise((done) => srv.close(done));
+}
+
+/* -- REM-1: a phone on the same Wi-Fi ----------------------------------------------------------------------------
+   The Wi-Fi listener is a real one (lib/lan.js), on loopback here with a port the system picks, because a CI runner
+   may have no Wi-Fi; what makes a request a Wi-Fi one is which listener took it, so the gate is the same. Every
+   answer is read from what the server sends. */
+{
+  resetViewers();
+  const handler = (q, r) => { studioHandle(q, r).catch(() => { if (!r.headersSent) r.writeHead(500); r.end(); }); };
+  const lan = lanListener({ handler, port: 0, env: { CREW_STUDIO_LAN_ADDR: '127.0.0.1' } });
+  serverInternals.setLan(lan);
+  onViewersChange((n) => { lan.sync(n); });
+  const loop = http.createServer(handler);
+  await new Promise((done) => loop.listen(0, '127.0.0.1', done));
+  const lport = loop.address().port;
+  const ask = (port, method, p, { token, write = false, body } = {}) => new Promise((resolve) => {
+    const headers = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    if (write) headers['x-crew-studio'] = '1';
+    if (body) headers['content-type'] = 'application/json';
+    const q = http.request({ host: '127.0.0.1', port, path: p, method, headers, timeout: 5000 }, (r) => {
+      let raw = ''; r.setEncoding('utf8'); r.on('data', (c) => { raw += c; });
+      r.on('end', () => { let json = null; try { json = JSON.parse(raw); } catch { /* not JSON */ } resolve({ status: r.statusCode, json, raw }); });
+    });
+    q.on('timeout', () => q.destroy());
+    q.on('error', (e) => resolve({ status: 0, json: null, error: e.code ?? e.message }));
+    q.end(body ? JSON.stringify(body) : undefined);
+  });
+  const owner = serverInternals.token;
+
+  check('with no viewer nothing listens beyond loopback', lan.state().listening === false, JSON.stringify(lan.state()));
+  const made = await ask(lport, 'POST', '/api/remote', { token: owner, write: true, body: { label: 'phone' } });
+  const vt = made.json?.viewer?.token; const vid = made.json?.viewer?.id;
+  const wport = lan.state().port;
+  check('the first viewer opens the Wi-Fi listener, and its link is that address with the viewer token, never the panel\'s',
+    made.status === 201 && lan.state().listening === true && made.json?.lanUrls?.length === 1
+    && made.json.lanUrls[0] === `http://127.0.0.1:${wport}/?token=${encodeURIComponent(vt)}` && !made.json.lanUrls[0].includes(owner),
+    JSON.stringify({ status: made.status, lan: lan.state(), urls: made.json?.lanUrls }));
+  check('a viewer lasts eight hours and hides transcripts unless asked to show them',
+    made.json?.viewer?.expiresAt - made.json?.viewer?.createdAt === VIEWER_TTL_MS && VIEWER_TTL_MS === 8 * 3600 * 1000
+    && made.json?.viewer?.transcripts === false, JSON.stringify(made.json?.viewer));
+
+  const lanNone = await ask(wport, 'GET', '/api/health');
+  const lanOwner = await ask(wport, 'GET', '/api/health', { token: owner });
+  const lanView = await ask(wport, 'GET', '/api/health', { token: vt });
+  check('from the Wi-Fi: no token is 401, the panel\'s own token is 401, a viewer token reads',
+    lanNone.status === 401 && lanOwner.status === 401 && lanView.status === 200 && lanView.json?.role === 'viewer',
+    `none ${lanNone.status}, owner ${lanOwner.status}, viewer ${lanView.status}`);
+  const lanWrite = await ask(wport, 'POST', '/api/owned', { token: vt, write: true, body: {} });
+  const lanList = await ask(wport, 'GET', '/api/remote', { token: vt });
+  const lanOwnerWrite = await ask(wport, 'POST', '/api/remote', { token: owner, write: true, body: {} });
+  check('from the Wi-Fi nothing is written: a viewer\'s write and its read of the viewers are 403, the panel\'s token adds no viewer',
+    lanWrite.status === 403 && lanList.status === 403 && lanOwnerWrite.status === 401 && listViewers().length === 1,
+    `write ${lanWrite.status}, list ${lanList.status}, owner add ${lanOwnerWrite.status}, viewers ${listViewers().length}`);
+
+  // Transcripts hidden: the routes that are nothing but transcript are refused, and every other answer loses its
+  // strings but the safe ones. Health carries one that is not (the Node version): proof the filter is on the path.
+  const conv = await ask(wport, 'GET', '/api/session/0000/conversation', { token: vt });
+  const agent = await ask(wport, 'GET', '/api/session/0000/agent/a1', { token: vt });
+  const ownedEv = await ask(wport, 'GET', '/api/owned-events', { token: vt });
+  check('with transcripts hidden, the conversation, an agent\'s detail and the live conversation are refused, 403',
+    conv.status === 403 && conv.json?.transcriptsHidden === true && agent.status === 403 && ownedEv.status === 403,
+    `conversation ${conv.status}, agent ${agent.status}, owned-events ${ownedEv.status}`);
+  const ownHealth = await ask(lport, 'GET', '/api/health', { token: owner });
+  const shown = addViewer('shows', { transcripts: true }).viewer;
+  const shownHealth = await ask(wport, 'GET', '/api/health', { token: shown.token });
+  check('every other answer to a hidden-transcript link goes through the filter on the server: a string it does not allow is not sent',
+    typeof ownHealth.json?.node === 'string' && lanView.json?.node === undefined && lanView.json?.role === 'viewer'
+    && shownHealth.json?.node === ownHealth.json.node && shownHealth.json?.transcripts === true,
+    JSON.stringify({ owner: ownHealth.json?.node, hidden: lanView.json?.node, shown: shownHealth.json?.node }));
+  revokeViewer(shown.id);
+
+  const g = { sessionId: 's1', nodes: [
+    { id: 'session', kind: 'session', label: 's1', name: 'Fix the login bug', openCall: { toolName: 'Bash', detail: 'rm -rf build', at: 1 },
+      backgroundCommands: [{ id: 'b1', toolName: 'Bash', detail: 'npm test -- secret', startedAt: 2 }] },
+    { id: 'a1', kind: 'agent', label: 'crew-review-agent', agentType: 'crew-review-agent', description: 'Review the auth change',
+      status: 'done', model: 'claude-sonnet-5-5', tokens: 120, refusedCalls: [{ text: 'the gate said no to /etc/passwd' }], tomorrow: 'a field added later' },
+    { id: 't1', kind: 'tool', label: 'cat ~/.ssh/id_rsa' }] };
+  const r = redact(g); const flat = JSON.stringify(r);
+  const leaks = ['Fix the login bug', 'rm -rf build', 'npm test -- secret', 'Review the auth change', '/etc/passwd', 'a field added later', 'id_rsa'].filter((x) => flat.includes(x));
+  check('the filter keeps the shape, the states, the models and the numbers, and drops every text from a transcript, a field nobody has allowed yet included',
+    leaks.length === 0 && r.nodes.length === 3 && r.nodes[1].status === 'done' && r.nodes[1].tokens === 120 && r.nodes[1].agentType === 'crew-review-agent'
+    && r.nodes[1].label === 'crew-review-agent' && r.nodes[0].openCall.toolName === 'Bash' && r.nodes[2].label === undefined && g.nodes[1].description === 'Review the auth change',
+    `leaked: ${leaks.join(' | ')} · ${flat.slice(0, 200)}`);
+  const idxR = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('the event stream is filtered the same way as every JSON answer',
+    /res\.write\(`event: \$\{event\}\\ndata: \$\{JSON\.stringify\(REDACTED\.has\(res\) \? redact\(data\) : data\)\}/.test(idxR)
+    && transcriptOnly('/api/owned/x/events') && transcriptOnly('/api/owned') && !transcriptOnly('/api/session/x/graph'));
+
+  // Eight hours: the clock is moved rather than waited for. The phone is told its link expired, not that it has none.
+  const t0 = Date.now();
+  _setClock(() => t0 + VIEWER_TTL_MS + 1000);
+  const late = await ask(wport, 'GET', '/api/health', { token: vt });
+  check('after eight hours the link is refused with 401 and says it expired',
+    late.status === 401 && late.json?.expired === true, `status ${late.status} ${JSON.stringify(late.json)}`);
+  await lan.sync(0);
+  check('the last viewer expiring closes the Wi-Fi listener', lan.state().listening === false && listViewers().length === 0, JSON.stringify(lan.state()));
+  const closedPort = await ask(wport, 'GET', '/api/health', { token: vt });
+  check('and the port answers nothing', closedPort.status === 0, `status ${closedPort.status} ${closedPort.error ?? ''}`);
+  _setClock(null);
+
+  // Revoke: the listener closes with the last viewer, and the same token is refused.
+  const again = await ask(lport, 'POST', '/api/remote', { token: owner, write: true, body: {} });
+  const vt2 = again.json?.viewer?.token; const wport2 = lan.state().port;
+  const rv = await ask(lport, 'DELETE', `/api/remote/${again.json?.viewer?.id}`, { token: owner, write: true });
+  const after = await ask(lport, 'GET', '/api/health', { token: vt2 });
+  const afterLan = await ask(wport2, 'GET', '/api/health', { token: vt2 });
+  check('a revoke closes the Wi-Fi listener with the last viewer, and its token is refused on loopback too',
+    rv.json?.revoked === true && rv.json?.lan?.listening === false && after.status === 403 && afterLan.status === 0,
+    `revoked ${rv.json?.revoked}, lan ${JSON.stringify(rv.json?.lan)}, loopback ${after.status}, wifi ${afterLan.status}`);
+
+  const lg = remoteLog(50);
+  check('every viewer connection and every refusal is logged with when, from where, which viewer and what happened',
+    lg.some((e) => e.event === 'connected' && e.over === 'wifi' && e.viewer === 'phone' && e.ip && e.result === 'ok')
+    && lg.some((e) => e.event === 'refused' && e.over === 'wifi' && /^401/.test(e.result) && e.ip)
+    && lg.some((e) => e.event === 'refused' && e.viewer === 'phone' && /^403/.test(e.result))
+    && lg.some((e) => e.event === 'expired' && e.viewer === 'phone') && lg.some((e) => e.event === 'revoked')
+    && lg.every((e) => typeof e.at === 'number'), JSON.stringify(lg.slice(-6)));
+
+  const before = remoteLog(200).length;
+  const fake = { url: '/api/owned?token=x', crewLan: true, socket: { remoteAddress: '192.168.1.9' } };
+  for (let i = 0; i < 5; i++) noteRefusal(fake, { viewer: 'phone', status: 403, reason: 'transcripts hidden' });
+  noteRefusal({ ...fake, url: '/api/remote' }, { viewer: 'phone', status: 403, reason: 'transcripts hidden' });
+  const tail = remoteLog(200).slice(before);
+  check('the same refusal again is counted on its entry, not written again: a page that keeps asking cannot push the rest out of the log',
+    tail.length === 2 && tail[0].count === 5 && tail[0].path === '/api/owned' && tail[1].path === '/api/remote', JSON.stringify(tail));
+  check('the Wi-Fi addresses are the private ones: 10/8, 172.16/12 and 192.168/16, not loopback, link-local or public',
+    JSON.stringify(lanAddresses({}, { en0: [{ family: 'IPv4', address: '192.168.1.5', internal: false }, { family: 'IPv6', address: 'fe80::1', internal: false }],
+      lo0: [{ family: 'IPv4', address: '127.0.0.1', internal: true }], utun: [{ family: 'IPv4', address: '100.64.0.3', internal: false }],
+      x: [{ family: 'IPv4', address: '169.254.1.1', internal: false }, { family: 'IPv4', address: '8.8.8.8', internal: false }, { family: 4, address: '10.0.0.2', internal: false }, { family: 'IPv4', address: '172.20.1.1', internal: false }, { family: 'IPv4', address: '172.32.0.1', internal: false }] }))
+      === JSON.stringify(['192.168.1.5', '10.0.0.2', '172.20.1.1']));
+
+  onViewersChange(null); serverInternals.setLan(null); await lan.close(); resetViewers();
+  await new Promise((done) => loop.close(done));
+}
+
+/* -- REM-1: the QR code ------------------------------------------------------------------------------------------
+   Made in the page by web/qr.js. Its correctness was measured against an independent decoder (OpenCV, two detectors:
+   packaging/studio-test/qr-oracle, run by hand) on every version 1-10 and every mask; this pins those exact codes, so
+   a change to the encoder has to be measured again before this check can be moved. */
+{
+  const { qr, qrSvg } = await import('../../kit/studio/web/qr.js');
+  const lens = [10, 20, 35, 55, 75, 95, 115, 140, 170, 205];
+  const { createHash } = await import('node:crypto');
+  const h = createHash('sha256'); const versions = new Set();
+  for (const L of lens) {
+    let t = 'http://192.168.1.134:7777/?token='; let k = 0; while (t.length < L) t += 'abcdef0123456789-'[k++ % 17]; t = t.slice(0, L);
+    for (let mk = 0; mk < 8; mk++) { const c = qr(t, { mask: mk }); versions.add(c.version); h.update(`${c.version}:${c.mask}:` + c.modules.map((r) => r.map((x) => (x ? 1 : 0)).join('')).join('/') + '\n'); }
+  }
+  check('the QR codes are the ones an independent decoder read: versions 1 to 10, every mask, byte for byte',
+    h.digest('hex') === '8792bddab56811778783519925c85c322ce7be747f73e6e6aa07bfb4480d7da0' && versions.size === 10);
+  const link = `http://192.168.1.134:7777/?token=${'00000000-0000-4000-8000-000000000000'}`;   // a made-up token of the real length
+  const c = qr(link); const svg = qrSvg(link);
+  let tooLong = null; try { qr('x'.repeat(214)); } catch (e) { tooLong = e.message; }
+  check('a Wi-Fi link with a token is a version-5 code (37 modules); its picture uses the theme-proof tokens; a text too long is refused, not cut',
+    c.version === 5 && c.size === 37 && /class="qr-dark"/.test(svg) && /class="qr-light"/.test(svg) && !/#[0-9a-f]{3,6}/i.test(svg) && /do not fit/.test(tooLong ?? ''),
+    JSON.stringify({ version: c.version, tooLong }));
 }
 
 const sessSrc = read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? '';

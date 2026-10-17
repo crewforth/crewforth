@@ -29,6 +29,7 @@ import { cardOf, cardLines, workSteps, outsideRouting } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
+import { qrSvg } from './qr.js';
 import { SESSION_MODES } from './convo.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
@@ -113,11 +114,36 @@ const getJson = async (p) => {
     heard.failed = true;
     throw e;
   }
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) throw await statusError(r);
   const body = await r.json();
   heardNow();
   return body;
 };
+
+// What the server said about this page's link: a viewer whose link hides transcripts is sent no transcript text.
+let transcriptsHidden = false;
+
+/** The error for an answer with an error status. A viewer link whose eight hours are up covers the page, once. */
+async function statusError(r) {
+  if (r.status === 401) {
+    let b = null; try { b = await r.json(); } catch { /* not JSON */ }
+    if (b?.expired) showExpired();
+  }
+  if (r.status === 403 && transcriptsHidden) return new Error('Transcripts are hidden on this link');
+  return new Error(`HTTP ${r.status}`);
+}
+
+function showExpired() {
+  if (document.getElementById('expired')) return;
+  const box = document.createElement('div');
+  box.id = 'expired';
+  box.className = 'expired';
+  box.setAttribute('role', 'alert');
+  const h = document.createElement('h1'); h.textContent = 'Session expired';
+  const p = document.createElement('p'); p.textContent = 'Viewer links last eight hours. Ask for a new one on the machine running Studio.';
+  box.append(h, p);
+  document.body.append(box);
+}
 
 /* ---------------------------------------------------------------- theme */
 
@@ -2074,16 +2100,25 @@ async function remoteWrite(method, path, body) {
   }
 }
 
+/** A time today or tomorrow as the clock on the wall says it, e.g. 23:40. */
+const clockTime = (ms) => (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
+
+let showTranscripts = false;   // the owner's choice for the next viewer: transcripts stay hidden unless ticked
+
 async function addViewer(button) {
   button.disabled = true;
-  const res = await remoteWrite('POST', '/api/remote', {});
+  const res = await remoteWrite('POST', '/api/remote', { transcripts: showTranscripts });
   if (!res.ok) {
     toast(`No viewer added — ${res.reason ?? 'no reason given'}`);
     button.disabled = false;
     return;
   }
   remote = { ...(remote ?? {}), viewers: res.viewers ?? [] };
-  handed = { id: res.viewer.id, label: res.viewer.label, url: `${location.origin}/?token=${encodeURIComponent(res.viewer.token)}` };
+  // The Wi-Fi link when the server listens on one; this machine's own address only when it found no Wi-Fi address.
+  const wifi = res.lanUrls?.[0] ?? null;
+  handed = { id: res.viewer.id, label: res.viewer.label, wifi, expiresAt: res.viewer.expiresAt, transcripts: res.viewer.transcripts,
+    url: wifi ?? `${location.origin}/?token=${encodeURIComponent(res.viewer.token)}`, lanErrors: res.lan?.errors ?? [] };
+  showTranscripts = false;
   paintMachines();
 }
 
@@ -2114,6 +2149,7 @@ function viewerRow(v) {
     ? `${seenAgo(v.lastSeenAt, Date.now())} · ${v.requests} request${v.requests === 1 ? '' : 's'}${v.open ? ' · watching now' : ''}`
     : 'link not opened yet';
   row.append(node('div', 'sub srow-sub', seen));
+  row.append(node('div', 'sub srow-sub', `until ${clockTime(v.expiresAt)} · transcripts ${v.transcripts ? 'shown' : 'hidden'}${v.addresses?.length ? ` · from ${v.addresses.join(', ')}` : ''}`));
   return row;
 }
 
@@ -2131,9 +2167,24 @@ function remoteSection() {
   head.append(node('span', 'rv-title', 'Remote viewers'), node('span', 'row-fill'), add);
   box.append(head);
 
+  // Transcripts stay hidden on a new link unless this is ticked before Add viewer.
+  const opt = node('label', 'rv-opt');
+  const tick = document.createElement('input');
+  tick.type = 'checkbox'; tick.checked = showTranscripts;
+  tick.addEventListener('change', () => { showTranscripts = tick.checked; });
+  opt.append(tick, document.createTextNode(' Show transcripts on the next link'));
+  box.append(opt);
+
   if (handed) {
     const give = node('div', 'rv-give');
-    give.append(node('div', 'sub rv-say', `Link for ${handed.label}. Shown once; open it on the other device, through your tunnel.`));
+    give.append(node('div', 'sub rv-say', handed.wifi
+      ? `Link for ${handed.label}, shown once. Scan it with a phone on the same Wi-Fi. It lasts until ${clockTime(handed.expiresAt)}; transcripts ${handed.transcripts ? 'shown' : 'hidden'}.`
+      : `Link for ${handed.label}, shown once. No Wi-Fi address was found${handed.lanErrors.length ? ` (${handed.lanErrors.join('; ')})` : ''}, so it opens on this machine only.`));
+    if (handed.wifi) {
+      const code = node('div', 'rv-qr');
+      code.innerHTML = qrSvg(handed.wifi, { px: 3 });
+      give.append(code);
+    }
     const url = node('code', 'rv-url', handed.url);
     const copy = node('button', 'btn sm', 'Copy link');
     copy.type = 'button';
@@ -2150,7 +2201,7 @@ function remoteSection() {
   for (const v of list) box.append(viewerRow(v));
   if (!list.length) {
     box.append(node('div', 'sub rv-say',
-      'A viewer reads this panel from another device and changes nothing. The server stays on 127.0.0.1; the link opens through a tunnel you run.'));
+      'A viewer watches this panel from a phone on the same Wi-Fi and changes nothing. Its link lasts eight hours. With no viewer, the server listens on 127.0.0.1 only.'));
   }
   return box;
 }
@@ -2636,7 +2687,9 @@ if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnima
 // They survive a page reload as long as the server does.
 let ownedBusy = false;
 async function pollOwned() {
-  if (ownedBusy) return;
+  // A link that hides transcripts is refused the sessions the panel runs (their conversation is all transcript):
+  // asking every few seconds would only fill the machine's log with the same refusal.
+  if (ownedBusy || transcriptsHidden) return;
   ownedBusy = true;
   try {
     const r = await getJson('/api/owned');
@@ -2822,8 +2875,14 @@ getJson('/api/health').then((h) => {
   // A Map read before this answer showed the old server's 404; read it again so it says why.
   if (restartNote) { paintStageNote(); if (view === 'map') loadMap(true); }
   role = h.role === 'viewer' ? 'viewer' : 'owner';
+  transcriptsHidden = role === 'viewer' && h.transcripts === false;
   document.body.dataset.role = role;
-  document.getElementById('role').hidden = role !== 'viewer';
+  const badge = document.getElementById('role');
+  badge.hidden = role !== 'viewer';
+  if (transcriptsHidden) {
+    badge.textContent = 'Read-only · transcripts hidden';
+    badge.title = 'This link reads the panel and changes nothing; no transcript text is sent to it';
+  }
   if (role === 'owner') pollRemote(); else paintMachines();
 }).catch(() => { /* the Live indicator says the server is unreachable */ });
 setInterval(() => { nextPollAt = Date.now() + FLEET_POLL_MS; pollFleet(); }, FLEET_POLL_MS);
