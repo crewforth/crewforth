@@ -8,7 +8,8 @@ set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 [ -f "$_crew_d/lib/crew-env.sh" ] && . "$_crew_d/lib/crew-env.sh"
-[ -f "$_crew_d/lib/version.sh" ] && . "$_crew_d/lib/version.sh"; unset _crew_d   # an rc orders before its final
+[ -f "$_crew_d/lib/version.sh" ] && . "$_crew_d/lib/version.sh"   # an rc orders before its final
+_DOC_LIB="$(cd "$_crew_d/lib" 2>/dev/null && pwd)"; unset _crew_d          # absolute: the doctor cd's into ROOT below
 ROOT="${1:-.}"
 cd "$ROOT" 2>/dev/null || { echo "doctor: cannot enter '$ROOT'"; exit 2; }
 
@@ -107,6 +108,7 @@ _mt() {
       'advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)') s='advisor: kapalı (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)' ;;
       "status line: Crewforth's (from %s)") s="durum satırı: Crewforth'unki (%s içinden)" ;;
       "status line: your own (from %s); Crewforth's is not used") s="durum satırı: seninki (%s içinden); Crewforth'unki kullanılmıyor" ;;
+      "organisation preset: %s") s="kurum preset'i: %s" ;;
       "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını .claude/crew-model-rules dosyasına ekle: %s" ;;
       "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)") s="durum satırı: yok; Crewforth'unki: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
       "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
@@ -800,6 +802,9 @@ if [ "$_vbn" -gt 0 ]; then
   _vsep=' || '; _vdot=' · '; _vbs="${_vbl//"$_vsep"/$_vdot}"; _vbs="${_vbs#| }"; _vbs="${_vbs% |}"; _vbs="${_vbs:0:300}"
   warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s" "$_vbn" "$_vbs"
 fi
+# The organisation preset in force: the block preset.sh wrote at the top of crew-model-rules, asked of preset.sh itself.
+_pre=""; [ -n "$_DOC_LIB" ] && [ -f "$_DOC_LIB/preset.sh" ] && _pre="$(bash "$_DOC_LIB/preset.sh" --show 2>/dev/null)"
+ok "organisation preset: %s" "${_pre:-none}"
 
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has

@@ -1,0 +1,7 @@
+{
+  "about": "For one person on their own project: the common test commands may run as a card's verify command, so cheap work can be checked and run on haiku; no path is added.",
+  "name": "solo",
+  "critical": { "add": [], "remove": [] },
+  "floors": [],
+  "verify": ["npm test", "pnpm test", "yarn test", "pytest", "go test ./...", "cargo test", "dotnet test", "flutter test"]
+}

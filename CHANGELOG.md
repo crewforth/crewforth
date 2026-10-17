@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **An organisation preset.** `--preset <name|file>` on the installers (and `preset.sh --apply` later) writes an
+  organisation's critical paths, model floors, verify commands and language as one marked block at the top of
+  `.claude/crew-model-rules`; the project's own lines stay below it and win where the rules let them. Three ship:
+  `default`, `strict`, `solo`. An invalid preset is refused before anything is installed; `doctor` names the one
+  in force. It covers the surfaces the gates read today; which agents a project gets is not part of it.
+
 - **A stopped command says what it would have touched.** When the shell gate stops `git reset --hard`,
   `git clean -f`, `git push --force` or `rm -r`, or asks about a commit or a push, one line says what it would
   have done: the uncommitted changes and commits it discards, the paths a dry run lists, the remote commits it
