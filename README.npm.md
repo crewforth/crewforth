@@ -33,6 +33,8 @@ Then open Claude Code and run `/crew-doctor` to confirm the setup. Requires bash
 - **40 skills** holding the method: testing, migrations, API contracts, observability, accessibility, deployment.
 - **13 commands**, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
 - In `auto` mode a commit or a push waits for you: type `/crew-approve` and what was just refused is approved, tied to what is staged.
+- A stopped destructive command says what it would have touched; a review starts from a deterministic pre-pass, and `crew-refuter` tries to refute each finding that blocks.
+- **Organisation presets.** `npx crewforth init --preset strict` (or `solo`, or your own JSON file) carries critical paths, model floors and verify commands to every project.
 - **Safe adoption.** `adopt` lands everything on a branch, staged and uncommitted; `main` is never touched.
 
 ## Updating

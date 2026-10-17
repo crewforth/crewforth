@@ -4,6 +4,8 @@ Two entry points: **`start.sh`** for a new project, **`adopt.sh`** for one alrea
 
 **Requirements:** Claude Code 2.1.214 or later (tested on 2.1.282), and Node.js 20 or later for `npx` (22 or 24 recommended).
 
+The npm package is published by the release workflow itself, which proves its identity to npm with a short-lived token (npm Trusted Publishing): the repository holds no npm token, and from 3.2.0 on each version carries a provenance statement, shown on its npm page.
+
 ```bash
 # npx — nothing to install
 npx crewforth init                  # new project

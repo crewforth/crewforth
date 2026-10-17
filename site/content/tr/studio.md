@@ -34,7 +34,7 @@ npx crewforth studio                              # hiçbir şey kurmadan
 - **Timeline**: aynı ajanlar saate karşı, her birine bir satır; seçili ajanın son hatası alttaki çekmecede. Bir ajanın sizi beklediği süre yalnızca Studio'nun başlattığı oturumda ve yalnızca panel açıldığından beri çiziliyor, çünkü o kayıt bellekte tutuluyor. Başka her oturumda Timeline, kimsenin beklemediği bir oturum çizmek yerine `Not measured: this session's approvals are not seen by Studio` yazıyor.
 - **List**: ajanlar, kime ihtiyaç olduğuna göre sıralı. Önce sizi bekleyen istekler, sonra düşenler ve çalışanlar; bitenler ve sona erenler katlı duruyor.
 
-Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört sekmesi var: **Overview** (araç çağrıları, token, geçen süre, hatalar, iş kartı ve işin nasıl gittiği, koştuğu model, son araç, uyguladığı skill'ler, onu kimin görevlendirdiği ve raporu), **Conversation**, **Gates** ve **Stats**. **Report**, ajanın kendisini başlatana geri verdiği metin; transcript'teki teslim kaydından okunuyor. Henüz bir şey teslim etmemiş ajan bunu söylüyor.
+Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört sekmesi var: **Overview** (araç çağrıları, token, geçen süre, hatalar, iş kartı ile kapının işi neden kritik saydığı, işin nasıl gittiği, koştuğu model, son araç, uyguladığı skill'ler, onu kimin görevlendirdiği ve raporu), **Conversation**, **Gates** ve **Stats**. **Report**, ajanın kendisini başlatana geri verdiği metin; transcript'teki teslim kaydından okunuyor. Henüz bir şey teslim etmemiş ajan bunu söylüyor.
 
 ## Grafiği okumak
 

@@ -34,7 +34,7 @@ npx crewforth studio                              # without installing anything
 - **Timeline**: the same agents against the clock, one row each, and a drawer with the selected agent's last error. The time an agent spent waiting for you is drawn only for a session Studio started, and only since the panel started, because that record is kept in memory. For any other session the Timeline says `Not measured: this session's approvals are not seen by Studio` instead of drawing a session in which nobody waited.
 - **List**: the agents sorted by what needs someone. Requests waiting for you come first, then failed and running; done and ended are folded.
 
-Selecting an agent in any view opens the inspector, with four tabs: **Overview** (tool calls, tokens, elapsed time, errors, its task card and how its work went, the model it ran on, the last tool, the skills it applied, who delegated it, and its report), **Conversation**, **Gates** and **Stats**. The **Report** is what the agent handed back to whoever started it, read from the hand-back record in the transcript; an agent that has not handed anything back says so.
+Selecting an agent in any view opens the inspector, with four tabs: **Overview** (tool calls, tokens, elapsed time, errors, its task card with the reason the gate called the work critical, and how its work went, the model it ran on, the last tool, the skills it applied, who delegated it, and its report), **Conversation**, **Gates** and **Stats**. The **Report** is what the agent handed back to whoever started it, read from the hand-back record in the transcript; an agent that has not handed anything back says so.
 
 ## Reading the graph
 
