@@ -1,0 +1,453 @@
+{
+  "arm": "agent",
+  "model": "opus",
+  "advisor": null,
+  "split": "all",
+  "cases": 5,
+  "ran": 5,
+  "tasks": {
+    "done": 0,
+    "of": 0
+  },
+  "ms": 248895,
+  "advisorCalls": 0,
+  "recall": {
+    "caught": 3,
+    "of": 3,
+    "pct": 100
+  },
+  "recallNoHint": {
+    "caught": 3,
+    "of": 3,
+    "pct": 100
+  },
+  "recallHint": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "byStratum": {
+    "pattern": {
+      "caught": 0,
+      "of": 0,
+      "pct": null
+    },
+    "judgement": {
+      "caught": 3,
+      "of": 3,
+      "pct": 100
+    }
+  },
+  "precision": {
+    "matched": 5,
+    "of": 14,
+    "pct": 35.7
+  },
+  "falseAlarms": [
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 388,
+      "severity": "low",
+      "title": "refusals.log grows without bound and does not escape its '|' delimiter"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 393,
+      "severity": "medium",
+      "title": "A refusal log that cannot be pushed overwrites csk-board-lasterror and leaves a local-only commit"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 389,
+      "severity": "low",
+      "title": "A refused claim now waits on up to 3 pushes and 3 fetches before returning"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 384,
+      "severity": "low",
+      "title": "No test covers the new refusal log"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "console.error logs no user id or cause"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "New 502 path has no test"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "Three statements packed on one line"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "Falsy check assumes listOrders signals failure by returning null/undefined"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "medium",
+      "title": "502 body says 'TODO list unavailable' for an orders lookup"
+    }
+  ],
+  "cost": 0.91,
+  "errors": [],
+  "rows": [
+    {
+      "id": "clean-board-refusals",
+      "kind": "clean",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": null,
+      "findings": [
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 388,
+          "severity": "low",
+          "title": "refusals.log grows without bound and does not escape its '|' delimiter",
+          "rule": "unbounded-log"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "medium",
+          "title": "A refusal log that cannot be pushed overwrites csk-board-lasterror and leaves a local-only commit",
+          "rule": "swallowed-failure-leaks"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 389,
+          "severity": "low",
+          "title": "A refused claim now waits on up to 3 pushes and 3 fetches before returning",
+          "rule": "network-on-refusal-path"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "low",
+          "title": "No test covers the new refusal log",
+          "rule": "missing-test"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.2857858,
+      "turns": 9,
+      "ms": 73167,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.2857858,
+          "input": 18,
+          "output": 6020,
+          "cacheRead": 134689,
+          "cacheWrite": 17297
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 18,
+        "output": 6020,
+        "cacheRead": 134689,
+        "cacheWrite": 17297
+      },
+      "error": null,
+      "caught": null,
+      "claims": 4,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 388,
+          "severity": "low",
+          "title": "refusals.log grows without bound and does not escape its '|' delimiter"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "medium",
+          "title": "A refusal log that cannot be pushed overwrites csk-board-lasterror and leaves a local-only commit"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 389,
+          "severity": "low",
+          "title": "A refused claim now waits on up to 3 pushes and 3 fetches before returning"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "low",
+          "title": "No test covers the new refusal log"
+        }
+      ]
+    },
+    {
+      "id": "pattern-clean",
+      "kind": "clean",
+      "stratum": "pattern",
+      "holdout": true,
+      "hint": null,
+      "findings": [
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "console.error logs no user id or cause",
+          "rule": "log-context"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "New 502 path has no test",
+          "rule": "missing-test"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Three statements packed on one line",
+          "rule": "readability"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Falsy check assumes listOrders signals failure by returning null/undefined",
+          "rule": "unverified-contract"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "medium",
+          "title": "502 body says 'TODO list unavailable' for an orders lookup",
+          "rule": "wrong-user-facing-message"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.11951719999999999,
+      "turns": 6,
+      "ms": 36872,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.11951719999999999,
+          "input": 12,
+          "output": 3027,
+          "cacheRead": 50806,
+          "cacheWrite": 6096
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 12,
+        "output": 3027,
+        "cacheRead": 50806,
+        "cacheWrite": 6096
+      },
+      "error": null,
+      "caught": null,
+      "claims": 5,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "console.error logs no user id or cause"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "New 502 path has no test"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Three statements packed on one line"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Falsy check assumes listOrders signals failure by returning null/undefined"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "medium",
+          "title": "502 body says 'TODO list unavailable' for an orders lookup"
+        }
+      ]
+    },
+    {
+      "id": "printf-option-key",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": true,
+      "hint": false,
+      "findings": [
+        {
+          "file": "start.sh",
+          "line": 161,
+          "severity": "medium",
+          "title": "Removing `--` from `printf -v _M \"$s\"` makes any key or translation starting with '-' abort the installer",
+          "rule": "printf-end-of-options"
+        },
+        {
+          "file": "start.sh",
+          "line": 483,
+          "severity": "low",
+          "title": "The stated intent ('manifest entries with printf') does not match the diff (i18n printf guard + --dotnet comment)",
+          "rule": "scope-mismatch"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1571194,
+      "turns": 8,
+      "ms": 46152,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.1571194,
+          "input": 16,
+          "output": 3671,
+          "cacheRead": 81857,
+          "cacheWrite": 8408
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 16,
+        "output": 3671,
+        "cacheRead": 81857,
+        "cacheWrite": 8408
+      },
+      "error": null,
+      "caught": true,
+      "claims": 2,
+      "matched": 2,
+      "falseAlarms": []
+    },
+    {
+      "id": "regex-not-import",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/lib/crew-map/stacks.mjs",
+          "line": 123,
+          "severity": "high",
+          "title": "Removing the package-name check makes non-imports in Node source count as imports, which produces false dep-undeclared findings",
+          "rule": "bug"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1868398,
+      "turns": 8,
+      "ms": 47007,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.1868398,
+          "input": 16,
+          "output": 4007,
+          "cacheRead": 85459,
+          "cacheWrite": 11193
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 16,
+        "output": 4007,
+        "cacheRead": 85459,
+        "cacheWrite": 11193
+      },
+      "error": null,
+      "caught": true,
+      "claims": 1,
+      "matched": 1,
+      "falseAlarms": []
+    },
+    {
+      "id": "sigpipe-grep-q",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 150,
+          "severity": "low",
+          "title": "printf | grep -q replaces a working herestring; same SIGPIPE-under-pipefail shape, latent while KNOWN_MISSES is tiny",
+          "rule": "pipefail-grep-q-sigpipe"
+        },
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 172,
+          "severity": "high",
+          "title": "cat | cut | grep -q under set -o pipefail: early grep exit SIGPIPEs cut/cat, pipeline returns 141, a present known miss is reported stale",
+          "rule": "pipefail-grep-q-sigpipe"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1636398,
+      "turns": 7,
+      "ms": 45697,
+      "byModel": {
+        "claude-opus-5-5": {
+          "cost": 0.1636398,
+          "input": 14,
+          "output": 4119,
+          "cacheRead": 67219,
+          "cacheWrite": 8470
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 14,
+        "output": 4119,
+        "cacheRead": 67219,
+        "cacheWrite": 8470
+      },
+      "error": null,
+      "caught": true,
+      "claims": 2,
+      "matched": 2,
+      "falseAlarms": []
+    }
+  ]
+}

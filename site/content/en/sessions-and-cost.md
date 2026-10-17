@@ -22,6 +22,8 @@ Its cost is its own. Each call reads the whole conversation at the advisor model
 
 It does not follow the card. An advisor that ranks below the model it would advise is not attached at all, so with a Sonnet advisor an agent on Opus (critical work) gets no advice. The advisor is not in `model-outcomes.tsv`.
 
+Measured against Opus alone, it was not called. The same five review cases and one implementation task, run twice in each arm, 24 runs: with an Opus advisor on, Sonnet called it in none of its 12 runs, so that arm was Sonnet alone at Sonnet's price. It caught 6 of 6 planted defects (Opus alone 5 of 6), 15 of its 31 findings were on a defect (Opus 9 of 26), both finished the task twice, in about the same time, for $1.06 against $2.23. A small sample, and it says nothing about the advisor's value when it is called; it says that turning it on did not change what these runs did or cost. So Crewforth adds no rule for it. `packaging/advisor-bench/` runs it again, and `review-bench --advisor` measures your own cases.
+
 Turn it off with `/advisor off`, or for good with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. It needs the Anthropic API; on Amazon Bedrock, Google Cloud's Agent Platform or Microsoft Foundry it is not available.
 
 ## The status line

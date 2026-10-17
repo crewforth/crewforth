@@ -1,0 +1,3 @@
+# Floor-guard exceptions — SPECIFIC to this repo (the kit's own source), not part of the kit/ payload.
+# The advisor bench's implementation task starts from a stub the session is asked to fill in; the stub IS the task.
+path:packaging/advisor-bench/tasks/*/before/*

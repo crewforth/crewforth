@@ -1,0 +1,85 @@
+{
+  "arm": "agent",
+  "model": "sonnet",
+  "advisor": "opus",
+  "split": "all",
+  "cases": 1,
+  "ran": 1,
+  "tasks": {
+    "done": 1,
+    "of": 1
+  },
+  "ms": 17586,
+  "advisorCalls": 0,
+  "recall": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "recallNoHint": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "recallHint": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "byStratum": {
+    "pattern": {
+      "caught": 0,
+      "of": 0,
+      "pct": null
+    },
+    "judgement": {
+      "caught": 0,
+      "of": 0,
+      "pct": null
+    }
+  },
+  "precision": {
+    "matched": 0,
+    "of": 0,
+    "pct": null
+  },
+  "falseAlarms": [],
+  "cost": 0.07,
+  "errors": [],
+  "rows": [
+    {
+      "id": "parse-duration",
+      "kind": "task",
+      "holdout": false,
+      "hint": null,
+      "findings": [],
+      "source": "check",
+      "done": true,
+      "check": "rc 0 · 25/25 cases",
+      "cost": 0.07038149999999999,
+      "turns": 4,
+      "ms": 17586,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.07038149999999999,
+          "input": 6,
+          "output": 1896,
+          "cacheRead": 88975,
+          "cacheWrite": 10628
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 6,
+        "output": 1896,
+        "cacheRead": 88975,
+        "cacheWrite": 10628
+      },
+      "error": null,
+      "caught": null,
+      "claims": 0,
+      "matched": 0,
+      "falseAlarms": []
+    }
+  ]
+}

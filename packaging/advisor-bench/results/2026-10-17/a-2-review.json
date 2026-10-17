@@ -1,0 +1,468 @@
+{
+  "arm": "agent",
+  "model": "sonnet",
+  "advisor": "opus",
+  "split": "all",
+  "cases": 5,
+  "ran": 5,
+  "tasks": {
+    "done": 0,
+    "of": 0
+  },
+  "ms": 177794,
+  "advisorCalls": 0,
+  "recall": {
+    "caught": 3,
+    "of": 3,
+    "pct": 100
+  },
+  "recallNoHint": {
+    "caught": 3,
+    "of": 3,
+    "pct": 100
+  },
+  "recallHint": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "byStratum": {
+    "pattern": {
+      "caught": 0,
+      "of": 0,
+      "pct": null
+    },
+    "judgement": {
+      "caught": 3,
+      "of": 3,
+      "pct": 100
+    }
+  },
+  "precision": {
+    "matched": 7,
+    "of": 16,
+    "pct": 43.8
+  },
+  "falseAlarms": [
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 224,
+      "severity": "low",
+      "title": "Only two of the claim refusals are logged; 'already done' (line 224) is not, and the format is unreadable by any command"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 227,
+      "severity": "low",
+      "title": "A refused claim now blocks on a git push (and up to 3 fetch/push rounds) before returning"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 384,
+      "severity": "medium",
+      "title": "No test covers the new refusal log (held, blocked, offline, concurrent append)"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 393,
+      "severity": "medium",
+      "title": "Offline refusal is logged up to 3 times: _commit_push rc 3 is retried as if it were a race"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "console.error carries no user id or cause, so the failure cannot be traced"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "No test covers the new 502 branch"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "medium",
+      "title": "Client-facing error says 'TODO list unavailable' (placeholder, wrong subject)"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 4,
+      "severity": "low",
+      "title": "Only a falsy result is reported; a thrown/rejected listOrders still escapes unhandled"
+    },
+    {
+      "case": "printf-option-key",
+      "file": "start.sh",
+      "line": 638,
+      "severity": "medium",
+      "title": "Staged change does not match the stated intent ('write manifest entries with printf in the installer')"
+    }
+  ],
+  "cost": 0.44,
+  "errors": [],
+  "rows": [
+    {
+      "id": "clean-board-refusals",
+      "kind": "clean",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": null,
+      "findings": [
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 224,
+          "severity": "low",
+          "title": "Only two of the claim refusals are logged; 'already done' (line 224) is not, and the format is unreadable by any command",
+          "rule": "consistency"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 227,
+          "severity": "low",
+          "title": "A refused claim now blocks on a git push (and up to 3 fetch/push rounds) before returning",
+          "rule": "latency"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "medium",
+          "title": "No test covers the new refusal log (held, blocked, offline, concurrent append)",
+          "rule": "missing-test"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "medium",
+          "title": "Offline refusal is logged up to 3 times: _commit_push rc 3 is retried as if it were a race",
+          "rule": "retry-on-unshared"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1255545,
+      "turns": 11,
+      "ms": 43247,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.1255545,
+          "input": 20,
+          "output": 4493,
+          "cacheRead": 149045,
+          "cacheWrite": 16420
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 20,
+        "output": 4493,
+        "cacheRead": 149045,
+        "cacheWrite": 16420
+      },
+      "error": null,
+      "caught": null,
+      "claims": 4,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 224,
+          "severity": "low",
+          "title": "Only two of the claim refusals are logged; 'already done' (line 224) is not, and the format is unreadable by any command"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 227,
+          "severity": "low",
+          "title": "A refused claim now blocks on a git push (and up to 3 fetch/push rounds) before returning"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "medium",
+          "title": "No test covers the new refusal log (held, blocked, offline, concurrent append)"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "medium",
+          "title": "Offline refusal is logged up to 3 times: _commit_push rc 3 is retried as if it were a race"
+        }
+      ]
+    },
+    {
+      "id": "pattern-clean",
+      "kind": "clean",
+      "stratum": "pattern",
+      "holdout": true,
+      "hint": null,
+      "findings": [
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "console.error carries no user id or cause, so the failure cannot be traced",
+          "rule": "observability"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "No test covers the new 502 branch",
+          "rule": "missing-test"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "medium",
+          "title": "Client-facing error says 'TODO list unavailable' (placeholder, wrong subject)",
+          "rule": "user-facing-placeholder"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 4,
+          "severity": "low",
+          "title": "Only a falsy result is reported; a thrown/rejected listOrders still escapes unhandled",
+          "rule": "error-handling"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.0579677,
+      "turns": 7,
+      "ms": 23865,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.0579677,
+          "input": 12,
+          "output": 2420,
+          "cacheRead": 57557,
+          "cacheWrite": 6997
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 12,
+        "output": 2420,
+        "cacheRead": 57557,
+        "cacheWrite": 6997
+      },
+      "error": null,
+      "caught": null,
+      "claims": 4,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "console.error carries no user id or cause, so the failure cannot be traced"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "No test covers the new 502 branch"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "medium",
+          "title": "Client-facing error says 'TODO list unavailable' (placeholder, wrong subject)"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 4,
+          "severity": "low",
+          "title": "Only a falsy result is reported; a thrown/rejected listOrders still escapes unhandled"
+        }
+      ]
+    },
+    {
+      "id": "printf-option-key",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": true,
+      "hint": false,
+      "findings": [
+        {
+          "file": "start.sh",
+          "line": 483,
+          "severity": "low",
+          "title": "New comment sits on the --dotnet call, whose key does not start with '-', and states a constraint the removed `--` used to make unnecessary",
+          "rule": "comment-accuracy"
+        },
+        {
+          "file": "start.sh",
+          "line": 161,
+          "severity": "medium",
+          "title": "Dropping `--` before the format makes _mt fail for any message starting with '-'",
+          "rule": "option-terminator-removed"
+        },
+        {
+          "file": "start.sh",
+          "line": 638,
+          "severity": "medium",
+          "title": "Staged change does not match the stated intent ('write manifest entries with printf in the installer')",
+          "rule": "scope-creep"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.08651400000000001,
+      "turns": 9,
+      "ms": 40161,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.08651400000000001,
+          "input": 16,
+          "output": 3497,
+          "cacheRead": 94320,
+          "cacheWrite": 10520
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 16,
+        "output": 3497,
+        "cacheRead": 94320,
+        "cacheWrite": 10520
+      },
+      "error": null,
+      "caught": true,
+      "claims": 3,
+      "matched": 2,
+      "falseAlarms": [
+        {
+          "case": "printf-option-key",
+          "file": "start.sh",
+          "line": 638,
+          "severity": "medium",
+          "title": "Staged change does not match the stated intent ('write manifest entries with printf in the installer')"
+        }
+      ]
+    },
+    {
+      "id": "regex-not-import",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/lib/crew-map/stacks.mjs",
+          "line": 124,
+          "severity": "low",
+          "title": "No test covers the changed import-root filtering",
+          "rule": "missing-test"
+        },
+        {
+          "file": "kit/eval/lib/crew-map/stacks.mjs",
+          "line": 123,
+          "severity": "medium",
+          "title": "Package-name guard on import root deleted; message says 'Read import lines'",
+          "rule": "unrequested-guard-removal"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.08439810000000002,
+      "turns": 8,
+      "ms": 33903,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.08439810000000002,
+          "input": 14,
+          "output": 3117,
+          "cacheRead": 81961,
+          "cacheWrite": 11251
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 14,
+        "output": 3117,
+        "cacheRead": 81961,
+        "cacheWrite": 11251
+      },
+      "error": null,
+      "caught": true,
+      "claims": 2,
+      "matched": 2,
+      "falseAlarms": []
+    },
+    {
+      "id": "sigpipe-grep-q",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 150,
+          "severity": "medium",
+          "title": "printf | grep -q has the same latent SIGPIPE hazard",
+          "rule": "pipefail-sigpipe"
+        },
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 172,
+          "severity": "high",
+          "title": "pipefail + grep -q in a pipeline: stale check can fail on a real golden prompt",
+          "rule": "pipefail-sigpipe"
+        },
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 172,
+          "severity": "low",
+          "title": "Gold files are re-read and cut once per known-miss line",
+          "rule": "not-a-simplification"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.0887825,
+      "turns": 10,
+      "ms": 36618,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.0887825,
+          "input": 18,
+          "output": 3715,
+          "cacheRead": 104805,
+          "cacheWrite": 10279
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 18,
+        "output": 3715,
+        "cacheRead": 104805,
+        "cacheWrite": 10279
+      },
+      "error": null,
+      "caught": true,
+      "claims": 3,
+      "matched": 3,
+      "falseAlarms": []
+    }
+  ]
+}

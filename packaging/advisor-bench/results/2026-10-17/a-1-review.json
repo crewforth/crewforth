@@ -1,0 +1,432 @@
+{
+  "arm": "agent",
+  "model": "sonnet",
+  "advisor": "opus",
+  "split": "all",
+  "cases": 5,
+  "ran": 5,
+  "tasks": {
+    "done": 0,
+    "of": 0
+  },
+  "ms": 298968,
+  "advisorCalls": 0,
+  "recall": {
+    "caught": 3,
+    "of": 3,
+    "pct": 100
+  },
+  "recallNoHint": {
+    "caught": 3,
+    "of": 3,
+    "pct": 100
+  },
+  "recallHint": {
+    "caught": 0,
+    "of": 0,
+    "pct": null
+  },
+  "byStratum": {
+    "pattern": {
+      "caught": 0,
+      "of": 0,
+      "pct": null
+    },
+    "judgement": {
+      "caught": 3,
+      "of": 3,
+      "pct": 100
+    }
+  },
+  "precision": {
+    "matched": 8,
+    "of": 15,
+    "pct": 53.3
+  },
+  "falseAlarms": [
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 224,
+      "severity": "low",
+      "title": "'already done' refusal is not logged, the other two are"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 393,
+      "severity": "low",
+      "title": "A refused claim now waits on up to 3 fetch/push round trips"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 390,
+      "severity": "low",
+      "title": "refusals.log is rewritten whole on every refusal and grows without bound"
+    },
+    {
+      "case": "clean-board-refusals",
+      "file": "claude-starter/hooks/board.sh",
+      "line": 384,
+      "severity": "medium",
+      "title": "New refusal logging has no test"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 4,
+      "severity": "low",
+      "title": "Failure detection assumes listOrders returns a falsy value; a rejection is not handled"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "console.error logs a fixed string with no user id or cause"
+    },
+    {
+      "case": "pattern-clean",
+      "file": "src/orders.js",
+      "line": 5,
+      "severity": "low",
+      "title": "Client-facing error message carries a 'TODO' placeholder"
+    }
+  ],
+  "cost": 0.47,
+  "errors": [],
+  "rows": [
+    {
+      "id": "clean-board-refusals",
+      "kind": "clean",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": null,
+      "findings": [
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 224,
+          "severity": "low",
+          "title": "'already done' refusal is not logged, the other two are",
+          "rule": "inconsistent-coverage"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "low",
+          "title": "A refused claim now waits on up to 3 fetch/push round trips",
+          "rule": "performance"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 390,
+          "severity": "low",
+          "title": "refusals.log is rewritten whole on every refusal and grows without bound",
+          "rule": "maintainability"
+        },
+        {
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "medium",
+          "title": "New refusal logging has no test",
+          "rule": "missing-test"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.1623558,
+      "turns": 12,
+      "ms": 175942,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.1623558,
+          "input": 24,
+          "output": 5679,
+          "cacheRead": 180378,
+          "cacheWrite": 21870
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 24,
+        "output": 5679,
+        "cacheRead": 180378,
+        "cacheWrite": 21870
+      },
+      "error": null,
+      "caught": null,
+      "claims": 4,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 224,
+          "severity": "low",
+          "title": "'already done' refusal is not logged, the other two are"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 393,
+          "severity": "low",
+          "title": "A refused claim now waits on up to 3 fetch/push round trips"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 390,
+          "severity": "low",
+          "title": "refusals.log is rewritten whole on every refusal and grows without bound"
+        },
+        {
+          "case": "clean-board-refusals",
+          "file": "claude-starter/hooks/board.sh",
+          "line": 384,
+          "severity": "medium",
+          "title": "New refusal logging has no test"
+        }
+      ]
+    },
+    {
+      "id": "pattern-clean",
+      "kind": "clean",
+      "stratum": "pattern",
+      "holdout": true,
+      "hint": null,
+      "findings": [
+        {
+          "file": "src/orders.js",
+          "line": 4,
+          "severity": "low",
+          "title": "Failure detection assumes listOrders returns a falsy value; a rejection is not handled",
+          "rule": "error-handling-contract"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "console.error logs a fixed string with no user id or cause",
+          "rule": "logging"
+        },
+        {
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Client-facing error message carries a 'TODO' placeholder",
+          "rule": "placeholder-text"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.0590441,
+      "turns": 7,
+      "ms": 23777,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.0590441,
+          "input": 12,
+          "output": 2090,
+          "cacheRead": 56921,
+          "cacheWrite": 8107
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 12,
+        "output": 2090,
+        "cacheRead": 56921,
+        "cacheWrite": 8107
+      },
+      "error": null,
+      "caught": null,
+      "claims": 3,
+      "matched": 0,
+      "falseAlarms": [
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 4,
+          "severity": "low",
+          "title": "Failure detection assumes listOrders returns a falsy value; a rejection is not handled"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "console.error logs a fixed string with no user id or cause"
+        },
+        {
+          "case": "pattern-clean",
+          "file": "src/orders.js",
+          "line": 5,
+          "severity": "low",
+          "title": "Client-facing error message carries a 'TODO' placeholder"
+        }
+      ]
+    },
+    {
+      "id": "printf-option-key",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": true,
+      "hint": false,
+      "findings": [
+        {
+          "file": "start.sh",
+          "line": 483,
+          "severity": "medium",
+          "title": "Comment documents a trap the diff created, and sits above a key that does not start with '-'",
+          "rule": "comment-accuracy"
+        },
+        {
+          "file": "start.sh",
+          "line": 161,
+          "severity": "low",
+          "title": "No test covers a '-'-leading key in _mt; shellcheck not run",
+          "rule": "test-coverage"
+        },
+        {
+          "file": "start.sh",
+          "line": 161,
+          "severity": "high",
+          "title": "`--` guard removed from printf in _mt: a '-'-leading key now fails with rc=2",
+          "rule": "printf-option-injection"
+        },
+        {
+          "file": "start.sh",
+          "line": 161,
+          "severity": "medium",
+          "title": "Stated intent (write manifest entries with printf) does not match the diff",
+          "rule": "scope"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.0990027,
+      "turns": 8,
+      "ms": 36618,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.0990027,
+          "input": 14,
+          "output": 3795,
+          "cacheRead": 83407,
+          "cacheWrite": 13171
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 14,
+        "output": 3795,
+        "cacheRead": 83407,
+        "cacheWrite": 13171
+      },
+      "error": null,
+      "caught": true,
+      "claims": 4,
+      "matched": 4,
+      "falseAlarms": []
+    },
+    {
+      "id": "regex-not-import",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/lib/crew-map/stacks.mjs",
+          "line": 123,
+          "severity": "high",
+          "title": "Removing the package-name check lets prose in strings become imports",
+          "rule": "import-root-not-validated"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.06947049999999999,
+      "turns": 9,
+      "ms": 29575,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.06947049999999999,
+          "input": 14,
+          "output": 2278,
+          "cacheRead": 75145,
+          "cacheWrite": 9787
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 14,
+        "output": 2278,
+        "cacheRead": 75145,
+        "cacheWrite": 9787
+      },
+      "error": null,
+      "caught": true,
+      "claims": 1,
+      "matched": 1,
+      "falseAlarms": []
+    },
+    {
+      "id": "sigpipe-grep-q",
+      "kind": "defect",
+      "stratum": "judgement",
+      "holdout": false,
+      "hint": false,
+      "findings": [
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 150,
+          "severity": "medium",
+          "title": "Same SIGPIPE hazard in the known-miss lookup",
+          "rule": "pipefail-grep-q"
+        },
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 172,
+          "severity": "high",
+          "title": "grep -q at the end of a pipeline under pipefail gives false 'not a golden prompt'",
+          "rule": "pipefail-grep-q"
+        },
+        {
+          "file": "kit/eval/routing-eval.sh",
+          "line": 172,
+          "severity": "low",
+          "title": "The change is not a simplification: the gold set is re-read once per known miss",
+          "rule": "simplicity"
+        }
+      ],
+      "source": "review.json",
+      "prepassRan": true,
+      "cost": 0.0781974,
+      "turns": 9,
+      "ms": 33056,
+      "byModel": {
+        "claude-sonnet-5-5": {
+          "cost": 0.0781974,
+          "input": 14,
+          "output": 3302,
+          "cacheRead": 74254,
+          "cacheWrite": 9431
+        }
+      },
+      "advisorCalls": 0,
+      "tokens": {
+        "input": 14,
+        "output": 3302,
+        "cacheRead": 74254,
+        "cacheWrite": 9431
+      },
+      "error": null,
+      "caught": true,
+      "claims": 3,
+      "matched": 3,
+      "falseAlarms": []
+    }
+  ]
+}

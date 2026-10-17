@@ -45,6 +45,34 @@ check('the secret case is built with a filled token (the stored file has none)',
   && !/gh[p]_[A-Za-z0-9]{36}/.test(fs.readFileSync(path.join(CASES, 'pattern-secret', 'after', 'src', 'deploy.ts'), 'utf8')));
 check('no judgement case shows the fix\'s own explanation among its removed lines', all.filter((x) => x.stratum === 'judgement' && x.kind === 'defect').every((x) => !hintInDiff(build(x, tmp).diff)));
 
+// ---- the agent arm's plumbing, on a fake CLI (CREW_BENCH_CLAUDE): the advisor, the cost by model, a task ----
+{
+  const BENCH = path.resolve(HERE, '..', '..', 'kit', 'eval', 'lib', 'review-bench', 'bench.mjs');
+  const TASKS = path.resolve(HERE, '..', 'advisor-bench', 'tasks');
+  const log = fs.mkdtempSync(path.join(tmp, 'fake-'));
+  const go = (extra, env = {}) => {
+    const out = path.join(log, 'out.json');
+    const p = spawnSync(process.execPath, [BENCH, '--cases', TASKS, '--arm', 'agent', '--out', out, ...extra],
+      { encoding: 'utf8', env: { ...process.env, CREW_BENCH_CLAUDE: path.join(HERE, 'fake-claude.mjs'), FAKE_LOG: log, ...env } });
+    let s = null; try { s = JSON.parse(fs.readFileSync(out, 'utf8')); } catch { /* no summary */ }
+    fs.rmSync(out, { force: true });
+    return { rc: p.status, s, row: s?.rows?.[0], argv: JSON.parse(fs.readFileSync(path.join(log, 'argv.json'), 'utf8')), seen: JSON.parse(fs.readFileSync(path.join(log, 'seen.json'), 'utf8')), err: p.stderr };
+  };
+  const solved = go(['--model', 'sonnet', '--advisor', 'opus'], { FAKE_SOLVE: path.join(TASKS, 'parse-duration', 'reference', 'duration.js') });
+  const si = solved.argv.indexOf('--settings');
+  check('--advisor runs the arm with that advisor, passed as the advisorModel setting; the user\'s own settings stay unread',
+    si > 0 && JSON.parse(solved.argv[si + 1]).advisorModel === 'opus' && solved.argv.join(' ').includes('--setting-sources project,local'), JSON.stringify(solved.argv));
+  check('a run\'s cost is the result\'s total; each model\'s cost is kept apart; one advisor call shown twice is counted once',
+    solved.row?.cost === 0.2 && solved.row.byModel?.['claude-opus-5-5']?.cost === 0.15 && solved.row.byModel['claude-sonnet-5-5'].input === 4
+    && solved.row.advisorCalls === 1 && solved.s.advisorCalls === 1, JSON.stringify(solved.row));
+  check('a task is graded by a check it never saw: not in the repository during the session, and a reference that meets the spec passes it',
+    !solved.seen.includes('check.mjs') && solved.seen.includes('src/duration.js') && solved.row?.done === true && /25\/25/.test(solved.row.check ?? '')
+    && solved.s.tasks.done === 1 && solved.s.tasks.of === 1, JSON.stringify({ seen: solved.seen, row: solved.row }));
+  const idle = go(['--model', 'opus']);
+  check('a session that leaves the task undone is not done, and an arm with no advisor passes no advisor setting',
+    idle.row?.done === false && /rc 1/.test(idle.row.check ?? '') && !idle.argv.includes('--settings') && idle.s.advisor === null, JSON.stringify({ row: idle.row, argv: idle.argv }));
+}
+
 // ---- the pre-pass on the cases, at its floor ----
 const r = spawnSync('node', [path.resolve(HERE, '..', '..', 'kit', 'eval', 'lib', 'review-bench', 'bench.mjs'), '--cases', CASES, '--arm', 'prepass', '--no-tools', '--floors', path.join(HERE, 'floors.json')], { encoding: 'utf8' });
 process.stdout.write(r.stdout.split('\n').filter(Boolean).map((l) => `     ${l}\n`).join(''));
