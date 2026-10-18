@@ -213,6 +213,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A click on the approval question is recorded whatever order its keys come back in.** Claude Code hands the
+  answered question back either as it was asked or with its keys sorted, and the answer side matched it byte for
+  byte: in real `auto` sessions 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused
+  ("the question answered is not the fixed one"), so the user clicked and was then told to type `/crew-approve`. The
+  answer side now checks each text of the fixed question wherever it sits; the exact match stays where the question
+  is asked, and the answer is still bound to that call.
+
 - **The Crew Map says what a project is made of.** A Flutter project read as a pile of Gradle modules and its
   server as an external API (seen on a real project). The scanner now reads Dart: one module per `pubspec.yaml`,
   its packages and `path:` references, and a Flutter app's `android/` and `ios/` folders as platforms of the app.

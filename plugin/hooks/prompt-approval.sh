@@ -426,6 +426,19 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
 # same four answers and what each one does. guard-bash.sh prints it from here for the model to ask.
 _CREW_Q_TEXT='Crewforth approval: may Claude commit what is staged now, push this branch, or both?'
 _CREW_Q_JSON='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":[{"label":"Commit only","description":"Commit exactly what is staged now. No push."},{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."},{"label":"Push only","description":"Push this branch as it is now. No new commit."},{"label":"No","description":"Neither commit nor push."}],"multiSelect":false}'
+# THE ANSWERED QUESTION, IN ANY KEY ORDER. Claude Code hands PostToolUse the question back either as it was asked or
+# re-serialised with its keys sorted (`header,options[description,label],question`, sometimes without multiSelect):
+# 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused, on a byte match (real sessions,
+# 2.1.299 and 2.1.302, 2026-10-18). So the answer side checks every "key":"text" pair of the fixed question, wherever
+# it sits; the exact match stays on PreToolUse, and the tool id binds the answer to the call that passed it.
+_crew_q_is(){  # $1 = a payload -> 0 when it carries every "key":"text" pair of _CREW_Q_JSON
+  local rest="$_CREW_Q_JSON" re='("[A-Za-z]+":"[^"]*")' p
+  while [[ $rest =~ $re ]]; do
+    p="${BASH_REMATCH[1]}"
+    case "$1" in *"$p"*) ;; *) return 1 ;; esac
+    rest="${rest#*"$p"}"
+  done
+}
 _crew_q_op(){  # $1 = the label the user chose -> OP: commit | commit+push | push | no, or "" for anything else
   case "$1" in
     'Commit only') OP=commit ;; 'Commit + push') OP=commit+push ;; 'Push only') OP=push ;; 'No') OP=no ;; *) OP="" ;;
@@ -714,7 +727,7 @@ _pa_question(){
   : > "$ASKED" 2>/dev/null                                 # one question, one answer
   case "$_at$_QNOW" in *[!0-9]*|'') no "the time of the question could not be read." ;; esac
   [ $((_QNOW - _at)) -ge 0 ] && [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."
-  case "$INPUT" in *'"questions":['"$_CREW_Q_JSON"']'*) ;; *) no "the question answered is not the fixed one." ;; esac
+  _crew_q_is "$INPUT" || no "the question answered is not the fixed one."
   [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
   _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
   _json_keycount "$INPUT" "$_CREW_Q_TEXT"; _an=$_KC

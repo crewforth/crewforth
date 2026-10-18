@@ -7994,8 +7994,8 @@ _paq_text="$(bash -c '. "$1"; printf "%s" "$_CREW_Q_TEXT"' _ "$HOOKS/prompt-appr
 _paq_pre(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s]%s},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "$2" "${3:-}" "${4:-tu1}" > "$_PA/q.json"
   if [ -n "$JSONQ" ]; then json_ok < "$_PA/q.json" || _paqbad="$_paqbad [pre payload is not JSON]"; fi
   _pao="$( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/guard-question.sh" < "$_PA/q.json" 2>"$_PA/qerr" )"; _par=$?; }
-# $1 = mode, $2 = the answer, $3 = tool_use_id
-_paq_post(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s],"answers":{"%s":"%s"}},"tool_response":{"questions":[%s],"answers":{"%s":"%s"}},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "$_paq_canon" "$_paq_text" "$2" "$_paq_canon" "$_paq_text" "$2" "${3:-tu1}" > "$_PA/q.json"
+# $1 = mode, $2 = the answer, $3 = tool_use_id, $4 = the questions array's content as Claude Code hands it back (default: as asked)
+_paq_post(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s],"answers":{"%s":"%s"}},"tool_response":{"questions":[%s],"answers":{"%s":"%s"}},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "${4:-$_paq_canon}" "$_paq_text" "$2" "${4:-$_paq_canon}" "$_paq_text" "$2" "${3:-tu1}" > "$_PA/q.json"
   if [ -n "$JSONQ" ]; then json_ok < "$_PA/q.json" || _paqbad="$_paqbad [post payload is not JSON]"; fi
   _pao="$( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/prompt-approval.sh" < "$_PA/q.json" 2>"$_PA/qerr" )"; _par=$?; }
 _paq_gate(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_paw" "$1" "$2" > "$_PA/pl.json"
@@ -8008,6 +8008,11 @@ _paq_is(){ _paqn=$((_paqn+1)); [ "$2" = "$3" ] || _paqbad="$_paqbad [$1: got '$2
 _paq_post auto 'Commit only';                             _paq_is 'its answer is recorded' "$(_paq_rec)" commit
 _paq_gate auto 'git commit -m x';                         _paq_is 'the recorded click allows the commit' "$_par" 0
 _pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu2; _paq_post auto 'Commit + push' tu2; _paq_is 'commit + push' "$(_paq_rec)" commit+push
+# Claude Code may hand the answered question back with its keys sorted and multiSelect gone: 7 of 7 such answers were
+# refused on a byte match (real `auto` sessions, 2026-10-18). This is that shape, as it was handed back.
+_paq_sorted="{\"header\":\"Approval\",\"options\":[{\"description\":\"Commit exactly what is staged now. No push.\",\"label\":\"Commit only\"},{\"description\":\"Commit what is staged now, then push that commit on this branch.\",\"label\":\"Commit + push\"},{\"description\":\"Push this branch as it is now. No new commit.\",\"label\":\"Push only\"},{\"description\":\"Neither commit nor push.\",\"label\":\"No\"}],\"question\":\"$_paq_text\"}"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu10; _paq_post auto 'Commit + push' tu10 "$_paq_sorted"
+                                                          _paq_is 'the answered question handed back with its keys sorted' "$(_paq_rec)" commit+push
 # must-fail twins: each differs from the round trip in one thing
 _pa_new; : > "$_pa_rec"; _paq_post auto 'Commit only' tu3;  _paq_is 'an answer no PreToolUse asked for' "$(_paq_rec)" none
 _paq_pre auto "$_paq_canon" '' tu4; _paq_post auto 'Commit only' tu5; _paq_is 'an answer to another call' "$(_paq_rec)" none
@@ -8016,6 +8021,8 @@ _paq_pre auto "$_paq_canon" '' tu6; _paq_post auto 'Commit only' tu6; : > "$_pa_
 _paq_pre auto "$_paq_canon" '' tu7; _paq_post auto 'HOOK-CHOSE-Commit only' tu7; _paq_is 'an answer that is none of the four' "$(_paq_rec)" none
 _paq_pre auto "$_paq_canon" '' tu8; _paq_post auto 'No' tu8; _paq_is 'No' "$(_paq_rec)" none
 _paq_pre auto "$_paq_canon" '' tu9; _paq_post default 'Commit only' tu9; _paq_is 'an answer recorded outside auto' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu11; _paq_post auto 'Commit only' tu11 "${_paq_sorted/No new commit./Then force-push.}"
+                                                          _paq_is 'sorted, with one text of the question changed' "$(_paq_rec)" none
 _paq_pre auto '{"question":"Crewforth approval: commit?","header":"Approval","options":[{"label":"Commit only","description":"x"}],"multiSelect":false}'
                                                           _paq_is 'another wording is refused' "$_par" 2
 _paq_pre auto "$_paq_canon" ',"answers":{"x":"Commit only"}'; _paq_is 'a call with answers is refused' "$_par" 2
@@ -8026,8 +8033,8 @@ _paq_pre bypassPermissions "$_paq_canon";                 _paq_is 'bypassPermiss
 _PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0"; _paq_pre auto "$_paq_canon"; unset _PAQ_X; _paq_is 'a headless session: refused' "$_par" 2
 _paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label":"Red","description":"r"}],"multiSelect":false}'
                                                           _paq_is 'any other question: no decision' "$_par/$_pao" "0/"
-if [ "$_paqn" != 18 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 18"
-elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four; the record allows the commit (18 cases, 13 must-fail)"
+if [ "$_paqn" != 20 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 20"
+elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four, in whatever key order Claude Code hands it back; the record allows the commit (20 cases, 14 must-fail)"
 else fail "the approval question:$_paqbad"; fi
 # ...and the way to it. B-2 (a real `auto` session, 2026-10-17): /crew-ship asked for /crew-approve before any commit
 # was refused, so the refusal that prints the question never came and the click was never offered; telling the agent
