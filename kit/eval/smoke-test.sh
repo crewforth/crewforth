@@ -8063,6 +8063,48 @@ printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command
 rm -rf "$_aq"
 [ -z "$_aqbad" ] && pass "in auto, calling crew-commit-agent hands the session the fixed one-click question; not in default, acceptEdits or dontAsk, not for another agent, not with a PermissionRequest hook" \
   || fail "the one-click question hand-over:$_aqbad"
+# THE CLICK BEFORE THE TYPED WAY, at the turn's end (2026-10-18: 9 of 18 typed asks in two real `auto` sessions on rc.4
+# came in a turn where no commit was tried, so neither the refusal nor the commit agent's hand-over offered the click).
+# prompt-approval.sh on Stop: the reply names /crew-approve, auto, the question open, not asked since the user's last
+# message -> the session is told once to ask the click. Every other case is a twin that differs in one thing.
+_sq="$(mktemp -d)"; _sq="$(cd -P "$_sq" && pwd)"; mkdir -p "$_sq/p/.claude/state" "$_sq/ccd" "$_sq/home"
+printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_sq/p/.claude/settings.json"
+_SQ_ENV="CLAUDE_PROJECT_DIR=$_sq/p CLAUDE_CONFIG_DIR=$_sq/ccd HOME=$_sq/home CREW_GATE_LOG=/dev/null"
+# $1 = mode, $2 = the reply, $3 = stop_hook_active, $4 = session id
+_sq_stop(){ printf '{"session_id":"%s","transcript_path":"%s/t.jsonl","cwd":"%s","permission_mode":"%s","hook_event_name":"Stop","stop_hook_active":%s,"last_assistant_message":"%s"}' "${4:-s1}" "$_sq" "$_sq/p" "$1" "${3:-false}" "$2" > "$_sq/pl.json"
+  ( cd "$_sq/p" && env $_SQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_sq/pl.json" 2>/dev/null ); }
+_sq_ask='Review is clean. If you approve, send only this:\n/crew-approve commit+push'
+_sqbad=""; _sqn=0
+_sq_says(){ _sqn=$((_sqn+1)); case "$2" in *'ASK THE USER WITH ONE CLICK'*"$_paq_text"*) ;; *) _sqbad="$_sqbad [$1: the click was not asked for]" ;; esac
+  if [ -n "$JSONQ" ]; then printf '%s' "$2" | json_ok || _sqbad="$_sqbad [$1: the output is not JSON]"; fi; }
+_sq_quiet(){ _sqn=$((_sqn+1)); [ -z "$2" ] || _sqbad="$_sqbad [$1: said something: ${2:0:80}]"; }
+_sq_says  'auto, a typed ask, not asked this turn' "$(_sq_stop auto "$_sq_ask")"
+_sq_quiet 'stop_hook_active'                       "$(_sq_stop auto "$_sq_ask" true)"
+_sq_quiet 'dontAsk'                                "$(_sq_stop dontAsk "$_sq_ask")"
+_sq_quiet 'default'                                "$(_sq_stop default "$_sq_ask")"
+_sq_quiet 'a reply that names no /crew-approve'    "$(_sq_stop auto 'Done: the tests pass.')"
+# asked this turn: the PreToolUse half writes it down, even when it refuses the question
+printf '{"session_id":"s1","cwd":"%s","permission_mode":"dontAsk","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s]},"tool_use_id":"tq1"}' "$_sq/p" "$_paq_canon" > "$_sq/pre.json"
+( cd "$_sq/p" && env $_SQ_ENV bash "$HOOKS/guard-question.sh" < "$_sq/pre.json" >/dev/null 2>&1 ); _sqr=$?
+[ "$_sqr" = 2 ] || _sqbad="$_sqbad [FIXTURE: the dontAsk question was not refused (rc $_sqr), so 'refused but asked' is not what runs]"
+_sq_quiet 'asked this turn (and refused)'          "$(_sq_stop auto "$_sq_ask")"
+_sq_says  'asked in another session'               "$(_sq_stop auto "$_sq_ask" false s2)"
+# the user's next message starts a new turn
+printf '{"session_id":"s1","cwd":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"next"}' "$_sq/p" > "$_sq/ups.json"
+( cd "$_sq/p" && env $_SQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_sq/ups.json" >/dev/null 2>&1 )
+_sq_says  'the user wrote since it was asked'      "$(_sq_stop auto "$_sq_ask")"
+printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}' > "$_sq/ccd/settings.json"
+_sq_quiet 'a PermissionRequest hook is wired'      "$(_sq_stop auto "$_sq_ask")"
+rm -rf "$_sq"
+# A Stop is not the user's next message: an approval recorded by a click survives the turn's end, even when the reply
+# quotes the tool's name (which sends the payload past the AskUserQuestion test).
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' ts1; _paq_post auto 'Commit only' ts1
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"auto","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"I asked with \\"AskUserQuestion\\"; run /crew-approve if not."}' "$_patr" "$_paw" > "$_PA/st.json"
+( cd "$_paw" && env $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_PA/st.json" >/dev/null 2>&1 )
+_sqn=$((_sqn+1)); [ "$(_paq_rec)" = commit ] || _sqbad="$_sqbad [a Stop ended the recorded approval: '$(_paq_rec)']"
+if [ "$_sqn" != 10 ]; then fail "FIXTURE: the Stop-half table ran $_sqn cases, not 10"
+elif [ -z "$_sqbad" ]; then pass "at the turn's end a reply asking for /crew-approve, in auto with the question open and not asked since the user's last message, is sent back once to ask the click; not after a Stop continuation, outside auto, without the command, once asked (even refused), or with a PermissionRequest hook; a Stop leaves a recorded approval alone (10 cases, 6 must-stay-quiet)"
+else fail "the Stop half of the approval question:$_sqbad"; fi
 # ONE WAY TO ASK in the refusal (2026-10-18, a real `auto` session on rc.3: the refusal offered the question and the
 # typed command as equals, and the session told the user to type 7 times in 9). With the question open the typed way is
 # printed only as the fallback for a question that cannot be asked; with it closed (dontAsk), only the typed way.

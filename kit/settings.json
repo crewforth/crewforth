@@ -153,6 +153,12 @@
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/session-guard.sh",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/prompt-approval.sh",
+            "timeout": 60
           }
         ]
       }

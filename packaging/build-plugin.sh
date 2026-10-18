@@ -154,7 +154,8 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 }
         ]
       }
     ],
