@@ -8027,6 +8027,33 @@ _paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label"
 if [ "$_paqn" != 18 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 18"
 elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four; the record allows the commit (18 cases, 13 must-fail)"
 else fail "the approval question:$_paqbad"; fi
+# ...and the way to it. B-2 (a real `auto` session, 2026-10-17): /crew-ship asked for /crew-approve before any commit
+# was refused, so the refusal that prints the question never came and the click was never offered; telling the agent
+# to try the commit first did not help either (§4.4 says not to, and it did not). agent-outcome.sh now hands the
+# question over when crew-commit-agent is called; the text pinned here only says to ask it.
+_cqa="$AGENTS/crew-commit-agent.md"; _cqs="$SKILLS/crew-ship/SKILL.md"
+if [ ! -f "$_cqa" ] || [ ! -f "$_cqs" ]; then skip scope "the way to the approval question: crew-commit-agent or crew-ship is not installed here"
+elif grep -q 'question (below): ask it, with the message, instead of' "$_cqa" && grep -q 'one-click approval question when crew-commit-agent is called' "$_cqs"; then
+  pass "in auto the commit agent and /crew-ship ask the one-click question Crewforth hands over, before asking for /crew-approve"
+else fail "the commit agent or /crew-ship asks for /crew-approve before the one-click question Crewforth hands over (B-2)"; fi
+# The hand-over itself, run: agent-outcome.sh on PostToolUse of an Agent call. In `auto`, for crew-commit-agent, with
+# both halves of the question wired and no PermissionRequest hook, it adds the fixed question (_CREW_Q_JSON, read from
+# prompt-approval.sh) to the session's context; in any other mode, for any other agent, or with such a hook, nothing.
+_aq="$(mktemp -d)"; _aq="$(cd -P "$_aq" && pwd)"; mkdir -p "$_aq/p/.claude/state" "$_aq/ccd" "$_aq/home"
+printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_aq/p/.claude/settings.json"
+_aq_run(){ printf '{"hook_event_name":"PostToolUse","tool_name":"Agent","permission_mode":"%s","session_id":"s","tool_use_id":"toolu_aq1","cwd":"%s","tool_input":{"subagent_type":"%s","description":"d","prompt":"p"},"tool_response":{"status":"async_launched","agentId":"aq123abc"}}' "$1" "$_aq/p" "$2" > "$_aq/pl.json"
+  ( cd "$_aq/p" && env -u CREW_MODEL_ROUTING CLAUDE_PROJECT_DIR="$_aq/p" CLAUDE_CONFIG_DIR="$_aq/ccd" HOME="$_aq/home" CREW_GATE_LOG=/dev/null bash "$HOOKS/agent-outcome.sh" < "$_aq/pl.json" 2>/dev/null ); }
+_aqbad=""; _aqo="$(_aq_run auto crew-commit-agent)"
+case "$_aqo" in *"$_paq_text"*) ;; *) _aqbad="$_aqbad [auto, crew-commit-agent: the question was not handed over]" ;; esac
+if [ -n "$JSONQ" ] && [ -n "$_aqo" ]; then printf '%s' "$_aqo" | json_ok || _aqbad="$_aqbad [its output is not JSON]"; fi
+for _aqc in default:crew-commit-agent dontAsk:crew-commit-agent acceptEdits:crew-commit-agent auto:crew-review-agent; do
+  [ -z "$(_aq_run "${_aqc%%:*}" "${_aqc#*:}")" ] || _aqbad="$_aqbad [${_aqc%%:*}, ${_aqc#*:}: handed the question over]"
+done
+printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}' > "$_aq/ccd/settings.json"
+[ -z "$(_aq_run auto crew-commit-agent)" ] || _aqbad="$_aqbad [a PermissionRequest hook is wired: the question was still handed over]"
+rm -rf "$_aq"
+[ -z "$_aqbad" ] && pass "in auto, calling crew-commit-agent hands the session the fixed one-click question; not in default, acceptEdits or dontAsk, not for another agent, not with a PermissionRequest hook" \
+  || fail "the one-click question hand-over:$_aqbad"
 
 # A PermissionRequest HOOK, wherever this can read one, closes the question AND the gate's own prompt. Each source is
 # planted alone in an otherwise clean fixture; the clean fixture itself must answer "none" (calibration).

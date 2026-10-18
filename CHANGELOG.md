@@ -84,8 +84,10 @@ versioning follows [SemVer](https://semver.org/).
   own findings to `.crewforth/review.json`, blockers through the refuter. What it could not check (no shellcheck,
   a file edited after staging, no Node) is said, never read as clean.
 
-- **In `auto`, approve a commit or a push with one click.** The refusal now also offers a fixed question, asked with
-  AskUserQuestion: Commit only, Commit + push, Push only, No. A new gate, `guard-question.sh`, answers `ask` on it,
+- **In `auto`, approve a commit or a push with one click.** A fixed question, asked with AskUserQuestion: Commit
+  only, Commit + push, Push only, No. It is handed to the session when `crew-commit-agent` is called, so `/crew-ship`
+  asks it with the message, and a refused commit offers it too (measured in real sessions: offered by the refusal
+  alone, it never came up, since the session asks before trying a commit). A new gate, `guard-question.sh`, answers `ask` on it,
   so a hook that fills in the answer cannot answer it for you (measured in 34 runs and by hand in the terminal), and
   `prompt-approval.sh` records your click exactly as it records `/crew-approve`: tied to what is staged, `HEAD`, the
   session, for 30 minutes.

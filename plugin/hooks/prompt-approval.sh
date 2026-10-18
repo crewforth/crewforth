@@ -514,6 +514,27 @@ _crew_prh_scan(){  # -> 0 when a PermissionRequest hook may be wired; _PRH names
   return "$r"
 }
 
+# ---- IS THE QUESTION OPEN HERE? One answer for every hook that offers it ------------------------------------------
+# guard-bash.sh offers it in a refusal; agent-outcome.sh offers it when crew-commit-agent is called in `auto`, so the
+# click is on offer before any commit is tried (B-2, a real session: with the refusal as the only way to it, a session
+# that asked for /crew-approve first never showed it). The text the user is asked stays _CREW_Q_JSON, here only.
+_CREW_Q_HERE="${BASH_SOURCE[0]%/*}"; [ "$_CREW_Q_HERE" = "${BASH_SOURCE[0]}" ] && _CREW_Q_HERE=.
+_crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (guard-question.sh, then this file)
+  local f t d="${CLAUDE_PROJECT_DIR:-.}"
+  d="${d//\\//}"; d="${d%/}"
+  for f in "${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT//\\//}/hooks/hooks.json}" "$d/.claude/settings.json" "$d/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    t=""; IFS= read -r -d '' t < "$f" || true
+    case "$t" in *'"PreToolUse"'*AskUserQuestion*guard-question.sh*'"PostToolUse"'*AskUserQuestion*prompt-approval.sh*) return 0 ;; esac
+  done
+  return 1
+}
+_crew_q_open(){  # $1 = permission mode -> 0 when the click may be offered: auto, both halves wired and beside this file, no PermissionRequest hook
+  [ "$1" = auto ] && [ -f "$_CREW_Q_HERE/guard-question.sh" ] && _crew_q_wired && ! _crew_prh_scan
+}
+# What the session is told to do, the same words wherever it is offered.
+_CREW_Q_ASK='ASK THE USER WITH ONE CLICK (stage first: the approval covers what is staged at that moment): show the commit message whole, in ONE code block, then call AskUserQuestion with exactly this input, nothing added or changed:'
+
 # ---- the approval question's context, and its PreToolUse half -----------------------------------------------
 # Shared by prompt-approval.sh (PostToolUse: it records the answer) and guard-question.sh (PreToolUse: it asks). The
 # PreToolUse half is a GATE and lives in a gate's file, so an error of its own refuses the call (CREW-FAILCLOSED)

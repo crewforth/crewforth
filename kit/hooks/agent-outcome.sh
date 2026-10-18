@@ -404,6 +404,24 @@ case "$EV" in
         fi
       fi
     fi
+    # THE ONE-CLICK APPROVAL, OFFERED WHEN THE COMMIT MESSAGE IS ASKED FOR (B-2). In `auto` the click used to reach the
+    # user only inside a refused commit, and a session that asked for /crew-approve first never tried one (§4.4 says
+    # not to), so it was never offered. A call to crew-commit-agent is when the message is on its way: the session is
+    # told then, in foreground and background alike (a background launch answers here at once). Whether the question
+    # is open, and its words, come from prompt-approval.sh, as the refusal's do. Its verify is `none` (change: text),
+    # so no outcome below is lost by answering here; the model it ran on is already kept above.
+    _json_slice "$INPUT" subagent_type >/dev/null
+    if [ "$_JS" = crew-commit-agent ] && [ -f "$_ao_here/prompt-approval.sh" ]; then
+      _json_slice "$INPUT" permission_mode >/dev/null; _AOPM="$_JS"
+      if [ "$_AOPM" = auto ]; then
+        declare -F _crew_q_open >/dev/null 2>&1 || . "$_ao_here/prompt-approval.sh"
+        if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto; then
+          _ao_json "Crewforth: when you show the user the commit message this agent proposes, ask with one click before anything else. $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so); then run the commit it names. If that question is refused, the user can type /crew-approve instead, as the refusal says."
+          printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+          exit 0
+        fi
+      fi
+    fi
     R="$_AMD/results/$AID"
     if [ ! -f "$R" ]; then
       # No result yet: the agent was launched in the background (measured, 2.1.294 and 2.1.296: an Agent call that
