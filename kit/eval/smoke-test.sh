@@ -3665,6 +3665,8 @@ if [ "$_gc1" != 5 ] || [ "$_gc2" != 7 ]; then
 else
   gcj(){ printf '{"tool_name":"%s","permission_mode":"default","tool_input":{"command":"%s"},"cwd":"%s"}' "$1" "$2" "$_gcp"; }
   gwj(){ printf '{"tool_name":"Write","permission_mode":"default","tool_input":{"file_path":"%s/%s","content":"x"},"cwd":"%s"}' "$_gcp" "$1" "$_gcp"; }
+  # commit-msg 15 -> 16 (2026-10-18): one more line in trace-blocklist.txt, the session-link trailer that reached
+  # pushed commits; each line is one grep on every commit.
   GCT='guard-bash @@ 0 @@ 0 @@ Bash @@ git status --short
 guard-bash @@ 0 @@ 0 @@ Bash @@ ls -la
 guard-bash @@ 0 @@ 0 @@ Bash @@ git log --oneline -2 && git status --short | head; ls; cat CHANGELOG.md
@@ -3686,7 +3688,7 @@ guard-write @@ 0 @@ 0 @@ Write @@ .env
 guard-write @@ 2 @@ 0 @@ Write @@ .claude/hooks/guard-bash.sh
 guard-powershell @@ 0 @@ 0 @@ PowerShell @@ Get-ChildItem -Recurse src
 pre-commit @@ 0 @@ 22 @@ Script @@ -
-commit-msg @@ 0 @@ 15 @@ Script @@ msg'
+commit-msg @@ 0 @@ 16 @@ Script @@ msg'
   _gcn=0; _gcbad=""; _gcrow=""
   while IFS= read -r _gl; do [ -z "$_gl" ] && continue
     _gh="${_gl%% @@ *}"; _gl="${_gl#* @@ }"; _gr="${_gl%% @@ *}"; _gl="${_gl#* @@ }"; _gb="${_gl%% @@ *}"; _gl="${_gl#* @@ }"; _gt="${_gl%% @@ *}"; _gc="${_gl#* @@ }"
@@ -8054,6 +8056,21 @@ printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command
 rm -rf "$_aq"
 [ -z "$_aqbad" ] && pass "in auto, calling crew-commit-agent hands the session the fixed one-click question; not in default, acceptEdits or dontAsk, not for another agent, not with a PermissionRequest hook" \
   || fail "the one-click question hand-over:$_aqbad"
+# ONE WAY TO ASK in the refusal (2026-10-18, a real `auto` session on rc.3: the refusal offered the question and the
+# typed command as equals, and the session told the user to type 7 times in 9). With the question open the typed way is
+# printed only as the fallback for a question that cannot be asked; with it closed (dontAsk), only the typed way.
+_pa_new
+( cd "$_paw" && printf '%s' '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}],"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > .claude/settings.json )
+_oabad=""
+_paq_gate auto 'git commit -m x'
+case "$_pae" in *'"questions":['*'do not also give the user a command to type.'*'ONLY IF THAT QUESTION CANNOT BE ASKED'*) ;; *) _oabad="$_oabad [auto, question open: not the click first and the typed way as its fallback]" ;; esac
+case "$_pae" in *'ASK THE USER NOW'*|*'the way below works as well'*) _oabad="$_oabad [auto, question open: the typed way is still offered as an equal]" ;; esac
+_paq_gate dontAsk 'git commit -m x'
+case "$_pae" in *'ASK THE USER NOW'*'/crew-approve'*) ;; *) _oabad="$_oabad [dontAsk: the typed way is not asked for]" ;; esac
+case "$_pae" in *'"questions":['*|*'ONLY IF THAT QUESTION'*) _oabad="$_oabad [dontAsk: the question is offered]" ;; esac
+_pa_new
+[ -z "$_oabad" ] && pass "a refused commit in auto offers the click and only falls back to the typed /crew-approve when the question cannot be asked; in dontAsk only the typed way" \
+  || fail "one way to ask:$_oabad"
 
 # A PermissionRequest HOOK, wherever this can read one, closes the question AND the gate's own prompt. Each source is
 # planted alone in an otherwise clean fixture; the clean fixture itself must answer "none" (calibration).

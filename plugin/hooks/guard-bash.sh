@@ -2594,12 +2594,21 @@ _gate_written(){
       { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
     fi
   fi
+  # ONE WAY TO ASK. With the question open, the refusal used to print it and then the typed way as an equal choice,
+  # and the session picked the typed one 7 times in 9 (a real `auto` session on rc.3, 2026-10-18): the user was told
+  # to type a command for what one click does. The typed way is now the fallback, said as one.
+  _QOFF=0
   if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "${BASH_SOURCE%/*}/guard-question.sh" ]; then
+    _QOFF=1
     echo "$_CREW_Q_ASK" >&2
     echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
-    echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. If they would rather type, the way below works as well." >&2
+    echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. Ask it this way only: do not also give the user a command to type." >&2
   fi
-  echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
+  if [ "$_QOFF" = 1 ]; then
+    echo "ONLY IF THAT QUESTION CANNOT BE ASKED (the tool call is refused, or the user dismisses it), ask instead, in their language, in this shape and with nothing after it:" >&2
+  else
+    echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
+  fi
   echo "  1. the commit message, whole, in ONE code block;" >&2
   if [ -n "$_pw" ]; then
     echo "  2. under it one sentence in their language (If you approve, send only this:), and then the command on a line of its own, exactly as it is:" >&2
