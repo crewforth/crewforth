@@ -153,6 +153,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A task card on one line is read.** `files: … · change: … · verify: …` (with `;` or `|` too, after an optional
+  `Card:`, and `above:` on the same line) is read by its labels and held to the rules of the three-line card, and a
+  kind with a note in parentheses (`architecture (planning only)`) is that kind, on either form. Measured on one
+  machine's sessions: 37 calls had been refused for their card, every one followed by a second call; 17 of them now
+  pass on the first.
+
 - **A model is chosen to cost what the work needs.** Measured on a real project: 186 crew tasks, 0 on haiku, 73 (39%)
   above their card's floor, and no verify command ever passing, so the cheaper path never opened. Now:
   - the card's model is the default: a call above it runs on it (the gate rewrites the call's model), unless the

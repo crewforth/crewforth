@@ -431,11 +431,44 @@ _am_all_prose(){  # after _am_card -> 0 when every file of the card is prose
 
 # ---- THE CARD ---------------------------------------------------------------------------------------------------
 _AM_CHANGES=' text feature fix-known fix-unknown refactor migration security architecture test-run test-write audit '
+_am_trim(){  # $1 -> _AMT: no white space around it, and no separator or full stop left at its end (one-line cards)
+  local v="$1" o
+  while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done
+  while :; do o="$v"
+    case "$v" in *[$' \t']) v="${v%?}" ;; *'·') v="${v%'·'}" ;; *'—') v="${v%'—'}" ;; *'–') v="${v%'–'}" ;; *[\|\;,.]) v="${v%?}" ;; esac
+    [ "$v" = "$o" ] && break
+  done
+  _AMT="$v"
+}
+# THE CARD ON ONE LINE. Sessions write it as `files: … · change: … · verify: …` (measured on this machine's transcripts,
+# 2026-10-18: 17 of the 39 calls refused for their card, in 6 projects; the next call was the same card on three lines).
+# It is read by its labels, in that order, after an optional `Card:` / `Card —`; `above: <why>` may close the line. The
+# fields are then held to exactly the rules of the three-line card below, so nothing passes here that would not there.
+_am_card_line(){  # $1 = the first line of the task -> 0 and CARD_* set (unchecked); 1 when it is not a one-line card
+  local l="$1" r f c v a=""
+  case "$l" in [Cc]ard*) l="${l#[Cc]ard}"; l="${l#\*\*}"
+    while :; do case "$l" in [$' \t:*']*|'—'*|'–'*|-*) case "$l" in '—'*) l="${l#'—'}" ;; '–'*) l="${l#'–'}" ;; *) l="${l:1}" ;; esac ;; *) break ;; esac; done ;;
+  esac
+  case "$l" in files:*) ;; *) return 1 ;; esac
+  r="${l#files:}"
+  case "$r" in *change:*verify:*) ;; *) return 1 ;; esac
+  f="${r%%change:*}"; r="${r#*change:}"; c="${r%%verify:*}"; v="${r#*verify:}"
+  case "$v" in *above:*) a="${v#*above:}"; v="${v%%above:*}" ;; esac
+  _am_trim "$f"; CARD_FILES="$_AMT"; _am_trim "$c"; CARD_CHANGE="$_AMT"; _am_trim "$v"; CARD_VERIFY="$_AMT"
+  [ -n "$a" ] && { _am_trim "$a"; CARD_ABOVE="${_AMT:0:200}"; }
+  return 0
+}
 _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (CARD_ABOVE); 1 and CARD_WHY
-  local s="$1" l k v n=0 seen=""
+  local s="$1" l k v n=0 seen="" one=0
   CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""
   s="${s//$'\r'/}"
-  while [ "$n" -lt 3 ] && [ -n "$s" ]; do
+  # One line first: the first line that is not empty, read by its labels; the three-line reading otherwise.
+  l="$s"; while :; do case "$l" in [$' \t\n']*) l="${l:1}" ;; *) break ;; esac; done; l="${l%%$'\n'*}"
+  if _am_card_line "$l"; then
+    one=1; n=3
+    s="${s#*"$l"}"; s="${s#$'\n'}"
+  fi
+  while [ "$one" = 0 ] && [ "$n" -lt 3 ] && [ -n "$s" ]; do
     l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
     while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
     [ -n "$l" ] || continue
@@ -455,12 +488,16 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
   done
   [ "$n" = 3 ] || { CARD_WHY="the task does not begin with the three lines files:, change:, verify:"; return 1; }
   [ -n "$CARD_FILES" ] || { CARD_WHY="files: is empty (name the files or globs, or the folder)"; return 1; }
+  # A note in parentheses after the kind is the session's own comment, as `none (…)` is for verify: `architecture
+  # (planning only)` is architecture (4 of the cards refused on this machine, 2026-10-18). Only a kind on the list, and
+  # only a note that is the whole rest of the value in parentheses.
+  case "$CARD_CHANGE" in *' ('*')') v="${CARD_CHANGE%% (*}"; case "$_AM_CHANGES" in *" $v "*) CARD_CHANGE="$v" ;; esac ;; esac
   case "$_AM_CHANGES" in *" $CARD_CHANGE "*) ;; *) CARD_WHY="change: is '${CARD_CHANGE:0:40}', not one of:$_AM_CHANGES"; return 1 ;; esac
   [ -n "$CARD_VERIFY" ] || { CARD_WHY="verify: is empty (a command, or none)"; return 1; }
   case "$CARD_VERIFY" in none|None|NONE|-|'none '*|'none('*|'None '*|'NONE '*) CARD_VERIFY=none ;; esac   # "none (the author ran it)" is none
   # Optional, right after the three: `above: <why>` keeps a model above the card's floor. Without it a call above
   # the floor is run on the floor (the cost of a model nobody needed is what this gate exists to stop).
-  while [ -n "$s" ]; do
+  while [ -z "$CARD_ABOVE" ] && [ -n "$s" ]; do
     l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
     while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
     [ -n "$l" ] || continue
