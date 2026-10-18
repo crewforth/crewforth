@@ -2524,16 +2524,7 @@ _appr_wired(){  # 0 = prompt-approval.sh is beside this hook and a settings file
 }
 # IS THE APPROVAL QUESTION WIRED? The same reading as above, for the two halves on AskUserQuestion (guard-question.sh
 # on PreToolUse, prompt-approval.sh on PostToolUse). Asked only to choose which way the refusal offers first.
-_q_wired(){
-  local f t d="${CLAUDE_PROJECT_DIR:-.}"
-  d="${d//\\//}"; d="${d%/}"
-  for f in "${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT//\\//}/hooks/hooks.json}" "$d/.claude/settings.json" "$d/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}"; do
-    [ -n "$f" ] && [ -f "$f" ] || continue
-    t=""; IFS= read -r -d '' t < "$f" || true
-    case "$t" in *'"PreToolUse"'*AskUserQuestion*guard-question.sh*'"PostToolUse"'*AskUserQuestion*prompt-approval.sh*) return 0 ;; esac
-  done
-  return 1
-}
+_q_wired(){ declare -F _crew_q_wired >/dev/null 2>&1 && _crew_q_wired; }   # defined once, in prompt-approval.sh
 # MAY A PermissionRequest HOOK ANSWER THE PROMPT? One scan, defined in prompt-approval.sh (_crew_prh_scan) and read
 # from there. Without that file there is no other approval to fall back to, so the answer is "no" and the gate
 # asks as it always has.
@@ -2604,7 +2595,7 @@ _gate_written(){
     fi
   fi
   if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "${BASH_SOURCE%/*}/guard-question.sh" ]; then
-    echo "ASK THE USER WITH ONE CLICK (stage first: the approval covers what is staged at that moment): show the commit message whole, in ONE code block, then call AskUserQuestion with exactly this input, nothing added or changed:" >&2
+    echo "$_CREW_Q_ASK" >&2
     echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
     echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. If they would rather type, the way below works as well." >&2
   fi

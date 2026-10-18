@@ -9,7 +9,9 @@ Closure flow — in order:
 1. **DoD gate:** was `/simplify` applied · are tests green (@agent-crew-test-expert) · (if SonarQube is used) `sonarqube-check` 0/0/0/0.
    If any one is red, **STOP**, report what is missing; no deferral.
 2. If clean, @agent-crew-commit-agent (commit-message) **proposes** an atomic Conventional Commit from the staged diff.
-3. Commit runs ONLY if the user says "commit" (§4.4). "Done" is not approval.
+3. Commit runs ONLY if the user says "commit" (§4.4). "Done" is not approval. In `auto`, Crewforth hands the session the
+   one-click approval question when crew-commit-agent is called: ask it with the message; the typed `/crew-approve` is
+   for when no question is offered.
 4. **Close the board item too** (`teamboard`), when one is held. Closing work is one movement: ask what shipped,
    run `board.sh done <id> "<note>"`, name the items it unblocked, and offer the next one as options. Do not
    leave this to the user to remember — a claim nobody closes reads to the whole team as still in progress, and
