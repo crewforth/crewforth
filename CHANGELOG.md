@@ -153,6 +153,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A refused commit asks one way.** In `auto`, with the approval question open, the refusal offered the click and
+  the typed `/crew-approve` side by side, and a session picked the typed one 7 times in 9. The click is now the way
+  to ask, and the typed command is only the fallback for a question that cannot be asked.
+
 - **A task card on one line is read.** `files: … · change: … · verify: …` (with `;` or `|` too, after an optional
   `Card:`, and `above:` on the same line) is read by its labels and held to the rules of the three-line card, and a
   kind with a note in parentheses (`architecture (planning only)`) is that kind, on either form. Measured on one
@@ -190,6 +194,10 @@ versioning follows [SemVer](https://semver.org/).
   the status line show.
 
 ### Security
+
+- **The session-link trailer is a trace.** Claude Code asks the model to end a commit message with a line linking the
+  session on claude.ai; the trace scan had no pattern for it, and six commits of a project with Crewforth installed
+  carried it to a remote. The trailer and its address are both caught now, in the message and in staged files.
 
 - **A `PermissionRequest` hook could approve a commit with nobody at the keyboard.** Such a hook answers a
   permission prompt before the person does, and the answer cannot be told from a click: measured, it approved the
