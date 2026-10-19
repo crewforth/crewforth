@@ -459,7 +459,7 @@ _am_card_line(){  # $1 = the first line of the task -> 0 and CARD_* set (uncheck
   return 0
 }
 _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (CARD_ABOVE); 1 and CARD_WHY
-  local s="$1" l k v n=0 seen="" one=0
+  local s="$1" l k v n=0 ln=0 seen="" one=0
   CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""
   s="${s//$'\r'/}"
   # One line first: the first line that is not empty, read by its labels; the three-line reading otherwise.
@@ -472,17 +472,20 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
     while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
     [ -n "$l" ] || continue
-    n=$((n+1))
-    case "$l" in *:*) ;; *) CARD_WHY="line $n of the task is not one of files:, change:, verify:"; return 1 ;; esac
+    ln=$((ln+1))
+    case "$l" in *:*) ;; *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;; esac
     k="${l%%:*}"; v="${l#*:}"
     while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done
     while :; do case "$v" in *[$' \t']) v="${v%?}" ;; *) break ;; esac; done
+    # `above:` may stand anywhere among the three (2 of 19 line refusals, 2026-10-19: between change: and verify:).
     case "$k" in
+      above)  [ -n "$CARD_ABOVE" ] || CARD_ABOVE="${v:0:200}"; continue ;;
       files)  CARD_FILES="$v" ;;
       change) CARD_CHANGE="$v" ;;
       verify) CARD_VERIFY="$v" ;;
-      *) CARD_WHY="line $n of the task is not one of files:, change:, verify:"; return 1 ;;
+      *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;;
     esac
+    n=$((n+1))
     case "$seen" in *" $k "*) CARD_WHY="the card names $k twice"; return 1 ;; esac
     seen="$seen $k "
   done

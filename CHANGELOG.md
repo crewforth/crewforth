@@ -220,6 +220,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **`above:` is read anywhere among a task card's three lines.** A card with `above: <why>` between `change:` and
+  `verify:` was refused ("line 3 of the task is not one of files:, change:, verify:") and the call was sent again
+  with the line moved down. It is now read in any position and keeps the model as it does after the three; the three
+  are still all required.
 - **A click on the approval question is recorded whatever order its keys come back in.** Claude Code hands the
   answered question back either as it was asked or with its keys sorted, and the answer side matched it byte for
   byte: in real `auto` sessions 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused
