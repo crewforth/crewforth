@@ -153,6 +153,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **A typed approval is caught at the turn's end.** The one-click question reached the user only from a refused
+  commit or a call to the commit agent, and a session that wrote the message itself asked the user to type
+  `/crew-approve` without trying either: 9 of 18 typed asks in two real `auto` sessions. Now, when a reply asks for
+  `/crew-approve` in `auto` with the question open and it was not asked since the user's last message, the session
+  is told once to ask the click. It never blocks the turn; a question that was refused or dismissed leaves the typed
+  way, and a turn's end does not end an approval.
+
 - **A refused commit asks one way.** In `auto`, with the approval question open, the refusal offered the click and
   the typed `/crew-approve` side by side, and a session picked the typed one 7 times in 9. The click is now the way
   to ask, and the typed command is only the fallback for a question that cannot be asked.

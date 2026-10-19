@@ -74,7 +74,7 @@ export LC_ALL=C
 _PA_LIB=0; [ "${BASH_SOURCE[0]}" != "$0" ] && _PA_LIB=1
 if [ "$_PA_LIB" = 0 ]; then
   IFS= read -r -d '' INPUT || true
-  case "$INPUT" in *'"hook_event_name"'*UserPromptSubmit*|*'"hook_event_name"'*'"AskUserQuestion"'*|*'"AskUserQuestion"'*'"hook_event_name"'*) ;; *) exit 0 ;; esac
+  case "$INPUT" in *'"hook_event_name"'*UserPromptSubmit*|*'"hook_event_name"'*'"AskUserQuestion"'*|*'"AskUserQuestion"'*'"hook_event_name"'*|*'"hook_event_name"'*'"Stop"'*) ;; *) exit 0 ;; esac
 fi
 # ---- CREW-JSON-PARSE ------------------------------------------------------------------------------------
 _json_find(){  # $1 = text, $2 = a literal -> _JF = the offset of its first occurrence, -1 when there is none
@@ -553,6 +553,10 @@ _CREW_Q_ASK='ASK THE USER WITH ONE CLICK (stage first: the approval covers what 
 # PreToolUse half is a GATE and lives in a gate's file, so an error of its own refuses the call (CREW-FAILCLOSED)
 # instead of letting the question through with no `ask`; this file also answers UserPromptSubmit, where a refusal
 # would erase the user's message.
+_crew_q_dir(){  # $1 = cwd -> _QAD (the state folder), ASKED (the call PreToolUse let through), TRIED (asked since the user's last message)
+  _QAD="${CLAUDE_PROJECT_DIR:-$1}"; _QAD="${_QAD//\\//}"; _QAD="${_QAD%/}/.claude/state"
+  ASKED="$_QAD/crew-approval-asked"; TRIED="$_QAD/crew-approval-tried"
+}
 _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no decision) when the call is not the approval question
   _json_keycount "$INPUT" hook_event_name; [ "$_KC" = 1 ] || exit 0
   _json_keycount "$INPUT" tool_name; [ "$_KC" = 1 ] || exit 0
@@ -565,11 +569,14 @@ _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no de
   _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
   _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
   _json_slice "$INPUT" tool_use_id >/dev/null; _QTU="$_JS"
-  _QAD="${CLAUDE_PROJECT_DIR:-$CWD}"; _QAD="${_QAD//\\//}"; _QAD="${_QAD%/}/.claude/state"; ASKED="$_QAD/crew-approval-asked"
+  _crew_q_dir "$CWD"
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _QNOW '%(%s)T' -1; else _QNOW="$(date +%s)"; fi
 }
 _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that says why
   _crew_q_ctx
+  # Asked at all, whatever the decision below: a question refused here, or dismissed by the user, leaves the typed
+  # way as the one that is left, and the Stop half (_pa_stop) must not send the session back to ask it again.
+  [ -n "$SID" ] && [ -d "$_QAD" ] && { printf 'sid=%s\n' "$SID" > "$TRIED"; } 2>/dev/null
   qno(){  # $1 = why, for the model. The call does not run; where it applies, the typed approval is named as the way left.
     echo "GUARD (§4.4): the approval question was not asked: $1" >&2
     [ "${2:-}" = nohint ] || echo "The way that always works is the user's own: the user can type /crew-approve (or /crew-approve commit, push, commit+push) as their whole message." >&2
@@ -745,6 +752,32 @@ _pa_question(){
   BARE=0
   _pa_record
 }
+# ---- THE CLICK BEFORE THE TYPED WAY (Stop) -------------------------------------------------------------------
+# The click reached the user only from a refused commit or a call to crew-commit-agent, and a session that wrote the
+# message itself asked the user to type /crew-approve without trying either: 9 of 18 typed asks in two real `auto`
+# sessions on rc.4 (2026-10-18) came in a turn where no commit was tried, most right after crew-review-agent. So the
+# turn's end is where it is caught: the reply names /crew-approve, the question is open, and it was not asked since
+# the user's last message. Then the session is told, once, to ask the click; it never blocks, and stop_hook_active
+# lets the turn end the next time whatever was said.
+_pa_stop(){
+  case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0 ;; esac
+  _json_slice "$INPUT" permission_mode >/dev/null; [ "$_JS" = auto ] || exit 0
+  _json_slice "$INPUT" last_assistant_message >/dev/null
+  case "$_JS" in *'/crew-approve'*) ;; *) exit 0 ;; esac
+  _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"; [ -n "$SID" ] || exit 0
+  _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null; _crew_q_dir "${_JU:-.}"
+  _crew_q_open auto || exit 0
+  _al=""; [ -f "$TRIED" ] && { IFS= read -r _al < "$TRIED"; } 2>/dev/null
+  [ "$_al" = "sid=$SID" ] && exit 0
+  _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
+  _ao="${_ao//\\/\\\\}"; _ao="${_ao//\"/\\\"}"     # fixed ASCII text on one line: a backslash and a quote are all it holds
+  printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$_ao"
+  exit 0
+}
+_json_keycount "$INPUT" hook_event_name
+if [ "$_KC" = 1 ]; then _json_slice "$INPUT" hook_event_name >/dev/null; [ "$_JS" = Stop ] && _pa_stop; fi
+case "$INPUT" in *'"hook_event_name"'*'"Stop"'*) exit 0 ;; esac   # a Stop is never a prompt: it must not end an approval below
+
 case "$INPUT" in *'"AskUserQuestion"'*)
   _json_slice "$INPUT" hook_event_name >/dev/null
   case "$_JS" in PostToolUse) EVN="$_JS"; _pa_question ;; esac ;;
@@ -779,6 +812,8 @@ _crew_appr_path "$CWD"; REC="$_AP"
 # THE USER'S NEXT MESSAGE ENDS THE APPROVAL, whatever it says. Emptied with a redirection, which is a builtin:
 # `rm` would be a process on a hook that runs on every prompt.
 if [ -n "$REC" ] && [ -s "$REC" ]; then : > "$REC" 2>/dev/null || true; fi
+# ...and starts a new turn for the Stop half: the question has not been asked since this message.
+_crew_q_dir "$CWD"; [ -s "$TRIED" ] && { : > "$TRIED"; } 2>/dev/null
 
 # ---- is this message an approval? ------------------------------------------------------------------------
 [ "$_n_prompt" = 1 ] || exit 0
