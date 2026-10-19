@@ -8598,6 +8598,19 @@ for _pr in 'files: a · change: archi (planning only) · verify: none' 'files: a
 done
 [ -z "$_v2b" ] && pass "a card on one line (· ; | separators, a Card: lead, above: on the line) is read by its labels and held to the three-line rules: a critical path still needs opus; a kind with a note in parentheses is the kind, on one line or three; a bad change, labels out of order, a missing verify or prose first are refused" \
                || fail "the one-line card:$_v2b"
+# `above:` among the three lines, not only after them (2026-10-19: 2 of 19 line refusals had it between change: and
+# verify:; the retry moved it down and passed). It keeps the model the same way; the three are still all required.
+_v2b=""
+for _pr in 'files: src/ui/a.ts\nchange: feature\nabove: the parser is subtle\nverify: true' 'above: the parser is subtle\nfiles: src/ui/a.ts\nchange: feature\nverify: true'; do
+  _v2one "$_pr" opus; { [ "$_rc" = 0 ] && [ ! -s "$_v2/oneout" ]; } || _v2b="$_v2b [above: among the three did not keep opus: $_pr → $_rc $(head -c 100 "$_v2/oneout")]"
+done
+_v2one 'files: src/ui/c.ts\nchange: feature\nverify: true' opus
+grep -q '"updatedInput":' "$_v2/oneout" || _v2b="$_v2b [without above: opus was not lowered (rc $_rc)]"
+for _pr in 'files: src/ui/a.ts\nchange: feature\nabove: x\nDo it.' 'files: src/ui/a.ts\nabove: x\nabove: y\nverify: true'; do
+  _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
+done
+[ -z "$_v2b" ] && pass "above: may stand anywhere among the three card lines and keeps the model; without it the model is lowered; above: does not stand in for files:, change: or verify:" \
+               || fail "above: in the card:$_v2b"
 
 # ---- at write time: the card can leave a file out --------------------------------------------------------------
 _v2new; _v2b=""
