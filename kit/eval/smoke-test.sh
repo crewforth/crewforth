@@ -7689,6 +7689,25 @@ _pa_say auto 'approve: push' >/dev/null; ( cd "$_paw" && git checkout -q -b othe
 _pa_run auto 'git push origin feat/x'; [ "$_par" = 2 ] || _pabad="$_pabad other-branch-checked-out:rc=$_par"
 [ -z "$_pabad" ] && pass "a push approval is for the commit HEAD was on and the branch that was checked out: one more commit, or another branch, and it is refused" \
                  || fail "push binding:$_pabad"
+# A tag on the approved commit is part of that push (a release: `/crew-approve push`, then `git push origin v2.0.0`
+# was refused on a real project). A tag elsewhere, a name that is also a branch, or a full ref is not.
+_pa_new; _pabad=""; ( cd "$_paw" && git commit -qm second && git tag old HEAD^ && git tag v1 && git tag -a v1a -m v1a && git tag both && git branch both ) >/dev/null 2>&1
+_pa_say auto 'approve: commit' >/dev/null
+_pa_run auto 'git push origin v1'; [ "$_par" = 2 ] || _pabad="$_pabad [a commit approval pushed a tag: rc=$_par]"
+_pa_say auto 'approve: push' >/dev/null
+for _pc in 'git push origin v1' 'git push origin v1a' 'git push -q origin v1'; do
+  _pa_run auto "$_pc"; [ "$_par" = 0 ] || _pabad="$_pabad [$_pc → $_par $(head -c 120 "$_PA/err")]"
+done
+_pa_run auto 'git push origin old'; { [ "$_par" = 2 ] && grep -q 'the tag old is on' "$_PA/err"; } || _pabad="$_pabad [a tag on another commit → $_par]"
+for _pc in 'git push origin both' 'git push origin refs/tags/v1' 'git push origin nosuch' 'git push origin v1:v2' 'git push other v1'; do
+  _pa_run auto "$_pc"; [ "$_par" = 2 ] || _pabad="$_pabad [$_pc → $_par]"
+done
+_pa_new; ( cd "$_paw" && git tag before ) >/dev/null 2>&1; _pa_say auto 'approve: commit+push' >/dev/null
+_pa_run auto 'git commit -m x' >/dev/null; ( cd "$_paw" && git commit -qm approved && git tag after ) >/dev/null 2>&1
+_pa_run auto 'git push origin after'; [ "$_par" = 0 ] || _pabad="$_pabad [commit+push: a tag on the new commit → $_par $(head -c 120 "$_PA/err")]"
+_pa_run auto 'git push origin before'; { [ "$_par" = 2 ] && grep -q 'the tag before is on' "$_PA/err"; } || _pabad="$_pabad [commit+push: a tag on the old commit → $_par]"
+[ -z "$_pabad" ] && pass "a push approval covers a tag on the approved commit (lightweight or annotated; after commit+push, on the new commit): a tag on another commit, a name that is also a branch, a full ref, a refspec, another remote or a commit-only approval is refused" \
+                 || fail "tag push:$_pabad"
 
 # ---- commit+push: the push is for the commit the approved diff became -----------------------------------------
 _pa_new; _pabad=""

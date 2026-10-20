@@ -2437,7 +2437,7 @@ _p44_scan(){  # $1 = the collapsed `git push …` -> 0 when it is `git push [-u]
   return 0
 }
 _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise _APW says why not, for the message.
-  local k v op="" tr="" h="" b="" r="" u="" sid="" ts="" now age dir="${_CWD:-.}" hc=1 hp=1 cur tool
+  local k v op="" tr="" h="" b="" r="" u="" sid="" ts="" now age dir="${_CWD:-.}" hc=1 hp=1 cur tool tag _h2
   _APW="no approval from the user is on record"
   git_has "$CMD_SEEN" 'commit' && hc=0; git_has "$CMD_SEEN" 'push' && hp=0
   if [ "$hc" = 0 ] && [ "$hp" = 0 ]; then
@@ -2478,7 +2478,17 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   _p44_scan "$_A44_S" || { _APW="the push is not in the one form an approval covers, git push <remote> <branch> ($_P44_WHY)"; return 1; }
   [ -n "$b" ] && [ -n "$r" ] && [ -n "$u" ] || { _APW="the approval record could not be read"; return 1; }
   if [ "$_P44_REMOTE" != "$r" ]; then _APW="the user approved a push to $r, not to $_P44_REMOTE"; return 1; fi
-  case "$_P44_REF" in "$b"|HEAD) ;; *) _APW="the user approved a push of $b, not of $_P44_REF"; return 1 ;; esac
+  # A TAG ON THE APPROVED COMMIT is part of that push (a release is tagged on what was approved): `git push <remote>
+  # <tag>` passes when <tag> is a tag and not also a branch, and it points at the commit the approval covers. A tag
+  # on any other commit, --tags, and a refspec are refused as before.
+  tag=""
+  case "$_P44_REF" in
+    "$b"|HEAD) ;;
+    *[!A-Za-z0-9._/-]*|-*|*..*|*/) _APW="the user approved a push of $b, not of $_P44_REF"; return 1 ;;
+    *) if git -C "$dir" show-ref --verify --quiet "refs/tags/$_P44_REF" 2>/dev/null \
+          && ! git -C "$dir" show-ref --verify --quiet "refs/heads/$_P44_REF" 2>/dev/null; then tag="$_P44_REF"
+       else _APW="the user approved a push of $b, not of $_P44_REF"; return 1; fi ;;
+  esac
   cur="$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)"
   [ "$cur" = "$b" ] || { _APW="the user approved a push of $b, and the branch checked out now is ${cur:-<detached>}"; return 1; }
   # Where the remote pushes TO, with pushurl and pushInsteadOf applied: the name alone can be pointed elsewhere.
@@ -2491,7 +2501,15 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   cur="$(git -C "$dir" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
   if [ "$op" = push ]; then
     [ "$cur" = "$h" ] || { _APW="HEAD moved after the user approved the push (approved ${h:0:7}, now ${cur:0:7})"; return 1; }
+    if [ -n "$tag" ]; then
+      cur="$(git -C "$dir" rev-parse --verify --quiet "refs/tags/$tag^{commit}" 2>/dev/null || echo NONE)"
+      [ "$cur" = "$h" ] || { _APW="the tag $tag is on ${cur:0:7}, not on the commit the user approved for push (${h:0:7})"; return 1; }
+    fi
     return 0
+  fi
+  if [ -n "$tag" ]; then
+    _h2="$cur"; cur="$(git -C "$dir" rev-parse --verify --quiet "refs/tags/$tag^{commit}" 2>/dev/null || echo NONE)"
+    [ "$cur" = "$_h2" ] || { _APW="the tag $tag is on ${cur:0:7}, not on the commit the user approved for push (${_h2:0:7})"; return 1; }
   fi
   # commit+push: HEAD has to be the commit the approved index became.
   cur="$(git -C "$dir" rev-parse --verify --quiet 'HEAD^' 2>/dev/null || echo NONE)"

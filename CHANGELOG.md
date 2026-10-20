@@ -220,6 +220,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A push approval covers a tag on the approved commit.** `git push <remote> <tag>` had no way to be approved: the
+  click and `/crew-approve push` both record a push of the branch, and the tag push of a release was refused after
+  either, so the session handed the user the command to run. It now passes when the tag points at the commit the
+  approval covers (after a commit + push, the new one) and no branch has its name; a tag on another commit, a full
+  ref, a refspec and `--tags` are still refused.
 - **`change: review` is read as `audit`.** The model table of the working rules names review with audit, and
   `crew-review-agent` cards that said `change: review` were refused. It now takes the audit floor, on a critical path
   too; a kind that is not on the list is still refused.
