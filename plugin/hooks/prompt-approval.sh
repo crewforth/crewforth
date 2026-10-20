@@ -707,9 +707,9 @@ _pa_record(){
     commit)      WHAT="commit of what is staged now (tree $_d) on HEAD $_h"
                  HOW="Run git commit -m with the message, alone in its call: no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained. Single-quote the message, or read it from a here-document with a quoted delimiter. The review record of §4.6 is still required." ;;
     push)        WHAT="push of $BR at $_h to $RM"
-                 HOW="Run exactly: git push $RM $BR (alone in its call: the remote and the branch written out, no cd, no pipe, nothing chained)." ;;
+                 HOW="Run exactly: git push $RM $BR (alone in its call: the remote and the branch written out, no cd, no pipe, nothing chained). A tag on that commit goes the same way: git push $RM <tag>." ;;
     commit+push) WHAT="commit of what is staged now (tree $_d) on HEAD $_h, then push of that commit on $BR to $RM"
-                 HOW="Run git commit -m with the message, alone in its call (no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained; single-quote the message; §4.6 still applies), then in a separate call exactly: git push $RM $BR" ;;
+                 HOW="Run git commit -m with the message, alone in its call (no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained; single-quote the message; §4.6 still applies), then in a separate call exactly: git push $RM $BR (a tag on the new commit: git push $RM <tag>)" ;;
   esac
   [ -n "$_u" ] && _u=" ($RM pushes to $_u)"
   _bw=""; [ "$BARE" = 1 ] && _bw="approved: $OP (what this session was refused). "
