@@ -270,6 +270,24 @@ function firstArg(L, i, from) {
   }
   return null;
 }
+// The arguments of a call whose `(` ends at `from` on line i, up to its own `)`, across at most four lines: strings
+// and nested brackets are stepped over, so `method:` is read from this call's options and never from the next call's.
+function callArgs(L, i, from) {
+  let out = ''; let depth = 0; let q = null;
+  for (let j = i; j < Math.min(L.length, i + 4); j++) {
+    const s = j === i ? L[i].slice(from) : L[j];
+    for (let k = 0; k < s.length; k++) {
+      const c = s[k];
+      if (q) { if (c === '\\') { out += c + (s[k + 1] ?? ''); k += 1; continue; } if (c === q) q = null; }
+      else if (c === '"' || c === "'" || c === '`') q = c;
+      else if (c === '(' || c === '[' || c === '{') depth += 1;
+      else if (c === ')' || c === ']' || c === '}') { if (depth === 0) return out; depth -= 1; }
+      out += c;
+    }
+    out += ' ';
+  }
+  return out;
+}
 // The names a module calls HTTP through: axios, and every `x = axios.create(…)` in any of its files (a client made
 // in lib/api.ts is called from every component). A name a file itself makes a server of is not one there.
 function httpClients(pj, m) {
@@ -358,8 +376,7 @@ export function endpoints(pj, st, out) {
           if (nm && nest !== null) add(provides, m, nm[1] === 'All' ? '*' : nm[1], join(nest, nm[2] || ''), f, i, `@${nm[1]}`);
           const fe = /\bfetch\(\s*(['"`])([^'"`]+)\1/.exec(l);
           if (fe && !/^https?:/.test(fe[2])) {
-            const win = L.slice(i, i + 4).join(' ');
-            const mt = /method\s*:\s*['"](\w+)['"]/.exec(win);
+            const mt = /method\s*:\s*['"](\w+)['"]/.exec(callArgs(L, i, fe.index + l.slice(fe.index).indexOf('(') + 1));
             add(consumes, m, mt ? mt[1] : 'GET', fe[2], f, i, fe[2]);
           }
           // `api.get<User[]>("/x")` and a call whose path is on the next line read alike.

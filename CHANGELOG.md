@@ -220,6 +220,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Crew Map reads a `fetch` call's method from its own options only.** The method was taken from the next four
+  lines, so in a file of one-line calls a `{ method: 'POST' }` on a later call was given to the earlier ones, and the
+  map reported `POST /api/products is called but no endpoint in this repo provides it` (endpoint-missing) for a
+  plain `fetch('/api/products')`. The scan now reads the call's arguments up to its own closing parenthesis, over
+  strings and nested brackets; a method on a later line of the same call is still read.
 - **A push approval covers a tag on the approved commit.** `git push <remote> <tag>` had no way to be approved: the
   click and `/crew-approve push` both record a push of the branch, and the tag push of a release was refused after
   either, so the session handed the user the command to run. It now passes when the tag points at the commit the

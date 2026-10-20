@@ -4,3 +4,7 @@ const app = express();
 app.use('/api/users', users);
 app.get('/api/ping', ping);
 const dev = import.meta.env.DEV;
+app.get('/api/products', products);
+app.get('/api/cart', cart);
+app.post('/api/checkout', checkout);
+app.put('/api/orders', order);
