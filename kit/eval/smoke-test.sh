@@ -8609,7 +8609,14 @@ grep -q '"updatedInput":' "$_v2/oneout" || _v2b="$_v2b [without above: opus was 
 for _pr in 'files: src/ui/a.ts\nchange: feature\nabove: x\nDo it.' 'files: src/ui/a.ts\nabove: x\nabove: y\nverify: true'; do
   _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
 done
-[ -z "$_v2b" ] && pass "above: may stand anywhere among the three card lines and keeps the model; without it the model is lowered; above: does not stand in for files:, change: or verify:" \
+# `change: review` is an audit (the discipline's table lists it with them): same floor, a near miss still refused.
+_v2one 'files: src/ui/a.ts\nchange: review\nverify: none' haiku; { [ "$_rc" = 2 ] && grep -q 'runs on sonnet' "$_v2/err"; } || _v2b="$_v2b [review on haiku was not held to sonnet as audit (rc $_rc)]"
+for _pr in 'files: src/ui/a.ts\nchange: review\nverify: none' 'files: src/ui/a.ts · change: review (the staged diff) · verify: none'; do
+  _v2one "$_pr" sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [refused: $_pr → $_rc $(head -c 100 "$_v2/err")]"
+done
+_v2one 'files: src/payments/p.ts\nchange: review\nverify: none' sonnet; { [ "$_rc" = 2 ] && grep -q 'runs on opus' "$_v2/err"; } || _v2b="$_v2b [review on a critical path was not held to opus (rc $_rc)]"
+_v2one 'files: src/ui/a.ts\nchange: reviews\nverify: none' sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [change: reviews passed (rc $_rc)]"
+[ -z "$_v2b" ] && pass "above: may stand anywhere among the three card lines and keeps the model; without it the model is lowered; above: does not stand in for files:, change: or verify:; change: review is an audit, held to the same floors, and a near miss is still refused" \
                || fail "above: in the card:$_v2b"
 
 # ---- at write time: the card can leave a file out --------------------------------------------------------------

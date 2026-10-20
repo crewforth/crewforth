@@ -494,6 +494,9 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
   # A note in parentheses after the kind is the session's own comment, as `none (…)` is for verify: `architecture
   # (planning only)` is architecture (4 of the cards refused on this machine, 2026-10-18). Only a kind on the list, and
   # only a note that is the whole rest of the value in parentheses.
+  # `review` is an audit: the discipline's model table names it with them, and 4 crew-review-agent cards were refused
+  # for it (2026-10-19).
+  case "$CARD_CHANGE" in review|'review ('*')') CARD_CHANGE=audit ;; esac
   case "$CARD_CHANGE" in *' ('*')') v="${CARD_CHANGE%% (*}"; case "$_AM_CHANGES" in *" $v "*) CARD_CHANGE="$v" ;; esac ;; esac
   case "$_AM_CHANGES" in *" $CARD_CHANGE "*) ;; *) CARD_WHY="change: is '${CARD_CHANGE:0:40}', not one of:$_AM_CHANGES"; return 1 ;; esac
   [ -n "$CARD_VERIFY" ] || { CARD_WHY="verify: is empty (a command, or none)"; return 1; }
