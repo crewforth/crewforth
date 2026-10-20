@@ -1,5 +1,5 @@
 {
-  "about": "Inputs that once failed the whole write or read wrongly: a multi-line XML tag, an element value on its own line, an empty manifest, an empty __main__.py, an empty package name, a groupId collision, a reference in another case, a peer range, JVM properties, Vite built-ins, Prisma env(), an Express router mounted from another file, a compose override.",
+  "about": "Inputs that once failed the whole write or read wrongly: a multi-line XML tag, an element value on its own line, an empty manifest, an empty __main__.py, an empty package name, a groupId collision, a reference in another case, a peer range, JVM properties, Vite built-ins, Prisma env(), an Express router mounted from another file, a compose override, a fetch whose method was read from the next call's options.",
   "findings": [
     [
       "module-orphan",
@@ -22,6 +22,7 @@
     "import.meta.env.DEV is set by Vite",
     "DATABASE_URL is read by schema.prisma",
     "fetch(/api/users) falls under a router mounted at /api/users elsewhere",
+    "fetch('/api/products') takes no method from the POST of fetch('/api/checkout') on a later line; a method on a later line of the same call is still read",
     "a FastAPI backend is runnable, not an orphan",
     "web in docker-compose.override.yml is the same service",
     "tests/fixtures/sample (outside any module) and srv/tests/fixtures/sample (inside one) are sample projects: no module, and its undeclared import is not this project's"
@@ -62,7 +63,11 @@
   ],
   "provides": [
     "mod:node:edge-srv GET /",
-    "mod:node:edge-srv GET /api/ping"
+    "mod:node:edge-srv GET /api/cart",
+    "mod:node:edge-srv GET /api/ping",
+    "mod:node:edge-srv GET /api/products",
+    "mod:node:edge-srv POST /api/checkout",
+    "mod:node:edge-srv PUT /api/orders"
   ],
   "notMeasured": [
     "endpoints with a run-time path (1)"
