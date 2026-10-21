@@ -233,6 +233,11 @@ versioning follows [SemVer](https://semver.org/).
 - **`change: review` is read as `audit`.** The model table of the working rules names review with audit, and
   `crew-review-agent` cards that said `change: review` were refused. It now takes the audit floor, on a critical path
   too; a kind that is not on the list is still refused.
+- **A commit refusal names a trace in the message even when the staged content also fails.** The content gate
+  scanned the `-m` message only when the staged change was clean, so a refusal for a silenced lint check said nothing about
+  the session-link trailer in the same message, and the session showed the user the traced message again. Both are
+  named in one refusal now, and a trace in the message adds that a harness reminder to end a message with a
+  trailer does not override §4.1. The git `commit-msg` hook still stops the trailer at the commit itself.
 - **A one-line task card may open with `Kart`.** Sessions that write in Turkish lead the card with `Kart —` as
   others write `Card —`, and the call was refused as having no card. The Turkish word is read like the English one;
   the fields after it are held to the same rules.
