@@ -2735,18 +2735,44 @@ if (gate) {
     session_id: probeId, tool_name: 'Bash', tool_use_id: 'toolu_probe',
     tool_input: { command: 'echo probe' },
   });
-  const runHook = (env = {}) => {
+  // Every run of the hook has a ceiling. Twice on GitHub's Windows runners (2026-10-21) one never returned, and with no
+  // limit here the step waited out the job's 45 minutes and left nothing to read; 3800 runs on a real Windows machine
+  // did not reproduce it. A run that reaches the ceiling is refused by the check that called it (-2 is no exit code
+  // the gate has) and prints what a diagnosis needs: the spool, the cached pause mode, the bash and what is running.
+  const HOOK_CEILING_MS = 30_000;
+  const gateRun = (input, env, ceiling = HOOK_CEILING_MS) => {
     try {
-      execFileSync('bash', [HOOK, gate.spool], {
-        input: payload,
-        env: { ...process.env, CREW_GATE_WAIT: '1', ...env },
-        stdio: ['pipe', 'pipe', 'pipe'],
+      const out = execFileSync('bash', [HOOK, gate.spool], {
+        input, env: { ...process.env, CREW_GATE_WAIT: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: ceiling, killSignal: 'SIGKILL',
       });
-      return 0;
+      return { status: 0, stdout: String(out).trim() };
     } catch (e) {
-      return e.status ?? -1;
+      if (e.code === 'ETIMEDOUT' || e.signal === 'SIGKILL') {
+        const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', timeout: 10_000 }).trim(); } catch (x) { return `(${cmd} failed: ${x.code ?? x.status})`; } };
+        const list = (d) => { try { return fs.readdirSync(d, { recursive: true }).join(' '); } catch { return '(unreadable)'; } };
+        let mode = '(none)'; try { mode = fs.readFileSync(path.join(gate.spool, '.pause-mode'), 'utf8').trim(); } catch { /* not cached yet */ }
+        console.log(`HOOK CEILING: studio-gate.sh did not return within ${ceiling / 1000} s (mode ${env.CREW_GATE_MODE ?? 'unset'})`);
+        console.log(`  spool: ${list(gate.spool)}`);
+        console.log(`  .pause-mode: ${mode}`);
+        console.log(`  bash: ${sh('bash', ['--version']).split('\n')[0]}`);
+        console.log(`  processes:\n${sh('ps', process.platform === 'win32' ? ['-W'] : ['-ax']).split('\n').filter((l) => /bash|sleep|studio|cat/.test(l)).slice(0, 25).join('\n')}`);
+        return { status: -2, stdout: '' };
+      }
+      return { status: e.status ?? -1, stdout: String(e.stdout ?? '').trim() };
     }
   };
+  const runHook = (env = {}) => gateRun(payload, env).status;
+  // The ceiling itself, measured: a hook told to wait 20 s for an answer that never comes is ended at 3 s, and the
+  // call returns. Without this a ceiling that does not fire (a child holding the pipe open) would look the same as one
+  // that was never needed.
+  {
+    const t0 = Date.now();
+    const r = gateRun(payload, { CREW_GATE_WAIT: '20' }, 3_000);
+    check('a hook run that does not return is ended at its ceiling, and the call comes back', r.status === -2 && Date.now() - t0 < 15_000,
+      `status ${r.status} after ${Date.now() - t0} ms`);
+    fs.rmSync(path.join(gate.spool, 'req', 'toolu_probe.json'), { force: true });
+  }
 
   check('silence is a denial, not an opening', runHook() === 2);
 
@@ -2780,17 +2806,7 @@ if (gate) {
   // runs its own permission flow, and a headless session has nobody to ask. Measured in real sessions: Edit,
   // Write and a writing Bash were refused after being allowed in the dock. So outside plan mode the hook says
   // "allow" in the documented JSON — and in plan mode, or with no mode, it must say nothing at all.
-  const runHookOut = (env = {}, extra = {}) => {
-    const input = JSON.stringify({ ...JSON.parse(payload), ...extra });
-    try {
-      const out = execFileSync('bash', [HOOK, gate.spool], {
-        input, env: { ...process.env, CREW_GATE_WAIT: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return { status: 0, stdout: String(out).trim() };
-    } catch (e) {
-      return { status: e.status ?? -1, stdout: String(e.stdout ?? '').trim() };
-    }
-  };
+  const runHookOut = (env = {}, extra = {}) => gateRun(JSON.stringify({ ...JSON.parse(payload), ...extra }), env);
   const answered = (verdict, env, extra) => {
     fs.writeFileSync(path.join(gate.spool, 'ans', 'toolu_probe'), `${verdict}\n`);
     return runHookOut(env, extra);
