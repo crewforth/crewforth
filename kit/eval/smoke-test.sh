@@ -5572,6 +5572,20 @@ $TRFX\""; then pass "multi-line AI trace in the commit message BLOCKED (§4.1)"
   if csblk "git commit -F $MFX"; then pass "-F <file> carrying an AI trace BLOCKED (§4.1)"
   else fail "-F <file> AI trace not blocked with rc=2 (§4.1 hole or the hook died)"; fi
   rm -f "$MFX"
+  # Both halves in ONE refusal: a staged secret and a session-link trailer in the message. The message used to be
+  # scanned only when the staged content was clean, so the refusal named the first problem and the commit was
+  # retried with the trailer still in it (a real project, 2026-10-21). Assembled at run time, as above.
+  STFX="Claude-""Session: https://claude.ai/code/""session_""0123456789abcdef"
+  ( cd "$CS" && printf 'k = "%s"\n' "$SKFX" > c.txt && git add c.txt ) >/dev/null 2>&1
+  _cso="$( cd "$CS" && printf '%s' "$(csj "git commit -m \"feat: z
+
+$STFX\"")" | bash .claude/hooks/guard-commit-scan.sh 2>&1 >/dev/null )"; _csr=$?
+  ( cd "$CS" && git rm -q --cached c.txt && rm -f c.txt ) >/dev/null 2>&1
+  case "$_cso" in *SECRET-SCANNER*'TRACE-SCANNER (message)'*'does not override'*)
+    [ "$_csr" = 2 ] && pass "a staged secret and a trailer in the message are named in ONE refusal, with the harness-reminder line (§4.1)" \
+                    || fail "both problems named but rc=$_csr, not 2" ;;
+    *) fail "the refusal did not name both the staged secret and the message trailer (rc=$_csr): $(printf '%s' "$_cso" | tr '\n' ' ' | cut -c1-200)" ;;
+  esac
   # A QUOTED -F path with a space. The sed extraction that ran wherever python3 did not stopped at the space, read
   # `-F "my msg.txt"` as `my`, found no such file and refused the commit — a clean one. The awk tokenizer is now
   # the only path; both directions are asserted so an extraction that reads NOTHING cannot pass as "clean".
