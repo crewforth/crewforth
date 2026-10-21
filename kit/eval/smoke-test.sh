@@ -8601,7 +8601,8 @@ done
 _v2b=""; _v2one(){ printf '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"prompt":"%s\\n\\nDo it.","subagent_type":"crew-backend-expert","model":"%s"}}' "$1" "$2" > "$_v2/one.json"
   ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/one.json" >"$_v2/oneout" 2>"$_v2/err" ); _rc=$?; }
 for _pr in 'files: src/ui/a.ts · change: feature · verify: true' 'files: src/ui/a.ts; change: feature; verify: true' 'files: src/ui/a.ts | change: feature | verify: true' \
-           'Card: files: src/ui/a.ts, src/ui/b.ts · change: feature · verify: true.' 'Card — files: src/ui/a.ts · change: text · verify: none'; do
+           'Card: files: src/ui/a.ts, src/ui/b.ts · change: feature · verify: true.' 'Card — files: src/ui/a.ts · change: text · verify: none' \
+           'Kart — files: src/ui/a.ts · change: text · verify: none' 'Kart: files: src/ui/a.ts · change: feature · verify: true'; do
   _v2one "$_pr" sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [refused: $_pr → $_rc $(head -c 120 "$_v2/err")]"
 done
 _v2one 'files: src/payments/p.ts · change: feature · verify: true' sonnet
@@ -8612,10 +8613,10 @@ _v2one 'files: src/ui/a.ts · change: feature (a small one) · verify: true' son
 _v2one 'files: src/ui/a.ts · change: architecture (planning only) · verify: none' sonnet
 { [ "$_rc" = 2 ] && grep -q 'runs on opus' "$_v2/err"; } || _v2b="$_v2b [architecture (planning only) was not read as architecture, which runs on opus (rc $_rc)]"
 _v2one 'files: src/ui/a.ts\nchange: refactor (no behaviour change)\nverify: true' sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [a kind with a note in parentheses, three lines → $_rc]"
-for _pr in 'files: a · change: archi (planning only) · verify: none' 'files: a · change: feature extra · verify: none' 'files: a · verify: true · change: text' 'files: a · change: feature' 'Do this. files: a · change: feature · verify: true'; do
+for _pr in 'files: a · change: archi (planning only) · verify: none' 'files: a · change: feature extra · verify: none' 'files: a · verify: true · change: text' 'files: a · change: feature' 'Do this. files: a · change: feature · verify: true' 'Kartal files: a · change: feature · verify: true'; do
   _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
 done
-[ -z "$_v2b" ] && pass "a card on one line (· ; | separators, a Card: lead, above: on the line) is read by its labels and held to the three-line rules: a critical path still needs opus; a kind with a note in parentheses is the kind, on one line or three; a bad change, labels out of order, a missing verify or prose first are refused" \
+[ -z "$_v2b" ] && pass "a card on one line (· ; | separators, a Card: or Kart: lead, above: on the line) is read by its labels and held to the three-line rules: a critical path still needs opus; a kind with a note in parentheses is the kind, on one line or three; a bad change, labels out of order, a missing verify or prose first are refused" \
                || fail "the one-line card:$_v2b"
 # `above:` among the three lines, not only after them (2026-10-19: 2 of 19 line refusals had it between change: and
 # verify:; the retry moved it down and passed). It keeps the model the same way; the three are still all required.
