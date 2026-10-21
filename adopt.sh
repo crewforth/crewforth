@@ -199,8 +199,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "project wins (fixed)") s='proje önde (sabit)' ;;
       "on conflict the project's rules win; in DISCIPLINE.md §4 they can only tighten, never loosen (the one exception: the §4.1 trace allowlist you choose at adoption); Crewforth fills gaps (not overridable)") s="çakışmada projenin kuralı geçerli; DISCIPLINE.md §4'te proje yalnız sıkılaştırabilir, gevşetemez (tek istisna: kurulumda sizin seçtiğiniz §4.1 iz izin listesi); Crewforth boşlukları doldurur (değiştirilemez)" ;;
       "3 Trace gate") s='3 İz kapısı' ;;
-      "loosen (.trace-allowlist)") s='gevşet (.trace-allowlist)' ;;
-      "co-author/sign-off present in git log — may be a convention") s='git geçmişinde co-author/sign-off var — ekibin alışkanlığı olabilir' ;;
+      "co-author/sign-off present in git log — type loosen in the review to exempt it; never assumed") s='git geçmişinde co-author/sign-off var — muaf tutmak için incelemede loosen yazın; kendiliğinden yapılmaz' ;;
       "keep") s='koru' ;;
       "no co-author/sign-off convention seen") s='co-author/sign-off alışkanlığı görülmedi' ;;
       "4 Share/hide") s='4 Paylaş/gizle' ;;
@@ -789,7 +788,7 @@ else
 fi
 propm '2 Precedence' 'project wins (fixed)' "on conflict the project's rules win; in DISCIPLINE.md §4 they can only tighten, never loosen (the one exception: the §4.1 trace allowlist you choose at adoption); Crewforth fills gaps (not overridable)"
 if [ "$COAUTHOR" = 1 ]; then
-  propm '3 Trace gate' 'loosen (.trace-allowlist)' 'co-author/sign-off present in git log — may be a convention'
+  propm '3 Trace gate' 'keep' 'co-author/sign-off present in git log — type loosen in the review to exempt it; never assumed'
 else
   propm '3 Trace gate' 'keep' 'no co-author/sign-off convention seen'
 fi
@@ -817,7 +816,12 @@ fi
 # ============ COMPILE DECISIONS + OVERRIDE (Stage B) ============
 DEC1="$([ "$N_PAGENTS" != 0 ] && echo keep || echo none)"
 DEC2="project"   # precedence is FIXED to project-wins (not overridable — reflected in the @import comment)
-DEC3="$([ "$COAUTHOR" = 1 ] && echo loosen || echo keep)"
+# The trace gate is loosened only when a person types `loosen` in the review below. Never a default: old co-author
+# lines in the history are not a decision, and an install that cannot ask (no terminal) or an update has no person
+# to make one. Measured on a real project, 2026-10-21: a non-interactive update found five old trailers in the last
+# 80 commits, wrote the co-author trailer into .trace-allowlist.txt and staged it, undoing a removal the team had
+# committed.
+DEC3=keep
 DEC4="$([ "$TRACKED" = 1 ] && echo share || { [ "$IGN" = 1 ] && echo hide || echo kit-default; })"
 DEC6="baseline"
 DEC7="$([ "$OFFREPO" = 1 ] && echo transfer || echo local)"

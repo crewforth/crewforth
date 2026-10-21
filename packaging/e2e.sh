@@ -123,7 +123,7 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 # The map is checked against the blocks in this file on EVERY run, sharded or not: a block in no shard, or in two,
 # stops the run before anything is rehearsed. A skipped block is never a passed one.
 E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
-2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line
+2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep
 3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename'
 E2E_SHARDS=3
 _e2e_blocks="$(grep -E '^if _e2e_mine [a-z0-9.-]+; then$' "${BASH_SOURCE[0]}" | awk '{print $3}' | tr -d ';' | LC_ALL=C sort)"
@@ -417,6 +417,26 @@ for _shc in myhooks .husky/_; do
 done
 echo "[shim-kept] core.hooksPath=myhooks and =.husky/_: three runs each, git stays on .claude/git-shim, the shim keeps naming that chain, the project's pre-commit runs on every commit, a staged key is stopped by Crewforth's, doctor reports the shim ✅"
 
+fi
+# ---- the trace gate is loosened only by a person, never by a default ----
+if _e2e_mine trace-gate-keep; then
+# Seen on a real project, 2026-10-21: an update that could not ask (no terminal) found old co-author trailers in the
+# last 80 commits, accepted its own "loosen" suggestion, wrote the co-author trailer into .trace-allowlist.txt and
+# staged it, undoing a removal the team had committed. Asked of the file on disk and of the index, after a first install
+# and after an update, in a repository whose history carries such a trailer.
+TK="$WORK/trace-keep"; rm -rf "$TK"; mkdir -p "$TK"; cp adopt.sh "$TK/"; cp -R kit "$TK/"; cp VERSION "$TK/"
+printf '{"name":"x"}' > "$TK/package.json"; printf 'kept-line\n' > "$TK/.trace-allowlist.txt"
+( cd "$TK" && git init -q && git config user.email t@t.t && git config user.name t && git add -A \
+  && git commit -qm "$(printf 'init\n\n%s: Someone <s@x.y>' "Co-Authored""-By")" ) >/dev/null 2>&1
+git -C "$TK" log -1 --format=%b | grep -qi 'co-authored' || die "FIXTURE: the history carries no co-author trailer" trace-gate-keep "$TK"
+for _tkr in install update; do
+  cp adopt.sh "$TK/"; cp -R kit "$TK/"; run_adopt "$TK" --yes --here
+  [ "$(cat "$TK/.trace-allowlist.txt" 2>/dev/null)" = kept-line ] \
+    || die "$_tkr: .trace-allowlist.txt was changed without a person asking: $(tr '\n' '|' < "$TK/.trace-allowlist.txt")" trace-gate-keep "$TK"
+  [ -z "$(git -C "$TK" diff --cached --name-only -- .trace-allowlist.txt)" ] \
+    || die "$_tkr: a change to .trace-allowlist.txt was staged" trace-gate-keep "$TK"
+done
+echo "OK: a history with a co-author trailer leaves .trace-allowlist.txt as committed, after an install and an update that cannot ask"
 fi
 # ---- core.hooksPath is read for what it NAMES, not for how it is spelled ----
 if _e2e_mine hookspath; then
