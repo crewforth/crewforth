@@ -11,9 +11,10 @@
 //   A status is never colour alone: every dot has its word beside it.
 //   A poll that changed nothing writes nothing. Each element remembers what it last drew.
 import {
-  plan, sequence, crowdFolds, fitZoom, tallestFor, stateOf, ZOOM, GROUPINGS, DENSITIES, INFERRED_NOTE,
+  plan, sequence, crowdFolds, tallestFor, stateOf, GROUPINGS, DENSITIES, INFERRED_NOTE, AUTO,
 } from './graph-plan.js';
 import { clock } from './timeline-plan.js';
+import { Viewport, draggable, swallowClick } from './viewport.js';
 import { agentStatus } from './nav.js';
 import { roleName, shownType, hoverOf, originOf, orderTag, modelOf, modelMix, modelFamily, modelBadge } from './names.js';
 import { fmtCount, fmtCost, COST_NOTE } from './usage.js';
@@ -37,6 +38,11 @@ const MOTION_BUDGET = 60;
 
 // How long the pointer rests on a card before its details are shown.
 const TIP_MS = 400;
+
+// How long a pane has to stay one size before Auto decides again between cards and chips. While its edge is being
+// dragged the view follows at once, but the choice waits: measured 2026-10-14 with 43 agents, an edge moved to and
+// fro across Auto's limit for 60 frames turned every card into a chip and back 57 times, each a full redraw.
+export const RESIZE_SETTLE_MS = 150;
 
 // Marks, so a card says what kind of thing it is before it is read.
 //
@@ -77,7 +83,6 @@ export class Canvas {
     this.onSelect = onSelect ?? (() => {});
     this.onMenu = onMenu ?? (() => {});
     this.onChange = onChange ?? (() => {});
-    this.view = { x: 0, y: 0, k: 1 };
     this.nodes = new Map();      // id -> the server's node
     this.pos = new Map();        // drawn item id -> {x, y}
     this.pinned = new Map();     // item id -> {x, y} the viewer set by hand
@@ -108,7 +113,6 @@ export class Canvas {
     this.sessionY = null;
     this.selected = null;
     this.firstRender = true;
-    this.touched = false;        // the viewer moved the view themselves
     this.drawn = 0;
 
     this.#build();
@@ -286,50 +290,12 @@ export class Canvas {
   /* ------------------------------------------------------------ input */
 
   #wire() {
-    let panning = null;
-
-    this.root.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;                 // right/middle must not pan
-      const t = e.target;
-      if (t.closest?.('.cv-node') || t.closest?.('.cv-minimap') || t.closest?.('.cv-legend')) return;   // the summary box is a .cv-legend too
-      panning = { px: e.clientX, py: e.clientY, x: this.view.x, y: this.view.y };
-      this.root.setPointerCapture(e.pointerId);
-      this.root.classList.add('cv-panning');
+    // Pan, zoom and Fit are the shared viewport's: the same on the graph and on the project map.
+    this.vp = new Viewport(this.root, this.viewport, {
+      // the summary box is a .cv-legend too
+      skip: (t) => Boolean(t.closest?.('.cv-node') || t.closest?.('.cv-minimap') || t.closest?.('.cv-legend')),
+      onApply: () => { this.#mapView(); this.onChange(this.state()); },
     });
-
-    this.root.addEventListener('pointermove', (e) => {
-      if (!panning) return;
-      this.view.x = panning.x + (e.clientX - panning.px);
-      this.view.y = panning.y + (e.clientY - panning.py);
-      this.touched = true;
-      this.applyView();
-    });
-
-    const endPan = () => { panning = null; this.root.classList.remove('cv-panning'); };
-    this.root.addEventListener('pointerup', endPan);
-    this.root.addEventListener('pointercancel', endPan);
-
-    this.root.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const r = this.root.getBoundingClientRect();
-      const mx = e.clientX - r.left;
-      const my = e.clientY - r.top;
-
-      // deltaMode 1 is lines and 2 is pages; Firefox reports ~3 where Chrome reports ~100, which made zoom
-      // imperceptible and pan crawl.
-      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
-      const dY = e.deltaY * unit;
-      const dX = e.deltaX * unit;
-
-      if (e.ctrlKey || e.metaKey || Math.abs(dY) > Math.abs(dX)) {
-        this.#zoomAbout(this.view.k * Math.exp(-dY * 0.0016), mx, my);
-      } else {
-        this.view.x -= dX;
-        this.view.y -= dY;
-      }
-      this.touched = true;
-      this.applyView();
-    }, { passive: false });
 
     // The minimap's frame is the pane: put the pointer somewhere on the map and the pane goes there.
     let mapping = false;
@@ -352,28 +318,14 @@ export class Canvas {
     this.mapEl.addEventListener('pointercancel', () => { mapping = false; });
   }
 
-  /** Zoom to `k`, keeping the world point under (mx, my) where it is. */
-  #zoomAbout(k, mx, my) {
-    const next = clamp(k, ZOOM.min, ZOOM.max);
-    this.view.x = mx - (mx - this.view.x) * (next / this.view.k);
-    this.view.y = my - (my - this.view.y) * (next / this.view.k);
-    this.view.k = next;
-  }
+  /** Where the pane looks: the viewport's, kept under these names because the page and the claims use them. */
+  get view() { return this.vp.view; }
+  get touched() { return this.vp.touched; }
+  set touched(v) { this.vp.touched = v; }
 
   /** Step the zoom from the toolbar: about the middle of the pane. */
-  zoomBy(factor) {
-    const r = this.root.getBoundingClientRect();
-    this.#zoomAbout(this.view.k * factor, r.width / 2, r.height / 2);
-    this.touched = true;
-    this.applyView();
-  }
-
-  zoomTo(k) {
-    const r = this.root.getBoundingClientRect();
-    this.#zoomAbout(k, r.width / 2, r.height / 2);
-    this.touched = true;
-    this.applyView();
-  }
+  zoomBy(factor) { this.vp.zoomBy(factor); }
+  zoomTo(k) { this.vp.zoomTo(k); }
 
   /**
    * Turn `view` into pixels. Public because it is the single place that does so — the wheel, the pan, fit() and
@@ -382,12 +334,7 @@ export class Canvas {
    * It writes one transform. Nothing a card draws depends on the zoom, so a zoom restyles nothing: that was the
    * cost of the old counter-scaled labels, 454 ms of style work per second at 250 nodes.
    */
-  applyView() {
-    const { x, y, k } = this.view;
-    this.viewport.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
-    this.#mapView();
-    this.onChange(this.state());
-  }
+  applyView() { this.vp.apply(); }
 
   /** What the toolbar shows. */
   state() {
@@ -587,25 +534,31 @@ export class Canvas {
     return tallestFor(this.paneHeight);
   }
 
+  /** The pane is changing size. The view follows it now; whether it is cards or chips is asked once it stops. */
+  paneResized() {
+    if (!this.touched && !this.pinned.size) this.fit({ readable: true });
+    clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => { this.settleTimer = null; this.fitIfUntouched(); }, RESIZE_SETTLE_MS);
+  }
+
   /** Re-fit only while the view is still the canvas's own. Once the viewer has panned, zoomed or placed a card,
    *  moving the view under them is not helpful. */
   fitIfUntouched() {
     // The pane changed size: what fits in it may have changed with it, and so may Auto's answer.
     const h = this.root.getBoundingClientRect?.().height ?? 0;
     if (this.lastPlan && this.density === 'auto' && tallestFor(h) !== tallestFor(this.paneHeight ?? 0)) this.#redraw();
-    if (!this.touched && !this.pinned.size) this.fit();
+    if (!this.touched && !this.pinned.size) this.fit({ readable: true });
   }
 
-  fit() {
+  /**
+   * Fit the picture to the pane. On its own (`readable`), the view does not go under the zoom a card is read at
+   * when Auto kept cards for a picture taller than the pane: that is the overflow Auto allows, panned to, not
+   * shrunk away. The toolbar's Fit asks for the whole picture.
+   */
+  fit({ readable = false } = {}) {
     const p = this.lastPlan;
     if (!p || !p.items.length) return;
-    const r = this.root.getBoundingClientRect();
-    const k = fitZoom(p.width, p.height, r.width, r.height);
-    this.view.k = k;
-    this.view.x = Math.max(ZOOM.pad, (r.width - p.width * k) / 2);
-    this.view.y = Math.max(ZOOM.pad, (r.height - p.height * k) / 2);
-    this.touched = false;
-    this.applyView();
+    this.vp.fit(p.width, p.height, readable && this.density === 'auto' && p.density === 'comfortable' ? AUTO.readable : 0);
   }
 
   /* -------------------------------------------------------- rendering */
@@ -699,7 +652,7 @@ export class Canvas {
 
     this.#drawEdges(p);
     this.#drawMap(p);
-    if (fit) this.fit(); else this.applyView();
+    if (fit) this.fit({ readable: true }); else this.applyView();
   }
 
   /** The card's position and size, and whatever only changes with them. */
@@ -764,7 +717,10 @@ export class Canvas {
       // ran out of the card.
       p.bg = mk('div', 'cv-sub cv-indent cv-bg');
       p.bg.hidden = true;
-      el.append(row, p.name, p.sub, p.bg);
+      // Agent calls the model gate refused, which started no agent: a line of their own, the gate's words on hover.
+      p.refused = mk('div', 'cv-sub cv-indent cv-refused');
+      p.refused.hidden = true;
+      el.append(row, p.name, p.sub, p.bg, p.refused);
     } else if (it.kind === 'group') {
       el.classList.add('cv-group');
       p.tile = mk('span', 'cv-tile');
@@ -884,12 +840,21 @@ export class Canvas {
     p.name.title = p.name.textContent;
     const bits = [`${n.turns ?? 0} ${n.turns === 1 ? 'turn' : 'turns'}`];
     if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} ctx`);
+    if (n.context?.toolShare != null) bits.push(`${n.context.toolShare}% tool output`);
     p.sub.textContent = bits.join(' · ');
-    p.sub.title = p.sub.textContent;
+    // The share is of the text since the last compaction, in characters; the compactions are the transcript's own.
+    const lc = n.context?.lastCompact;
+    p.sub.title = [p.sub.textContent,
+      n.context?.toolShare != null ? `${n.context.toolShare}% of the text in context since the last compaction is tool output (characters, not tokens)` : null,
+      n.context?.compactions ? `compacted ${n.context.compactions}×${lc?.before != null ? `, last ${lc.trigger ?? ''} ${fmtTokens(lc.before)} → ${fmtTokens(lc.after)}` : ''}` : null].filter(Boolean).join('\n');
     // What the session has running that is not an agent: commands sent to the background.
     p.bg.hidden = !bg;
     p.bg.textContent = bg ? `${bg} in background` : '';
     p.bg.title = bg ? n.backgroundNow.map((c) => `In the background: ${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
+    const refused = n.refusedCalls ?? [];
+    p.refused.hidden = !refused.length;
+    p.refused.textContent = refused.length ? `${refused.length} refused by the model gate` : '';
+    p.refused.title = refused.map((r) => `${r.agent ?? 'an agent'}${r.model ? ` (${r.model})` : ''}: ${r.text}`).join('\n');
     el.title = 'Click to inspect this session';
     el.setAttribute('aria-label', `Session, ${st?.word ?? 'state not measured'}, ${p.name.textContent}, ${p.sub.textContent}`);
   }
@@ -983,7 +948,7 @@ export class Canvas {
       // Beside the bar: how the members went — or, at compact density where the card has no line for it, the
       // models they ran on, with how they went left to the bar and its tooltip.
       const mix = modelMix(it.members).replace(/, /g, ' \u00b7 ');
-      if (!it.boxed) { p.count.textContent = it.compact && mix ? mix : says; p.count.title = it.compact && mix ? `${says}\nThe models its agents ran on` : ''; }
+      if (!it.boxed) { p.count.textContent = it.compact && mix ? `${says} \u00b7 ${mix}` : says; p.count.title = it.compact && mix ? `${says}\nThe models its agents ran on: ${mix}` : ''; }
       if (!it.boxed) this.#fillTotals(p, it);
       el.title = it.boxed ? '' : (it.open ? 'Click to fold' : `Click to show ${it.members.length} agents`);
       el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? 'open' : 'folded'}`);
@@ -1302,13 +1267,8 @@ export class Canvas {
       const cell = item ? null : host.cells?.find((c) => c.id === id);
       const cx = host.x + (cell ? cell.x + cell.w / 2 : host.w / 2);
       const cy = host.y + (cell ? cell.y + cell.h / 2 : host.h / 2);
-      const r = this.root.getBoundingClientRect();
       // Close enough to read, and no closer than the viewer already was.
-      this.view.k = clamp(Math.max(this.view.k, 1), ZOOM.min, ZOOM.max);
-      this.view.x = r.width / 2 - cx * this.view.k;
-      this.view.y = r.height / 2 - cy * this.view.k;
-      this.touched = true;
-      this.applyView();
+      this.vp.centerOn(cx, cy, 1);
     }
     this.#persist();
     this.onSelect(this.nodes.get(id) ?? null);
@@ -1327,37 +1287,13 @@ export class Canvas {
   /* ------------------------------------------------------ interaction */
 
   #interact(el, id) {
-    let drag = null;
-
-    el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();                       // do not pan the canvas too
-      if (e.target.closest?.('.cv-fold')) return;
-      const p = this.pos.get(id) ?? { x: 0, y: 0 };
-      drag = { px: e.clientX, py: e.clientY, x: p.x, y: p.y, moved: false };
-      el.setPointerCapture(e.pointerId);
+    draggable(el, {
+      scale: () => this.view.k,
+      at: () => this.pos.get(id),
+      move: (x, y) => { this.pinned.set(id, { x, y }); this.#redraw(); },
+      end: () => this.#persist(),
+      ignore: (t) => Boolean(t.closest?.('.cv-fold')),
     });
-
-    el.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      const dx = (e.clientX - drag.px) / this.view.k;
-      const dy = (e.clientY - drag.py) / this.view.k;
-      if (!drag.moved && Math.abs(dx) <= 3 && Math.abs(dy) <= 3) return;
-      drag.moved = true;
-      el.classList.add('cv-dragging');
-      this.pinned.set(id, { x: Math.round(drag.x + dx), y: Math.round(drag.y + dy) });
-      this.#redraw();
-    });
-
-    const stop = () => {
-      if (!drag) return;
-      // A drag ends with a click on the same element. Without this guard every reposition also toggled selection.
-      if (drag.moved) { this.#persist(); el.dataset.suppressClick = '1'; }
-      drag = null;
-      el.classList.remove('cv-dragging');
-    };
-    el.addEventListener('pointerup', stop);
-    el.addEventListener('pointercancel', stop);
 
     const act = () => {
       const it = this.lastPlan?.items.find((x) => x.id === id);
@@ -1368,7 +1304,7 @@ export class Canvas {
       this.#select(id);
     };
     el.addEventListener('click', (e) => {
-      if (el.dataset.suppressClick === '1') { el.dataset.suppressClick = '0'; return; }
+      if (swallowClick(el)) return;
       if (e.target.closest?.('.cv-member')) return;   // the member answers for itself
       act();
     });

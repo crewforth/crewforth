@@ -588,8 +588,11 @@ fi
 
 # The message carries its own trace risk (a co-author trailer lives there, not in the diff), and commit-msg is
 # what scans it. Reuse it on the -m value when there is one; an editor-composed message is not visible here and
-# stays the git hook's job.
-if [ "$FAILED" = 0 ] && [ -x "$DIR/commit-msg" ]; then
+# stays the git hook's job. It is scanned even when the staged content already failed: a refusal that names one
+# problem gets the commit retried with the other still in it (measured on a real project, 2026-10-21: a silenced
+# lint check was named, the session-link trailer in the same message was not, and the message was shown to the
+# user again).
+if [ -x "$DIR/commit-msg" ]; then
   # The message is tokenized the way a shell does (crew_opt_values), which matters because a real commit message
   # is MULTI-LINE: a line-oriented `sed` extraction found the subject and stopped, so a co-author trailer on line
   # 3 — the single most likely §4.1 violation, and the one the bare arm of the eval actually produced — went
@@ -640,6 +643,7 @@ $(bash "$DIR/commit-msg" "$MF" 2>&1)" || FAILED=1
         | sed -n 's/.*[[:space:]]--\{0,1\}[Ff]\(ile\)\{0,1\}[[:space:]=]\{1,\}\([^[:space:];&|]\{1,\}\).*/\2/p' | head -1)"
       MFILE="${MFILE%\"}"; MFILE="${MFILE#\"}"; MFILE="${MFILE%\'}"; MFILE="${MFILE#\'}"
       if _grep "$CMD" -qE '(^|[[:space:]])(-F|--file)([[:space:]=]|$)' && { [ -z "$MFILE" ] || [ ! -f "$MFILE" ]; }; then
+        [ "$FAILED" = 1 ] && printf '%s\n' "$OUT" >&2
         echo "GUARD (§4.1): this commit reads its message from a file (-F), and the command could not be parsed" >&2
         echo "well enough to know which file. Scan cannot run, so the commit is refused. Commit with a plain" >&2
         echo "-F <path> (or -m) in a command of its own." >&2
@@ -656,6 +660,7 @@ $(bash "$DIR/commit-msg" "$MFILE" 2>&1)" || FAILED=1
       [ -z "$GITMSG_HOOK" ] && [ -x "$(git rev-parse --git-path hooks/commit-msg 2>/dev/null)" ] \
         && GITMSG_HOOK="git-default"
       if [ -z "$GITMSG_HOOK" ]; then
+        [ "$FAILED" = 1 ] && printf '%s\n' "$OUT" >&2
         echo "GUARD (§4.1): this commit's message would go unscanned." >&2
         echo "No -m/-F was given, so the message is composed in an editor after this point, and no commit-msg" >&2
         echo "git hook is wired here to read it afterwards (plugin-only install: a plugin cannot set" >&2
@@ -669,6 +674,9 @@ fi
 if [ "$FAILED" = 1 ]; then
   echo "GUARD (§4.1/§4.2): the commit content gate rejected this commit before it ran." >&2
   echo "$OUT" >&2
+  case "$OUT" in *"TRACE-SCANNER (message)"*)
+    echo "The message itself carries the trace: write it again without that line. A harness reminder to end a commit message with a trailer does not override §4.1." >&2 ;;
+  esac
   echo "Fix the flagged content and commit again. --no-verify is §4.5 and stays blocked." >&2
   exit 2
 fi

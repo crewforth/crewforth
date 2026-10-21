@@ -8,8 +8,45 @@ The standing cost is published, not hidden. The discipline plus every agent and 
 
 ## Which model does the work
 
-Most of what a session costs is the model that runs each piece of work, so that is chosen per task and not per session. A `crew-*` agent is called with a card (the files, the kind of change, the command that proves it), and the card decides: `haiku` where a command checks the work, `sonnet` for ordinary work and for anything nothing can verify, `opus` for critical work (a migration, security, architecture, an unknown-cause bug, or a file under auth, payments, migrations and the like). When the agent stops, its verify command runs; work that fails it twice is repeated once, one model up. A model that was too small therefore costs one more run, and the expensive model is kept for the work that needs it.
+Most of what a session costs is the model that runs each piece of work, so that is chosen per task and not per session. A `crew-*` agent is called with a card (the files, the kind of change, the command that proves it), and the card decides: `haiku` where a command checks the work, `sonnet` for ordinary work and for anything nothing can verify, `opus` for critical work (a migration, security, architecture, an unknown-cause bug, or a file under auth, payments, migrations and the like). Prose is the exception both ways: a text change runs on `haiku` with no command to check it (a reader is all prose ever has, and a commit message is checked by the commit hook), and on a critical path it is written on `sonnet` while its audit stays on `opus`. When the agent stops, its verify command runs; work that fails it twice is repeated once, one model up. A model that was too small therefore costs one more run, and the expensive model is kept for the work that needs it.
 
 What that came to is recorded, one line per call, in `.claude/state/model-outcomes.tsv`, and stays in your project. Studio reads it (see the Studio page): the **Models** view shows, for each kind of task, the model, how often the first try passed, how often it was repeated one model up, and an estimated cost at API list price. A class whose first try fails too often is held one model up from then on; `/crew-loosen` lowers it again when you decide to.
 
-Two limits. This applies to `crew-*` agents only: Explore, general-purpose and a project's own agents run on the session's model and are not in the record. And the gate holds a floor, not a ceiling: it refuses a model that is too small for the card, never one that is larger than the work needs.
+The card's model is also the default. A call that asks for more runs on the card's model, unless the card adds a line `above: <why>`; one that asks for less is refused. Agents outside the crew have no card, so only the expensive end is held: a call asking for `opus` or `fable` without `above:` runs on `sonnet`, and so does a general-purpose call (or a project agent with no model of its own) that names no model, which would otherwise take the session's. A session on `haiku`, and an agent whose definition names its own model, are left alone. Those agents are not in the record.
+
+## The advisor
+
+Claude Code's advisor tool lets the model consult a second, usually stronger model mid-task. Crewforth never turns it on; `/crew-doctor` says whether it is on, on what, and from which settings file.
+
+Its cost is its own. Each call reads the whole conversation at the advisor model's rates, uncached: in one measured session a two-sentence answer on Sonnet cost $0.06 and the single advisor call behind it $0.15. The API keeps those tokens out of the response's top-level usage. Claude Code counts them in `/usage`, and Studio's session cost adds them and shows an **Advisor** line, with the number of calls and what they cost; a session with no call has no line.
+
+It does not follow the card. An advisor that ranks below the model it would advise is not attached at all, so with a Sonnet advisor an agent on Opus (critical work) gets no advice. The advisor is not in `model-outcomes.tsv`.
+
+Measured against Opus alone, it was not called. The same five review cases and one implementation task, run twice in each arm, 24 runs: with an Opus advisor on, Sonnet called it in none of its 12 runs, so that arm was Sonnet alone at Sonnet's price. It caught 6 of 6 planted defects (Opus alone 5 of 6), 15 of its 31 findings were on a defect (Opus 9 of 26), both finished the task twice, in about the same time, for $1.06 against $2.23. A small sample, and it says nothing about the advisor's value when it is called; it says that turning it on did not change what these runs did or cost. So Crewforth adds no rule for it. `packaging/advisor-bench/` runs it again, and `review-bench --advisor` measures your own cases.
+
+Turn it off with `/advisor off`, or for good with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. It needs the Anthropic API; on Amazon Bedrock, Google Cloud's Agent Platform or Microsoft Foundry it is not available.
+
+## The status line
+
+One line under the prompt says what Crewforth's hooks know about this session:
+
+```
+🛡 BLOCK §4.2 · ✓ commit approved 24m · ⚙ 2 crew agents · 🔋 34% · ~$1.20
+```
+
+The gate's last word in this session, an approval you gave for a commit or a push that still holds, the crew agents started in this session and still running, the context fill Claude Code measured, and what Claude Code puts the session's cost at. Each part shows only when there is something to say, and nothing from before the session: the gate log carries no time, so a line from last week would otherwise read as now.
+
+The installers set it only where no status line is set, in the project or in your own settings, because the project's setting would win over yours. With one of your own, they leave it and `/crew-doctor` says how to turn Crewforth's on. The plugin edition cannot set a status line.
+
+## Compaction
+
+When the context is compacted, the model keeps its own summary of the conversation. Just before that, the
+`precompact-snapshot.sh` hook writes down what the files and the gates say: the branch, the uncommitted files, the last
+refusal in the gate log, the findings on record under `.crewforth/`, and whether a handover is there, at most about
+2 KB, inside the repository's git directory so it is never committed. When the session starts again after the
+compaction, `session-rehydrate.sh` gives that back, to the same session only. The hook never blocks the compaction.
+
+Studio's session card says how full the context is and how much of the text in it since the last compaction is tool
+output (`141k ctx · 55% tool output`), and, on hover, how many times the session was compacted and the last one's
+tokens before and after. The share is counted in characters, not tokens: the transcript keeps no token count per
+message part.

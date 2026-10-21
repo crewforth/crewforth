@@ -109,6 +109,10 @@ note(){ echo "  ·  $1"; }   # informational; never counts as a failure
 # Scope. Declared HERE rather than beside the block it first guards, because it now gates cases that run
 # EARLIER than that block — see §6h. Reading an env var costs nothing; the note stays where the big skip is.
 UNITS=1; [ "${CREW_SMOKE_SCOPE:-full}" = install ] && UNITS=0
+# THE USER'S OWN CLAUDE SETTINGS ARE NOT AN INPUT OF THIS SUITE (3.2.0). Before a commit prompt the gates look for a
+# PermissionRequest hook in the user's settings, skills, agents and plugins; on a machine that has one, every "the gate
+# asks" case would read "the gate refuses". Cases that need a user directory set their own (HOME, CLAUDE_CONFIG_DIR).
+_SMOKE_CCD="$(mktemp -d)"; export CLAUDE_CONFIG_DIR="$_SMOKE_CCD"
 # Trigger-phrases requirement: a GATE in the Crewforth repo, a note in an installed project (your skills, your call).
 need_trigger(){ if kit_owned "${2:-}"; then fail "$1"; else note "$1 (your own skill/agent; not gated in an install)"; fi; }
 
@@ -1670,8 +1674,8 @@ if [ "$IS_KIT" = 1 ]; then
   _ch4_t="$(printf '%s\n' "all fo""ur channels carry it" "Dö""rt kanal da taşıyor" "of fo""ur distribution channels" "three channels" "four channel types of RGB" | grep -ciE "$_ch4_re")"
   if [ "$_ch4_t" != 3 ]; then fail "channel-count check cannot tell its twins apart (caught $_ch4_t of the 3 planted, want 3 and none of the 2 clean)"
   elif git -C "$KR" rev-parse --git-dir >/dev/null 2>&1; then
-    _ch4_hits="$(git -C "$KR" grep -niIE "$_ch4_re" -- . ':!CHANGELOG.md' ':!site/src/content/docs/changelog.md' ':!site/src/content/docs/tr/changelog.md' 2>/dev/null)"
-    [ -z "$_ch4_hits" ] && pass "no tracked file gives the old channel count — three ship Crewforth (CHANGELOG exempt; twins 3/3 caught, 0/2 flagged)" \
+    _ch4_hits="$(git -C "$KR" grep -niIE "$_ch4_re" -- . ':!CHANGELOG.md' ':!site/src/content/docs/changelog.md' ':!site/src/content/docs/tr/changelog.md' ':!packaging/review-bench/cases' 2>/dev/null)"
+    [ -z "$_ch4_hits" ] && pass "no tracked file gives the old channel count — three ship Crewforth (CHANGELOG and the review bench's past-version cases exempt; twins 3/3 caught, 0/2 flagged)" \
       || fail "a tracked file still gives the old channel count (there are three): $(printf '%s\n' "$_ch4_hits" | head -3 | tr '\n' ' ')"
   else skip scope "channel-count check not run — not a git checkout of Crewforth's source"; fi
   # THE CLIENT SIDE IS STACK-NEUTRAL (3.0.1): the install summary, the help and the install page named the scope as
@@ -2328,7 +2332,7 @@ BUDGET_DISC=14975    # 3.1.0: 13986 → 14975 (+989): the task card (files, chan
                      # and the wrong one winning silently. The only rule in this file that is about the OTHER
                      # rules, so it cannot live in the README the way the compaction note does. Plus the Audit
                      # row naming crew-performance-expert — an agent nothing routes to is an idle component.)
-BUDGET_AGENTS=5596   # 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
+BUDGET_AGENTS=5746   # 3.2.0: 5596 → 5746 (+150), the measured sum: crew-docs-agent is a 14th agent (195 B, its description cut to one line first; the other 13 sum to 5551). Raised on the user's decision, not to make room. 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
                      # agents' descriptions rewritten stack-agnostic, +55 B). Before that 5527, measured 2026-09-20 by reading this suite's
                      # own printed line rather than a hand-rolled counter (a hand-rolled one answered 5503 and
                      # was thrown away). Two corrections in one day: the note said 5765 against a measured 5407,
@@ -2521,20 +2525,34 @@ done
 # PROACTIVE-CUE GATE: Claude Code auto-delegates on the description field, and only fires reliably when it carries
 # an action cue ("use proactively" / "immediately after" / "use ... when"). A passive role description ("Senior X
 # expert. Handlers, endpoints.") rarely auto-invokes — the specialist stays dormant and Crewforth reads as inert.
-# Every agent EXCEPT the two deliberately pull-only ones (invoked explicitly: a commit needs approval; session
-# health is emitted by a hook) must carry a cue, or a future passive rewrite silently regresses delegation.
-PULL_AGENTS=" crew-commit-agent crew-session-manager "
+# EVERY agent carries one. Two used to be exempt as "pull-only" (a commit needs approval; session health comes from
+# a hook), and nothing pulled them: the main thread wrote the commit message and the handover itself, and neither
+# agent was ever started. The exemption is gone; what pulls a chain-step agent is pinned just below.
 NO_CUE=""
 for f in $(agent_quality_files); do
   [ -e "$f" ] || continue
   a="$(basename "$f" .md)"
-  case "$PULL_AGENTS" in *" $a "*) continue ;; esac
   awk '/^---$/{c++; next} c==1' "$f" | grep -qiE "use proactively|immediately after|use [a-z ]*when" \
     || NO_CUE="$NO_CUE $a"
 done
-if   [ -z "$NO_CUE" ]; then pass "every non-pull agent carries an auto-delegation cue (proactive/immediately-after)"
-elif [ "$IS_KIT" = 1 ]; then fail "agent(s) with a passive description — auto-delegation will rarely fire:$NO_CUE (add 'use proactively …', or add to PULL_AGENTS if pull-only)"
+if   [ -z "$NO_CUE" ]; then pass "every agent carries an auto-delegation cue (proactive/immediately-after/use … when)"
+elif [ "$IS_KIT" = 1 ]; then fail "agent(s) with a passive description — auto-delegation will rarely fire:$NO_CUE (add 'use proactively …')"
 else pass "some agents lack a proactive cue:$NO_CUE (your project's own agents, not gated)"; fi
+# WHO PULLS A CHAIN-STEP AGENT. An agent whose work sits at a fixed step of the chain (metadata.stage close, handoff
+# or understand: the reviewer, the commit message, the handover, the plan) is not reached by a prompt's words; it is
+# reached because a command or the discipline CALLS it there. So each one is named in the call form, `@agent-<name>`
+# (or `subagent_type`), in a command skill or the discipline. Producers and auditors are pulled by route-hint.sh and
+# the cue above; the orphan check (3b) already holds that they are routed at all. Kit agents only.
+_cs=0; _csb=""; _cmdfiles="$(grep -l 'kind: command' "$SKILLS"/*/SKILL.md 2>/dev/null)"
+for f in "$AGENTS"/*.md; do
+  [ -f "$f" ] || continue; a="$(basename "$f" .md)"; kit_owned "agents/$a.md" || continue
+  case "$(awk '/^---$/{c++; next} c==1 && /^[[:space:]]*stage:/{print $2; exit}' "$f")" in close|handoff|understand) ;; *) continue ;; esac
+  _cs=$((_cs+1))
+  grep -qE "@agent-$a([^a-z0-9-]|\$)|subagent_type[^a-z]{0,6}$a([^a-z0-9-]|\$)" $_cmdfiles "$ROUTE_DOC" 2>/dev/null || _csb="$_csb $a"
+done
+if [ "$IS_KIT" = 1 ] && [ "$_cs" -lt 4 ]; then fail "FIXTURE: $_cs chain-step agents read (close/handoff/understand) — the stage field or the count broke, not the agents"
+elif [ -z "$_csb" ]; then pass "every chain-step agent ($_cs) is called as @agent-<name> by a command or the discipline"
+else fail "chain-step agent(s) nothing calls by name — the main thread does their work instead:$_csb"; fi
 
 
 # ---- gate UNIT cases: skipped under CREW_SMOKE_SCOPE=install ------------------------------------------------
@@ -2789,6 +2807,24 @@ r46rec "$R46_OID" "$R46_HEAD"
 o="$(gj default 'git commit -m x' | r46 2>/dev/null)"
 [ "$(gdec "$o")" = "ask" ] && pass "§4.6: a matching record lets the commit through to the §4.4 ask" \
                            || fail "§4.6: a matching record did NOT pass the gate (out=$o)"
+# 2b. Who wrote the message (AJAN-1): the latest crew-review-agent / crew-commit-agent call in the transcript decides
+# one line in the approval. It never blocks, and it says nothing when it cannot know: a subagent's own call, or a
+# transcript it cannot read.
+_can_t="$R46/.t"; mkdir -p "$_can_t"
+_can_call(){ printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"subagent_type":"%s","prompt":"x"}}]}}\n' "$1"; }
+{ _can_call crew-review-agent; _can_call crew-commit-agent; } > "$_can_t/both.jsonl"
+_can_call crew-review-agent > "$_can_t/review.jsonl"
+{ _can_call crew-commit-agent; _can_call crew-review-agent; } > "$_can_t/stale.jsonl"
+_canj(){ printf '{"cwd":"%s","permission_mode":"default","transcript_path":"%s",%s"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' "$R46" "$1" "${2:-}"; }
+_canb=""; _NOTE='crew-commit-agent has not run since the last review'
+o="$(_canj "$_can_t/both.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb agent-ran-but-noted"
+o="$(_canj "$_can_t/review.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" == *"$_NOTE"* ]] || _canb="$_canb no-agent-not-noted"
+o="$(_canj "$_can_t/stale.jsonl" | r46 2>/dev/null)"; [[ "$o" == *"$_NOTE"* ]] || _canb="$_canb a-review-after-the-agent-not-noted"
+o="$(_canj "$_can_t/review.jsonl" '"agent_id":"a1",' | r46 2>/dev/null)"; [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb noted-on-a-subagents-call"
+o="$(_canj "$_can_t/nope.jsonl" | r46 2>/dev/null)"; [ "$(gdec "$o")" = ask ] && [[ "$o" != *"$_NOTE"* ]] || _canb="$_canb noted-without-a-transcript"
+[ -z "$_canb" ] && pass "§4.4 approval names a commit message crew-commit-agent did not write (5 cases: ran, not run, review after it, subagent, no transcript); it never blocks" \
+                || fail "commit-agent note:$_canb"
+rm -rf "$_can_t"
 # 3. Right diff, wrong base. This is the case a wall-clock TTL cannot see and the reason there is none.
 r46rec "$R46_OID" "0000000000000000000000000000000000000000"
 gj default 'git commit -m x' | r46 >/dev/null 2>&1; [ "$?" = 2 ] \
@@ -3371,6 +3407,46 @@ pass|rm -f file.txt
 pass|rm file.txt
 pass|rmdir empty/
 RMCASES
+# V4: a stopped or asked command says what it would have touched (eval/lib/preview.sh): the changes a reset discards,
+# the paths a clean deletes, the files under an rm target inside the project, what a commit takes and a push sends.
+# Read only, and after the decision: a preview library that fails or ends its shell leaves the decision as it was.
+PVR="$(mktemp -d)"; PVR="$(cd -P "$PVR" && pwd)"; PVO="$(mktemp)"; PVE="$(mktemp)"; PVX="$(mktemp -d)"
+( cd "$PVR" && git init -q . && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m base \
+  && printf '1\n' > a.txt && printf '2\n' > b.txt && git add . && git -c user.email=a@b -c user.name=a commit -q -m two \
+  && printf 'x\n' >> a.txt && printf 'y\n' >> b.txt && mkdir -p out/sub && : > out/sub/1 && : > out/2 && : > junk.log ) >/dev/null 2>&1
+_pvrun(){ printf '{"session_id":"s","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' "$1" "$PVR" \
+  | ( cd "$PVR" && CLAUDE_PROJECT_DIR="$PVR" CREW_GATE_LOG=/dev/null bash "${2:-$HOOKS}/guard-bash.sh" ) > "$PVO" 2> "$PVE"; _pvrc=$?; }
+_pvb=""
+_pvrun "git reset --hard"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: it would discard 2 uncommitted change' "$PVE"; } || _pvb="$_pvb [reset: rc $_pvrc · $(grep Preview "$PVE")]"
+_pvrun "git reset --hard HEAD~1"; grep -q 'and drop 1 commit(s) from the branch' "$PVE" || _pvb="$_pvb [reset HEAD~1: $(grep Preview "$PVE")]"
+_pvrun "git clean -fd"; { [ "$_pvrc" = 2 ] && grep -q 'lists 2 path(s) it would delete' "$PVE"; } || _pvb="$_pvb [clean: $(grep Preview "$PVE")]"
+_pvrun "rm -rf out/"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: out/: 2 file(s)' "$PVE"; } || _pvb="$_pvb [rm inside: $(grep Preview "$PVE")]"
+_pvrun "rm -rf $PVX/"; { [ "$_pvrc" = 2 ] && grep -q 'outside the project, not counted' "$PVE"; } || _pvb="$_pvb [rm outside: $(grep Preview "$PVE")]"
+# The asked ones: a commit (past §4.6, with the review record) and a push to a remote of its own.
+( cd "$PVR" && git add a.txt && mkdir -p .claude && D=$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin) && H=$(git rev-parse HEAD) \
+  && printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "2026-01-01T00:00:00Z" > .claude/review-pass.json ) >/dev/null 2>&1
+_pvrun "git commit -m wip"; { [ "$_pvrc" = 0 ] && grep -q 'Preview: 1 file changed, 1 insertion' "$PVO"; } || _pvb="$_pvb [commit ask: rc $_pvrc · $(grep -o 'Preview[^\\]*' "$PVO")]"
+( cd "$PVR" && git init -q --bare "$PVX/r.git" && git remote add origin "$PVX/r.git" && git push -q -u origin HEAD:main && git branch -q -u origin/main \
+  && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m "one ahead" ) >/dev/null 2>&1
+_pvrun "git push"; { [ "$_pvrc" = 0 ] && grep -q 'Preview: it sends 1 commit(s) to origin/main' "$PVO"; } || _pvb="$_pvb [push ask: rc $_pvrc · $(grep -o 'Preview[^\\]*' "$PVO")]"
+# A push that names its branch sends to that one: an existing one is counted, an unknown one would be created.
+_pvrun "git push origin main"; grep -q 'Preview: it sends 1 commit(s) to origin/main' "$PVO" || _pvb="$_pvb [named push: $(grep -o 'Preview[^\\]*' "$PVO")]"
+_pvrun "git push origin feat/new"; grep -q 'Preview: origin/feat/new is not known here; the push would create it' "$PVO" || _pvb="$_pvb [push to a new branch: $(grep -o 'Preview[^\\]*' "$PVO")]"
+# A push of another local branch counts that branch's commits, not the current one's (current: 1 ahead; side: 3).
+( cd "$PVR" && _cur="$(git rev-parse --abbrev-ref HEAD)" && git checkout -q -b side && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m s1 \
+  && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m s2 && git checkout -q "$_cur" ) >/dev/null 2>&1
+_pvrun "git push origin side:main"; grep -q 'Preview: it sends 3 commit(s) to origin/main' "$PVO" || _pvb="$_pvb [push of another branch: $(grep -o 'Preview[^\\]*' "$PVO")]"
+# A pattern is said, not expanded by the hook's own shell into the files it matches.
+_pvrun "rm -rf out/*"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: out/\*: a pattern, not counted' "$PVE"; } || _pvb="$_pvb [rm pattern: rc $_pvrc · $(grep Preview "$PVE")]"
+# A broken preview library: one that exits, one that does not parse. The decision stays rc 2 and nothing is said.
+_pvh="$(mktemp -d)"; cp -R "$HOOKS" "$_pvh/hooks"; mkdir -p "$_pvh/eval"; cp -R "$ROOT/eval/lib" "$_pvh/eval/lib"
+printf 'crew_preview(){ exit 0; }\n' > "$_pvh/eval/lib/preview.sh"; _pvrun "git reset --hard" "$_pvh/hooks"
+{ [ "$_pvrc" = 2 ] && ! grep -q Preview "$PVE"; } || _pvb="$_pvb [a preview that exits changed the decision: rc $_pvrc]"
+printf 'crew_preview(){ ( \n' > "$_pvh/eval/lib/preview.sh"; _pvrun "rm -rf out/" "$_pvh/hooks"
+[ "$_pvrc" = 2 ] || _pvb="$_pvb [a preview that does not parse changed the decision: rc $_pvrc]"
+[ -z "$_pvb" ] && pass "a stopped command says what it would have touched: reset (2 changes, and 1 commit for HEAD~1), clean (2 paths, dry run), rm (2 files inside the project; a target outside it not counted); an asked commit and push say what they take and send (a push that names a new branch says it would create it, one of another local branch counts that branch's commits); a pattern is said, not expanded; a preview library that exits or does not parse leaves the decision at rc 2" \
+  || fail "risk preview:$_pvb"
+rm -rf "$PVR" "$PVX" "$_pvh"; rm -f "$PVO" "$PVE"
 # §4.5 whole-tree revert. `reset --hard` was gated from the start; `git checkout -- .` does the same damage and
 # was not — a verification subagent used it over uncommitted work in this repo and the tree went with it. The
 # single-file form stays allowed (everyday, recoverable), and the two ways around a naive matcher — `git -C`
@@ -3476,6 +3552,27 @@ done
 # are now cut out and the rest goes to the old rule, so nothing unproven is skipped — all pinned above.
 [ -z "$_hp_bad" ] && pass "core.hooksPath: value-less reads pass, every write form stays blocked ($_hp_n of 48 shapes)" \
                   || fail "core.hooksPath read/write split is wrong:$_hp_bad"
+# crewforth.hookschain IS JUDGED BY THE SAME READER. The key holds the path of a project hook chain that lives outside
+# the repository; the shim reads it on every commit. Reads pass, every write form is refused, exactly 0 or 2.
+_hc_bad=""; _hc_n=0
+for _c in 'git config crewforth.hookschain' 'git config --get crewforth.hookschain' 'git config --local crewforth.hookschain' \
+          'git -C /r config --get crewforth.hookschain' 'git config get crewforth.hookschain' 'git config --get crewforth.hookschain | cat' \
+          'git status; echo crewforth.hookschain' 'git config --remove-section crewforth.foo' 'git config crewforth.other x'; do
+  gj auto "$_c" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; _r=$?; _hc_n=$((_hc_n+1)); [ "$_r" = 0 ] || _hc_bad="$_hc_bad [$_c -> $_r, want 0]"
+done
+for _c in 'git config crewforth.hookschain /tmp/x' 'git config --local crewforth.hookschain x' 'git config --unset crewforth.hookschain' \
+          'git config --unset-all crewforth.hookschain' 'git config --add crewforth.hookschain x' 'git config --replace-all crewforth.hookschain x' \
+          'git config set crewforth.hookschain x' 'git config unset crewforth.hookschain' 'git config crewforth.hookschain \"\"' \
+          'git config --get crewforth.hookschain && git config crewforth.hookschain x' 'git config crewforth.HooksChain /tmp/x' \
+          'git config crewforth.hooks\"c\"hain x' 'git config crewforth.hookschain \r' 'git -C /r config crewforth.hookschain /tmp/x' \
+          'git config --remove-section crewforth' 'git config --rename-section crewforth x' \
+          'git -c crewforth.hookschain=/tmp/x commit -m x' "git -c 'crewforth.hookschain=/tmp/x' commit -m x" \
+          'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=crewforth.hookschain GIT_CONFIG_VALUE_0=/tmp/x git commit -m x'; do
+  gj auto "$_c" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; _r=$?; _hc_n=$((_hc_n+1)); [ "$_r" = 2 ] || _hc_bad="$_hc_bad [$_c -> $_r, want 2]"
+done
+if [ "$_hc_n" != 28 ]; then fail "FIXTURE: the crewforth.hookschain table ran $_hc_n rows, not 28"
+elif [ -z "$_hc_bad" ]; then pass "crewforth.hookschain: 9 reads and neighbours pass, 19 write forms are refused — a value, unset, add, set, the section removed or renamed, -c, GIT_CONFIG_ ($_hc_n rows)"
+else fail "crewforth.hookschain read/write split is wrong:$_hc_bad"; fi
 # THE SAME SPLIT UNDER A WINDOWS PAYLOAD. A read is not proven when the payload holds an escape the reader drops
 # (`\r`, `\f`, `\b`, `\v`, `\u`). That was asked of the WHOLE payload, and a Windows `cwd` is full of them once
 # JSON-encoded: `C:\\repos\\app` holds a backslash and an r. So in such a directory `git config --get core.hooksPath`
@@ -3568,6 +3665,8 @@ if [ "$_gc1" != 5 ] || [ "$_gc2" != 7 ]; then
 else
   gcj(){ printf '{"tool_name":"%s","permission_mode":"default","tool_input":{"command":"%s"},"cwd":"%s"}' "$1" "$2" "$_gcp"; }
   gwj(){ printf '{"tool_name":"Write","permission_mode":"default","tool_input":{"file_path":"%s/%s","content":"x"},"cwd":"%s"}' "$_gcp" "$1" "$_gcp"; }
+  # commit-msg 15 -> 16 (2026-10-18): one more line in trace-blocklist.txt, the session-link trailer that reached
+  # pushed commits; each line is one grep on every commit.
   GCT='guard-bash @@ 0 @@ 0 @@ Bash @@ git status --short
 guard-bash @@ 0 @@ 0 @@ Bash @@ ls -la
 guard-bash @@ 0 @@ 0 @@ Bash @@ git log --oneline -2 && git status --short | head; ls; cat CHANGELOG.md
@@ -3589,7 +3688,7 @@ guard-write @@ 0 @@ 0 @@ Write @@ .env
 guard-write @@ 2 @@ 0 @@ Write @@ .claude/hooks/guard-bash.sh
 guard-powershell @@ 0 @@ 0 @@ PowerShell @@ Get-ChildItem -Recurse src
 pre-commit @@ 0 @@ 22 @@ Script @@ -
-commit-msg @@ 0 @@ 15 @@ Script @@ msg'
+commit-msg @@ 0 @@ 16 @@ Script @@ msg'
   _gcn=0; _gcbad=""; _gcrow=""
   while IFS= read -r _gl; do [ -z "$_gl" ] && continue
     _gh="${_gl%% @@ *}"; _gl="${_gl#* @@ }"; _gr="${_gl%% @@ *}"; _gl="${_gl#* @@ }"; _gb="${_gl%% @@ *}"; _gl="${_gl#* @@ }"; _gt="${_gl%% @@ *}"; _gc="${_gl#* @@ }"
@@ -4435,6 +4534,41 @@ else fail "session-rehydrate git-hooks states read '$_got' (want '--UO---': no h
 rm -rf "$RHG"
 _rj=0; for _o in "$_o1" "$_o2" "$_o4" "$_o6"; do printf '%s' "$_o" > "$RHD/o.json"; awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$RHD/o.json" 2>/dev/null || _rj=$((_rj+1)); done
 [ "$_rj" = 0 ] && pass "each language/handover output is valid JSON (Crewforth's reader, 4 of 4)" || fail "$_rj session-rehydrate output(s) are not valid JSON"
+# V3: just before a compaction, precompact-snapshot.sh writes the state of the work from the files and the gates;
+# after it, session-rehydrate gives that state back, to the same session only. The snapshot never blocks the
+# compaction (PreCompact exit 2 would): rc 0 and silent in every case, a broken one included.
+PCS="$HOOKS/precompact-snapshot.sh"
+if [ ! -x "$PCS" ]; then fail "precompact-snapshot.sh missing/not executable"
+else
+  PCD="$(mktemp -d)"; PCD="$(cd -P "$PCD" && pwd)"; _pco="$(mktemp)"; _pcr="$(mktemp)"   # outside the repository: a file there is uncommitted
+  ( cd "$PCD" && git init -q . && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m base ) >/dev/null 2>&1
+  mkdir -p "$PCD/.claude" "$PCD/.crewforth" "$PCD/docs"
+  printf 'x\n' > "$PCD/plain.txt"; printf 'x\n' > "$PCD/odd\"na	me.txt"; printf 'x\n' > "$PCD/ıİşğü.txt"
+  printf '{\n  "findings": [\n    {\n      "rule": "a"\n    },\n    {\n      "rule": "b"\n    }\n  ]\n}\n' > "$PCD/.crewforth/review.json"
+  printf 'BLOCK\t§4.2\tvendor name\t\n' > "$PCD/.git/crewforth-gate-log.tsv"
+  printf '{"session_id":"s-1","cwd":"%s","hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$PCS" > "$_pco" 2>&1; _pcrc=$?
+  _snap="$PCD/.git/crewforth-session-snapshot.json"; _sb=""
+  [ -f "$_snap" ] && IFS= read -r _sb < "$_snap"
+  _rs(){ printf '{"session_id":"%s","source":"%s","cwd":"%s"}' "$1" "$2" "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$HOOKS/session-rehydrate.sh" 2>/dev/null; }
+  _same="$(_rs s-1 compact)"; _other="$(_rs s-2 compact)"; _start="$(_rs s-1 startup)"
+  printf '%s' "$_same" > "$_pcr"
+  _b=""
+  [ "$_pcrc" = 0 ] && [ ! -s "$_pco" ] || _b="$_b [rc $_pcrc, printed: $(head -c 120 "$_pco")]"
+  awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_snap" 2>/dev/null || _b="$_b [the snapshot is not valid JSON: ${_sb:0:160}]"
+  case "$_sb" in *'"session_id":"s-1"'*'"trigger":"auto"'*'branch '*'4 uncommitted file(s)'*'ıİşğü.txt'*'§4.2 vendor name'*'review 2'*) ;; *) _b="$_b [snapshot: ${_sb:0:200}]" ;; esac
+  case "$_same" in *'Before this context was compacted'*'review 2'*) ;; *) _b="$_b [not given back after compaction: ${_same:0:120}]" ;; esac
+  awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_pcr" 2>/dev/null || _b="$_b [the SessionStart output with an odd file name is not valid JSON]"
+  case "$_other$_start" in *'Before this context was compacted'*) _b="$_b [given to another session or on a plain start]" ;; esac
+  # Fail-open: no repository, a cwd that is not there, no JSON at all, and the hook alone without eval/lib.
+  _nr="$(mktemp -d)"; _alone="$(mktemp -d)"; cp "$PCS" "$_alone/precompact-snapshot.sh"
+  printf '{"session_id":"s-9","cwd":"%s","trigger":"manual"}' "$_nr" | CLAUDE_PROJECT_DIR="$_nr" bash "$PCS" >/dev/null 2>&1 || _b="$_b [non-repo rc $?]"
+  printf '{"session_id":"s-9","cwd":"/nonexistent/x"}' | CLAUDE_PROJECT_DIR= bash "$PCS" >/dev/null 2>&1 || _b="$_b [missing cwd rc $?]"
+  printf 'not json' | CLAUDE_PROJECT_DIR="$_nr" bash "$PCS" >/dev/null 2>&1 || _b="$_b [garbage rc $?]"
+  printf '{"session_id":"s-9","cwd":"%s"}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$_alone/precompact-snapshot.sh" >/dev/null 2>&1 || _b="$_b [no eval/lib rc $?]"
+  [ -z "$_b" ] && pass "PreCompact writes the state of the work (branch, uncommitted files, the last gate refusal, the findings on record) as valid JSON, even for a file name with a quote and a tab, and names a Turkish file name as written; SessionStart gives it back after a compaction to the same session only, never to another or on a plain start; the hook is rc 0 and silent outside a repository, with no cwd, with no JSON and without eval/lib" \
+    || fail "precompact snapshot:$_b"
+  rm -rf "$PCD" "$_nr" "$_alone" "$_pco" "$_pcr"
+fi
 # Asked of the entry that carries session-rehydrate, not of the file: skill-trust's entry has the same matcher.
 _rw(){ _n="$(awk -v op=len -v path=hooks.SessionStart -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"; _i=0
        while [ "$_i" -lt "${_n:-0}" ]; do _e="$(awk -v op=get -v path="hooks.SessionStart.$_i" -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"
@@ -4595,6 +4729,37 @@ DOC="$(mktemp -d)"
   chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg
   git config core.hooksPath .claude/hooks )
 bash "$ROOT/eval/doctor.sh" "$DOC" >/dev/null 2>&1 && pass "doctor: healthy install -> exit 0" || fail "doctor flagged a healthy install"
+# Two editions at once, and the advisor (doctor 9c). Driven through a stub `claude` that prints a plugin list, a
+# config dir of its own, and the provider and advisor variables cleared, so the machine running this decides
+# nothing. Advisory: every case keeps the healthy verdict (exit 0).
+_d9="$(mktemp -d)"; mkdir -p "$_d9/bin" "$_d9/cfg"
+_d9stub(){ printf '#!/bin/sh\ncase "$1" in --version) echo "2.1.299 (Claude Code)" ;; plugin) cat <<J\n%s\nJ\n;; esac\n' "$1" > "$_d9/bin/claude"; chmod +x "$_d9/bin/claude"; }
+_d9run(){ _d9o="$( cd "$DOC" && env -u CLAUDE_CODE_DISABLE_ADVISOR_TOOL -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
+  CREW_LANG=en CLAUDE_CONFIG_DIR="$_d9/cfg" PATH="$_d9/bin:$PATH" "$@" bash "$ROOT/eval/doctor.sh" 2>&1 )"; _d9rc=$?; }
+_d9b=""
+_d9stub '[{"id":"crewforth@crewforth","enabled":true},{"id":"other@market","enabled":true}]'; _d9run
+case "$_d9o" in *"every hook runs twice"*) ;; *) _d9b="$_d9b both-on-not-seen" ;; esac; [ "$_d9rc" = 0 ] || _d9b="$_d9b both-on-changed-the-verdict($_d9rc)"
+# The 2.x plugin id, still enabled at user scope beside a 3.x install, wires the same hooks: measured in a real
+# project (the 2.13.0 plugin was claude-starter-kit@byerlikaya).
+_d9stub '[{"id":"claude-starter-kit@byerlikaya","enabled":true}]'; _d9run
+case "$_d9o" in *"claude-starter-kit@byerlikaya plugin is enabled"*"every hook runs twice"*) ;; *) _d9b="$_d9b legacy-plugin-not-seen" ;; esac
+_d9stub '[{"id": "crewforth@crewforth", "enabled": false}]'; _d9run
+case "$_d9o" in *"one edition: the Crewforth plugin is not enabled"*) ;; *) _d9b="$_d9b plugin-off-not-one-edition" ;; esac
+rm -f "$_d9/bin/claude"; _d9run env PATH="$_d9/bin:/usr/bin:/bin"
+case "$_d9o" in *"two editions at once: not measured (no claude CLI"*) ;; *) _d9b="$_d9b no-cli-not-said" ;; esac
+_d9stub '[]'
+_d9run; case "$_d9o" in *"advisor: off (no advisorModel set"*) ;; *) _d9b="$_d9b advisor-unset" ;; esac
+printf '{"advisorModel":"opus"}' > "$_d9/cfg/settings.json"; _d9run
+case "$_d9o" in *"advisor: on, opus"*) ;; *) _d9b="$_d9b advisor-opus" ;; esac; case "$_d9o" in *"below the critical tier"*) _d9b="$_d9b opus-called-below-critical" ;; esac
+printf '{"advisorModel":"sonnet"}' > "$_d9/cfg/settings.json"; _d9run
+case "$_d9o" in *"advisor (sonnet) is below the critical tier"*) ;; *) _d9b="$_d9b sonnet-not-below" ;; esac
+_d9run env CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1
+case "$_d9o" in *"CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off"*) ;; *) _d9b="$_d9b env-off-not-seen" ;; esac
+_d9run env CLAUDE_CODE_USE_BEDROCK=1
+case "$_d9o" in *"needs the Anthropic API"*) ;; *) _d9b="$_d9b bedrock-not-seen" ;; esac; [ "$_d9rc" = 0 ] || _d9b="$_d9b bedrock-changed-the-verdict($_d9rc)"
+rm -rf "$_d9"
+[ -z "$_d9b" ] && pass "doctor 9c: both editions on is named, one is ok, no CLI is not measured; the advisor off, on, below the critical tier, env-disabled and on Bedrock each read right; none changes the verdict" \
+               || fail "doctor 9c:$_d9b"
 # THE MANIFEST'S LINE ENDINGS MUST NOT CHANGE WHO OWNS A SKILL. Measured before the fix: the same install with
 # one project skill counted 1 on an LF manifest and 2 on a CRLF one, because `grep -qxF` wants a whole line and
 # `skills/handoff\r` is not `skills/handoff` — so every KIT skill read as project-owned. A Windows checkout with
@@ -4883,6 +5048,8 @@ sec "== 7u) update prompt: ASKS about a release, never installs one, never spend
 UPD="$(mktemp -d)"; mkdir -p "$UPD/.claude/.state" "$UPD/.claude/hooks"
 printf '3.0.0\n' > "$UPD/.claude/VERSION"
 UH="$HOOKS/session-update-check.sh"; cp "$UH" "$UPD/.claude/hooks/"
+# The hook reads and orders the install's version through eval/lib/version.sh, beside it in an install.
+mkdir -p "$UPD/.claude/eval/lib"; cp "$ROOT/eval/lib/version.sh" "$UPD/.claude/eval/lib/"
 uc(){ ( printf '{"hook_event_name":"SessionStart","source":"startup","cwd":"%s"}' "$UPD" \
         | env -u CI -u CREW_NO_UPDATE_CHECK -u CREW_LANG CLAUDE_CODE_SESSION_ATTENDED=1 LANG=C LC_ALL= LC_MESSAGES= \
           CLAUDE_PROJECT_DIR="$UPD" CREW_UPDATE_URL="${1:-http://10.255.255.1/blackhole}" bash "$UH" 2>/dev/null ); }
@@ -5011,10 +5178,25 @@ cp "$UH" "$UPD/uh-twin.sh"; printf 'npx --yes crewforth@latest update --here --y
 if [ "$_ni" = 0 ] && [ "$(_noinst "$UPD/uh-twin.sh")" -ge 1 ]; then pass "the update hook runs no installer (npx, npm, adopt.sh, start.sh): 0 lines; the twin with one is caught"
 else fail "the update hook contains an installer call ($_ni line(s)) — it must only ask, or the twin was not caught"; fi
 
+# 12b) AN INSTALLED RC IS OFFERED ITS FINAL. The installer copies VERSION into the project, and an rc's says
+#      X.Y.Z-rc.N: 3.2.0 published over an installed 3.2.0-rc.1 is newer (it used to read as the same 3.2.0, and the
+#      rc's user was never told the final shipped). An older final is not offered, and what the network answers is
+#      still held to X.Y.Z: an rc off the network is no version.
+printf '3.2.0-rc.1\n' > "$UPD/.claude/VERSION"
+ucache 3.2.0
+case "$(uc)" in *'"Crewforth v3.2.0 is out (installed: v3.2.0-rc.1). Update now?"'*) pass "an installed 3.2.0-rc.1 is offered the final 3.2.0" ;;
+                *) fail "an installed 3.2.0-rc.1 was not offered the final 3.2.0 (got: $(uc | head -c 120))" ;; esac
+ucache 3.1.1
+[ -z "$(uc)" ] && pass "an installed rc is not offered an older final (3.1.1 under 3.2.0-rc.1)" || fail "3.1.1 was offered over an installed 3.2.0-rc.1"
+ucache 3.2.0-rc.2
+[ -z "$(uc)" ] && pass "an rc answered off the network is no version: nothing asked" || fail "a pre-release from the network was put in a question"
+printf '3.0.0\n' > "$UPD/.claude/VERSION"; ustate
+
 # 13) THE PLUGIN EDITION. Its version is its own manifest, its release is the marketplace repo's copy, its state is
 #     user-level (a plugin serves every project), and its Update path is the plugin command — measured to work from
 #     inside a session, applying on restart.
-PLG="$UPD/plugin"; mkdir -p "$PLG/.claude-plugin" "$PLG/hooks"; cp "$UH" "$PLG/hooks/"
+PLG="$UPD/plugin"; mkdir -p "$PLG/.claude-plugin" "$PLG/hooks" "$PLG/eval/lib"; cp "$UH" "$PLG/hooks/"
+cp "$ROOT/eval/lib/version.sh" "$PLG/eval/lib/"
 printf '{"name":"crewforth","version":"3.0.0"}\n' > "$PLG/.claude-plugin/plugin.json"
 XDG="$UPD/xdg"; mkdir -p "$XDG/crewforth"
 printf '3.1.0 %s\n' "$(date +%s)" > "$XDG/crewforth/update-check"
@@ -5390,6 +5572,20 @@ $TRFX\""; then pass "multi-line AI trace in the commit message BLOCKED (§4.1)"
   if csblk "git commit -F $MFX"; then pass "-F <file> carrying an AI trace BLOCKED (§4.1)"
   else fail "-F <file> AI trace not blocked with rc=2 (§4.1 hole or the hook died)"; fi
   rm -f "$MFX"
+  # Both halves in ONE refusal: a staged secret and a session-link trailer in the message. The message used to be
+  # scanned only when the staged content was clean, so the refusal named the first problem and the commit was
+  # retried with the trailer still in it (a real project, 2026-10-21). Assembled at run time, as above.
+  STFX="Claude-""Session: https://claude.ai/code/""session_""0123456789abcdef"
+  ( cd "$CS" && printf 'k = "%s"\n' "$SKFX" > c.txt && git add c.txt ) >/dev/null 2>&1
+  _cso="$( cd "$CS" && printf '%s' "$(csj "git commit -m \"feat: z
+
+$STFX\"")" | bash .claude/hooks/guard-commit-scan.sh 2>&1 >/dev/null )"; _csr=$?
+  ( cd "$CS" && git rm -q --cached c.txt && rm -f c.txt ) >/dev/null 2>&1
+  case "$_cso" in *SECRET-SCANNER*'TRACE-SCANNER (message)'*'does not override'*)
+    [ "$_csr" = 2 ] && pass "a staged secret and a trailer in the message are named in ONE refusal, with the harness-reminder line (§4.1)" \
+                    || fail "both problems named but rc=$_csr, not 2" ;;
+    *) fail "the refusal did not name both the staged secret and the message trailer (rc=$_csr): $(printf '%s' "$_cso" | tr '\n' ' ' | cut -c1-200)" ;;
+  esac
   # A QUOTED -F path with a space. The sed extraction that ran wherever python3 did not stopped at the space, read
   # `-F "my msg.txt"` as `my`, found no such file and refused the commit — a clean one. The awk tokenizer is now
   # the only path; both directions are asserted so an extraction that reads NOTHING cannot pass as "clean".
@@ -6275,6 +6471,14 @@ GNI="$(mktemp -d)"; ( cd "$GNI" && git init -q . && mkdir -p .claude )
 ( cd "$GNI" && gjson 'git reset --hard' | bash "$ROOT/hooks/guard-bash.sh" >/dev/null 2>&1 )
 [ -e "$GNI/.claude/gate-log.tsv" ] && fail "gate log wrote into a repo where the path is not gitignored" \
                                    || pass "gate log declines a path git would track"
+# ...and since 3.2.0 writes inside the repository's .git instead, which is never committed: a project that tracks
+# .claude/ had no record of a refusal at all (seen on a real project: no 🛡, no note of a lowered model).
+# The readers find it there (eval/lib/gate-log.sh, the one rule), and `git status` stays clean.
+_gni_read="$( cd "$GNI" && . "$ROOT/eval/lib/gate-log.sh" && crew_gate_log_read && printf '%s' "$_CREW_GL" )"
+_gni_st="$( cd "$GNI" && git status --porcelain --untracked-files=all 2>/dev/null | grep -c gate-log )"
+{ [ -s "$GNI/.git/crewforth-gate-log.tsv" ] && grep -q '^BLOCK' "$GNI/.git/crewforth-gate-log.tsv" && [ "$_gni_st" = 0 ] && [ "$_gni_read" = ./.git/crewforth-gate-log.tsv ]; } \
+  && pass "where git would track it, the gate log goes inside .git: written, found by the readers, and git status stays clean" \
+  || fail "gate log inside .git: file $([ -s "$GNI/.git/crewforth-gate-log.tsv" ] && echo written || echo MISSING), git status shows it ${_gni_st}x, reader found '${_gni_read}'"
 ( cd "$GNI" && echo '.claude/' > .gitignore && gjson 'git reset --hard' | bash "$ROOT/hooks/guard-bash.sh" >/dev/null 2>&1 )
 [ -s "$GNI/.claude/gate-log.tsv" ] && pass "gate log writes once the path is gitignored" \
                                    || fail "gate log stayed silent even though the path is ignored"
@@ -6610,8 +6814,10 @@ rm -rf "$_hsd"
 # A gate's timeout is not a comfort setting: a PreToolUse hook that reaches it does not block (Claude Code's hooks
 # reference: "doesn't block the tool call … don't count on a stalled hook to act as a gate"), and a field session on
 # 3.0.0 showed nine of them in one day — the commands ran with no gate. Crewforth had set 60 s where Claude Code's
-# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The seven PreToolUse
-# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh and guard-agent-model.sh) carry 600 now; every other hook keeps 60 — when one of those times out, nothing is left unguarded.
+# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The eight PreToolUse
+# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh, guard-agent-model.sh and prompt-approval.sh on
+# the approval question, whose `ask` is what keeps a hook from answering it) carry 600 now; every other hook keeps 60 —
+# when one of those times out, nothing is left unguarded.
 # Read per entry, in both editions; the twin lowers one gate back to 60 and must be seen.
 gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++; t = 0
       if (match($3, /"timeout"[ \t]*:[ \t]*[0-9]+/)) { t = substr($3, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", t) }
@@ -6620,13 +6826,13 @@ gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++
 _gtd="$(mktemp -d)"
 tr -d '\n' < "$ROOT/settings.json" | sed 's/guard-bash\.sh\([^}]*\)"timeout": 600/guard-bash.sh\1"timeout": 60/' > "$_gtd/twin.json"
 _gtw="$(gate_timeouts "$_gtd/twin.json")"
-if [ "$_gtw" != "7 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '7 1' — the pin sees nothing"
+if [ "$_gtw" != "8 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '8 1' — the pin sees nothing"
 else for _gf in $_gpw_f; do
   [ -f "$_gf" ] || continue
   set -- $(gate_timeouts "$_gf")
-  if [ "${1:-0}" != 7 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 7 — the pin did not read the file as written"
-  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 7 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
-  else fail "${_gf##*/}: $2 of 7 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
+  if [ "${1:-0}" != 8 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 8 — the pin did not read the file as written"
+  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 8 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
+  else fail "${_gf##*/}: $2 of 8 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
 done; fi
 rm -rf "$_gtd"
 
@@ -7394,6 +7600,22 @@ PCT='0 @@ git commit -m x
 2 @@ git  commit -m x
 2 @@ git commit -m x;touch
 2 @@ git commit -m #\x27\ntouch ../PWNED\n#\x27
+2 @@ git commit -m x \\
+2 @@ git commit -m a\\ b
+2 @@ git commit -m $\x27a\x27
+2 @@ git commit -m \"a
+2 @@ git commit -m \x27a
+2 @@ git commit -m \"a\\\\b\"
+2 @@ git commit -m \"a!b\"
+0 @@ git commit -q -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27 -m \x27p\x27
+0 @@ \n  git commit -m \x27a\x27 \t\n
+0 @@ git commit -m x \\\n
+0 @@ git commit -m x\n 2>&1 
+2 @@ git commit -m x\n2>&1 -a
+2 @@ git commit -m \"$(cat <<\x27E-F\x27\nmsg\nE-F\n)\"
+2 @@ git commit -m \"$(cat <<\x27EOF\x27\nmsg\nEOF\ntouch ../PWNED\nEOF\n)\"
+2 @@ git commit -m a*b
+2 @@ git commit -m x2>&1
 2 @@ git commit -m \\\x27a ; touch ../PWNED ; echo b\\\x27'
 _pa_say auto 'approve: commit' >/dev/null
 _pan=0; _pabad=""
@@ -7401,8 +7623,8 @@ while IFS= read -r _pl; do [ -z "$_pl" ] && continue
   _pw="${_pl%% @@ *}"; _pc="${_pl#* @@ }"; _pc="${_pc//\\x27/$_pq}"; _pan=$((_pan+1))
   _pa_run auto "$_pc"; [ "$_par" = "$_pw" ] || _pabad="$_pabad [$_pc → $_par, want $_pw]"
 done <<< "$PCT"
-if [ "$_pan" != 50 ]; then fail "FIXTURE: the approved-commit table has $_pan rows, not 50"
-elif [ -z "$_pabad" ]; then pass "an approved commit is 'git commit -m …' alone in its call: 7 spellings allowed (any single-quoted message, a here-document with a quoted delimiter), 43 refused — a cd or a variable in front, a second command however it is quoted, a substitution, a redirection, -a or a path past a redirection, -n, an abbreviated --no-verify or --amend, any other option (50 rows)"
+if [ "$_pan" != 66 ]; then fail "FIXTURE: the approved-commit table has $_pan rows, not 66"
+elif [ -z "$_pabad" ]; then pass "an approved commit is 'git commit -m …' alone in its call: 10 spellings allowed (any single-quoted message, a here-document with a quoted delimiter, forty messages in one call, blank lines around the call, a continued line with nothing after it, a 2>&1 on a line of its own), 56 refused — a cd or a variable in front, a second command however it is quoted, a substitution, a redirection, -a or a path past a redirection, -n, an abbreviated --no-verify or --amend, any other option, a backslash outside quotes (the last character of the call too), a quote never closed, a \$'…' text, a here-document whose delimiter is not a plain word or whose body holds the delimiter twice, a glob in the message (66 rows)"
 else fail "approved-commit table:$_pabad"; fi
 
 # What is staged, HEAD, the clock: each one moved on its own, with the others still matching.
@@ -7481,6 +7703,25 @@ _pa_say auto 'approve: push' >/dev/null; ( cd "$_paw" && git checkout -q -b othe
 _pa_run auto 'git push origin feat/x'; [ "$_par" = 2 ] || _pabad="$_pabad other-branch-checked-out:rc=$_par"
 [ -z "$_pabad" ] && pass "a push approval is for the commit HEAD was on and the branch that was checked out: one more commit, or another branch, and it is refused" \
                  || fail "push binding:$_pabad"
+# A tag on the approved commit is part of that push (a release: `/crew-approve push`, then `git push origin v2.0.0`
+# was refused on a real project). A tag elsewhere, a name that is also a branch, or a full ref is not.
+_pa_new; _pabad=""; ( cd "$_paw" && git commit -qm second && git tag old HEAD^ && git tag v1 && git tag -a v1a -m v1a && git tag both && git branch both ) >/dev/null 2>&1
+_pa_say auto 'approve: commit' >/dev/null
+_pa_run auto 'git push origin v1'; [ "$_par" = 2 ] || _pabad="$_pabad [a commit approval pushed a tag: rc=$_par]"
+_pa_say auto 'approve: push' >/dev/null
+for _pc in 'git push origin v1' 'git push origin v1a' 'git push -q origin v1'; do
+  _pa_run auto "$_pc"; [ "$_par" = 0 ] || _pabad="$_pabad [$_pc → $_par $(head -c 120 "$_PA/err")]"
+done
+_pa_run auto 'git push origin old'; { [ "$_par" = 2 ] && grep -q 'the tag old is on' "$_PA/err"; } || _pabad="$_pabad [a tag on another commit → $_par]"
+for _pc in 'git push origin both' 'git push origin refs/tags/v1' 'git push origin nosuch' 'git push origin v1:v2' 'git push other v1'; do
+  _pa_run auto "$_pc"; [ "$_par" = 2 ] || _pabad="$_pabad [$_pc → $_par]"
+done
+_pa_new; ( cd "$_paw" && git tag before ) >/dev/null 2>&1; _pa_say auto 'approve: commit+push' >/dev/null
+_pa_run auto 'git commit -m x' >/dev/null; ( cd "$_paw" && git commit -qm approved && git tag after ) >/dev/null 2>&1
+_pa_run auto 'git push origin after'; [ "$_par" = 0 ] || _pabad="$_pabad [commit+push: a tag on the new commit → $_par $(head -c 120 "$_PA/err")]"
+_pa_run auto 'git push origin before'; { [ "$_par" = 2 ] && grep -q 'the tag before is on' "$_PA/err"; } || _pabad="$_pabad [commit+push: a tag on the old commit → $_par]"
+[ -z "$_pabad" ] && pass "a push approval covers a tag on the approved commit (lightweight or annotated; after commit+push, on the new commit): a tag on another commit, a name that is also a branch, a full ref, a refspec, another remote or a commit-only approval is refused" \
+                 || fail "tag push:$_pabad"
 
 # ---- commit+push: the push is for the commit the approved diff became -----------------------------------------
 _pa_new; _pabad=""
@@ -7772,6 +8013,204 @@ _pa_say auto 'approve: commit' >/dev/null; _pa_gate auto 'git commit -m x'; _pav
 _pa_new; _pa_gate auto 'git commit -m x'; _pav2="$_par"
 [ "$_pav1/$_pav2" = 0/2 ] && pass "the wiring check moves no verdict: a recorded approval is allowed (rc 0) and its absence refused (rc 2) with no settings file" \
                           || fail "the wiring check moved a verdict: approved $_pav1 (want 0), unapproved $_pav2 (want 2)"
+# ---- THE APPROVAL QUESTION (3.2.0): one click in auto, recorded as the typed approval is -------------------------
+# guard-question.sh on PreToolUse for AskUserQuestion answers `ask` to the fixed question (a hook's `ask` beats another
+# hook's `allow` with filled-in answers: measured on Claude Code 2.1.294, 34 runs and by hand), PostToolUse records
+# (prompt-approval.sh, on PostToolUse) the user's answer when THIS call was asked. Before either, and before guard-bash.sh raises its own prompt in
+# default / acceptEdits, a PermissionRequest hook is looked for: such a hook answers a prompt before the person does.
+# Every case runs the hooks against a real repository; what is asserted is a verdict or a record.
+_pa_new; mkdir -p "$_PA/ccd" "$_PA/home"
+_PAQ_ENV="CLAUDE_PROJECT_DIR=$_paw CLAUDE_CONFIG_DIR=$_PA/ccd HOME=$_PA/home CREW_GATE_LOG=/dev/null"
+_paq_canon="$(bash -c '. "$1"; printf "%s" "$_CREW_Q_JSON"' _ "$HOOKS/prompt-approval.sh")"
+_paq_text="$(bash -c '. "$1"; printf "%s" "$_CREW_Q_TEXT"' _ "$HOOKS/prompt-approval.sh")"
+# $1 = mode, $2 = the questions array's content, $3 = more tool_input (",..."), $4 = tool_use_id -> rc in _par, stdout _pao
+_paq_pre(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s]%s},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "$2" "${3:-}" "${4:-tu1}" > "$_PA/q.json"
+  if [ -n "$JSONQ" ]; then json_ok < "$_PA/q.json" || _paqbad="$_paqbad [pre payload is not JSON]"; fi
+  _pao="$( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/guard-question.sh" < "$_PA/q.json" 2>"$_PA/qerr" )"; _par=$?; }
+# $1 = mode, $2 = the answer, $3 = tool_use_id, $4 = the questions array's content as Claude Code hands it back (default: as asked)
+_paq_post(){ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"%s","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s],"answers":{"%s":"%s"}},"tool_response":{"questions":[%s],"answers":{"%s":"%s"}},"tool_use_id":"%s"}' "$_patr" "$_paw" "$1" "${4:-$_paq_canon}" "$_paq_text" "$2" "${4:-$_paq_canon}" "$_paq_text" "$2" "${3:-tu1}" > "$_PA/q.json"
+  if [ -n "$JSONQ" ]; then json_ok < "$_PA/q.json" || _paqbad="$_paqbad [post payload is not JSON]"; fi
+  _pao="$( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/prompt-approval.sh" < "$_PA/q.json" 2>"$_PA/qerr" )"; _par=$?; }
+_paq_gate(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_paw" "$1" "$2" > "$_PA/pl.json"
+  _pao="$( cd "$_paw" && env $_PAQ_ENV ${_PAQ_X:-} bash "$HOOKS/guard-bash.sh" < "$_PA/pl.json" 2>"$_PA/err" )"; _par=$?; _pae="$(cat "$_PA/err")"; }
+_paq_rec(){ [ -s "$_pa_rec" ] && _pa_op || echo none; }
+_paqbad=""; _paqn=0
+_paq_is(){ _paqn=$((_paqn+1)); [ "$2" = "$3" ] || _paqbad="$_paqbad [$1: got '$2', want '$3']"; }
+# the round trip, and what it opens
+: > "$_pa_rec"; _paq_pre auto "$_paq_canon";              _paq_is 'fixed question in auto is asked' "$_par/$(gdec "$_pao")" "0/ask"
+_paq_post auto 'Commit only';                             _paq_is 'its answer is recorded' "$(_paq_rec)" commit
+_paq_gate auto 'git commit -m x';                         _paq_is 'the recorded click allows the commit' "$_par" 0
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu2; _paq_post auto 'Commit + push' tu2; _paq_is 'commit + push' "$(_paq_rec)" commit+push
+# Claude Code may hand the answered question back with its keys sorted and multiSelect gone: 7 of 7 such answers were
+# refused on a byte match (real `auto` sessions, 2026-10-18). This is that shape, as it was handed back.
+_paq_sorted="{\"header\":\"Approval\",\"options\":[{\"description\":\"Commit exactly what is staged now. No push.\",\"label\":\"Commit only\"},{\"description\":\"Commit what is staged now, then push that commit on this branch.\",\"label\":\"Commit + push\"},{\"description\":\"Push this branch as it is now. No new commit.\",\"label\":\"Push only\"},{\"description\":\"Neither commit nor push.\",\"label\":\"No\"}],\"question\":\"$_paq_text\"}"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu10; _paq_post auto 'Commit + push' tu10 "$_paq_sorted"
+                                                          _paq_is 'the answered question handed back with its keys sorted' "$(_paq_rec)" commit+push
+# must-fail twins: each differs from the round trip in one thing
+_pa_new; : > "$_pa_rec"; _paq_post auto 'Commit only' tu3;  _paq_is 'an answer no PreToolUse asked for' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu4; _paq_post auto 'Commit only' tu5; _paq_is 'an answer to another call' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu6; _paq_post auto 'Commit only' tu6; : > "$_pa_rec"; _paq_post auto 'Commit only' tu6
+                                                          _paq_is 'the same call answered twice' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu7; _paq_post auto 'HOOK-CHOSE-Commit only' tu7; _paq_is 'an answer that is none of the four' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu8; _paq_post auto 'No' tu8; _paq_is 'No' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu9; _paq_post default 'Commit only' tu9; _paq_is 'an answer recorded outside auto' "$(_paq_rec)" none
+_paq_pre auto "$_paq_canon" '' tu11; _paq_post auto 'Commit only' tu11 "${_paq_sorted/No new commit./Then force-push.}"
+                                                          _paq_is 'sorted, with one text of the question changed' "$(_paq_rec)" none
+_paq_pre auto '{"question":"Crewforth approval: commit?","header":"Approval","options":[{"label":"Commit only","description":"x"}],"multiSelect":false}'
+                                                          _paq_is 'another wording is refused' "$_par" 2
+_paq_pre auto "$_paq_canon" ',"answers":{"x":"Commit only"}'; _paq_is 'a call with answers is refused' "$_par" 2
+_paq_pre auto "$_paq_canon,$_paq_canon";                  _paq_is 'the question twice is refused' "$_par" 2
+_paq_pre dontAsk "$_paq_canon";                           _paq_is 'dontAsk: refused' "$_par" 2
+_paq_pre default "$_paq_canon";                           _paq_is 'default: refused' "$_par" 2
+_paq_pre bypassPermissions "$_paq_canon";                 _paq_is 'bypassPermissions: refused' "$_par" 2
+_PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0"; _paq_pre auto "$_paq_canon"; unset _PAQ_X; _paq_is 'a headless session: refused' "$_par" 2
+_paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label":"Red","description":"r"}],"multiSelect":false}'
+                                                          _paq_is 'any other question: no decision' "$_par/$_pao" "0/"
+if [ "$_paqn" != 20 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 20"
+elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four, in whatever key order Claude Code hands it back; the record allows the commit (20 cases, 14 must-fail)"
+else fail "the approval question:$_paqbad"; fi
+# ...and the way to it. B-2 (a real `auto` session, 2026-10-17): /crew-ship asked for /crew-approve before any commit
+# was refused, so the refusal that prints the question never came and the click was never offered; telling the agent
+# to try the commit first did not help either (§4.4 says not to, and it did not). agent-outcome.sh now hands the
+# question over when crew-commit-agent is called; the text pinned here only says to ask it.
+_cqa="$AGENTS/crew-commit-agent.md"; _cqs="$SKILLS/crew-ship/SKILL.md"
+if [ ! -f "$_cqa" ] || [ ! -f "$_cqs" ]; then skip scope "the way to the approval question: crew-commit-agent or crew-ship is not installed here"
+elif grep -q 'question (below): ask it, with the message, instead of' "$_cqa" && grep -q 'one-click approval question when crew-commit-agent is called' "$_cqs"; then
+  pass "in auto the commit agent and /crew-ship ask the one-click question Crewforth hands over, before asking for /crew-approve"
+else fail "the commit agent or /crew-ship asks for /crew-approve before the one-click question Crewforth hands over (B-2)"; fi
+# The hand-over itself, run: agent-outcome.sh on PostToolUse of an Agent call. In `auto`, for crew-commit-agent, with
+# both halves of the question wired and no PermissionRequest hook, it adds the fixed question (_CREW_Q_JSON, read from
+# prompt-approval.sh) to the session's context; in any other mode, for any other agent, or with such a hook, nothing.
+_aq="$(mktemp -d)"; _aq="$(cd -P "$_aq" && pwd)"; mkdir -p "$_aq/p/.claude/state" "$_aq/ccd" "$_aq/home"
+printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_aq/p/.claude/settings.json"
+_aq_run(){ printf '{"hook_event_name":"PostToolUse","tool_name":"Agent","permission_mode":"%s","session_id":"s","tool_use_id":"toolu_aq1","cwd":"%s","tool_input":{"subagent_type":"%s","description":"d","prompt":"p"},"tool_response":{"status":"async_launched","agentId":"aq123abc"}}' "$1" "$_aq/p" "$2" > "$_aq/pl.json"
+  ( cd "$_aq/p" && env -u CREW_MODEL_ROUTING CLAUDE_PROJECT_DIR="$_aq/p" CLAUDE_CONFIG_DIR="$_aq/ccd" HOME="$_aq/home" CREW_GATE_LOG=/dev/null bash "$HOOKS/agent-outcome.sh" < "$_aq/pl.json" 2>/dev/null ); }
+_aqbad=""; _aqo="$(_aq_run auto crew-commit-agent)"
+case "$_aqo" in *"$_paq_text"*) ;; *) _aqbad="$_aqbad [auto, crew-commit-agent: the question was not handed over]" ;; esac
+if [ -n "$JSONQ" ] && [ -n "$_aqo" ]; then printf '%s' "$_aqo" | json_ok || _aqbad="$_aqbad [its output is not JSON]"; fi
+for _aqc in default:crew-commit-agent dontAsk:crew-commit-agent acceptEdits:crew-commit-agent auto:crew-review-agent; do
+  [ -z "$(_aq_run "${_aqc%%:*}" "${_aqc#*:}")" ] || _aqbad="$_aqbad [${_aqc%%:*}, ${_aqc#*:}: handed the question over]"
+done
+printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}' > "$_aq/ccd/settings.json"
+[ -z "$(_aq_run auto crew-commit-agent)" ] || _aqbad="$_aqbad [a PermissionRequest hook is wired: the question was still handed over]"
+rm -rf "$_aq"
+[ -z "$_aqbad" ] && pass "in auto, calling crew-commit-agent hands the session the fixed one-click question; not in default, acceptEdits or dontAsk, not for another agent, not with a PermissionRequest hook" \
+  || fail "the one-click question hand-over:$_aqbad"
+# THE CLICK BEFORE THE TYPED WAY, at the turn's end (2026-10-18: 9 of 18 typed asks in two real `auto` sessions on rc.4
+# came in a turn where no commit was tried, so neither the refusal nor the commit agent's hand-over offered the click).
+# prompt-approval.sh on Stop: the reply names /crew-approve, auto, the question open, not asked since the user's last
+# message -> the session is told once to ask the click. Every other case is a twin that differs in one thing.
+_sq="$(mktemp -d)"; _sq="$(cd -P "$_sq" && pwd)"; mkdir -p "$_sq/p/.claude/state" "$_sq/ccd" "$_sq/home"
+printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_sq/p/.claude/settings.json"
+_SQ_ENV="CLAUDE_PROJECT_DIR=$_sq/p CLAUDE_CONFIG_DIR=$_sq/ccd HOME=$_sq/home CREW_GATE_LOG=/dev/null"
+# $1 = mode, $2 = the reply, $3 = stop_hook_active, $4 = session id
+_sq_stop(){ printf '{"session_id":"%s","transcript_path":"%s/t.jsonl","cwd":"%s","permission_mode":"%s","hook_event_name":"Stop","stop_hook_active":%s,"last_assistant_message":"%s"}' "${4:-s1}" "$_sq" "$_sq/p" "$1" "${3:-false}" "$2" > "$_sq/pl.json"
+  ( cd "$_sq/p" && env $_SQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_sq/pl.json" 2>/dev/null ); }
+_sq_ask='Review is clean. If you approve, send only this:\n/crew-approve commit+push'
+_sqbad=""; _sqn=0
+_sq_says(){ _sqn=$((_sqn+1)); case "$2" in *'ASK THE USER WITH ONE CLICK'*"$_paq_text"*) ;; *) _sqbad="$_sqbad [$1: the click was not asked for]" ;; esac
+  if [ -n "$JSONQ" ]; then printf '%s' "$2" | json_ok || _sqbad="$_sqbad [$1: the output is not JSON]"; fi; }
+_sq_quiet(){ _sqn=$((_sqn+1)); [ -z "$2" ] || _sqbad="$_sqbad [$1: said something: ${2:0:80}]"; }
+_sq_says  'auto, a typed ask, not asked this turn' "$(_sq_stop auto "$_sq_ask")"
+_sq_quiet 'stop_hook_active'                       "$(_sq_stop auto "$_sq_ask" true)"
+_sq_quiet 'dontAsk'                                "$(_sq_stop dontAsk "$_sq_ask")"
+_sq_quiet 'default'                                "$(_sq_stop default "$_sq_ask")"
+_sq_quiet 'a reply that names no /crew-approve'    "$(_sq_stop auto 'Done: the tests pass.')"
+# asked this turn: the PreToolUse half writes it down, even when it refuses the question
+printf '{"session_id":"s1","cwd":"%s","permission_mode":"dontAsk","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s]},"tool_use_id":"tq1"}' "$_sq/p" "$_paq_canon" > "$_sq/pre.json"
+( cd "$_sq/p" && env $_SQ_ENV bash "$HOOKS/guard-question.sh" < "$_sq/pre.json" >/dev/null 2>&1 ); _sqr=$?
+[ "$_sqr" = 2 ] || _sqbad="$_sqbad [FIXTURE: the dontAsk question was not refused (rc $_sqr), so 'refused but asked' is not what runs]"
+_sq_quiet 'asked this turn (and refused)'          "$(_sq_stop auto "$_sq_ask")"
+_sq_says  'asked in another session'               "$(_sq_stop auto "$_sq_ask" false s2)"
+# the user's next message starts a new turn
+printf '{"session_id":"s1","cwd":"%s","permission_mode":"auto","hook_event_name":"UserPromptSubmit","prompt":"next"}' "$_sq/p" > "$_sq/ups.json"
+( cd "$_sq/p" && env $_SQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_sq/ups.json" >/dev/null 2>&1 )
+_sq_says  'the user wrote since it was asked'      "$(_sq_stop auto "$_sq_ask")"
+printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}' > "$_sq/ccd/settings.json"
+_sq_quiet 'a PermissionRequest hook is wired'      "$(_sq_stop auto "$_sq_ask")"
+rm -rf "$_sq"
+# A Stop is not the user's next message: an approval recorded by a click survives the turn's end, even when the reply
+# quotes the tool's name (which sends the payload past the AskUserQuestion test).
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' ts1; _paq_post auto 'Commit only' ts1
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"auto","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"I asked with \\"AskUserQuestion\\"; run /crew-approve if not."}' "$_patr" "$_paw" > "$_PA/st.json"
+( cd "$_paw" && env $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_PA/st.json" >/dev/null 2>&1 )
+_sqn=$((_sqn+1)); [ "$(_paq_rec)" = commit ] || _sqbad="$_sqbad [a Stop ended the recorded approval: '$(_paq_rec)']"
+if [ "$_sqn" != 10 ]; then fail "FIXTURE: the Stop-half table ran $_sqn cases, not 10"
+elif [ -z "$_sqbad" ]; then pass "at the turn's end a reply asking for /crew-approve, in auto with the question open and not asked since the user's last message, is sent back once to ask the click; not after a Stop continuation, outside auto, without the command, once asked (even refused), or with a PermissionRequest hook; a Stop leaves a recorded approval alone (10 cases, 6 must-stay-quiet)"
+else fail "the Stop half of the approval question:$_sqbad"; fi
+# ONE WAY TO ASK in the refusal (2026-10-18, a real `auto` session on rc.3: the refusal offered the question and the
+# typed command as equals, and the session told the user to type 7 times in 9). With the question open the typed way is
+# printed only as the fallback for a question that cannot be asked; with it closed (dontAsk), only the typed way.
+_pa_new
+( cd "$_paw" && printf '%s' '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}],"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > .claude/settings.json )
+_oabad=""
+_paq_gate auto 'git commit -m x'
+case "$_pae" in *'"questions":['*'do not also give the user a command to type.'*'ONLY IF THAT QUESTION CANNOT BE ASKED'*) ;; *) _oabad="$_oabad [auto, question open: not the click first and the typed way as its fallback]" ;; esac
+case "$_pae" in *'ASK THE USER NOW'*|*'the way below works as well'*) _oabad="$_oabad [auto, question open: the typed way is still offered as an equal]" ;; esac
+_paq_gate dontAsk 'git commit -m x'
+case "$_pae" in *'ASK THE USER NOW'*'/crew-approve'*) ;; *) _oabad="$_oabad [dontAsk: the typed way is not asked for]" ;; esac
+case "$_pae" in *'"questions":['*|*'ONLY IF THAT QUESTION'*) _oabad="$_oabad [dontAsk: the question is offered]" ;; esac
+_pa_new
+[ -z "$_oabad" ] && pass "a refused commit in auto offers the click and only falls back to the typed /crew-approve when the question cannot be asked; in dontAsk only the typed way" \
+  || fail "one way to ask:$_oabad"
+
+# A PermissionRequest HOOK, wherever this can read one, closes the question AND the gate's own prompt. Each source is
+# planted alone in an otherwise clean fixture; the clean fixture itself must answer "none" (calibration).
+_paq_scan(){ ( cd "$_paw" && env $_PAQ_ENV ${_PAQ_X:-} bash -c '. "$1"; if _crew_prh_scan; then printf "found %s" "$_PRH"; else printf none; fi' _ "$HOOKS/prompt-approval.sh" ) 2>/dev/null; }
+_paqbad=""; _paqn=0
+_paq_clean(){ rm -rf "$_PA/ccd" "$_PA/home" "$_paw/.claude/skills" "$_paw/.claude/agents" "$_paw/.claude/settings.local.json" "$_PA/mng.json"; mkdir -p "$_PA/ccd" "$_PA/home"; }
+_paq_found(){ _paqn=$((_paqn+1)); case "$(_paq_scan)" in "found "*"$2"*) ;; *) _paqbad="$_paqbad [$1: $(_paq_scan)]" ;; esac; _paq_clean; }
+_paq_none(){ _paqn=$((_paqn+1)); [ "$(_paq_scan)" = none ] || _paqbad="$_paqbad [$1 wrongly: $(_paq_scan)]"; _paq_clean; }
+_PRQ='{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}'
+_paq_clean; _paq_none 'a clean fixture'
+printf '%s' "$_PRQ" > "$_paw/.claude/settings.local.json";             _paq_found 'project settings.local.json' settings.local.json
+printf '%s' "$_PRQ" > "$_PA/ccd/settings.json";                         _paq_found 'user settings (CLAUDE_CONFIG_DIR)' ccd/settings.json
+printf '%s' "$_PRQ" > "$_PA/mng.json"; _PAQ_X="CREW_MANAGED_SETTINGS=$_PA/mng.json"; _paq_found 'a managed file' mng.json; unset _PAQ_X
+printf '%s' '{"hooks":{"Permission\u0052equest":[]}}' > "$_paw/.claude/settings.local.json"; _paq_found 'the name spelled with a \u escape' settings.local.json
+mkdir -p "$_paw/.claude/skills/s"; printf -- '---\nname: s\nhooks:\n  PermissionRequest:\n    - hooks: []\n---\nbody\n' > "$_paw/.claude/skills/s/SKILL.md"; _paq_found 'skill front matter' SKILL.md
+mkdir -p "$_paw/.claude/agents"; printf -- '---\nname: a\nhooks:\n  "Permission\\x52equest": []\n---\n' > "$_paw/.claude/agents/a.md"; _paq_found 'agent front matter, escaped' a.md
+mkdir -p "$_PA/ccd/plugins/cache/m/p/1/hooks"; printf '%s' "$_PRQ" > "$_PA/ccd/plugins/cache/m/p/1/hooks/hooks.json"; _paq_found 'an installed plugin' hooks.json
+mkdir -p "$_paw/.claude/skills/s"; printf -- '---\nname: s\ndescription: about hooks\n---\nA PermissionRequest hook answers a prompt.\n' > "$_paw/.claude/skills/s/SKILL.md"; _paq_none 'the name in a skill body, not its front matter'
+printf '%s' '{"hooks":{"PreToolUse":[]},"x":"c:\\users\\me"}' > "$_paw/.claude/settings.local.json"; _paq_none 'an escaped backslash before u'
+if [ "$_paqn" != 10 ]; then fail "FIXTURE: the PermissionRequest scan table ran $_paqn cases, not 10"
+elif [ -z "$_paqbad" ]; then pass "a PermissionRequest hook is found in project, user and managed settings, an escaped spelling, skill and agent front matter and an installed plugin (7); a clean fixture, a skill body and an escaped backslash are not (3)"
+else fail "the PermissionRequest scan:$_paqbad"; fi
+
+# What it closes: the question, the recording of an answer, and in default the gate's prompt. What it leaves: the typed
+# approval, in default too. Twin: the same fixture without the hook asks (default) and offers the question (auto).
+_paqbad=""
+_pa_new; _paq_clean
+printf '%s' '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}],"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_paw/.claude/settings.json"
+_paq_gate default 'git commit -m x';   [ "$_par/$(gdec "$_pao")" = "0/ask" ] || _paqbad="$_paqbad [no hook, default: $_par/$(gdec "$_pao"), want 0/ask]"
+_paq_gate auto 'git commit -m x';      case "$_par/$_pae" in 2/*AskUserQuestion*"$_paq_text"*) ;; *) _paqbad="$_paqbad [no hook, auto: the refusal does not offer the question]" ;; esac
+printf '%s' "$_PRQ" > "$_paw/.claude/settings.local.json"
+_paq_gate default 'git commit -m x';   case "$_par/$_pae" in 2/*PermissionRequest*settings.local.json*/crew-approve*) ;; *) _paqbad="$_paqbad [hook, default: $_par, want 2 naming the file and /crew-approve]" ;; esac
+case "$_pae" in *'Shift+Tab to default/acceptEdits (this gate then asks'*) _paqbad="$_paqbad [hook, default: offers Shift+Tab]" ;; esac
+_paq_gate auto 'git commit -m x';      case "$_par/$_pae" in 2/*"approval question is closed"*) case "$_pae" in *AskUserQuestion*) _paqbad="$_paqbad [hook, auto: still offers the question]" ;; esac ;; *) _paqbad="$_paqbad [hook, auto: $_par, the question is not said to be closed]" ;; esac
+_paq_pre auto "$_paq_canon" '' tuh;    [ "$_par" = 2 ] || _paqbad="$_paqbad [hook: the question was asked ($_par)]"
+rm -f "$_paw/.claude/settings.local.json"; _paq_pre auto "$_paq_canon" '' tuh2; printf '%s' "$_PRQ" > "$_paw/.claude/settings.local.json"
+: > "$_pa_rec"; _paq_post auto 'Commit only' tuh2; [ "$(_paq_rec)" = none ] || _paqbad="$_paqbad [a hook added after the question: its answer was recorded]"
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/crew-approve commit"}' "$_patr" "$_paw" \
+  | ( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" ) >/dev/null 2>&1
+[ "$(_paq_rec)" = commit ] || _paqbad="$_paqbad [hook, default: /crew-approve commit was not recorded]"
+_paq_gate default 'git commit -m x';   [ "$_par" = 0 ] || _paqbad="$_paqbad [hook, default: the typed approval did not allow the commit ($_par)]"
+rm -f "$_paw/.claude/settings.local.json"; _pa_new
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/crew-approve commit"}' "$_patr" "$_paw" \
+  | ( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" ) >/dev/null 2>&1
+[ "$(_paq_rec)" = none ] || _paqbad="$_paqbad [no hook, default: /crew-approve recorded although the gate asks there]"
+if [ -z "$_paqbad" ]; then pass "a PermissionRequest hook closes the question, the recording of its answer and the gate's own prompt in default, and leaves /crew-approve (which then allows the commit); without one, default asks, auto offers the question, and a typed approval in default records nothing (9 readings)"
+else fail "what a PermissionRequest hook closes:$_paqbad"; fi
+
+# The record of the question is the gate's own: closed to the session like the pending note.
+_paqbad=""
+for _pqc in 'cat .claude/state/crew-approval-asked' 'printf x > .claude/state/crew-approval-asked' 'rm -f .claude/state/crew-approval-asked'; do
+  _paq_gate auto "$_pqc"; [ "$_par" = 2 ] || _paqbad="$_paqbad [$_pqc: rc $_par]"
+done
+printf '{"cwd":"%s","permission_mode":"auto","tool_name":"Write","tool_input":{"file_path":"%s/.claude/state/crew-approval-asked","content":"x"}}' "$_paw" "$_paw" \
+  | ( cd "$_paw" && env $_PAQ_ENV bash "$HOOKS/guard-write.sh" ) >/dev/null 2>&1; [ $? = 2 ] || _paqbad="$_paqbad [Write: not refused]"
+[ -z "$_paqbad" ] && pass "the question's own note (.claude/state/crew-approval-asked) is closed to the session: three shell forms and the Write tool refused" \
+                  || fail "the question's note is open:$_paqbad"
+rm -f "$_paw/.claude/settings.json"; _pa_new
 fi   # prompt-approval.sh present
 
 # ---- the two definitions that live in two files, and the wiring -----------------------------------------------
@@ -7800,6 +8239,22 @@ if [ "$IS_KIT" = 1 ]; then
   elif [ -z "$_phm" ]; then pass "every script the plugin's hooks.json runs is in plugin/hooks ($_phn scripts)"
   else fail "the plugin's hooks.json runs a script the plugin does not carry:$_phm (add it to the list in packaging/build-plugin.sh)"; fi
 fi
+# ...and the approval question: guard-question.sh asks it (PreToolUse), prompt-approval.sh records its answer
+# (PostToolUse), each once on AskUserQuestion, in both editions.
+for _pf in $_pawf; do
+  _pn="$(json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$2 == "AskUserQuestion" { if ($1 == "PreToolUse" && $3 ~ /guard-question\.sh/) a++; if ($1 == "PostToolUse" && $3 ~ /prompt-approval\.sh/) b++ } END { printf "%d %d", a, b }')"
+  [ "$_pn" = "1 1" ] && pass "${_pf##*/}: the approval question is wired on AskUserQuestion: guard-question.sh once on PreToolUse, prompt-approval.sh once on PostToolUse" \
+                     || fail "${_pf##*/}: the approval question is not wired once each (guard-question.sh on PreToolUse, prompt-approval.sh on PostToolUse; found: $_pn)"
+done
+# The managed settings files are one list: the ones model routing reads its rules from are the ones the approval
+# question looks for a PermissionRequest hook in. Compared as the lines that name a managed-settings.json.
+_pml(){ grep -oE '"[^"]*managed-settings\.json"|CREW_MANAGED_SETTINGS' "$1" 2>/dev/null | sort -u | tr '\n' ' '; }
+_pm1="$(_pml "$HOOKS/prompt-approval.sh")"; _pm2="$(_pml "$HOOKS/guard-agent-model.sh")"
+case "$_pm1" in *managed-settings.json*managed-settings.json*managed-settings.json*CREW_MANAGED_SETTINGS*)
+  [ "$_pm1" = "$_pm2" ] && pass "the managed settings files are one list in prompt-approval.sh and guard-agent-model.sh ($(printf '%s' "$_pm1" | tr ' ' '\n' | grep -c .) entries)" \
+                        || fail "the managed settings lists differ: prompt-approval.sh [$_pm1] guard-agent-model.sh [$_pm2]" ;;
+  *) fail "FIXTURE: the managed settings list could not be read from prompt-approval.sh ([$_pm1])" ;;
+esac
 # ...and on PreToolUse for the tools that schedule a prompt, in both editions, with one matcher.
 for _pf in $_pawf; do
   _pn="$(json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" && $3 ~ /guard-schedule\.sh/ { n++; m = $2 } END { printf "%d %s", n, m }')"
@@ -7989,7 +8444,7 @@ _v2new(){ rm -rf "$_v2p" "$_v2/home"; mkdir -p "$_v2/home" "$_v2p/.claude" "$_v2
 _v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CREW_MODEL_CAL_N -u CREW_MODEL_CAL_PCT -u CREW_VERIFY_NO_SETSID -u CREW_VERIFY_TIMEOUT -u CLAUDE_CONFIG_DIR -u CREW_MANAGED_SETTINGS HOME="$_v2/home" CLAUDE_PROJECT_DIR="$_v2p" CREW_GATE_LOG=/dev/null ${_V2ENV:-} "$@"; }
 # $1 agent, $2 model, $3 files, $4 change, $5 verify, $6 extra fields -> _v2rc, stderr in $_v2/err
 _v2call(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work.","subagent_type":"%s","model":"%s"%s},"tool_use_id":"tu%s"}' "$3" "$4" "$5" "$1" "$2" "${6:-}" "$RANDOM$RANDOM" > "$_v2/c.json"
-  ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >/dev/null 2>"$_v2/err" ); _v2rc=$?; }
+  ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >"$_v2/out" 2>"$_v2/err" ); _v2rc=$?; }
 _v2start(){ printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"%s","agent_type":"%s"}' "$1" "${2:-crew-backend-expert}" | ( cd "$_v2p" && _v2e bash "$_V2O" >/dev/null 2>&1 ); }
 _v2stop(){ printf '{"session_id":"s","permission_mode":"%s","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/none.jsonl","last_assistant_message":"did it\\n%s"}' "${_V2PM:-auto}" "$1" "$_v2" "${2:-confidence: high}" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
 _v2post(){ printf '{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"prompt":"p"},"tool_response":{"status":"completed","agentId":"%s","content":"x"}}' "$1" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
@@ -8022,8 +8477,26 @@ done <<'V2'
 2|crew-backend-expert|sonnet|prisma/schema.prisma|feature|none|
 2|crew-backend-expert|sonnet|config/SECRETS_local.env|text|none|
 0|crew-backend-expert|sonnet|docs/author.md, src/cryptography/hash.ts|feature|none|
+0|crew-backend-expert|sonnet|legal/terms-of-service.md|text|none|
+0|crew-backend-expert|sonnet|docs/privacy-policy.md|text|none|
+2|crew-backend-expert|sonnet|src/PrivacyController.cs|feature|none|
+2|crew-backend-expert|sonnet|src/consent/banner.ts|feature|none|
+0|crew-backend-expert|sonnet|content/terms/index.md|text|none|
+0|crew-backend-expert|sonnet|fastlane/metadata/en-US/description.txt|text|none|
+0|crew-backend-expert|sonnet|store/listing.md|text|none|
+0|crew-backend-expert|sonnet|metadata/android/en-US/full_description.txt|text|none|
+0|crew-backend-expert|opus|legal/terms-of-service.md|text|none|
+2|crew-backend-expert|haiku|legal/terms-of-service.md|text|none|
+2|crew-backend-expert|sonnet|legal/terms-of-service.md, src/legal/consent.ts|text|none|
+2|crew-backend-expert|sonnet|legal/terms-of-service.md|feature|none|
+0|crew-backend-expert|sonnet|src/searchTerms.ts|feature|none|
+0|crew-backend-expert|sonnet|src/store/index.ts|feature|none|
+0|crew-backend-expert|sonnet|fastlane/metadata/en-US/images/icon.png|text|none|
+0|crew-backend-expert|sonnet|docs/legalese.md|text|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|none|
-2|crew-backend-expert|haiku|src/ui/a.ts|text|none|
+0|crew-backend-expert|haiku|src/ui/a.ts|text|none|
+2|crew-backend-expert|haiku|src/ui/a.ts|fix-known|none|
+0|crew-commit-agent|haiku|src/ui/a.ts|fix-known|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|text|none|
 0|crew-backend-expert|haiku|src/ui/a.ts|text|true|
 0|crew-test-expert|haiku|src/ui/**|test-run|true|
@@ -8055,9 +8528,48 @@ done <<'V2'
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|git commit -m x|
 0|crew-backend-expert|sonnet|src/ui/a.ts|feature|rm -rf /|
 V2
-if [ "$_v2n" != 47 ]; then fail "FIXTURE: the card table has $_v2n rows, not 47"
-elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; verify none is refused on haiku; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) (47 rows)"
+if [ "$_v2n" != 65 ]; then fail "FIXTURE: the card table has $_v2n rows, not 65"
+elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; a text change whose every file is prose (legal, privacy, terms, a store listing) passes on sonnet and is refused on haiku, and one card file that is not prose holds it to opus; verify none is refused on haiku, except for a text change and the commit agent; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) ($_v2n rows)"
 else fail "card table:$_v2b"; fi
+# The card's floor is also the default: a call above it runs ON it (the gate hands back the same input with `model`
+# replaced, PreToolUse updatedInput), unless the card's next line says `above: <why>`. Measured on a real project:
+# 73 of 186 crew tasks ran above their floor and none on haiku; measured on Claude Code 2.1.299: the rewrite holds.
+_v2new; _v2b=""
+_v2last(){ ls -t "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null | head -1; }
+_v2call crew-review-agent opus 'src/ui/a.ts' audit none ',"run_in_background":true,"isolation":"worktree"'
+_o="$(cat "$_v2/out" 2>/dev/null)"; _r="$(_v2last)"
+case "$_o" in *'"permissionDecision":"allow"'*'"updatedInput":'*) ;; *) _v2b="$_v2b [above the floor, no above: -> no rewrite: rc=$_v2rc ${_o:0:80}]" ;; esac
+_u="$(printf '%s' "$_o" | awk -v op=get -v path=hookSpecificOutput.updatedInput -f "$ROOT/eval/lib/settings-json.awk" - 2>/dev/null | tr -d ' \n')"
+case "$_u" in *'"model":"sonnet"'*'"run_in_background":true'*'"isolation":"worktree"'*|*'"run_in_background":true'*'"isolation":"worktree"'*) ;; *) _v2b="$_v2b [the rewrite lost a field: ${_u:0:120}]" ;; esac
+case "$_u" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [the rewrite is not to the floor: ${_u:0:120}]" ;; esac
+{ grep -q '^tier=sonnet$' "$_r" && grep -q '^lowered=opus$' "$_r"; } 2>/dev/null || _v2b="$_v2b [record: $(tr '\n' ' ' < "$_r" 2>/dev/null | cut -c1-80)]"
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent opus 'src/ui/a.ts' audit 'none\nabove: the audit covers the whole session layer'
+{ [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ] && grep -q '^tier=opus$' "$(_v2last)"; } 2>/dev/null || _v2b="$_v2b [above: did not keep opus: rc=$_v2rc $(head -c 60 "$_v2/out")]"
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit none
+{ [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ]; } || _v2b="$_v2b [a call on its floor was rewritten: $(head -c 60 "$_v2/out")]"
+_v2call crew-frontend-expert sonnet 'src/ui/a.ts' text 'test -d src'
+case "$(tr -d ' ' < "$_v2/out")" in *'"model":"haiku"'*) ;; *) _v2b="$_v2b [work a command checks did not go to haiku: $(head -c 80 "$_v2/out")]" ;; esac
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+# Not a crew agent: no card and no floor, only the expensive end is held. opus or fable with no `above:` line in the
+# task runs on sonnet; with one it stays; a call that names no model, or sonnet, is not touched.
+_v2o(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"Find where X is defined.%s","subagent_type":"general-purpose"%s},"tool_use_id":"tu%s"}' "$1" "$2" "$RANDOM" | ( cd "$_v2p" && _v2e bash "$_V2G" 2>/dev/null ) | tr -d ' '; }
+case "$(_v2o '' ',"model":"opus"')" in *'"updatedInput":'*'"model":"sonnet"'*) ;; *) _v2b="$_v2b [general-purpose on opus was not run on sonnet]" ;; esac
+[ -z "$(_v2o '\nabove: a design question across the codebase' ',"model":"opus"')" ] || _v2b="$_v2b [above: did not keep opus for general-purpose]"
+[ -z "$(_v2o '' ',"model":"sonnet"')" ] || _v2b="$_v2b [a call naming sonnet was rewritten]"
+# Naming no model: general-purpose takes the session's model, so it is given sonnet (CLAUDE_CODE_SUBAGENT_MODEL in
+# the project's settings env did not do it, measured on 2.1.299), unless the session is on haiku; an agent whose
+# definition names its own model is left to it; a project agent with no model line is treated like general-purpose.
+_v2ot(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","transcript_path":"%s","tool_input":{"description":"d","prompt":"Find X.","subagent_type":"%s"},"tool_use_id":"tu%s"}' "$2" "$1" "$RANDOM" | ( cd "$_v2p" && _v2e bash "$_V2G" 2>/dev/null ) | tr -d ' '; }
+printf '{"type":"assistant","message":{"model":"claude-opus-5-5"}}\n' > "$_v2/tr-opus.jsonl"; printf '{"type":"assistant","message":{"model":"claude-haiku-5-5"}}\n' > "$_v2/tr-haiku.jsonl"
+mkdir -p "$_v2p/.claude/agents"; printf -- '---\nname: mine\ndescription: x\n---\nDo it.\n' > "$_v2p/.claude/agents/mine.md"; printf -- '---\nname: cheap\nmodel: haiku\n---\nDo it.\n' > "$_v2p/.claude/agents/cheap.md"
+case "$(_v2ot general-purpose "$_v2/tr-opus.jsonl")" in *'"updatedInput":'*'"model":"sonnet"'*) ;; *) _v2b="$_v2b [general-purpose naming no model under opus was not given sonnet]" ;; esac
+[ -z "$(_v2ot general-purpose "$_v2/tr-haiku.jsonl")" ] || _v2b="$_v2b [a haiku session's general-purpose was raised to sonnet]"
+[ -z "$(_v2ot Explore "$_v2/tr-opus.jsonl")$(_v2ot cheap "$_v2/tr-opus.jsonl")" ] || _v2b="$_v2b [an agent with a model of its own was given one]"
+case "$(_v2ot mine "$_v2/tr-opus.jsonl")" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [a project agent with no model line was not given sonnet]" ;; esac
+[ -z "$_v2b" ] && pass "above the floor runs on the floor: opus for a sonnet card is rewritten to sonnet with every other field kept and recorded as lowered; 'above: <why>' keeps opus; a call on its floor is untouched; checkable text work goes to haiku; an agent outside the crew asking for opus, or inheriting an opus session's model, runs on sonnet unless its task says why; a haiku session and an agent with its own model are left alone" \
+               || fail "model on the floor:$_v2b"
 # The refusal names the way forward that exists (the field was sent, so it can be sent as false), and a call that
 # left the field out and was launched in the background is told so when the launch comes back.
 _v2new; _v2b=""
@@ -8098,21 +8610,79 @@ for _pr in 'Do the work.' 'Please do this:\nfiles: a\nchange: feature\nverify: t
 done
 [ -z "$_v2b" ] && pass "a crew call with no card, a card that is not at the top, a card with a line missing or one named twice is refused, with the three lines to write" \
                || fail "a task without a proper card passed:$_v2b"
+# The card on one line (2026-10-18: 17 of 39 card refusals on this machine were `files: … · change: … · verify: …`). It is
+# read by its labels and held to the same rules: what passes on three lines passes on one, and what fails there fails.
+_v2b=""; _v2one(){ printf '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"prompt":"%s\\n\\nDo it.","subagent_type":"crew-backend-expert","model":"%s"}}' "$1" "$2" > "$_v2/one.json"
+  ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/one.json" >"$_v2/oneout" 2>"$_v2/err" ); _rc=$?; }
+for _pr in 'files: src/ui/a.ts · change: feature · verify: true' 'files: src/ui/a.ts; change: feature; verify: true' 'files: src/ui/a.ts | change: feature | verify: true' \
+           'Card: files: src/ui/a.ts, src/ui/b.ts · change: feature · verify: true.' 'Card — files: src/ui/a.ts · change: text · verify: none' \
+           'Kart — files: src/ui/a.ts · change: text · verify: none' 'Kart: files: src/ui/a.ts · change: feature · verify: true'; do
+  _v2one "$_pr" sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [refused: $_pr → $_rc $(head -c 120 "$_v2/err")]"
+done
+_v2one 'files: src/payments/p.ts · change: feature · verify: true' sonnet
+{ [ "$_rc" = 2 ] && ! grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [a one-line card on a critical path was not read as one (rc $_rc)]"
+_v2one 'files: src/ui/a.ts · change: feature · verify: true · above: the parser is subtle' opus
+{ [ "$_rc" = 0 ] && ! grep -q 'runs on sonnet' "$_v2/oneout"; } || _v2b="$_v2b [above: on the same line was not read (rc $_rc)]"
+_v2one 'files: src/ui/a.ts · change: feature (a small one) · verify: true' sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [a kind with a note in parentheses, one line → $_rc]"
+_v2one 'files: src/ui/a.ts · change: architecture (planning only) · verify: none' sonnet
+{ [ "$_rc" = 2 ] && grep -q 'runs on opus' "$_v2/err"; } || _v2b="$_v2b [architecture (planning only) was not read as architecture, which runs on opus (rc $_rc)]"
+_v2one 'files: src/ui/a.ts\nchange: refactor (no behaviour change)\nverify: true' sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [a kind with a note in parentheses, three lines → $_rc]"
+for _pr in 'files: a · change: archi (planning only) · verify: none' 'files: a · change: feature extra · verify: none' 'files: a · verify: true · change: text' 'files: a · change: feature' 'Do this. files: a · change: feature · verify: true' 'Kartal files: a · change: feature · verify: true'; do
+  _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
+done
+[ -z "$_v2b" ] && pass "a card on one line (· ; | separators, a Card: or Kart: lead, above: on the line) is read by its labels and held to the three-line rules: a critical path still needs opus; a kind with a note in parentheses is the kind, on one line or three; a bad change, labels out of order, a missing verify or prose first are refused" \
+               || fail "the one-line card:$_v2b"
+# `above:` among the three lines, not only after them (2026-10-19: 2 of 19 line refusals had it between change: and
+# verify:; the retry moved it down and passed). It keeps the model the same way; the three are still all required.
+_v2b=""
+for _pr in 'files: src/ui/a.ts\nchange: feature\nabove: the parser is subtle\nverify: true' 'above: the parser is subtle\nfiles: src/ui/a.ts\nchange: feature\nverify: true'; do
+  _v2one "$_pr" opus; { [ "$_rc" = 0 ] && [ ! -s "$_v2/oneout" ]; } || _v2b="$_v2b [above: among the three did not keep opus: $_pr → $_rc $(head -c 100 "$_v2/oneout")]"
+done
+_v2one 'files: src/ui/c.ts\nchange: feature\nverify: true' opus
+grep -q '"updatedInput":' "$_v2/oneout" || _v2b="$_v2b [without above: opus was not lowered (rc $_rc)]"
+for _pr in 'files: src/ui/a.ts\nchange: feature\nabove: x\nDo it.' 'files: src/ui/a.ts\nabove: x\nabove: y\nverify: true'; do
+  _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
+done
+# `change: review` is an audit (the discipline's table lists it with them): same floor, a near miss still refused.
+_v2one 'files: src/ui/a.ts\nchange: review\nverify: none' haiku; { [ "$_rc" = 2 ] && grep -q 'runs on sonnet' "$_v2/err"; } || _v2b="$_v2b [review on haiku was not held to sonnet as audit (rc $_rc)]"
+for _pr in 'files: src/ui/a.ts\nchange: review\nverify: none' 'files: src/ui/a.ts · change: review (the staged diff) · verify: none'; do
+  _v2one "$_pr" sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [refused: $_pr → $_rc $(head -c 100 "$_v2/err")]"
+done
+_v2one 'files: src/payments/p.ts\nchange: review\nverify: none' sonnet; { [ "$_rc" = 2 ] && grep -q 'runs on opus' "$_v2/err"; } || _v2b="$_v2b [review on a critical path was not held to opus (rc $_rc)]"
+_v2one 'files: src/ui/a.ts\nchange: reviews\nverify: none' sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [change: reviews passed (rc $_rc)]"
+[ -z "$_v2b" ] && pass "above: may stand anywhere among the three card lines and keeps the model; without it the model is lowered; above: does not stand in for files:, change: or verify:; change: review is an audit, held to the same floors, and a near miss is still refused" \
+               || fail "above: in the card:$_v2b"
 
 # ---- at write time: the card can leave a file out --------------------------------------------------------------
 _v2new; _v2b=""
 _v2call crew-backend-expert sonnet 'src/ui/a.ts' refactor true; _v2start ag-son
 _v2call crew-backend-expert opus 'src/payments/p.ts' feature none; _v2start ag-op
+_v2call crew-docs-agent sonnet 'legal/terms.md' text none; _v2start ag-txt crew-docs-agent
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; { [ "$_v2wrc" = 2 ] && grep -q 'escalate: src/payments/p.ts' "$_v2/werr" && grep -q '^GUARD (agent model): ' "$_v2/werr"; } || _v2b="$_v2b sonnet-agent-wrote-payments:$_v2wrc"
 _v2write "$_v2p/src/ui/a.ts"        ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b sonnet-agent-refused-on-ui:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-op","agent_type":"crew-backend-expert"';  [ "$_v2wrc" = 0 ] || _v2b="$_v2b opus-agent-refused:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-unknown","agent_type":"general-purpose"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b unknown-model-wrote-payments:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts"; [ "$_v2wrc" = 0 ] || _v2b="$_v2b the-session-refused:$_v2wrc"
+# A text change on sonnet writes prose on a critical path; not code there, and not prose for any other change.
+_v2write "$_v2p/legal/terms.md"     ',"agent_id":"ag-txt","agent_type":"crew-docs-agent"';     [ "$_v2wrc" = 0 ] || _v2b="$_v2b sonnet-text-refused-legal-prose:$_v2wrc"
+_v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-txt","agent_type":"crew-docs-agent"';     [ "$_v2wrc" = 2 ] || _v2b="$_v2b sonnet-text-wrote-payments-code:$_v2wrc"
+_v2write "$_v2p/legal/terms.md"     ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b sonnet-refactor-wrote-legal-prose:$_v2wrc"
 mkdir -p "$_v2/t/subagents"; printf '{"type":"assistant","message":{"model":"claude-opus-5-5"}}\n' > "$_v2/t/subagents/agent-ag-gp.jsonl"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-gp","agent_type":"general-purpose"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b opus-by-its-transcript-refused:$_v2wrc"
 _V2ENV="CREW_MODEL_ROUTING=off" _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"ag-son","agent_type":"crew-backend-expert"'; [ "$_v2wrc" = 0 ] || _v2b="$_v2b routing-off-refused:$_v2wrc"
-[ -z "$_v2b" ] && pass "an agent on sonnet is refused a write to a critical path its card did not name, and told to report escalate; the same agent writes elsewhere; an agent on opus (by its call, or by its own transcript) writes there; an agent whose model cannot be read does not; the session's own write is not asked; routing off asks nothing" \
+[ -z "$_v2b" ] && pass "an agent on sonnet is refused a write to a critical path its card did not name, and told to report escalate; the same agent writes elsewhere; an agent on opus (by its call, or by its own transcript) writes there; an agent whose model cannot be read does not; the session's own write is not asked; routing off asks nothing; an agent on sonnet with a text card writes prose there (legal/terms.md) and not code, and one with any other card writes neither" \
                || fail "write-time check:$_v2b"
+# B2 (K7): the session's own write to a critical path is not refused, and it is recorded: one NOTE line in the gate
+# log naming the path and the rule. A write elsewhere, one outside the project, and one with routing off add none.
+_v2b=""; _b2l="$_v2/b2.tsv"
+_b2(){ : > "$_b2l"; _V2ENV="CREW_GATE_LOG=$_b2l ${2:-}" _v2write "$1"; _b2n="$(grep -c '^NOTE' "$_b2l" 2>/dev/null)"; }
+_b2 "$_v2p/src/payments/p.ts"; [ "$_v2wrc/$_b2n" = 0/1 ] || _v2b="$_v2b [critical: rc $_v2wrc, $_b2n notes]"
+grep -q "^NOTE"$'\t'"§model"$'\t'"note: the session wrote a critical path itself, not through an agent: src/payments/p.ts (payments)" "$_b2l" || _v2b="$_v2b [line: $(head -1 "$_b2l")]"
+_b2 "$_v2p/src/ui/a.ts"; [ "$_v2wrc/$_b2n" = 0/0 ] || _v2b="$_v2b [plain: rc $_v2wrc, $_b2n notes]"
+_b2 "/tmp/elsewhere/payments/p.ts"; [ "$_v2wrc/$_b2n" = 0/0 ] || _v2b="$_v2b [outside: rc $_v2wrc, $_b2n notes]"
+_b2 "$_v2p/src/payments/p.ts" CREW_MODEL_ROUTING=off; [ "$_v2wrc/$_b2n" = 0/0 ] || _v2b="$_v2b [routing off: rc $_v2wrc, $_b2n notes]"
+[ -z "$_v2b" ] && pass "the session's own write to a critical path is allowed and recorded as a NOTE with the path and the rule; a plain write, one outside the project and one with routing off are not recorded" \
+               || fail "the session's critical write (B2):$_v2b"
 
 # ---- 2. the critical paths of a project with no settings file: a Flutter app and a .NET service ---------------
 _v2new; _v2b=""
@@ -8134,6 +8704,32 @@ _v2call crew-backend-expert sonnet 'docs/security.md' text none; [ "$_v2rc" = 0 
 _v2call crew-backend-expert sonnet 'Api/Services/AuthorService.cs' feature none; [ "$_v2rc" = 0 ] || _v2b="$_v2b AuthorService-read-as-auth"
 [ -z "$_v2b" ] && pass "with no settings file the scan finds the critical paths of a Flutter app and a .NET service (a folder once, not per file; AuthorService and author.md are not auth); crew-model-rules adds and removes paths, at SessionStart too, and the gate follows it" \
                || fail "critical paths:$_v2b"
+# V5: an organisation preset (eval/lib/preset.sh) is a block at the top of crew-model-rules. The project's own lines
+# stay below it and win where the file's rule lets them; applying again changes nothing; an invalid one writes nothing.
+_v2new; _v2b=""; PSH="$ROOT/eval/lib/preset.sh"; _psr="$_v2p/.claude/crew-model-rules"; _psx="$(mktemp -d)"
+printf '# ours\n- infra\n' > "$_psr"
+( cd "$_v2p" && bash "$PSH" --apply strict ) >/dev/null 2>&1 || _v2b="$_v2b [strict did not apply]"
+{ IFS= read -r _l1 < "$_psr"; case "$_l1" in '# ---- preset: strict '*) ;; *) false ;; esac; } || _v2b="$_v2b [first line: ${_l1:-none}]"
+grep -qx '+ deploy' "$_psr" && grep -qx 'floor crew-review-agent \* \* opus' "$_psr" && grep -qx -- '- infra' "$_psr" && grep -qx '# ours' "$_psr" || _v2b="$_v2b [block or own lines missing]"
+[ "$(grep -n -- '^- infra$' "$_psr" | cut -d: -f1)" -gt "$(grep -n '^+ infra$' "$_psr" | cut -d: -f1)" ] || _v2b="$_v2b [the project's own line is not below the block]"
+cp "$_psr" "$_psx/a"; ( cd "$_v2p" && bash "$PSH" --apply strict ) >/dev/null 2>&1; cmp -s "$_psr" "$_psx/a" || _v2b="$_v2b [a second apply changed the file]"
+[ "$( cd "$_v2p" && bash "$PSH" --show )" = strict ] || _v2b="$_v2b [--show]"
+# The gate follows it: review on sonnet is refused under strict, and the project's `- infra` undoes the preset's `+ infra`.
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit none; { [ "$_v2rc" = 2 ] && grep -q 'floor crew-review-agent \* \* opus' "$_v2/err"; } || _v2b="$_v2b [review on sonnet under strict: rc $_v2rc]"
+_v2call crew-backend-expert sonnet 'infra/main.tf' feature 'test -d src'; [ "$_v2rc" = 0 ] || _v2b="$_v2b [infra stayed critical though the project removed it: rc $_v2rc]"
+_v2call crew-backend-expert sonnet 'deploy/run.sh' feature 'test -d src'; [ "$_v2rc" = 2 ] || _v2b="$_v2b [deploy is not critical under strict: rc $_v2rc]"
+( cd "$_v2p" && bash "$PSH" --apply solo ) >/dev/null 2>&1; ! grep -q '^+ deploy' "$_psr" && grep -qx 'verify npm test' "$_psr" && grep -qx -- '- infra' "$_psr" || _v2b="$_v2b [switching to solo left the old block or lost the own line]"
+# Invalid presets: each refused with rc 1, the file untouched.
+cp "$_psr" "$_psx/b"; _bad=0
+for _bj in '{"name":"x","oops":1}' '{"name":"x","floors":[["a","b","c","gpt"]]}' '{"name":"x","verify":["npm test; rm -rf /"]}' '{"name":"X Y"}' 'not json'; do
+  printf '%s' "$_bj" > "$_psx/bad.json"; ( cd "$_v2p" && bash "$PSH" --apply "$_psx/bad.json" ) >/dev/null 2>&1; _rc=$?
+  { [ "$_rc" = 1 ] && cmp -s "$_psr" "$_psx/b"; } || { _bad=$((_bad+1)); _v2b="$_v2b [accepted or wrote: $_bj rc $_rc]"; }
+done
+( cd "$_v2p" && bash "$PSH" --apply no-such-preset ) >/dev/null 2>&1 && _v2b="$_v2b [a preset that is not there applied]"
+_dl="$(cd "$_v2p" && bash "$ROOT/eval/doctor.sh" . 2>/dev/null | grep -c 'organisation preset: solo')"; [ "$_dl" = 1 ] || _v2b="$_v2b [doctor did not name the preset: $_dl]"
+[ -z "$_v2b" ] && pass "an organisation preset is a block at the top of crew-model-rules: the project's own lines stay below it and win (its '- infra' undoes the preset's), the gate follows it (review held to opus under strict), applying again changes no byte, switching replaces the block, five invalid presets and a missing one write nothing, and doctor names the one in force" \
+               || fail "presets:$_v2b"
+rm -rf "$_psx"
 
 # ---- 3. verify, one fix inside the agent, then one model up, then the user -----------------------------------
 _v2new; _v2b=""
@@ -8170,7 +8766,7 @@ _v2call crew-backend-expert sonnet 'src/ui/tz.ts' feature none; _v2start tz1; _V
 _tzg="$(awk -F'\t' '$2 == "tz1" { print substr($1, 1, 13) }' "$_v2p/.claude/state/model-outcomes.tsv")"; _tzn="$(date -u +%Y-%m-%dT%H)"; _tzp="$(date -u -v-1H +%Y-%m-%dT%H 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H 2>/dev/null)"
 { [ -n "$_tzg" ] && { [ "$_tzg" = "$_tzn" ] || [ "$_tzg" = "$_tzp" ]; }; } || _v2b="$_v2b [the time is not UTC: wrote $_tzg, UTC is $_tzn]"
 IFS= read -r _h < "$_v2p/.claude/state/model-outcomes.tsv"
-[ "$_h" = "ts"$'\t'"agent_id"$'\t'"agent"$'\t'"change"$'\t'"risk"$'\t'"card"$'\t'"model"$'\t'"verify"$'\t'"fixes"$'\t'"escalated_from"$'\t'"ran_on"$'\t'"confidence" ] || _v2b="$_v2b [header: $_h]"
+[ "$_h" = "ts"$'\t'"agent_id"$'\t'"agent"$'\t'"change"$'\t'"risk"$'\t'"card"$'\t'"model"$'\t'"verify"$'\t'"fixes"$'\t'"escalated_from"$'\t'"ran_on"$'\t'"confidence"$'\t'"risk_why" ] || _v2b="$_v2b [header: $_h]"
 [ -z "$_v2b" ] && pass "verify then escalate: red once keeps the agent running with the failing command; green after it is a pass with one fix; red twice ends the agent as a fail, recorded once; the session is told to repeat one model up; the same card is refused on the same model and allowed one up; red there too is the user's question and a third run is refused; a changed card is a new task; confidence: low is told the same way; a background launch and an agent with no record are left alone; the record's twelve columns are the ones published, and its time is UTC under a zone fourteen hours ahead" \
                || fail "verify-then-escalate:$_v2b"
 
@@ -8446,12 +9042,41 @@ if command -v iconv >/dev/null 2>&1; then printf '%s' "$_o" | iconv -f UTF-8 -t 
 [ "${#_o}" -le 2600 ] || _v2b="$_v2b [the reason is ${#_o} bytes]"
 [ -z "$_v2b" ] && pass "the one fix is asked once and only where it can be counted: a red verify under stop_hook_active ends as fail with no block, and so does one whose counter cannot be written (both recorded as fail with no fix); the output handed to the agent is cut at 1500 bytes without splitting a character" \
                || fail "the stop hook's one fix:$_v2b"
+# A verify command in a sub-folder, `cd <folder> && <command>` (41 of 71 refusals on one project): judged as the
+# command and run in the folder with no chain. A folder outside the project, one that does not exist, or a second
+# chain after it stays refused. A card that says `none (why)` is none.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/sub"; : > "$_v2p/sub/ok.flag"
+printf 'verify test -f ok.flag\n' > "$_v2p/.claude/crew-model-rules"
+_v2plant c1 'cd sub && test -f ok.flag'; _v2stop c1 >/dev/null
+[ "$(_v2row c1 | cut -d/ -f2)" = pass ] || _v2b="$_v2b [cd sub && test: $(_v2row c1)]"
+for _cc in 'c2:cd ../sub && test -f ok.flag' 'c3:cd nowhere && test -f ok.flag' 'c4:cd sub && test -f ok.flag && touch x' 'c5:cd /tmp && test -f ok.flag'; do
+  _v2plant "${_cc%%:*}" "${_cc#*:}"; _v2stop "${_cc%%:*}" >/dev/null
+  [ "$(_v2row "${_cc%%:*}" | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [${_cc#*:} was not refused: $(_v2row "${_cc%%:*}")]"
+done
+[ ! -e "$_v2p/sub/x" ] || _v2b="$_v2b [a chain after the folder ran]"
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' text 'none (the author ran it)'
+grep -q '^verify=none$' "$(ls -t "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null | head -1)" 2>/dev/null || _v2b="$_v2b [none (why) was not none]"
+# doctor lists the commands refused for not being allowed, with the line that allows them, and not a sentence
+mkdir -p "$_v2p/.claude/state/crew-model/results"
+printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=node tools/build.mjs --check\n' > "$_v2p/.claude/state/crew-model/results/r1"
+printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=actionlint (if installed)\n' > "$_v2p/.claude/state/crew-model/results/r2"
+# The other way of saying "nothing allows it" (default mode), for a command in a sub-folder: counted, and offered as
+# the rule that matches it, the command without its `cd` (measured on Windows: the line with the cd in it did not).
+printf "verify=blocked\nwhynot=in 'default' mode Claude Code does not run a command the user has not allowed, so neither does a hook\ncmd=cd sub && ./check.sh\n" > "$_v2p/.claude/state/crew-model/results/r3"
+if [ -f "$ROOT/eval/doctor.sh" ]; then
+  mkdir -p "$_v2p/.claude/eval"; cp -R "$ROOT/eval/." "$_v2p/.claude/eval/" 2>/dev/null
+  _dd="$( cd "$_v2p" && env -u CLAUDE_CODE_SUBAGENT_MODEL CREW_NO_STAR=1 CREW_LANG=en CLAUDE_CONFIG_DIR="$_v2/home" bash .claude/eval/doctor.sh 2>/dev/null | grep 'verify commands never run' )"
+  case "$_dd" in *'3 time(s)'*'verify node tools/build.mjs --check'*'verify ./check.sh'*) case "$_dd" in *actionlint*|*'verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_dd}]" ;; esac ;;
+    *) _v2b="$_v2b [doctor: ${_dd:-no line}]" ;; esac
+fi
+[ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands, in either mode, as the rule that matches them (no cd prefix), not a sentence" \
+               || fail "verify in a sub-folder:$_v2b"
 # Which record is whose. Two calls of one type made together are matched by order, which can be wrong; the card in
 # the agent's own transcript settles it.
 _v2new; _v2b=""; _v2st="$_v2p/.claude/state/crew-model"
 _v2tr(){ printf '{"type":"user","message":{"role":"user","content":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work."}}\n' "$2" "$3" "$4" > "$_v2/tr-$1.jsonl"; }
 _v2stopt(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/tr-%s.jsonl","last_assistant_message":"did it\\nconfidence: high"}' "$1" "$_v2" "$1" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
-_v2call crew-backend-expert haiku 'src/ui/one.ts' text 'test -f one.ok'; _v2call crew-backend-expert opus 'src/ui/two.ts' feature 'test -f two.ok'
+_v2call crew-backend-expert haiku 'src/ui/one.ts' text 'test -f one.ok'; _v2call crew-backend-expert opus 'src/ui/two.ts' feature 'test -f two.ok\nabove: two models pending for one agent type'
 # The order the two records are taken in is made known: the haiku call's first, so each agent gets the OTHER's below.
 for _pf in "$_v2st/pending"/*; do if grep -q 'one.ok' "$_pf"; then mv "$_pf" "$_v2st/pending/1-a"; else mv "$_pf" "$_v2st/pending/2-b"; fi; done
 _pt="$(date +%s)"; mv "$_v2st/pending/1-a" "$_v2st/pending/$_pt-a"; mv "$_v2st/pending/2-b" "$_v2st/pending/$_pt-b"
@@ -8486,15 +9111,39 @@ rm -f "$_v2st"/pending/*
 _v2call crew-backend-expert sonnet 'src/ui/race.ts' text true
 _v2start r1 & _v2start r2 & wait
 _rn=0; [ -f "$_v2st/agents/r1" ] && _rn=$((_rn+1)); [ -f "$_v2st/agents/r2" ] && _rn=$((_rn+1)); [ "$_rn" = 1 ] || _v2b="$_v2b [one record, two agents: $_rn got it]"
+ls "$_v2st/agents" 2>/dev/null | grep -qE '\.(take|claim)$' && _v2b="$_v2b a-lock-or-claim-left-behind"
+# A record another hook holds the lock on is not taken: the agent goes on to the next one (the lock is what keeps
+# two agents off one record where a rename alone did not, on Windows).
+rm -rf "$_v2st/agents"; rm -f "$_v2st"/pending/*
+_v2call crew-backend-expert sonnet 'src/ui/l1.ts' text 'test -f l1'; _pl1="$(ls "$_v2st/pending")"
+sleep 1; _v2call crew-backend-expert sonnet 'src/ui/l2.ts' text 'test -f l2'
+mkdir -p "$_v2st/agents"; : > "$_v2st/agents/$_pl1.take"
+_v2start k1
+{ grep -q '^verify=test -f l2' "$_v2st/agents/k1" 2>/dev/null && [ -f "$_v2st/pending/$_pl1" ]; } || _v2b="$_v2b a-locked-record-was-taken-or-the-next-one-was-not"
+rm -f "$_v2st/agents/$_pl1.take" "$_v2st"/pending/*
 # A record nothing claimed within five minutes is nobody's.
 mkdir -p "$_v2st/pending"; printf 'agent=crew-backend-expert\ntier=opus\nchange=text\nrisk=normal\ncard=old\nbg=unset\nesc=-\nverify=none\n' > "$_v2st/pending/1000000000-tuold"
 _v2start o1; { [ ! -f "$_v2st/agents/o1" ] && [ ! -f "$_v2st/pending/1000000000-tuold" ]; } || _v2b="$_v2b a-stale-record-was-given-to-an-agent-or-kept"
 [ -z "$_v2b" ] && pass "which record is whose: with two models pending for one agent type the agent is recorded on the lower one; a record is taken by rename, so of two agents starting together one gets it; an agent whose transcript carries the other card is judged by that card's record (a call nobody has taken yet is looked at first), a task given as a list of blocks is read, a transcript with no card is noted in the gate log and the record used as matched, an agent whose card no record carries is not judged, and a record older than five minutes is dropped" \
                || fail "matching a call to its agent:$_v2b"
+# Why the work was critical is kept with it, in the gate's own words, so a reader shows the reason and does not work
+# it out again: a card on a critical path carries the path and the rule that matched; normal work carries "-".
+_v2new; _v2b=""; _v2st="$_v2p/.claude/state/crew-model"
+_v2call crew-backend-expert opus 'src/payments/p.ts' feature 'test -d src' ',"run_in_background":false'
+[ "$_v2rc" = 0 ] || _v2b="$_v2b FIXTURE:[the critical call was refused, rc=$_v2rc: $(head -c 300 "$_v2/err")]"
+grep -q '^why=src/payments/p.ts is on a critical path: ' "$_v2st"/pending/* 2>/dev/null || _v2b="$_v2b [pending record: $(grep -h '^why=' "$_v2st"/pending/* 2>/dev/null)]"
+_v2start k1; _v2tr k1 'src/payments/p.ts' feature 'test -d src'; _v2stopt k1 >/dev/null
+_kw="$(awk -F'\t' '$2 == "k1" { print $13 }' "$_v2st/../model-outcomes.tsv" 2>/dev/null)"
+case "$_kw" in 'src/payments/p.ts is on a critical path: '?*) ;; *) _v2b="$_v2b [critical row: risk_why='$_kw']" ;; esac
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'test -d src'; _v2start k2; _v2tr k2 'src/ui/a.ts' feature 'test -d src'; _v2stopt k2 >/dev/null
+_kn="$(awk -F'\t' '$2 == "k2" { print $5 "/" $13 }' "$_v2st/../model-outcomes.tsv" 2>/dev/null)"
+[ "$_kn" = "normal/-" ] || _v2b="$_v2b [normal row: '$_kn']"
+[ -z "$_v2b" ] && pass "the gate's reason for critical work reaches the record: the pending record and the outcome line carry the path and the rule that matched; normal work carries -" \
+               || fail "risk reason recorded:$_v2b"
 # The gate's and the write-time check's refusals are in the gate log; an agent id that cannot be read does not open
 # the write-time check; run_in_background named twice is refused.
 _v2new; _v2b=""; _V2ENV="CREW_GATE_LOG=$_v2/gl.tsv"; : > "$_v2/gl.tsv"
-_v2call crew-database-expert sonnet 'src/payments/p.ts' feature none; _v2call crew-backend-expert haiku 'src/ui/a.ts' text none
+_v2call crew-database-expert sonnet 'src/payments/p.ts' feature none; _v2call crew-backend-expert haiku 'src/ui/a.ts' fix-known none
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"nobody-known","agent_type":"x"'
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"","agent_type":"x"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b an-empty-agent-id-opened-the-check:$_v2wrc"
 _v2write "$_v2p/src/payments/p.ts" ',"agent_id":"a b/../c","agent_type":"x"'; [ "$_v2wrc" = 2 ] || _v2b="$_v2b an-unreadable-agent-id-opened-the-check:$_v2wrc"
@@ -8523,7 +9172,7 @@ _v2call crew-backend-expert sonnet 'src/ui/m3.ts' feature none; _v2start no1; _v
 [ "$(_v2ran no1)" = "-" ] || _v2b="$_v2b [no model named: $(_v2ran no1)]"
 _v2call crew-backend-expert sonnet 'src/ui/m4.ts' feature none; _v2start od1; _v2stop od1 >/dev/null; _v2postm od1 completed ',"resolvedModel":"a b\tc"'
 [ "$(_v2ran od1)" = "-" ] || _v2b="$_v2b [a model that is not a name was written: $(_v2ran od1)]"
-[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 12' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
+[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 13' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
 [ -d "$_v2p/.claude/state/.outcomes.lock" ] && _v2b="$_v2b the-lock-was-left-behind"
 [ -z "$_v2b" ] && pass "ran_on is the model the answer to the Agent call names: written into the agent's line when the answer follows the stop (a foreground call), there already when it came at the launch (a background call), '-' when the answer names none or names something that is not a model; a decoy of the field inside the task's text is not read, the other lines and the twelve columns stay as they were, and no lock is left behind" \
                || fail "ran_on:$_v2b"
@@ -8638,11 +9287,11 @@ _v2call crew-backend-expert sonnet 'src/payments/p.ts' feature none; [ "$_v2rc" 
 # What a lowering cannot reach: the floors the card and the agent carry. Two raised floors are planted and lowered;
 # the model below still fails where another rule holds it, and passes where only the lowered floor did.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"
-printf 'crew-backend-expert\ttext\tnormal\tsonnet\t6\t3\t2026-01-01T00:00:00Z\ncrew-database-expert\tfeature\tnormal\topus\t6\t3\t2026-01-01T00:00:00Z\n' > "$_v2fl"
-_o="$(_v2say '/crew-loosen crew-backend-expert text normal')$(_v2say '/crew-loosen crew-database-expert feature normal')"
+printf 'crew-backend-expert\tfix-known\tnormal\tsonnet\t6\t3\t2026-01-01T00:00:00Z\ncrew-database-expert\tfeature\tnormal\topus\t6\t3\t2026-01-01T00:00:00Z\n' > "$_v2fl"
+_o="$(_v2say '/crew-loosen crew-backend-expert fix-known normal')$(_v2say '/crew-loosen crew-database-expert feature normal')"
 case "$_o" in *'from sonnet to haiku'*'from opus to sonnet'*) ;; *) _v2b="$_v2b FIXTURE:the-two-floors-were-not-lowered" ;; esac
-_v2call crew-backend-expert haiku 'src/ui/f1.ts' text true;   [ "$_v2rc" = 0 ] || _v2b="$_v2b the-lowered-class-is-still-refused-on-haiku:$_v2rc"
-_v2call crew-backend-expert haiku 'src/ui/f1.ts' text none;   [ "$_v2rc" = 2 ] || _v2b="$_v2b verify-none-went-to-haiku-after-a-lowering"
+_v2call crew-backend-expert haiku 'src/ui/f1.ts' fix-known true;   [ "$_v2rc" = 0 ] || _v2b="$_v2b the-lowered-class-is-still-refused-on-haiku:$_v2rc"
+_v2call crew-backend-expert haiku 'src/ui/f1.ts' fix-known none;   [ "$_v2rc" = 2 ] || _v2b="$_v2b verify-none-went-to-haiku-after-a-lowering"
 _v2call crew-database-expert sonnet 'src/ui/f2.ts' feature true; [ "$_v2rc" = 0 ] || _v2b="$_v2b the-lowered-class-is-still-refused-on-sonnet:$_v2rc"
 _v2call crew-database-expert haiku 'src/ui/f2.ts' feature true;  { [ "$_v2rc" = 2 ] && grep -q 'runs on sonnet or above' "$_v2/err"; } || _v2b="$_v2b an-agents-own-floor-was-lowered"
 _v2call crew-database-expert sonnet 'db/migrations/1.sql' feature true ',"run_in_background":false'; [ "$_v2rc" = 2 ] || _v2b="$_v2b critical-work-went-below-opus-after-a-lowering"
@@ -8719,6 +9368,61 @@ rm -rf "$_v2"
 fi
 # Wired where it has to be, in both editions: the four events of agent-outcome.sh, and the gate on Agent.
 _pawf2="$ROOT/settings.json"; [ "$IS_KIT" = 1 ] && _pawf2="$_pawf2 $(cd "$ROOT/.." && pwd)/plugin/hooks/hooks.json"
+# ---- the refuter ledger: what crew-refuter concluded, written by the hook from the agent's own task and answer ----
+# findings.mjs --verified trusts this file, so what writes it is the gate: a line only when the TASK (the first record
+# of the agent's transcript) and the ANSWER (last_assistant_message) name the same finding and lens, only for a
+# crew-refuter (plugin-namespaced too), once per agent, whatever CREW_MODEL_ROUTING says, and never a refusal.
+_RL="$HOOKS/refuter-ledger.sh"
+if [ ! -f "$_RL" ]; then fail "hooks/refuter-ledger.sh is missing — no verdict of crew-refuter is ever recorded, so --verified can back nothing"
+else
+  _rlt="$(mktemp -d)"; mkdir -p "$_rlt/p"
+  printf '%s\n' '{"type":"user","content":"files: src/a.js\nchange: audit\nverify: none\nfinding: sec-idor-1\nlens: protection\ncite: src/a.js:3\nclaim: anyone reads any order"}' > "$_rlt/t.jsonl"
+  _rl(){  # $1 agent id, $2 agent type, $3 answer (JSON-escaped), [$4 extra env] -> rows in the ledger after
+    printf '{"hook_event_name":"SubagentStop","session_id":"s1","agent_id":"%s","agent_type":"%s","agent_transcript_path":"%s","last_assistant_message":"%s"}' \
+      "$1" "$2" "$_rlt/t.jsonl" "$3" | env CLAUDE_PROJECT_DIR="$_rlt/p" ${4:-} bash "$_RL" >/dev/null 2>&1
+    _rlrc=$?
+    _rln=0; [ -f "$_rlt/p/.claude/state/crew-refuter.tsv" ] && _rln=$(($(wc -l < "$_rlt/p/.claude/state/crew-refuter.tsv") - 1))
+  }
+  _rlb=""
+  _rl a1 crew-refuter 'checked\nFINDING: sec-idor-1\nLENS: protection\nVERDICT: FALSE_POSITIVE\nREASON: guard at src/a.js:2\nconfidence: high'
+  [ "$_rlrc" = 0 ] && [ "$_rln" = 1 ] || _rlb="$_rlb match(rc=$_rlrc,rows=$_rln)"
+  _rl a1 crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb resumed-agent-counted-twice"
+  _rl a2 crew-refuter 'FINDING: sec-idor-1\nLENS: reachability\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb answer-on-another-lens-recorded"
+  _rl a3 crew-refuter 'FINDING: sec-other\nLENS: protection\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb answer-on-another-finding-recorded"
+  _rl a4 crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: PROBABLY'
+  [ "$_rln" = 1 ] || _rlb="$_rlb verdict-outside-the-three-recorded"
+  _rl a5 crew-security-expert 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: TRUE_POSITIVE'
+  [ "$_rln" = 1 ] || _rlb="$_rlb another-agent-type-recorded"
+  _rl a6 crewforth:crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: CANNOT_VERIFY'
+  [ "$_rln" = 2 ] || _rlb="$_rlb plugin-namespaced-type-not-recorded"
+  _rl a7 crew-refuter 'FINDING: sec-idor-1\nLENS: protection\nVERDICT: TRUE_POSITIVE' CREW_MODEL_ROUTING=off
+  [ "$_rln" = 3 ] || _rlb="$_rlb not-recorded-with-routing-off"
+  _o="$(printf 'not json' | env CLAUDE_PROJECT_DIR="$_rlt/p" bash "$_RL" 2>/dev/null; echo "rc=$?")"
+  [ "$_o" = rc=0 ] || _rlb="$_rlb unreadable-payload:$_o"
+  _rlrow="$(sed -n 2p "$_rlt/p/.claude/state/crew-refuter.tsv" 2>/dev/null | cut -f3-6 | tr '\t' ' ')"
+  [ "$_rlrow" = "a1 sec-idor-1 protection FALSE_POSITIVE" ] || _rlb="$_rlb row:[$_rlrow]"
+  [ -z "$_rlb" ] && pass "refuter-ledger.sh: one line when task and answer agree (9 cases: resumed, other lens, other finding, bad verdict, other agent, plugin name, routing off, bad payload)" \
+                 || fail "refuter-ledger.sh:$_rlb"
+  # Its guards: the ledger's file name is refused to the shell and to the file tools; the agent's name is not.
+  _rlg(){ printf '{"hook_event_name":"PreToolUse","tool_name":"%s","permission_mode":"default","tool_input":%s}' "$1" "$2" \
+    | env CLAUDE_PROJECT_DIR="$_rlt/p" bash "$HOOKS/$3" >/dev/null 2>&1; echo $?; }
+  _g1="$(_rlg Bash '{"command":"echo x >> .claude/state/crew-refuter.tsv"}' guard-bash.sh)"
+  _g2="$(_rlg Bash '{"command":"grep -rn crew-refuter agents"}' guard-bash.sh)"
+  _g3="$(_rlg Write "{\"file_path\":\"$_rlt/p/.claude/state/crew-refuter.tsv\",\"content\":\"x\"}" guard-write.sh)"
+  _g4="$(_rlg Write "{\"file_path\":\"$_rlt/p/notes.md\",\"content\":\"x\"}" guard-write.sh)"
+  [ "$_g1" = 2 ] && [ "$_g2" = 0 ] && [ "$_g3" = 2 ] && [ "$_g4" = 0 ] \
+    && pass "the refuter ledger is refused by name to the shell (rc 2) and the file tools (rc 2); a grep for the agent and a plain file are not (rc 0)" \
+    || fail "refuter ledger guards: shell write $_g1 (want 2), grep $_g2 (want 0), Write $_g3 (want 2), plain Write $_g4 (want 0)"
+  rm -rf "$_rlt"
+fi
+# Wired in both editions: SubagentStop, matched on the agent type.
+_rlw=""; for _pf in $_pawf2; do
+  json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "SubagentStop" && $2 ~ /crew-refuter/ && $3 ~ /refuter-ledger\.sh/ { f = 1 } END { exit !f }' || _rlw="$_rlw ${_pf##*/}"
+done
+[ -z "$_rlw" ] && pass "refuter-ledger.sh is wired to SubagentStop, matched on crew-refuter, in every edition read" || fail "refuter-ledger.sh is not wired to SubagentStop on crew-refuter in:$_rlw"
 for _pf in $_pawf2; do
   _wo=""; for _ev in SubagentStart SubagentStop PostToolUse SessionStart; do
     json_hooks "$_pf" | LC_ALL=C awk -F'\t' -v e="$_ev" '$1 == e && $3 ~ /agent-outcome\.sh/ { f = 1 } END { exit !f }' || _wo="$_wo $_ev"; done
@@ -8938,21 +9642,24 @@ CPT='0/ask 0/allow @@ git commit -m x
 0 0 @@ bash -c \x27git log --grep=commit\x27
 0 0 @@ grep -rn \"git commit -n\" docs/
 0/ask 0/allow @@ bash build.sh && git commit -m x
-0/ask 0/allow @@ cat > notes.md <<\x27EOF\x27\nrun: bash -c \x27git commit -am x\x27 and it\x27s gone\nEOF\ngit commit -m x'
+0/ask 0/allow @@ cat > notes.md <<\x27EOF\x27\nrun: bash -c \x27git commit -am x\x27 and it\x27s gone\nEOF\ngit commit -m x
+0/ask 0/allow @@ git commit -m x # trailing words -a'
 _cf_table "$CPT"
-if [ "$_cfn" != 47 ]; then fail "FIXTURE: the everyday-commit table has $_cfn rows, not 47"
-elif [ -z "$_cfbad" ]; then pass "47 everyday calls are judged as before (asked in default, allowed when pre-authorised): chained after git add, a message that holds flags and separators, a here-document message, -F, -S, -uno, redirections, a pipe, a comment, a cd into this same repository, GIT_AUTHOR_*, a script beside the commit"
+if [ "$_cfn" != 48 ]; then fail "FIXTURE: the everyday-commit table has $_cfn rows, not 48"
+elif [ -z "$_cfbad" ]; then pass "48 everyday calls are judged as before (asked in default, allowed when pre-authorised): chained after git add, a message that holds flags and separators, a here-document message, -F, -S, -uno, redirections, a pipe, a comment, a cd into this same repository, GIT_AUTHOR_*, a script beside the commit"
 else fail "everyday commit calls that changed verdict:$_cfbad"; fi
 
-# Three everyday calls the OLDER scan refuses, and still does: it reads any a/o/i/p in a short token as a flag
-# (`-uno`, a key id after -S) and reads past a comment sign. The new reading parses all three correctly; they are
-# kept refused because this change only adds refusals — letting them through is a loosening, to be decided on its own.
+# Two everyday calls the OLDER scan refuses, and still does: it reads any a/o/i/p in a short token as a flag
+# (`-uno`, a key id after -S). The newer scan parses both correctly; they are kept refused because letting them
+# through is a loosening of that scan's option table, to be decided on its own. A third row stood here,
+# `git commit -m x # trailing words -a`: the older scan paired quotes and read on past the comment sign by itself.
+# It walks the one reader's text now, where a comment is left out, so that call is asked about like any commit
+# from the index (the row is in the table above).
 CKT='2 0/allow @@ git commit -Skeyid -qm x
-2 0/allow @@ git commit -uno -m x
-2 0/allow @@ git commit -m x # trailing words -a'
+2 0/allow @@ git commit -uno -m x'
 _cf_table "$CKT"
-if [ "$_cfn" != 3 ]; then fail "FIXTURE: the kept-over-blocks table has $_cfn rows, not 3"
-elif [ -z "$_cfbad" ]; then pass "3 known over-blocks of the older scan are unchanged (-Skeyid, -uno, a flag after a comment sign): nothing was loosened"
+if [ "$_cfn" != 2 ]; then fail "FIXTURE: the kept-over-blocks table has $_cfn rows, not 2"
+elif [ -z "$_cfbad" ]; then pass "2 known over-blocks of the older scan are unchanged (-Skeyid, -uno)"
 else fail "the older scan's verdict changed on:$_cfbad"; fi
 
 # ---- the same commit, written for PowerShell --------------------------------------------------------------------
@@ -10312,7 +11019,9 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
     # An empty answer must mean "nothing unpinned", never "git listed nothing": two files every checkout has must
     # be in the listing first. Symlinks and submodules are not regular files; git leaves their i/ field empty.
     SLIST="$(git -C "$SGR" ls-files -- start.sh adopt.sh VERSION LICENSE README.md bin kit plugin 2>/dev/null)"
-    if ! printf '%s\n' "$SLIST" | grep -qx 'start.sh' || ! printf '%s\n' "$SLIST" | grep -qx 'kit/CLAUDE.md'; then
+    # Here-strings, not a pipe: `grep -q` exits on its first match, a printf still writing gets SIGPIPE, and under
+    # pipefail that read as "not listed" once the list grew long enough to outlast the match (Linux runner).
+    if ! grep -qx 'start.sh' <<< "$SLIST" || ! grep -qx 'kit/CLAUDE.md' <<< "$SLIST"; then
       fail "git did not list Crewforth's shipped files (start.sh and kit/CLAUDE.md are missing), so the eol pin check measured nothing"
     else
     UNPIN="$(git -C "$SGR" ls-files --eol -- start.sh adopt.sh VERSION LICENSE README.md bin kit plugin 2>/dev/null \
@@ -10368,6 +11077,15 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       # gate that only runs when someone remembers to run it, which is how the catalogue check went unnoticed.
       [ -z "$UNRUN" ] && pass "every gate verify.sh defines is wired into ci.yml" \
                       || fail "verify.sh defines gates ci.yml never runs: $UNRUN — they hold only when run by hand"
+      # The Windows e2e runs as shards of packaging/e2e.sh's map. A shard the matrix does not list is a third of the
+      # rehearsals that runs nowhere while every listed job is green; e2e.sh checks its own map, not the matrix. So
+      # the matrix lists exactly 1/N … N/N, N read from e2e.sh.
+      _e2n="$(sed -n 's/^E2E_SHARDS=\([0-9][0-9]*\)$/\1/p' "$SGR/packaging/e2e.sh" 2>/dev/null)"
+      _e2m="$(grep -oE "shard: [0-9]+/[0-9]+" "$SGR/.github/workflows/ci.yml" | awk '{print $2}' | LC_ALL=C sort -u | tr '\n' ' ')"
+      _e2w=""; if [ -n "$_e2n" ]; then _i=1; while [ "$_i" -le "$_e2n" ]; do _e2w="$_e2w$_i/$_e2n "; _i=$((_i+1)); done; fi
+      if [ -z "$_e2n" ]; then fail "FIXTURE: E2E_SHARDS was not read from packaging/e2e.sh — the shard pin cannot compare"
+      elif [ "$_e2m" = "$_e2w" ]; then pass "ci.yml runs every e2e shard the map has ($_e2w)"
+      else fail "ci.yml's e2e matrix lists shards [$_e2m], packaging/e2e.sh has [$_e2w] — a shard it does not list runs nowhere"; fi
     fi
 
     # EVERY JOB OF EVERY WORKFLOW HAS A TIME LIMIT. A job without one runs for GitHub's default of 360 minutes: a
@@ -10437,7 +11155,7 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       # starts with a wildcard (which reaches every directory, kit/ included).
       cdo_unsafe(){ while IFS= read -r _p; do case "$_p" in *.sh*|kit*|\**) printf '%s\n' "$_p" ;; esac; done; }
       _cp="$(cdo_pats "$CDO" | tr '\n' ' ' | sed 's/ $//')"
-      _want='README*.md site/content/* evals/README.md evals/results/* CHANGELOG.md'
+      _want='README*.md site/* evals/README.md evals/results/* CHANGELOG.md'
       [ "$_cp" = "$_want" ] && pass "the docs-only list is exactly: $_want" \
         || fail "the docs-only list changed — it reads '$_cp', pinned '$_want'. Widening it lets a change skip macOS and Windows; update this pin deliberately"
       _cu="$(cdo_pats "$CDO" | cdo_unsafe)"
@@ -10454,9 +11172,11 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ "$(cdo evals/run.sh)" = code ]      || _cv="$_cv evals/run.sh"
       [ "$(cdo kit/README.md)" = code ]     || _cv="$_cv kit/README.md"
       [ "$(cdo .github/workflows/ci.yml)" = code ] || _cv="$_cv ci.yml"
+      [ "$(cdo site/scripts/check.mjs site/package-lock.json)" = docs ] || _cv="$_cv site-source"
+      [ "$(cdo site/scripts/build.sh)" = code ] || _cv="$_cv site-script"
       [ "$(printf '' | bash "$CDO")" = code ] || _cv="$_cv empty"
       [ "$(printf 'README.md\r\n' | bash "$CDO")" = docs ] || _cv="$_cv crlf"
-      [ -z "$_cv" ] && pass "ci-docs-only.sh: documentation reads docs; a hook, evals/run.sh, kit/README.md, ci.yml or an empty diff reads code" \
+      [ -z "$_cv" ] && pass "ci-docs-only.sh: documentation and the site's sources read docs; a hook, a .sh under site/, evals/run.sh, kit/README.md, ci.yml or an empty diff reads code" \
                     || fail "ci-docs-only.sh gave the wrong verdict for:$_cv"
       # The third answer, `text`: a pull request that changes only the text of skills, agents or commands skips the
       # macOS and Windows jobs as a documentation one does, and still runs the Linux verify job. That list is pinned
@@ -10482,10 +11202,13 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       [ -z "$_cv" ] && pass "ci-docs-only.sh: skill, agent and command text reads text, with documentation too; with a hook, a skill's script, kit/CLAUDE.md or a blocklist it reads code" \
                     || fail "ci-docs-only.sh gave the wrong text verdict for:$_cv"
       # The Linux verify job is gated on nothing: it holds the checks a text change can break.
-      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -cE '^    (if|needs):')"
+      # One condition is allowed, and only this one: it skips the run a label other than full-ci starts, and says
+      # nothing about what the pull request changed.
+      _cyv="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -E '^    (if|needs):' \
+               | grep -vxF "    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'" | grep -c .)"
       _cyn="$(awk '/^  verify:$/{f=1;next} f && /^  [a-z-]+:$/{f=0} f' "$SGR/.github/workflows/ci.yml" | grep -c 'bash packaging/verify.sh')"
       [ "$_cyv" = 0 ] && [ "$_cyn" -ge 1 ] \
-        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no if:, no needs:)" \
+        && pass "ci.yml runs the Linux verify job on every pull request, a text-only one included (no needs:, and no if: but the one that skips an unrelated label)" \
         || fail "ci.yml's verify job is conditional ($_cyv if:/needs: line(s)) or was not found ($_cyn verify.sh call(s)): a text-only pull request would skip the budget, pointer, routing and plugin checks"
       # ...and ci.yml really uses it: both cross-platform jobs are gated on its answer, nothing else is.
       _cy="$SGR/.github/workflows/ci.yml"
@@ -10604,6 +11327,63 @@ sec "== 14b) the star line (once, on a first install) and the front page it poin
 # One file owns the line — its URL, both languages, and when it stays quiet — so these checks drive THAT file,
 # with CI and CREW_NO_STAR set or cleared by each case itself: a runner exports CI=true, and a check that read it
 # from the environment would pass here and assert the opposite there.
+# ---- the status line: what it says, and where it is set ----------------------------------------------------------
+# eval/lib/statusline.sh reads Claude Code's stdin and the hooks' own records. What it must never do: show a gate
+# line or an agent from before the session (the gate log carries no time), or replace a status line of the user's.
+SLS="$ROOT/eval/lib/statusline.sh"
+if [ -f "$SLS" ]; then
+  _sl="$(mktemp -d)"; mkdir -p "$_sl/p/.claude/state/crew-model/agents" "$_sl/p/.claude/state/crew-model/results" "$_sl/home"
+  ( cd "$_sl/p" && git init -q . ) >/dev/null 2>&1
+  printf 'ASK\t§4.4\tcommit\t\n' > "$_sl/p/.claude/gate-log.tsv"; : > "$_sl/p/.claude/state/crew-model/agents/before"
+  _slj='{"session_id":"sl1","context_window":{"used_percentage":34.6},"cost":{"total_cost_usd":1.2034},"rate_limits":{"five_hour":{"used_percentage":90}},"workspace":{"project_dir":"'"$_sl/p"'"}}'
+  sleep 1
+  _o1="$(printf '%s' "$_slj" | (cd "$_sl" && bash "$SLS") 2>&1)"
+  sleep 1
+  printf 'BLOCK\t§4.2\tforce push\t\n' >> "$_sl/p/.claude/gate-log.tsv"
+  : > "$_sl/p/.claude/state/crew-model/agents/run1"; : > "$_sl/p/.claude/state/crew-model/agents/done1"; : > "$_sl/p/.claude/state/crew-model/results/done1"
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ]; then printf -v _now '%(%s)T' -1; else _now="$(date +%s)"; fi
+  # 330 s old: 24 minutes left for the next 30 s, so a slow machine does not read 23 (measured in an install: 23).
+  printf 'v=1\nop=commit\nts=%s\n' "$((_now - 330))" > "$_sl/p/.git/crewforth-approval"
+  _o2="$(printf '%s' "$_slj" | (cd "$_sl" && bash "$SLS") 2>&1)"
+  _o3="$(printf '' | bash "$SLS" 2>&1)"
+  [ "$_o1" = "🔋 34% · ~\$1.20" ] && [ "$_o2" = "🛡 BLOCK §4.2 · ✓ commit approved 24m · ⚙ 1 crew agent · 🔋 34% · ~\$1.20" ] && [ -z "$_o3" ] \
+    && pass "status line: the session's own gate line, a standing approval and its running crew agents; nothing from before the session; the context fill, not a rate limit's; silent on no input" \
+    || fail "status line said: first='$_o1' · later='$_o2' · no input='$_o3'"
+  # --install: only where no status line is set, and never through a file it cannot read.
+  # The project's settings carry a hook of the user's own beside Crewforth's: both must come through whole.
+  # Built from Crewforth's hooks alone: in an installed project settings.json already carries the status line.
+  if [ -f "$ROOT/settings.json" ]; then
+    printf '{"hooks":%s}\n' "$(awk -v op=get -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$ROOT/settings.json" 2>/dev/null)" > "$_sl/base.json"
+    awk -v op=merge -v retired= -f "$ROOT/eval/lib/settings-json.awk" "$_sl/base.json" /dev/stdin > "$_sl/p/.claude/settings.json" 2>/dev/null <<'JSON'
+{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"my-own-stop-hook"}]}]}}
+JSON
+  fi
+  [ -s "$_sl/p/.claude/settings.json" ] || printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"my-own-stop-hook"}]}]}}\n' > "$_sl/p/.claude/settings.json"
+  _hb="$(awk -v op=get -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null | cksum)"
+  _i(){ (cd "$_sl/p" && env CLAUDE_CONFIG_DIR="$_sl/home" bash "$SLS" --install 2>&1); }
+  _hk0="$(awk -v op=len -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null)"
+  _r1="$(_i)"; _c1="$(awk -v op=get -v path=statusLine.command -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null)"
+  _hk1="$(awk -v op=len -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null)"
+  _ha="$(awk -v op=get -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$_sl/p/.claude/settings.json" 2>/dev/null | cksum)"
+  grep -q 'my-own-stop-hook' "$_sl/p/.claude/settings.json" || _ha="lost the user's own hook"
+  _r2="$(_i)"
+  cp "$_sl/base.json" "$_sl/p/.claude/settings.json" 2>/dev/null || printf '{"hooks":{}}\n' > "$_sl/p/.claude/settings.json"
+  printf '{"statusLine":{"type":"command","command":"mine"}}\n' > "$_sl/home/settings.json"
+  _sum0="$(cksum < "$_sl/p/.claude/settings.json")"; _r3="$(_i)"; _sum1="$(cksum < "$_sl/p/.claude/settings.json")"
+  rm -f "$_sl/home/settings.json"; printf '{bad' > "$_sl/p/.claude/settings.json"; _r4="$(_i)"; _b4="$(cat "$_sl/p/.claude/settings.json")"
+  case "$_c1" in *eval/lib/statusline.sh*) _c1=ok ;; esac
+  [ "$_r1/$_c1/$_r2/$_r3/$_r4" = "installed/ok/kept/kept/failed" ] && [ "$_hk0" = "$_hk1" ] && [ -n "$_hk0" ] && [ "$_hb" = "$_ha" ] && [ "$_sum0" = "$_sum1" ] && [ "$_b4" = "{bad" ] \
+    && pass "status line --install: set where none is, every hook kept byte for byte, Crewforth's and the user's own ($_hk1 events); kept when set; a user's own left untouched; a file it cannot read left as it was" \
+    || fail "status line --install: $_r1/$_c1/$_r2/$_r3/$_r4 (want installed/ok/kept/kept/failed), hooks $_hk0 -> $_hk1 (content $([ "$_hb" = "$_ha" ] && echo same || echo "CHANGED: $_ha")), user's case changed the file: $([ "$_sum0" = "$_sum1" ] || echo yes), invalid left as '$_b4'"
+  # The reader's gets: several values in one read, an absent one empty, a string with its quotes.
+  _g="$(printf '{"a":{"b":1},"c":"x y"}' | awk -v op=gets -v 'path=a.b|nope|c' -f "$ROOT/eval/lib/settings-json.awk" - 2>&1)"
+  [ "$_g" = "1"$'\t\t'"\"x y\"" ] && pass "settings-json.awk gets: several paths in one read, tab-separated, an absent one empty" \
+    || fail "settings-json.awk gets printed '$_g'"
+  rm -rf "$_sl"
+else
+  skip scope "status line checks skipped (this project has no eval/lib/statusline.sh)" 3
+fi
+
 STAR="$ROOT/eval/lib/star.sh"
 if [ -f "$STAR" ]; then
   _SURL="$(sed -n 's/^CREW_REPO_URL="\(.*\)"$/\1/p' "$STAR" | head -1)"
@@ -10643,6 +11423,26 @@ if [ -f "$STAR" ]; then
     && pass "--once: once per version (shown · same version silent · new version shown), marker holds the version; a silenced run writes nothing" \
     || fail "--once broken: v1='${_o1:+shown}' v1-again='${_o2:+shown}' v2='${_o3:+shown}' marker='$_mv' silenced='${_o4:+shown}' marker-after='$_mv4'"
   rm -rf "$_SP"
+  # doctor keeps its own marker: the line an installer showed for a version does not silence doctor's, and doctor
+  # shows it once per version too. Before 3.2.0 they shared one, so doctor almost never showed it.
+  _SD="$(mktemp -d)"; mkdir -p "$_SD/.claude"; printf '9.9.0\n' > "$_SD/.claude/VERSION"
+  _r(){ env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$STAR" --once "$_SD" "$@" 2>&1 | grep -c '⭐'; }
+  _d="$(_r)$(_r)$(_r doctor)$(_r doctor)"
+  _dn="$(env -u CI -u CSK_NO_STAR CREW_NO_STAR=1 bash "$STAR" --once "$_SD" doctor 2>&1)"
+  [ "$_d" = 1010 ] && [ -z "$_dn" ] && [ -f "$_SD/.claude/star-shown-doctor" ] \
+    && pass "--once doctor: its own marker (install shown, again silent, doctor shown, again silent); CREW_NO_STAR silences it" \
+    || fail "--once doctor: install/install/doctor/doctor printed $_d (want 1010), silenced='${_dn:+shown}'"
+  rm -rf "$_SD"
+  # The plugin edition has no .claude/VERSION: the version is read from the manifest beside star.sh (../../).
+  _SPL="$(mktemp -d)"; mkdir -p "$_SPL/plug/eval/lib" "$_SPL/plug/.claude-plugin" "$_SPL/proj"
+  cp "$STAR" "$ROOT/eval/lib/settings-json.awk" "$_SPL/plug/eval/lib/" 2>/dev/null
+  [ -f "$ROOT/eval/lib/crew-env.sh" ] && cp "$ROOT/eval/lib/crew-env.sh" "$_SPL/plug/eval/lib/"
+  printf '{\n  "name": "crewforth",\n  "version": "9.8.7"\n}\n' > "$_SPL/plug/.claude-plugin/plugin.json"
+  env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$_SPL/plug/eval/lib/star.sh" --once "$_SPL/proj" doctor >/dev/null 2>&1
+  _pv="$(head -1 "$_SPL/proj/.claude/star-shown-doctor" 2>/dev/null)"
+  [ "$_pv" = 9.8.7 ] && pass "a plugin install's star marker holds the plugin manifest's version (9.8.7)" \
+    || fail "a plugin install's star marker holds '${_pv:-nothing}', not the manifest's 9.8.7"
+  rm -rf "$_SPL"
   if command -v git >/dev/null 2>&1; then
     _SG="$(mktemp -d)"; ( cd "$_SG" && git init -q . ) >/dev/null 2>&1; mkdir -p "$_SG/.claude"; printf '9.9.0\n' > "$_SG/.claude/VERSION"
     env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$STAR" --once "$_SG" >/dev/null 2>&1
@@ -10666,7 +11466,7 @@ if [ -f "$STAR" ]; then
   [ -z "$_dup$_nocall" ] && pass "the repo URL lives only in lib/star.sh; $(printf '%s\n' $_callers | grep -c .) caller(s) call it" \
     || fail "star single source broken — URL copied into:${_dup:- none} · not calling star.sh:${_nocall:- none}"
 else
-  skip scope "star line checks skipped (this project has no eval/lib/star.sh)" 7
+  skip scope "star line checks skipped (this project has no eval/lib/star.sh)" 9
 fi
 # The front page. Kit repo only: an installed project has no README of ours.
 if [ "$IS_KIT" = 1 ]; then
@@ -10737,17 +11537,17 @@ sec "== 14c) the 3.0 rename left no old name behind — outside history and the 
 if [ -n "$SGR" ] && [ -d "$SGR/packaging" ] && [ -f "$SGR/VERSION" ] && [ -d "$SGR/kit" ] && [ -f "$SGR/packaging/build-plugin.sh" ]; then
   RN_ALLOW='CHANGELOG.md	196	history: every entry before 3.0 keeps the name it shipped under
 README*.md site/content/*/install.md	4	migration: the 2.x plugin note names the plugin to uninstall — one line in each README and install page, EN + TR
-evals/results/*	6	history: recorded eval runs stay byte-for-byte
+evals/results/* packaging/review-bench/cases/* packaging/review-bench/results/* packaging/advisor-bench/results/*	729	history: recorded eval runs, and the review bench'"'"'s cases (past versions of Crewforth'"'"'s own files) and results, and the advisor bench'"'"'s results on them, stay byte-for-byte
 adopt.sh kit/legacy-blobs.tsv	347	migration: finds and moves 2.x names (components, CLAUDE.md, board, auto-mode rules, variables), and the generated list of the 1.x/2.x files it may move
 bin/cli.js	4	migration: add accepts a typed <x>-csk and moves an add record written under the old names
 evals/run.sh	4	compat: reads the 2.x trusted eval parent when the 3.0 one is absent — removed in 4.0
 site/scripts/check.mjs	7	tests: the old-name pattern of the built-site gate, and its twins
-*/eval/doctor.sh	6	migration: PROOF-5 and the variable notice name what is still on the 2.x spelling
+*/eval/doctor.sh	8	migration: PROOF-5 and the variable notice name what is still on the 2.x spelling; 9c names the 2.x plugin id
 */crew-env.*	18	compat layer (bash + Node): reads CSK_* when CREW_* is unset — removed in 4.0
 */hooks/board.sh	42	compat layer: reads the 2.x board ref and settings and folds them in — removed in 4.0
 */skills/automode-policy/scripts/check.sh	4	compat layer: counts auto-mode rules still named by 2.x — removed in 4.0
 */studio/web/storage-migrate.js	4	migration: moves the panel'"'"'s saved layout to the new keys — removed in 4.0
-kit/eval/smoke-test.sh	36	tests: this gate'"'"'s own pattern, and that the 2.x names still work
+kit/eval/smoke-test.sh	42	tests: this gate'"'"'s own pattern, and that the 2.x names still work (doctor 9c: the 2.x plugin id; the star line'"'"'s doctor marker)
 packaging/legacy-npm/*	10	the 2.x package name'"'"'s 3.0.0: a forwarder to crewforth, published once by hand
 packaging/*	154	tests: the migration rehearsal on the real v2.13.0 tree, the legacy token and layout checks; the legacy blob list'"'"'s generator and its real-installer check'
   # A line may name several globs, separated by spaces, when one reason covers them all; its pin is their sum. Split
@@ -10957,6 +11757,22 @@ $(printf '%s\n%s\n%s\n' "$_ka" "$_kb" "$_kc" | grep . | head -n 6 | sed "s|$KR/|
     [ -n "$(_dn "$_kd/done-twin.sh")" ] && pass "the installers' closing lines name no kit (EN key and TR value); a planted 'kit/ deleted' is caught" \
       || fail "twin: the closing-line check missed a planted 'kit/ deleted' — it reads nothing"
   fi
+  # adopt.sh --help answers before it reads anything. An unknown flag is ignored further down, so --help used to run
+  # the detection (seen on Windows in the 3.2.0-rc.1 trial). Read in a git repo holding only adopt.sh: no kit/, both
+  # languages, and nothing written. Twin: the same script without its --help branch must not print the usage.
+  _ah_run(){ ( cd "$1" && CREW_LANG=en bash adopt.sh --help; echo "rc=$?"; bash adopt.sh -h --lang tr; echo "rc=$?" ) 2>&1; }
+  mkdir -p "$_kd/ah" "$_kd/ah-twin"; git init -q "$_kd/ah" 2>/dev/null; git init -q "$_kd/ah-twin" 2>/dev/null
+  cp "$KR/adopt.sh" "$_kd/ah/"; sed 's/-h|--help) _hh=1 ;;//' "$KR/adopt.sh" > "$_kd/ah-twin/adopt.sh"
+  _ah="$(_ah_run "$_kd/ah")"; _aht="$(_ah_run "$_kd/ah-twin")"
+  _ahw="$(git -C "$_kd/ah" status --porcelain 2>/dev/null | grep -vx '?? adopt.sh')"
+  case "$_ah" in
+    *'Usage: bash adopt.sh'*'rc=0'*'Kullanım: bash adopt.sh'*'rc=0'*)
+      if [ -n "$_ahw" ]; then fail "adopt.sh --help wrote into the project: $(printf '%s' "$_ahw" | head -n 2 | tr '\n' ' ')"
+      else case "$_aht" in *'Usage: bash adopt.sh'*) fail "twin: adopt.sh without its --help branch still printed the usage — the check reads nothing" ;;
+             *) pass "adopt.sh --help prints its usage in English and Turkish, rc 0, with no kit/ and nothing written (a twin without it does not)" ;; esac
+      fi ;;
+    *) fail "adopt.sh --help did not print its usage in both languages with rc 0: $(printf '%s' "$_ah" | head -n 3 | tr '\n' ' ')" ;;
+  esac
   rm -rf "$_kd"
 else
   skip scope "printed-text wording check skipped (installed project — the installers live in the source repository)"
@@ -11170,7 +11986,7 @@ _EVR="$(cd "$(dirname "$0")/../.." && pwd)/evals/run.sh"
 _PY3OK=0
 printf '' | python3 -c 'import sys,json' >/dev/null 2>&1 && _PY3OK=1
 if [ -f "$_EVR" ] && [ "$_PY3OK" = 0 ]; then
-  skip tool "evals metric not calibrated (no working python3 — eval_trace_metrics is a python heredoc)" 6
+  skip tool "evals metric not calibrated (no working python3 — eval_trace_metrics is a python heredoc)" 7
 elif [ -f "$_EVR" ]; then
   _EVD="$(mktemp -d)"
   # NOT IN A SUBSHELL, and that was a real defect in the first draft of this block: the five rows below ran
@@ -11219,6 +12035,15 @@ $_res")"
   [ "$(_f "$_p" 19)" = 2 ] \
     && pass "evals metric: two id-less messages stay two, not one" \
     || fail "evals metric: id-less messages collapsed [$_p] — parallel_msgs would undercount"
+  # agents_by_type (column 21): WHICH agent the main thread started. A count of calls looked healthy while two agents
+  # were never started; this names them. A plugin's namespace is dropped, a call with no type is general-purpose, and
+  # a subagent's own call is not the main thread's.
+  _p="$(_mk typed "$(printf '%s' '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"x1","name":"Agent","input":{"subagent_type":"crew-commit-agent"}},{"type":"tool_use","id":"x2","name":"Agent","input":{"subagent_type":"crewforth:crew-review-agent"}},{"type":"tool_use","id":"x3","name":"Agent","input":{}}]}}')
+$(_msg s1 1 n1)
+$_res")"
+  { [ "$(_f "$_p" 21)" = "crew-commit-agent:1,crew-review-agent:1,general-purpose:1" ] && [ "$(_f "$(_mk none_t "$_res")" 21)" = "-" ]; } \
+    && pass "evals metric: agents_by_type names the main thread's agents (namespace dropped, untyped is general-purpose, nested not counted, none is -)" \
+    || fail "evals metric: agents_by_type read [$(_f "$_p" 21)]"
   _p="$(_mk none "$_res")"
   { [ "$(_f "$_p" 19)" = 0 ] && [ "$(_f "$_p" 20)" = 0 ]; } \
     && pass "evals metric: a stream with no Agent call reports 0, not empty" \
@@ -11387,7 +12212,7 @@ if [ -s "$SECLOG" ]; then
   ' "$SECLOG"
   echo "---"
 fi
-rm -f "$SECLOG"
+rm -f "$SECLOG"; rm -rf "$_SMOKE_CCD"
 if [ "$SKIPN" -gt 0 ]; then
   echo "SKIPPED (nothing was checked here):$SKIP_LIST"
   echo "---"

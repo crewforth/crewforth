@@ -14,7 +14,7 @@ import {
   summaryChips, sessionStatus, sessionName, sessionSub, ago, matchesSession, highlight, badgeFor,
   liveSessions, machines, seenAgo, isFirstRun,
 } from './nav.js';
-import { liveness, offlineNote } from './liveness.js';
+import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote } from './usage.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
@@ -24,10 +24,12 @@ import { Timeline } from './timeline.js';
 import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { Models } from './models.js';
-import { cardOf, cardLines, workSteps } from './models-plan.js';
+import { MapView } from './map.js';
+import { cardOf, cardLines, workSteps, outsideRouting } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
+import { qrSvg } from './qr.js';
 import { SESSION_MODES } from './convo.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 
@@ -79,6 +81,8 @@ const el = {
   viewList: document.getElementById('view-list'),
   viewModels: document.getElementById('view-models'),
   models: document.getElementById('models'),
+  viewMap: document.getElementById('view-map'),
+  map: document.getElementById('map'),
   list: document.getElementById('list'),
   firstRun: document.getElementById('first-run'),
   stageNote: document.getElementById('stage-note'),
@@ -110,11 +114,36 @@ const getJson = async (p) => {
     heard.failed = true;
     throw e;
   }
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) throw await statusError(r);
   const body = await r.json();
   heardNow();
   return body;
 };
+
+// What the server said about this page's link: a viewer whose link hides transcripts is sent no transcript text.
+let transcriptsHidden = false;
+
+/** The error for an answer with an error status. A viewer link whose eight hours are up covers the page, once. */
+async function statusError(r) {
+  if (r.status === 401) {
+    let b = null; try { b = await r.json(); } catch { /* not JSON */ }
+    if (b?.expired) showExpired();
+  }
+  if (r.status === 403 && transcriptsHidden) return new Error('Transcripts are hidden on this link');
+  return new Error(`HTTP ${r.status}`);
+}
+
+function showExpired() {
+  if (document.getElementById('expired')) return;
+  const box = document.createElement('div');
+  box.id = 'expired';
+  box.className = 'expired';
+  box.setAttribute('role', 'alert');
+  const h = document.createElement('h1'); h.textContent = 'Session expired';
+  const p = document.createElement('p'); p.textContent = 'Viewer links last eight hours. Ask for a new one on the machine running Studio.';
+  box.append(h, p);
+  document.body.append(box);
+}
 
 /* ---------------------------------------------------------------- theme */
 
@@ -608,16 +637,27 @@ el.tbOptions.addEventListener('click', (e) => {
 });
 el.tbExpand.addEventListener('click', () => { (foldTarget() ?? canvas).expandAll(); paintFoldButtons(); });
 el.tbFold.addEventListener('click', () => { (foldTarget() ?? canvas).foldAll(); paintFoldButtons(); });
-el.tbZoomOut.addEventListener('click', () => canvas.zoomBy(1 / 1.2));
-el.tbZoomIn.addEventListener('click', () => canvas.zoomBy(1.2));
-el.tbZoom.addEventListener('click', () => canvas.zoomTo(1));
-el.tbFit.addEventListener('click', () => canvas.fit());
+// The zoom, Fit and Reset controls are the graph's and the map's: they act on whichever of the two is open.
+const zoomed = () => (view === 'map' ? mapView : canvas);
+el.tbZoomOut.addEventListener('click', () => zoomed().zoomBy(1 / 1.2));
+el.tbZoomIn.addEventListener('click', () => zoomed().zoomBy(1.2));
+el.tbZoom.addEventListener('click', () => zoomed().zoomTo(1));
+el.tbFit.addEventListener('click', () => zoomed().fit());
 
 /* Reset layout: the cards moved by hand go back where the layout puts them, and for a moment that can be undone. */
 function resetLayout() {
-  const was = canvas.resetLayout();
+  const target = zoomed();
+  const was = target.resetLayout();
   if (!was) return;
-  toast('Layout reset', { label: 'Undo', run: () => { if (canvas.restoreLayout(was)) toast('Layout restored'); } });
+  toast('Layout reset', { label: 'Undo', run: () => { if (target.restoreLayout(was)) toast('Layout restored'); } });
+  if (target === mapView) paintZoom(mapView.zoom, mapView.moved);
+}
+/** The zoom and Reset as the map has them: the graph's go through paintToolbar. */
+function paintZoom(k, moved) {
+  const pct = `${Math.round(k * 100)}%`;
+  el.tbZoom.textContent = pct;
+  el.tbZoom.setAttribute('aria-label', `Zoom ${pct}. Back to 100%`);
+  if (el.tbReset) el.tbReset.disabled = !(moved > 0);
 }
 el.tbReset.addEventListener('click', resetLayout);
 
@@ -679,6 +719,37 @@ async function loadCosts(force = false) {
 const COSTS_POLL_MS = 60000;
 const MODELS_POLL_MS = 5000;
 
+/* The project's crew map, as Crewforth's scanner wrote it. Read when the view opens, when the comparison changes, and every
+   half minute while it stays open; nothing is scanned from here. */
+let mapFor = null;
+let mapAt = 0;
+let mapBusy = false;
+let mapCompare = null;
+const mapView = new MapView(el.map, {
+  onCopy: (text, what) => navigator.clipboard.writeText(text).then(
+    () => toast(what === 'path' ? `Copied ${text}` : 'Copied — paste it into a session as a task'),
+    () => toast(`Not copied — select it: ${text}`)),
+  onCompare: (cwd) => { mapCompare = cwd; loadMap(true); },
+  onZoom: (k) => { if (view === 'map') paintZoom(k, mapView.moved); },
+});
+async function loadMap(force = false) {
+  if (!current || mapBusy) return;
+  if (!force && mapFor === current && Date.now() - mapAt < MAP_POLL_MS) return;
+  const asked = current;
+  if (mapFor !== asked) mapCompare = null;
+  mapAt = Date.now();
+  mapBusy = true;
+  let data;
+  const q = `session=${encodeURIComponent(asked)}${mapCompare ? `&compare=${encodeURIComponent(mapCompare)}` : ''}`;
+  // A server older than this page has no Map route: say that, not its 404.
+  try { data = await getJson(`/api/map?${q}`); } catch (e) { data = { measured: false, reason: restartNote ?? e.message, others: [] }; }
+  finally { mapBusy = false; }
+  if (asked !== current) return;
+  mapFor = asked;
+  mapView.setData(data);
+}
+const MAP_POLL_MS = 30000;
+
 const list = new List(el.list, {
   tileOf: (n) => canvas.tileFor(n),
   dimmed: (n) => canvas.dimmed(n),
@@ -713,7 +784,7 @@ function paintTimelineBar(st) {
  */
 function setView(next, select = null, remember = true) {
   const was = view;
-  view = ['graph', 'timeline', 'list', 'models'].includes(next) ? next : 'graph';
+  view = ['graph', 'timeline', 'list', 'models', 'map'].includes(next) ? next : 'graph';
   // A view the window opened on by default is not a choice, and is not remembered as one.
   if (remember) store.set('crewforth-studio-view', view);
   const carried = select ?? (was === 'timeline' ? timeline.selected : was === 'list' ? list.selected : canvas.selected) ?? null;
@@ -722,6 +793,8 @@ function setView(next, select = null, remember = true) {
   el.list.hidden = view !== 'list';
   el.models.hidden = view !== 'models';
   el.viewModels.setAttribute('aria-selected', String(view === 'models'));
+  el.map.hidden = view !== 'map';
+  el.viewMap.setAttribute('aria-selected', String(view === 'map'));
   el.viewGraph.setAttribute('aria-selected', String(view === 'graph'));
   el.viewTimeline.setAttribute('aria-selected', String(view === 'timeline'));
   el.viewList.setAttribute('aria-selected', String(view === 'list'));
@@ -751,7 +824,14 @@ function setView(next, select = null, remember = true) {
     if (costsFor !== current) models.setCosts(null);
     loadModels(true);
     loadCosts(costsFor !== current);
+  } else if (view === 'map') {
+    // The map is the project's: read when the view opens, drawn with what was last read until the answer comes.
+    mapView.render();
+    paintZoom(mapView.zoom, mapView.moved);
+    loadMap(true);
   } else {
+    // Back on the graph: the zoom and Reset say the graph's again.
+    paintToolbar(canvas.state());
     canvas.fitIfUntouched();
     if (carried && canvas.nodes.has(carried)) canvas.focus(carried);
   }
@@ -768,13 +848,14 @@ el.viewGraph.addEventListener('click', () => setView('graph'));
 el.viewTimeline.addEventListener('click', () => setView('timeline'));
 el.viewList.addEventListener('click', () => setView('list'));
 el.viewModels.addEventListener('click', () => setView('models'));
+el.viewMap.addEventListener('click', () => setView('map'));
 el.tbFollow.addEventListener('click', () => timeline.setFollow(el.tbFollow.getAttribute('aria-checked') !== 'true'));
 // "Out" is more time on screen, "in" is less: the same way round as the graph's zoom.
 el.tbRangeOut.addEventListener('click', () => timeline.zoom(1));
 el.tbRangeIn.addEventListener('click', () => timeline.zoom(-1));
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => timeline.render())).observe(el.timeline);
 // The canvas's pane changing size changes what fits in it, and with that what Auto density draws.
-if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => canvas.fitIfUntouched())).observe(el.canvasEl);
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnimationFrame(() => canvas.paneResized())).observe(el.canvasEl);
 
 getJson('/api/palette')
   .then((p) => {
@@ -980,11 +1061,15 @@ function paintAgentOverview(body, n, detail) {
     if (lines.length) {
       const dl = node('dl', 'icard');
       for (const l of lines) dl.append(node('dt', null, l.label), node('dd', null, l.text));
+      // Why the gate called it critical, in its own words (`files ... is on a critical path: ...` or `change: ...`).
+      if (work.riskWhy) dl.append(node('dt', null, 'why critical'), node('dd', null, work.riskWhy));
       const sec = isection('Task card', dl);
       if (work.risk) { const tag = node('span', 'mv-tag', work.risk); tag.dataset.risk = work.risk; sec.children[0].append(tag); }
       body.append(sec);
     }
-    // No card and no line: an agent that is not a crew agent, and nothing is said about it here.
+    // Not a crew agent: no card and no line, and that is said, so the empty space is not read as a record lost.
+    const outside = !row && !lines.length ? outsideRouting(n.agentType) : null;
+    if (outside) body.append(isection('Model routing', node('p', 'istep-note', outside)));
     if (row || lines.length) {
       const ol = node('ol', 'isteps');
       work.steps.forEach((st, i) => {
@@ -1381,6 +1466,8 @@ const ICON = {
   copy: 'M5.5 5.5v-2A1.5 1.5 0 0 1 7 2h5.5A1.5 1.5 0 0 1 14 3.5V9a1.5 1.5 0 0 1-1.5 1.5h-2M3.5 5.5H9A1.5 1.5 0 0 1 10.5 7v5.5A1.5 1.5 0 0 1 9 14H3.5A1.5 1.5 0 0 1 2 12.5V7a1.5 1.5 0 0 1 1.5-1.5z',
   chevron: 'M6 4l4 4-4 4',
   more: 'M3.5 8h.01M8 8h.01M12.5 8h.01',
+  // The Map view's tab mark: three cards and the lines between them.
+  map: 'M2 2.5h5v3.5H2zM9 2.5h5v3.5H9zM5.5 10h5v3.5h-5zM4.5 6v2h7V6M8 8v2',
   machine: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 9.5v-5A1.5 1.5 0 0 1 3.5 3zM6 14h4M8 11v3',
 };
 
@@ -1611,6 +1698,23 @@ function versionBadge(kit) {
   return tag;
 }
 
+/** The Map entry under a project: opens the project's map, through its latest session. */
+function mapRow(p, latest) {
+  const row = node('div', 'srow map-row');
+  row.tabIndex = 0;
+  row.setAttribute('role', 'treeitem');
+  row.dataset.map = p.key;
+  const words = node('span', 'map-word', 'Map');
+  row.append(icon(ICON.map), words, node('span', 'row-fill'));
+  if (p.map?.findings) { const n = node('span', 'map-count', String(p.map.findings)); n.title = `${p.map.findings} finding(s) on the map`; row.append(n); }
+  else if (!p.map) row.append(node('span', 'sub', 'no map'));
+  row.title = p.map ? 'Open the project map' : 'This project has no .crewforth/crew-map.json yet';
+  const go = () => { selectSession(latest.sessionId); setView('map'); };
+  row.addEventListener('click', go);
+  row.addEventListener('keydown', (e) => { if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(); } });
+  return row;
+}
+
 function sessionRow(project, sn) {
   const status = sessionStatus(sn.sessionId, fleetData);
   const name = sessionName(sn, labels.all());
@@ -1775,6 +1879,8 @@ function paintProjects() {
     group.append(head);
 
     if (open) {
+      // Under the project, its map (spec §11): the orange number is how many findings it shows unasked.
+      if (p.local !== false && p.exists && sessions.length) group.append(mapRow(p, sessions[0]));
       for (const sn of sessions) group.append(sessionRow(p, sn));
       if (p.total > p.sessions.length) {
         group.append(node('div', 'nav-line', `${p.total - p.sessions.length} older session(s) not listed`));
@@ -1960,8 +2066,147 @@ function paintMachines() {
     });
     frag.append(note);
   }
+  if (role === 'owner') frag.append(remoteSection());
   el.reach.replaceChildren(frag);
   paintOtherMachines();
+}
+
+/* ------------------------------------------------------- remote viewers
+   A viewer is a second token that reads and changes nothing: the way to watch
+   this panel from another device without handing that device the panel. The
+   server refuses a viewer's writes itself; what is hidden here for a viewer is
+   only what would be refused anyway. */
+
+let role = null;              // 'owner' or 'viewer', once the server has said which
+let remote = null;            // the server's list of viewers, or null before it has answered
+let handed = null;            // the link of the viewer just added: the server says a token once
+
+async function pollRemote() {
+  if (role !== 'owner') return;
+  try { remote = await getJson('/api/remote'); } catch { return; }
+  // The link shown once leaves with its viewer: revoked from elsewhere (the API, another tab) or past its eight
+  // hours, it no longer opens anything, and a QR code left on screen would say it does.
+  if (handed && !(remote.viewers ?? []).some((v) => v.id === handed.id)) handed = null;
+  paintMachines();
+}
+
+async function remoteWrite(method, path, body) {
+  try {
+    const r = await fetch(api(path), {
+      method,
+      headers: { ...writeHeaders, ...(body ? { 'content-type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return await r.json();
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+/** A time today or tomorrow as the clock on the wall says it, e.g. 23:40. */
+const clockTime = (ms) => (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
+
+let showTranscripts = false;   // the owner's choice for the next viewer: transcripts stay hidden unless ticked
+
+async function addViewer(button) {
+  button.disabled = true;
+  const res = await remoteWrite('POST', '/api/remote', { transcripts: showTranscripts });
+  if (!res.ok) {
+    toast(`No viewer added — ${res.reason ?? 'no reason given'}`);
+    button.disabled = false;
+    return;
+  }
+  remote = { ...(remote ?? {}), viewers: res.viewers ?? [] };
+  // The Wi-Fi link when the server listens on one; this machine's own address only when it found no Wi-Fi address.
+  const wifi = res.lanUrls?.[0] ?? null;
+  handed = { id: res.viewer.id, label: res.viewer.label, wifi, expiresAt: res.viewer.expiresAt, transcripts: res.viewer.transcripts,
+    url: wifi ?? `${location.origin}/?token=${encodeURIComponent(res.viewer.token)}`, lanErrors: res.lan?.errors ?? [] };
+  showTranscripts = false;
+  paintMachines();
+}
+
+async function revokeViewer(v, button) {
+  button.disabled = true;
+  const res = await remoteWrite('DELETE', `/api/remote/${encodeURIComponent(v.id)}`);
+  if (!res.ok) {
+    toast(`Not revoked — ${res.reason ?? 'no reason given'}`);
+    button.disabled = false;
+    return;
+  }
+  remote = { ...(remote ?? {}), viewers: res.viewers ?? [] };
+  if (handed?.id === v.id) handed = null;
+  toast(res.revoked ? `${v.label} can no longer read this panel` : `${v.label} was already revoked`);
+  paintMachines();
+}
+
+function viewerRow(v) {
+  const row = node('div', 'srow remote');
+  const top = node('span', 'srow-top');
+  const revoke = node('button', 'btn sm ghost', 'Revoke');
+  revoke.type = 'button';
+  revoke.setAttribute('aria-label', `Revoke ${v.label}`);
+  revoke.addEventListener('click', () => revokeViewer(v, revoke));
+  top.append(icon(ICON.machine), node('span', 'mname', v.label), node('span', 'row-fill'), revoke);
+  row.append(top);
+  const seen = v.lastSeenAt
+    ? `${seenAgo(v.lastSeenAt, Date.now())} · ${v.requests} request${v.requests === 1 ? '' : 's'}${v.open ? ' · watching now' : ''}`
+    : 'link not opened yet';
+  row.append(node('div', 'sub srow-sub', seen));
+  row.append(node('div', 'sub srow-sub', `until ${clockTime(v.expiresAt)} · transcripts ${v.transcripts ? 'shown' : 'hidden'}${v.addresses?.length ? ` · from ${v.addresses.join(', ')}` : ''}`));
+  return row;
+}
+
+function remoteSection() {
+  const box = node('div', 'nav-foot rv');
+  const head = node('div', 'rv-head');
+  const add = node('button', 'btn sm', 'Add viewer');
+  add.type = 'button';
+  const list = remote?.viewers ?? [];
+  if (remote?.max != null && list.length >= remote.max) {
+    add.disabled = true;
+    add.title = `${remote.max} viewers already; revoke one first`;
+  }
+  add.addEventListener('click', () => addViewer(add));
+  head.append(node('span', 'rv-title', 'Remote viewers'), node('span', 'row-fill'), add);
+  box.append(head);
+
+  // Transcripts stay hidden on a new link unless this is ticked before Add viewer.
+  const opt = node('label', 'rv-opt');
+  const tick = document.createElement('input');
+  tick.type = 'checkbox'; tick.checked = showTranscripts;
+  tick.addEventListener('change', () => { showTranscripts = tick.checked; });
+  opt.append(tick, document.createTextNode(' Show transcripts on the next link'));
+  box.append(opt);
+
+  if (handed) {
+    const give = node('div', 'rv-give');
+    give.append(node('div', 'sub rv-say', handed.wifi
+      ? `Link for ${handed.label}, shown once. Scan it with a phone on the same Wi-Fi. It lasts until ${clockTime(handed.expiresAt)}; transcripts ${handed.transcripts ? 'shown' : 'hidden'}.`
+      : `Link for ${handed.label}, shown once. No Wi-Fi address was found${handed.lanErrors.length ? ` (${handed.lanErrors.join('; ')})` : ''}, so it opens on this machine only.`));
+    if (handed.wifi) {
+      const code = node('div', 'rv-qr');
+      code.innerHTML = qrSvg(handed.wifi, { px: 3 });
+      give.append(code);
+    }
+    const url = node('code', 'rv-url', handed.url);
+    const copy = node('button', 'btn sm', 'Copy link');
+    copy.type = 'button';
+    copy.addEventListener('click', () => copyText(handed.url, 'Link copied'));
+    const done = node('button', 'btn sm ghost', 'Done');
+    done.type = 'button';
+    done.addEventListener('click', () => { handed = null; paintMachines(); });
+    const acts = node('div', 'rv-acts');
+    acts.append(copy, done);
+    give.append(url, acts);
+    box.append(give);
+  }
+
+  for (const v of list) box.append(viewerRow(v));
+  if (!list.length) {
+    box.append(node('div', 'sub rv-say',
+      'A viewer watches this panel from a phone on the same Wi-Fi and changes nothing. Its link lasts eight hours. With no viewer, the server listens on 127.0.0.1 only.'));
+  }
+  return box;
 }
 
 /** The short form under the project list: the first two, and the way to the rest. */
@@ -2226,7 +2471,7 @@ function paintPulse() {
   pulse.detail.textContent = l.detail ? `· ${l.detail}` : '';
 }
 paintPulse();
-setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } }, 1000);
+setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } if (view === 'map') loadMap(); }, 1000);
 
 /* -------------------------------------------------------------- home, keys */
 
@@ -2254,6 +2499,7 @@ document.addEventListener('keydown', (e) => {
     if (shell.classList.contains('side-open')) { setDrawer(false); return; }
     if (newPanel.isOpen) { newPanel.close(); return; }
     if (view === 'timeline' && timeline.selected) { timeline.select(null); return; }
+    if (view === 'map' && mapView.escape()) return;
     // Close the inspector and let go of the selection.
     if (!el.inspector.hidden) { canvas.clearSelection(); showInspector(null); }
     return;
@@ -2277,9 +2523,11 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 'l') {
     setView('list');
   } else if (key === 'r') {
-    if (view === 'graph') resetLayout();
+    if (view === 'graph' || view === 'map') resetLayout();
   } else if (key === 'm') {
     setView('models');
+  } else if (key === 'p') {
+    setView('map');
   } else if (key === 'j') {
     stepAttention(1);
   } else if (key === 'k') {
@@ -2442,7 +2690,9 @@ if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => requestAnima
 // They survive a page reload as long as the server does.
 let ownedBusy = false;
 async function pollOwned() {
-  if (ownedBusy) return;
+  // A link that hides transcripts is refused the sessions the panel runs (their conversation is all transcript):
+  // asking every few seconds would only fill the machine's log with the same refusal.
+  if (ownedBusy || transcriptsHidden) return;
   ownedBusy = true;
   try {
     const r = await getJson('/api/owned');
@@ -2465,6 +2715,7 @@ chat.onPermissions = () => pollOwned();
    view is being shown in a window too narrow for it. Offline is said first. */
 
 let nextPollAt = null;
+let restartNote = null;          // staleServerNote(/api/health): the server runs older code than the page
 const stageNote = { text: node('span', 'stage-note-text'), retry: node('span', 'sub'), button: node('button', 'btn sm', 'Retry now') };
 stageNote.button.type = 'button';
 stageNote.button.addEventListener('click', () => retryNow());
@@ -2473,11 +2724,12 @@ el.stageNote.append(stageNote.text, stageNote.retry, node('span', 'row-fill'), s
 function paintStageNote() {
   const l = liveness(Date.now(), heard.okAt, heard.failed);
   const off = offlineNote(l.state, heard.okAt, nextPollAt, Date.now());
-  const warn = narrowWarning(view, phoneBand.matches);
+  // Offline first, then a server older than this page, then a window too narrow for the view.
+  const warn = restartNote ?? narrowWarning(view, phoneBand.matches);
   // The last picture stays on screen while the server is away, and is drawn as old.
   el.stage.dataset.offline = String(Boolean(off));
   el.stageNote.hidden = !off && !warn;
-  el.stageNote.dataset.kind = off ? 'offline' : 'narrow';
+  el.stageNote.dataset.kind = off ? 'offline' : restartNote ? 'restart' : 'narrow';
   stageNote.text.textContent = off ? off.text : (warn ?? '');
   stageNote.retry.textContent = off ? off.retry : '';
   stageNote.retry.hidden = !off;
@@ -2619,7 +2871,25 @@ applyPhoneBand(true);
   setView(defaultView(stored, phoneBand.matches), null, Boolean(stored));
 }
 pollFleet(); pollSessions(); pollOwned();
+// Who this page is to the server. A viewer's page says so and offers no way to start a session; the server
+// would refuse it either way.
+getJson('/api/health').then((h) => {
+  restartNote = staleServerNote(h);
+  // A Map read before this answer showed the old server's 404; read it again so it says why.
+  if (restartNote) { paintStageNote(); if (view === 'map') loadMap(true); }
+  role = h.role === 'viewer' ? 'viewer' : 'owner';
+  transcriptsHidden = role === 'viewer' && h.transcripts === false;
+  document.body.dataset.role = role;
+  const badge = document.getElementById('role');
+  badge.hidden = role !== 'viewer';
+  if (transcriptsHidden) {
+    badge.textContent = 'Read-only · transcripts hidden';
+    badge.title = 'This link reads the panel and changes nothing; no transcript text is sent to it';
+  }
+  if (role === 'owner') pollRemote(); else paintMachines();
+}).catch(() => { /* the Live indicator says the server is unreachable */ });
 setInterval(() => { nextPollAt = Date.now() + FLEET_POLL_MS; pollFleet(); }, FLEET_POLL_MS);
+setInterval(pollRemote, FLEET_POLL_MS);
 nextPollAt = Date.now() + FLEET_POLL_MS;
 setInterval(pollOwned, FLEET_POLL_MS);
 setInterval(pollSessions, SESSION_POLL_MS);

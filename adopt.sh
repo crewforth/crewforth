@@ -11,7 +11,8 @@
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/kit/eval/lib/crew-env.sh" ] && . "$_crew_d/kit/eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/kit/eval/lib/crew-env.sh" ] && . "$_crew_d/kit/eval/lib/crew-env.sh"
+[ -f "$_crew_d/kit/eval/lib/version.sh" ] && . "$_crew_d/kit/eval/lib/version.sh"; unset _crew_d   # an rc orders before its final
 HERE="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 
 # --version (or -v) is answered first, before the payload check below: it reads only VERSION, so it works
@@ -23,24 +24,68 @@ for _a in "$@"; do
   fi
 done
 
+# --help (or -h) is answered here too, before anything is read: an unknown flag is ignored further down, so without
+# this `adopt.sh --help` ran the detection instead of saying what the script does. The language comes from --lang or
+# CREW_LANG; the rest of the script asks for it later, which is too late for a help text.
+_hl="${CREW_LANG:-}"; _hh=0; _ht=0
+for _a in "$@"; do
+  if [ "$_ht" = 1 ]; then _ht=0; _hl="$_a"; continue; fi
+  case "$_a" in -h|--help) _hh=1 ;; --lang) _ht=1 ;; --lang=*) _hl="${_a#--lang=}" ;; esac
+done
+if [ "$_hh" = 1 ]; then
+  if [ "$_hl" = tr ]; then
+    cat <<'USAGE_TR'
+Kullanım: bash adopt.sh [SEÇENEKLER]   (ya da: npx crewforth adopt [SEÇENEKLER])
+Crewforth'u MEVCUT bir projeye kurar ya da kurulu olanı yeniler. Önce projeyi okur ve ne yapacağını gösterir;
+projenin kendi dosyalarına, hook'larına ve status line'ına dokunmaz. Değişiklikleri hazırlar (stage), commit atmaz.
+  --here         değişiklikleri şu anki dalda yap
+  --new-branch   değişiklikleri yeni bir inceleme dalında yap (ilk kurulumda varsayılan)
+  --yes, -y      her soruya evet de (gözetimsiz kurulum)
+  --lang tr|en   dil (verilmezse sorulur)
+  --version, -v  Crewforth sürümünü yazdırıp çık
+  --help, -h     bu metni yazdırıp çık
+USAGE_TR
+  else
+    cat <<'USAGE'
+Usage: bash adopt.sh [OPTIONS]   (or: npx crewforth adopt [OPTIONS])
+Installs Crewforth into an EXISTING project, or refreshes an install. It reads the project first and shows what it
+will do; the project's own files, hooks and status line are left alone. Changes are staged, never committed.
+  --here         make the changes on the current branch
+  --new-branch   make the changes on a fresh review branch (the default for a first adopt)
+  --yes, -y      answer yes at every gate (unattended)
+  --lang tr|en   language (asked when not given)
+  --version, -v  print Crewforth's version and exit
+  --help, -h     print this text and exit
+USAGE
+  fi
+  exit 0
+fi
+unset _hl _hh _ht
+
 SRC="$HERE/kit"
 [ -d "$SRC" ] || { echo "ERROR: kit/ not found (must be in the same directory as adopt.sh)."; exit 1; }
 
 # --- flags (B5 — where a refresh lands) ---  --here: the current branch · --new-branch: a fresh review branch.
 # Left empty, Stage 2 picks a smart default (first adopt -> new; update + untracked .claude -> here; update +
 # tracked -> ask). Unknown flags are ignored here (start.sh owns --backend/--frontend/… ; adopt auto-detects shape).
-BRANCH_MODE=""; ASSUME_YES=0
+BRANCH_MODE=""; ASSUME_YES=0; PRESET=""; _preset_take=0
 _lang_flag=""; _lang_take=0
 for _a in "$@"; do
   # `--lang` with no value must not swallow the next flag: `--lang --yes` is --yes with no language given.
   if [ "$_lang_take" = 1 ]; then _lang_take=0; case "$_a" in -*) ;; *) _lang_flag="$_a"; continue ;; esac; fi
+  if [ "$_preset_take" = 1 ]; then _preset_take=0; PRESET="$_a"; continue; fi
   case "$_a" in
+  --preset=*)   PRESET="${_a#--preset=}" ;;
+  --preset)     _preset_take=1 ;;
   --here)       BRANCH_MODE=here ;;
   --new-branch) BRANCH_MODE=new  ;;
   --yes|-y)     ASSUME_YES=1     ;;   # assume "yes" at every gate — for agent-driven / CI updates (no TTY to prompt)
   --lang=*)     _lang_flag="${_a#--lang=}" ;;
   --lang)       _lang_take=1 ;;
 esac; done
+[ "$_preset_take" = 1 ] && { echo "ERROR: --preset needs a name or a file (default, strict, solo, or ./org.json)."; exit 1; }
+# A preset is checked before anything is changed: one that is not valid stops the update here.
+if [ -n "$PRESET" ]; then bash "$SRC/eval/lib/preset.sh" --check "$PRESET" || exit 1; fi
 
 # ---- CREW-I18N (the twin of start.sh's; see the long note there for why the English string is the key) ----
 # Short version, because the reasoning belongs in one place: `m 'text'` prints the translation of that text
@@ -154,8 +199,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "project wins (fixed)") s='proje önde (sabit)' ;;
       "on conflict the project's rules win; in DISCIPLINE.md §4 they can only tighten, never loosen (the one exception: the §4.1 trace allowlist you choose at adoption); Crewforth fills gaps (not overridable)") s="çakışmada projenin kuralı geçerli; DISCIPLINE.md §4'te proje yalnız sıkılaştırabilir, gevşetemez (tek istisna: kurulumda sizin seçtiğiniz §4.1 iz izin listesi); Crewforth boşlukları doldurur (değiştirilemez)" ;;
       "3 Trace gate") s='3 İz kapısı' ;;
-      "loosen (.trace-allowlist)") s='gevşet (.trace-allowlist)' ;;
-      "co-author/sign-off present in git log — may be a convention") s='git geçmişinde co-author/sign-off var — ekibin alışkanlığı olabilir' ;;
+      "co-author/sign-off present in git log — type loosen in the review to exempt it; never assumed") s='git geçmişinde co-author/sign-off var — muaf tutmak için incelemede loosen yazın; kendiliğinden yapılmaz' ;;
       "keep") s='koru' ;;
       "no co-author/sign-off convention seen") s='co-author/sign-off alışkanlığı görülmedi' ;;
       "4 Share/hide") s='4 Paylaş/gizle' ;;
@@ -273,6 +317,8 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "custom hooks and every other permission PRESERVED") s="özel hook'lar ve diğer tüm izinler KORUNDU" ;;
       "custom hooks/permissions PRESERVED") s="özel hook'lar ve izinler KORUNDU" ;;
       "settings.json: was missing in the project -> Crewforth's was installed") s="settings.json: projede yoktu -> Crewforth'unki kuruldu" ;;
+      "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost).") s="Durum satırı: Crewforth'unki (kapının son sözü, geçerli onay, crew ajanları, doluluk, maliyet)." ;;
+      "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor).") s="Durum satırı: seninki korundu; Crewforth'unki tek komutla açılır (/crew-doctor'a bak)." ;;
       "settings.json: hook-aware MERGE (Crewforth hooks refreshed - %s)") s="settings.json: hook'ları gözeten BİRLEŞTİRME (Crewforth hook'ları yenilendi - %s)" ;;
       "settings.json: %s") s='settings.json: %s' ;;
       "merge failed -> project setting PRESERVED (not overwritten)") s='birleştirme başarısız -> proje ayarı KORUNDU (üzerine yazılmadı)' ;;
@@ -742,7 +788,7 @@ else
 fi
 propm '2 Precedence' 'project wins (fixed)' "on conflict the project's rules win; in DISCIPLINE.md §4 they can only tighten, never loosen (the one exception: the §4.1 trace allowlist you choose at adoption); Crewforth fills gaps (not overridable)"
 if [ "$COAUTHOR" = 1 ]; then
-  propm '3 Trace gate' 'loosen (.trace-allowlist)' 'co-author/sign-off present in git log — may be a convention'
+  propm '3 Trace gate' 'keep' 'co-author/sign-off present in git log — type loosen in the review to exempt it; never assumed'
 else
   propm '3 Trace gate' 'keep' 'no co-author/sign-off convention seen'
 fi
@@ -770,7 +816,12 @@ fi
 # ============ COMPILE DECISIONS + OVERRIDE (Stage B) ============
 DEC1="$([ "$N_PAGENTS" != 0 ] && echo keep || echo none)"
 DEC2="project"   # precedence is FIXED to project-wins (not overridable — reflected in the @import comment)
-DEC3="$([ "$COAUTHOR" = 1 ] && echo loosen || echo keep)"
+# The trace gate is loosened only when a person types `loosen` in the review below. Never a default: old co-author
+# lines in the history are not a decision, and an install that cannot ask (no terminal) or an update has no person
+# to make one. Measured on a real project, 2026-10-21: a non-interactive update found five old trailers in the last
+# 80 commits, wrote the co-author trailer into .trace-allowlist.txt and staged it, undoing a removal the team had
+# committed.
+DEC3=keep
 DEC4="$([ "$TRACKED" = 1 ] && echo share || { [ "$IGN" = 1 ] && echo hide || echo kit-default; })"
 DEC6="baseline"
 DEC7="$([ "$OFFREPO" = 1 ] && echo transfer || echo local)"
@@ -1533,19 +1584,23 @@ fi
   # set up in Turkish to English from its first unattended update on.
   [ "$_LANG_CHOSEN" = 1 ] && echo "lang=$CREW_LANG"
 } > .claude/kit.conf
+# The organisation's preset (checked before anything was changed): a block at the top of crew-model-rules. Without
+# --preset an update leaves the block that is there, with the project's own lines, as they were.
+if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
 # What changed, for /crew-update to report: the package's own CHANGELOG sections newer than the version this
 # project had, and no newer than the one being installed — read from the package on disk, never from the network.
 # A fresh adopt has no "before", so it gets no file (and a stale one from an earlier update is removed).
 rm -f .claude/.state/whats-new.md 2>/dev/null
 _kv="$(printf '%s' "$KIT_VER" | tr -d '\r')"
-case "$_kv" in *[!0-9.]*|'') _kv="" ;; [0-9]*.[0-9]*.[0-9]*) ;; *) _kv="" ;; esac   # an odd old version compares as 0.0.0 — every section would look new
+_kv="$(crew_local_version "$_kv" 2>/dev/null)" || _kv=""   # an odd old version compares as 0.0.0 — every section would look new
 if [ "$KIT_PRESENT" = 1 ] && [ -n "$_kv" ] && [ -f "$HERE/CHANGELOG.md" ] && [ -f "$HERE/VERSION" ]; then
   mkdir -p .claude/.state 2>/dev/null
-  awk -v from="$_kv" -v to="$(head -1 "$HERE/VERSION" | tr -d '\r')" '
-    function cmp(a,b,  x,y,i){ split(a,x,"."); split(b,y,"."); for(i=1;i<=3;i++){ if(x[i]+0>y[i]+0) return 1; if(x[i]+0<y[i]+0) return -1 } return 0 }
+  # The upper bound is the target's X.Y.Z: an rc's notes are its final's section ("[Unreleased] — 3.2.0").
+  awk -v from="$_kv" -v to="$(head -1 "$HERE/VERSION" | tr -d '\r')" "${CREW_VCMP_AWK:-}"'
+    BEGIN { sub(/-.*/, "", to) }
     /^## \[/ { v=$0; sub(/^## \[/,"",v); w=v; sub(/\].*/,"",v)
                 if (v=="Unreleased") { v=w; sub(/^[^—]*— */,"",v); sub(/[^0-9.].*/,"",v) }
-                keep = (v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ && cmp(v,from)>0 && cmp(v,to)<=0) }
+                keep = (v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ && vcmp(v,from)>0 && vcmp(v,to)<=0) }
     keep' "$HERE/CHANGELOG.md" | tr -d '\r' > .claude/.state/whats-new.md 2>/dev/null
   [ -s .claude/.state/whats-new.md ] || rm -f .claude/.state/whats-new.md
 fi
@@ -1672,6 +1727,15 @@ RET_GONE=""; _IFS="$IFS"; IFS='|'; for _r in $RET_HIT; do
 if [ -n "$SET_NOTE" ]; then HAND_SET="NOT merged — ${SET_NOTE%.}"
 elif [ "$SET_FRESH" = 1 ]; then HAND_SET="Crewforth's settings.json installed (the project had none, so nothing was merged)"
 else HAND_SET="hook-aware merge (Crewforth hooks REFRESHED to current — new events + timeouts land; your own custom hooks/permissions PRESERVED${RET_GONE:+, except the retired §4.4 ask rule(s) REMOVED: $RET_GONE — guard-bash.sh asks for these itself})"; fi
+
+# The status line, only where none is set (a user's own would lose to the project's setting, so it is never
+# replaced). eval/lib/statusline.sh --install decides and writes; this only says what it did.
+if [ -f .claude/eval/lib/statusline.sh ]; then
+  case "$(bash .claude/eval/lib/statusline.sh --install 2>/dev/null)" in
+    installed) say "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost)." ;;
+    kept) say "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor)." ;;
+  esac
+fi
 
 # ============ [STAGE 4] GIT-HOOK ARMING (SHIM) + PROOF ============
 h1m 'Stage 4 — arm the git gates (SHIM via husky) + PROOF'

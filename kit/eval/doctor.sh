@@ -7,7 +7,9 @@
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/lib/crew-env.sh" ] && . "$_crew_d/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/lib/crew-env.sh" ] && . "$_crew_d/lib/crew-env.sh"
+[ -f "$_crew_d/lib/version.sh" ] && . "$_crew_d/lib/version.sh"   # an rc orders before its final
+_DOC_LIB="$(cd "$_crew_d/lib" 2>/dev/null && pwd)"; unset _crew_d          # absolute: the doctor cd's into ROOT below
 ROOT="${1:-.}"
 cd "$ROOT" 2>/dev/null || { echo "doctor: cannot enter '$ROOT'"; exit 2; }
 
@@ -98,6 +100,22 @@ _mt() {
       'settings.json is invalid JSON') s='settings.json geçersiz JSON' ;;
       "Claude Code %s is older than 2.1.293 — the model alias haiku may not resolve to Haiku 5.5 there, so an agent called with model haiku can run on an older model (update Claude Code)") s="Claude Code %s, 2.1.293'ten eski — orada haiku model takma adı Haiku 5.5'e çözülmeyebilir; model haiku ile çağrılan bir ajan eski bir modelde koşabilir (Claude Code'u güncelleyin)" ;;
       'approval by your own message is wired (auto / dontAsk: /crew-approve commit)') s='kendi mesajınızla onay bağlı (auto / dontAsk: /crew-approve commit)' ;;
+      'the published Crewforth version is not measured: no update check has run here yet (.claude/.state/update-check)') s='yayınlanmış Crewforth sürümü ölçülmedi: burada henüz hiç güncelleme denetimi koşmadı (.claude/.state/update-check)' ;;
+      'two editions at once: not measured (the plugin list could not be read)') s='iki edisyon birden: ölçülmedi (plugin listesi okunamadı)' ;;
+      'two editions at once: not measured (no claude CLI here to list the plugins)') s='iki edisyon birden: ölçülmedi (pluginleri listeleyecek claude CLI burada yok)' ;;
+      'the %s plugin is enabled and this project has Crewforth installed in .claude/ — every hook runs twice; turn one off (claude plugin disable %s, or remove the install)') s="%s plugin'i etkin ve bu projede Crewforth .claude/ altında da kurulu — her hook iki kez koşuyor; birini kapatın (claude plugin disable %s ya da kurulumu kaldırın)" ;;
+      'one edition: the Crewforth plugin is not enabled beside this install') s="tek edisyon: Crewforth plugin'i bu kurulumun yanında etkin değil" ;;
+      'advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)') s='advisor: kapalı (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)' ;;
+      "status line: Crewforth's (from %s)") s="durum satırı: Crewforth'unki (%s içinden)" ;;
+      "status line: your own (from %s); Crewforth's is not used") s="durum satırı: seninki (%s içinden); Crewforth'unki kullanılmıyor" ;;
+      "organisation preset: %s") s="kurum preset'i: %s" ;;
+      "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını .claude/crew-model-rules dosyasına ekle: %s" ;;
+      "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)") s="durum satırı: yok; Crewforth'unki: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
+      "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
+      'advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off') s="advisorModel %s (%s içinde), ama CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 advisor'ı kapatıyor" ;;
+      'advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used') s="advisorModel %s (%s içinde), ama %s ayarlı ve advisor Anthropic API ister — kullanılmıyor" ;;
+      "advisor: on, %s (from %s); not a gate, and its tokens are in /usage and in Studio's session cost") s="advisor: açık, %s (%s içinden); bir kapı değil, token'ları /usage'da ve Studio'nun oturum maliyetinde" ;;
+      'the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one') s="advisor (%s) kritik seviyenin (opus) altında: Claude Code danışacağı modelin altındaki bir advisor'ı eklemiyor, yani kritik iş advisor'sız koşuyor" ;;
       "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
@@ -204,10 +222,11 @@ if [ -f .claude/VERSION ] && [ -f .claude/.state/update-check ]; then
   read -r DLATEST _ < .claude/.state/update-check 2>/dev/null || DLATEST=""
   DLATEST="$(printf '%s' "${DLATEST:-}" | tr -cd '0-9A-Za-z.-')"
   DCUR="$(head -1 .claude/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.-')"
-  if [ -n "$DLATEST" ] && awk -v a="$DLATEST" -v b="$DCUR" 'BEGIN{split(a,x,".");split(b,y,".");
-       for(i=1;i<=3;i++){if(x[i]+0>y[i]+0)exit 0; if(x[i]+0<y[i]+0)exit 1} exit 1}'; then
+  if [ -n "$DLATEST" ] && awk -v a="$DLATEST" -v b="$DCUR" "${CREW_VCMP_AWK:-}"' BEGIN { exit !(vcmp(a, b) > 0) }' 2>/dev/null; then
     warn "Crewforth v%s installed, v%s published — update with /crew-update" "$DCUR" "$DLATEST"
   fi
+elif [ -f .claude/VERSION ]; then
+  skip "the published Crewforth version is not measured: no update check has run here yet (.claude/.state/update-check)"
 fi
 
 # 1c) Install trace. An update leaves VERSION, the install manifest and the components on disk agreeing; when they do
@@ -643,9 +662,9 @@ for _v in $(compgen -e); do
   esac
 done
 if [ "$FAIL" -eq 0 ]; then _mt "DOCTOR: healthy ✅%s" "$PANEL_NOTE"; echo "$_M"
-  # Healthy verdict: the star line, once per kit version — the marker is shared with the installers, so the
-  # doctor run that /crew-update makes right after an update stays quiet. Text/URL/silence: lib/star.sh.
-  [ -f "$(dirname "$0")/lib/star.sh" ] && bash "$(dirname "$0")/lib/star.sh" --once .
+  # Healthy verdict: the star line, once per kit version under doctor's own marker (the installers keep theirs).
+  # /crew-update runs this with CREW_NO_STAR=1, so an update shows it once, not twice. Text/URL/silence: lib/star.sh.
+  [ -f "$(dirname "$0")/lib/star.sh" ] && bash "$(dirname "$0")/lib/star.sh" --once . doctor
 else _mt "DOCTOR: %s issue(s) ❌ — apply the fixes above%s" "$FAIL" "$PANEL_NOTE"; echo "$_M"; fi
 
 # 9) The auto-mode classifier. Since 2026-08-14 auto mode is the default permission mode on Pro/Max/Team, so a
@@ -684,6 +703,109 @@ EOF_CCV
     fi ;;
   esac
 fi
+# 9c) Two editions at once, and the advisor. Advisory, never a failure.
+#     PLUGIN AND INSTALL BOTH ON: the plugin edition and this .claude/ install each wire every hook, so with both
+#     enabled each gate runs twice on every call (and a gate's own refusal is printed twice). Asked of the CLI —
+#     `claude plugin list --json`, whose `enabled` is "enabled in your merged settings" — because the settings files
+#     alone cannot say what a managed or a --plugin-dir layer added. No CLI: not measured, and said so.
+#     THE ADVISOR (advisorModel; documented: fable, opus, sonnet or a full model id, unset = off; Anthropic API only;
+#     CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns it off). Crewforth never sets it. What is reported is whether it is on
+#     and on what, read from the same three settings files as the skill-listing budget above (a managed layer is not
+#     read), and a note when it sits below the critical tier: Claude Code does not attach an advisor that ranks below
+#     the model it would advise (code.claude.com/docs/en/advisor), so an agent on opus gets none.
+#     Its usage is not reported here. It is in /usage, and in the transcript (usage.iterations, `advisor_message`,
+#     measured on a real advisor session), which is where Studio's session cost reads it.
+if [ -f .claude/hooks/guard-bash.sh ]; then
+  if command -v claude >/dev/null 2>&1 && _pl="$(claude plugin list --json 2>/dev/null)" && [ -n "$_pl" ]; then
+    _pon=""; _pn="$(printf '{"p":%s}' "$_pl" | awk -v op=len -v path=p -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)" || _pn=""
+    case "$_pn" in ''|*[!0-9]*) skip "two editions at once: not measured (the plugin list could not be read)" ;;
+      *) _pi=0
+         while [ "$_pi" -lt "$_pn" ]; do
+           _pid="$(printf '{"p":%s}' "$_pl" | awk -v op=get -v path="p.$_pi.id" -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)"
+           # crewforth@… is 3.x; claude-starter-kit@… is the 2.x plugin, which wires the same hooks and is often still
+           # enabled at user scope after a 3.x install (measured in a real project).
+           case "$_pid" in '"crewforth@'*|'"claude-starter-kit@'*)
+             _pen="$(printf '{"p":%s}' "$_pl" | awk -v op=get -v path="p.$_pi.enabled" -f "${SJ:-.claude/eval/lib/settings-json.awk}" - 2>/dev/null)"
+             [ "$_pen" = true ] && _pon="${_pid//\"/}" ;;
+           esac
+           _pi=$((_pi+1))
+         done
+         if [ -n "$_pon" ]; then
+           warn "the %s plugin is enabled and this project has Crewforth installed in .claude/ — every hook runs twice; turn one off (claude plugin disable %s, or remove the install)" "$_pon" "$_pon"
+         else ok "one edition: the Crewforth plugin is not enabled beside this install"; fi ;;
+    esac
+  else
+    skip "two editions at once: not measured (no claude CLI here to list the plugins)"
+  fi
+fi
+_adv=""; _advf=""
+for sf in .claude/settings.local.json .claude/settings.json "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
+  [ -f "$sf" ] || continue
+  v="$(awk -v op=get -v path=advisorModel -f "${SJ:-.claude/eval/lib/settings-json.awk}" "$sf" 2>/dev/null)" || v=""
+  v="${v#\"}"; v="${v%\"}"
+  [ -n "$v" ] && { _adv="$v"; _advf="$sf"; break; }
+done
+_advprov=""; for _ev in CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX; do
+  eval "_evv=\"\${$_ev:-}\""; case "$_evv" in ''|0|false) ;; *) _advprov="$_ev"; break ;; esac
+done
+if [ -z "$_adv" ]; then
+  if [ "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}" = 1 ]; then ok "advisor: off (CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1)"
+  else ok "advisor: off (no advisorModel set; Crewforth never turns it on)"; fi
+elif [ "${CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}" = 1 ]; then
+  warn "advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off" "$_adv" "$_advf"
+elif [ -n "$_advprov" ]; then
+  warn "advisorModel is %s in %s, but %s is set and the advisor needs the Anthropic API — it is not used" "$_adv" "$_advf" "$_advprov"
+else
+  ok "advisor: on, %s (from %s); not a gate, and its tokens are in /usage and in Studio's session cost" "$_adv" "$_advf"
+  case "$_adv" in *haiku*|*sonnet*)
+    warn "the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one" "$_adv" ;;
+  esac
+fi
+# 9d) The status line. Advisory, never a failure. The installers set Crewforth's only where none is set; a line of
+#     the user's own is never replaced (the project's setting would win over it). A managed layer is not read.
+_slj="${SJ:-.claude/eval/lib/settings-json.awk}"; _sl=""; _slf=""
+for _f in .claude/settings.json .claude/settings.local.json "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
+  [ -f "$_f" ] && [ -f "$_slj" ] || continue
+  _v="$(awk -v op=get -v path=statusLine.command -f "$_slj" "$_f" 2>/dev/null)" || _v=""
+  [ -n "$_v" ] && { _sl="$_v"; _slf="$_f"; break; }
+done
+case "$_sl" in
+  *eval/lib/statusline.sh*) ok "status line: Crewforth's (from %s)" "${_slf/#$HOME/~}" ;;
+  ?*) ok "status line: your own (from %s); Crewforth's is not used" "${_slf/#$HOME/~}" ;;
+  *) [ -f .claude/eval/lib/statusline.sh ] && ok "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
+esac
+
+# 9e) What model routing costs. Advisory. A verify command the hook was never allowed to run cannot vouch for
+#     cheaper work: the ones refused for that reason are listed with the line that allows them (measured on one
+#     project: 23 of 71 refusals).
+[ -f .claude/eval/lib/verify-cmd.sh ] && . .claude/eval/lib/verify-cmd.sh   # the rule names the command a cd prefix leads to
+_vbn=0; _vbl=""
+for _f in .claude/state/crew-model/results/*; do
+  [ -f "$_f" ] || continue
+  _vb=0; _vw=""; _vc=""
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "$_l" in verify=blocked) _vb=1 ;; whynot=*) _vw="${_l#whynot=}" ;; cmd=*) _vc="${_l#cmd=}" ;; esac
+  done < "$_f"
+  [ "$_vb" = 1 ] || continue
+  # Both ways of saying "nothing allows it": in auto/bypassPermissions (not on the runner list) and in the other
+  # modes (Claude Code itself would not run it unallowed). Measured on Windows: the second was not listed at all.
+  case "$_vw" in *"not a test or build command on this hook's list"*|*"does not run a command the user has not allowed"*) ;; *) continue ;; esac
+  # A rule names the command alone: `cd sub && ./check.sh` is allowed by `verify ./check.sh` (measured on Windows:
+  # the line with the cd in it did not allow it).
+  declare -F crew_verify_split >/dev/null && { crew_verify_split "$_vc" .; _vc="$_AMVC"; }
+  _vc="${_vc:0:80}"; [ -n "$_vc" ] || continue
+  _vbn=$((_vbn+1))
+  case "$_vc" in *'('*|*' + '*) continue ;; esac     # a sentence, not a command: counted, not offered as a rule
+  case "$_vbl" in *"| verify $_vc |"*) ;; *) _vbl="$_vbl| verify $_vc |" ;; esac
+done
+if [ "$_vbn" -gt 0 ]; then
+  _vsep=' || '; _vdot=' · '; _vbs="${_vbl//"$_vsep"/$_vdot}"; _vbs="${_vbs#| }"; _vbs="${_vbs% |}"; _vbs="${_vbs:0:300}"
+  warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s" "$_vbn" "$_vbs"
+fi
+# The organisation preset in force: the block preset.sh wrote at the top of crew-model-rules, asked of preset.sh itself.
+_pre=""; [ -n "$_DOC_LIB" ] && [ -f "$_DOC_LIB/preset.sh" ] && _pre="$(bash "$_DOC_LIB/preset.sh" --show 2>/dev/null)"
+ok "organisation preset: %s" "${_pre:-none}"
+
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has
 #     fired yet — a measured zero, not a gap. Never a failure either way.

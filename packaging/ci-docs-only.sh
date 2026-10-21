@@ -7,6 +7,9 @@
 # anything under kit/ would let a real change skip the only platforms where it can break, so smoke goes red if
 # one appears. An empty list is `code`: no diff to read means nothing is known, and unknown runs everything.
 #
+# The whole of site/ is documentation here, its Astro sources and node scripts included: the site is built and
+# gated on Linux by its own job, and nothing in it runs on a user's machine. A shell script is never
+# documentation, wherever it sits, so a .sh that lands under site/ still reads `code`.
 #
 # A third answer, `text`: every path is documentation or the TEXT of a skill, an agent or a command (a .md under
 # those directories, in kit/ or in its generated plugin/ copy), and at least one is such a text. ci.yml skips the
@@ -21,8 +24,9 @@ set -uo pipefail
 # DOCS-PATTERNS-START
 is_doc() {
   case "$1" in
+    *.sh)               return 1 ;;
     README*.md)         return 0 ;;
-    site/content/*)     return 0 ;;
+    site/*)             return 0 ;;
     evals/README.md)    return 0 ;;
     evals/results/*)    return 0 ;;
     CHANGELOG.md)       return 0 ;;

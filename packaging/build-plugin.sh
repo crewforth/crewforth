@@ -44,7 +44,7 @@ chmod +x "$OUT/studio/ensure-node.sh" "$OUT/studio/server/hooks/"*.sh 2>/dev/nul
 # would carry the board's session-start awareness and none of its claim gate — the exact one-channel-is-weaker
 # asymmetry the git hooks below were added to close.
 for h in guard-bash.sh guard-write.sh context-usage.sh session-guard.sh session-rehydrate.sh session-stats.sh \
-         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-schedule.sh guard-agent-model.sh agent-outcome.sh; do
+         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-question.sh guard-schedule.sh guard-agent-model.sh agent-outcome.sh refuter-ledger.sh precompact-snapshot.sh; do
   cp "$SRC/hooks/$h" "$OUT/hooks/$h"
   chmod +x "$OUT/hooks/$h"
 done
@@ -134,6 +134,12 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-agent-model.sh\"", "timeout": 600 }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-question.sh\"", "timeout": 600 }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -148,7 +154,8 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 }
         ]
       }
     ],
@@ -156,10 +163,15 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
       { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] }
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] },
+      { "matcher": "(.*:)?crew-refuter", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/refuter-ledger.sh\"", "timeout": 30 } ] }
     ],
     "PostToolUse": [
-      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] },
+      { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/precompact-snapshot.sh\"", "timeout": 30 } ] }
     ],
     "SessionStart": [
       {

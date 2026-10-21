@@ -11,18 +11,25 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { _internals } from '../../kit/studio/server/lib/fleet.js';
-import { contextFill } from '../../kit/studio/server/lib/transcript.js';
-import { encodeCwd } from '../../kit/studio/server/lib/projects.js';
+import { contextFill, contextMix } from '../../kit/studio/server/lib/transcript.js';
+import { encodeCwd, projectsRoot } from '../../kit/studio/server/lib/projects.js';
+import { streamOwned, parseOwnedQuery, MAX_STREAM_IDS } from '../../kit/studio/server/lib/owned-stream.js';
+import { codeStamp, stampAtStart } from '../../kit/studio/server/lib/code-stamp.js';
 import { _internals as graphInternals } from '../../kit/studio/server/lib/graph.js';
 import { palette, _internals as paletteInternals } from '../../kit/studio/server/lib/palette.js';
 import { renderMarkdown } from '../../kit/studio/web/md.js';
 import { ALLOWED_MODES } from '../../kit/studio/server/lib/session.js';
 import { parsePeers } from '../../kit/studio/server/lib/peers.js';
-import { writeAllowed, signature } from '../../kit/studio/server/index.js';
+import { writeAllowed, signature, handle as studioHandle, _internals as serverInternals } from '../../kit/studio/server/index.js';
+import { addViewer, revokeViewer, noteRequest, viewerMay, viewerByToken, listViewers, MAX_VIEWERS, _reset as resetViewers,
+  VIEWER_TTL_MS, _setClock, onViewersChange, remoteLog, sweep as sweepViewers, noteRefusal } from '../../kit/studio/server/lib/remote.js';
+import { redact, transcriptOnly } from '../../kit/studio/server/lib/redact.js';
+import { lanListener, lanAddresses } from '../../kit/studio/server/lib/lan.js';
+import http from 'node:http';
 import { prepare, decide, pending, cleanup, revoke, alwaysList, _internals as permInternals } from '../../kit/studio/server/lib/permissions.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
-import { quickReplies } from '../../kit/studio/web/chat.js';
+import { quickReplies, OwnedStream } from '../../kit/studio/web/chat.js';
 import { installDom } from './dom-stub.mjs';
 import { plan as terminalPlan } from '../../kit/studio/server/lib/terminal.js';
 import { gateLog, gateReport, board, sessionStats, _internals as kitInternals } from '../../kit/studio/server/lib/kit-telemetry.js';
@@ -263,6 +270,20 @@ const fill = contextFill([A_REC, SIDE_REC, POISON_REC]);
 check("a returning subagent's toolUseResult.usage is NOT the session's fill", fill === 801000, `expected 801000, measured ${fill}`);
 check('a sidechain record does not count toward the session', fill !== 831005);
 check('an empty transcript yields null, not zero', contextFill([]) === null);
+{
+  // What the context is made of: the tool-output share since the last compaction (characters), the compactions so far.
+  const u = (t) => ({ type: 'user', message: { content: t } });
+  const as = (t) => ({ type: 'assistant', message: { content: [{ type: 'text', text: t }] } });
+  const tr = (n) => ({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x'.repeat(n) }] } });
+  const cb = { type: 'system', subtype: 'compact_boundary', compactMetadata: { trigger: 'auto', preTokens: 900, postTokens: 40 } };
+  const side = { isSidechain: true, type: 'user', message: { content: [{ type: 'tool_result', content: 'y'.repeat(5000) }] } };
+  const before = contextMix([tr(1000), u('a'.repeat(10))]);
+  const after = contextMix([tr(1000), cb, u('a'.repeat(50)), as('b'.repeat(50)), tr(100), side]);
+  check('the tool-output share counts the main session since the last compaction, in characters; the compactions are counted, the last one\'s tokens kept',
+    before.toolShare === 99 && before.compactions === 0 && before.lastCompact === null
+    && after.toolShare === 50 && after.compactions === 1 && after.lastCompact.trigger === 'auto' && after.lastCompact.before === 900 && after.lastCompact.after === 40
+    && contextMix([]).toolShare === null, JSON.stringify([before, after]));
+}
 
 /* -------------------------------------------------- §6 transcript paths */
 
@@ -594,6 +615,14 @@ check('prose without a notice yields nothing', none.size === 0);
     N('arev').firstTry.asked === 'haiku' && N('arev').firstTry.floor === 'sonnet' && N('atest1').firstTry === null
     && g.nodes.filter((n) => n.kind === 'agent').length === 5, 'a refused call starts no agent, and none is drawn for it');
   check('a refusal nothing repeated is tied to nothing', g.nodes.every((n) => n.firstTry == null || n.id === 'arev'));
+  // A refused call nothing repeated started no agent, so the session's card is the only place it can show (seen on
+  // a real project: an empty canvas while the session said "2 failed"). The one that was repeated is on its node.
+  const S0 = g.nodes.find((n) => n.kind === 'session');
+  const gp0 = await import('../../kit/studio/web/graph-plan.js');
+  check('a refused call nothing repeated is on the session card, with the gate\'s words; a repeated one is not, and the card grows a line for it',
+    S0?.refusedCalls?.length === 1 && S0.refusedCalls[0].agent === 'crew-test-expert' && /has to name its model/.test(S0.refusedCalls[0].text)
+    && gp0.sessionHeight({ refusedCalls: [{}] }) > gp0.sessionHeight({}) && /refused by the model gate/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''),
+    JSON.stringify(S0?.refusedCalls));
   const calls = new Map([
     ['c1', { order: 1, subagentType: 'crew-review-agent', description: 'Review the diff', model: 'haiku', refused: { text: 'GUARD (agent model): x', floor: 'sonnet' } }],
     ['c2', { order: 2, subagentType: 'crew-review-agent', description: 'Review something else', model: 'sonnet' }],
@@ -931,9 +960,10 @@ check('prose without a notice yields nothing', none.size === 0);
   const app = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
   check('the toolbar has the control, off until a card is moved; r does the same on the graph; and the toast offers Undo',
-    /id="tb-reset" data-view="graph"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
-    && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
-    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(canvas\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
+    /id="tb-reset" data-view="graph map"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
+    && /key === 'r'\) \{\s*if \(view === 'graph' \|\| view === 'map'\) resetLayout\(\);/.test(app)
+    && /const target = zoomed\(\);\s*const was = target\.resetLayout\(\);/.test(app)
+    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(target\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
   const keys = await import(`../../kit/studio/web/keys.js?k=${Date.now()}`);
   const press = (key, extra = {}) => keys.shortcutOf({ key, target: { tagName: 'DIV' }, ...extra });
   check('r is a shortcut only as a bare key outside a field: not while typing, and not as Cmd+R, Ctrl+R or Alt+R',
@@ -953,7 +983,7 @@ check('prose without a notice yields nothing', none.size === 0);
     // What Option+R gives on a Mac is a symbol, and it is no shortcut of this panel: it reaches the handler and matches nothing.
     && press('®', { altKey: true }) === '®');
   check('every letter shortcut goes through that one rule, r among them, and r is bound once',
-    /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(app) && /key === 'r'\) \{\s*if \(view === 'graph'\) resetLayout\(\);/.test(app)
+    /const key = shortcutOf\(e\);\s*if \(key === null\) return;/.test(app) && /key === 'r'\) \{\s*if \(view === 'graph' \|\| view === 'map'\) resetLayout\(\);/.test(app)
     && (app.match(/key === 'r'\)/g) ?? []).length === 1 && !/e\.key === '[gtlrjk]'/.test(app));
   check('a group folded by hand in the Timeline or the List repaints the two controls at once',
     /onChange: \(st\) => \{ paintTimelineBar\(st\); paintFoldButtons\(\); \},/.test(app) && /onFold: \(\) => paintFoldButtons\(\),/.test(app));
@@ -992,17 +1022,20 @@ check('prose without a notice yields nothing', none.size === 0);
       pairs.every(([card, chip]) => chip.width === card.width && chip.height < card.height) && new Set(pairs.map(([c]) => c.width)).size === 4,
       pairs.map(([card, chip]) => `${card.width}x${card.height} -> ${chip.width}x${chip.height}`).join(' | '));
   }
-  const small = gpl.plan(sixteen(), { open, tallest: gpl.tallestFor(724) });
-  const tall = gpl.plan(sixteen(), { open, tallest: gpl.tallestFor(1400) });
-  const few = gpl.plan(sixteen().slice(0, 4), { tallest: gpl.tallestFor(724) });
-  check('Auto asks whether the picture fits the pane, not how many agents there are: the same sixteen are chips in a short pane and cards in a tall one',
-    agentsIn === 16 && small.density === 'compact' && tall.density === 'comfortable' && small.drawn === tall.drawn && few.density === 'comfortable',
-    `${agentsIn} agents, ${tall.height}px as cards: pane 724px → ${small.density}; pane 1400px → ${tall.density}`);
+  // The sixteen are cards in either pane now that Auto lets a picture run past the pane (AUTO.overflow); the same
+  // property is held on more of them: chips in a short pane, cards in a tall one.
+  const more = () => [...sixteen(), ...Array.from({ length: 14 }, (_, i) => A0(`x${i}`, `crew-extra-${i}`, 'claude-sonnet-5-5'))];
+  const small = gpl.plan(more(), { open, tallest: gpl.tallestFor(724) });
+  const tall = gpl.plan(more(), { open, tallest: gpl.tallestFor(1400) });
+  const few = gpl.plan(sixteen(), { tallest: gpl.tallestFor(724) });
+  check('Auto asks whether the picture fits the pane, not how many agents there are: the same thirty are chips in a short pane and cards in a tall one, and the sixteen are cards in the short one',
+    small.density === 'compact' && tall.density === 'comfortable' && small.drawn === tall.drawn && few.density === 'comfortable',
+    `${tall.height}px as cards: pane 724px → ${small.density}; pane 1400px → ${tall.density}; the sixteen → ${few.density} (${few.height}px)`);
   check('what fits is the pane at the smallest zoom a card is read at, and never less than the reference window',
     // The reference window's 724px pane is where the 900 came from: 676 / 0.75, a pixel either side of it.
     Math.abs(gpl.tallestFor(724) - gpl.AUTO.tallest) <= 1 && gpl.tallestFor(1400) === Math.floor((1400 - 2 * gpl.ZOOM.pad) / gpl.AUTO.readable)
     && gpl.tallestFor(200) === gpl.AUTO.tallest && gpl.tallestFor(0) === gpl.AUTO.tallest && gpl.tallestFor(undefined) === gpl.AUTO.tallest
-    && gpl.plan(sixteen(), { open }).density === small.density, `724px → ${gpl.tallestFor(724)}; 1400px → ${gpl.tallestFor(1400)}`);
+    && gpl.plan(more(), { open }).density === small.density, `724px → ${gpl.tallestFor(724)}; 1400px → ${gpl.tallestFor(1400)}`);
   check('Comfortable and Compact are still the viewer\'s word, whatever fits',
     gpl.plan(sixteen(), { open, density: 'comfortable', tallest: 100 }).density === 'comfortable'
     && gpl.plan(sixteen().slice(0, 3), { density: 'compact', tallest: 99999 }).density === 'compact');
@@ -1022,8 +1055,8 @@ check('prose without a notice yields nothing', none.size === 0);
   check('THE CASE: as chips, an agent still says its model in full',
     chip.classList.contains('cv-chip') && chip.parts.model.textContent === 'Opus 5.5' && c.els.get('pe').parts.model.textContent === 'Haiku 5.5'
     && chip.parts.model.hidden === false, `${chip.parts.model.textContent}, ${c.els.get('pe').parts.model.textContent}`);
-  check('THE CASE: and a card that stands for several agents still says which models they ran on, beside its bar',
-    group.parts.count.textContent === '3 Sonnet · 2 Opus' && c.els.get('type:session:crew-security-expert').parts.count.textContent === '3 Opus'
+  check('THE CASE: and a card that stands for several agents still says how they went and which models they ran on, beside its bar',
+    group.parts.count.textContent === '5 done · 3 Sonnet · 2 Opus' && c.els.get('type:session:crew-security-expert').parts.count.textContent === '3 done · 3 Opus'
     && /done/.test(group.parts.count.title) && c.lastPlan.items.find((it) => it.id === 'type:session:crew-frontend-expert').h === gpl.SIZE.stack.tight,
     `Frontend ×5: ${group.parts.count.textContent}; Security ×3: ${c.els.get('type:session:crew-security-expert').parts.count.textContent}`);
   c.toggle('type:session:crew-test-expert');
@@ -1039,7 +1072,8 @@ check('prose without a notice yields nothing', none.size === 0);
   check('when Auto has turned cards into chips the Density button says so, and its tooltip says why',
     /st\.density === 'auto' && st\.drawnAs === 'compact' \? 'Auto \\u00b7 compact'/.test(app) && /fits this pane at \$\{Math\.round\(AUTO\.readable \* 100\)\}%/.test(app));
   check('the canvas plans again when its pane changes size: a window made taller gets its cards back',
-    /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.fitIfUntouched\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
+    /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.paneResized\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
+    && /this\.settleTimer = setTimeout\(\(\) => \{ this\.settleTimer = null; this\.fitIfUntouched\(\); \}, RESIZE_SETTLE_MS\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
     && /tallestFor\(h\) !== tallestFor\(this\.paneHeight \?\? 0\)\) this\.#redraw\(\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
   check('on a chip the model does not shrink; the task beside it does',
     /\.cv-chip \.cv-model \{ flex: none; \}/.test(css) && /\.cv-chip \.cv-task \{ flex: 1 1 0;/.test(css));
@@ -1266,6 +1300,14 @@ check('prose without a notice yields nothing', none.size === 0);
   check('with every task priced the cell is the estimate; with none it is a dash; before costs are read it says so, and is never a zero',
     mp.costCell({ cost: 1.2, costed: 3, runs: 3 }, 3).cost === '~$1.20' && mp.costCell({ cost: 1.2, costed: 3, runs: 3 }, 3).partial === false
     && docsCost.cost === '\u2014' && mp.classRow(be).cost === '\u2026' && mp.costCell({ cost: 0, costed: 0, runs: 4 }, 4).cost === '\u2014');
+  // The advisor's share of a class: a1 consulted it twice ($0.30 of its $0.50), a2 never did.
+  const advCosts = mo.readCosts(dir, (id) => (id === 'a1' ? 0.5 : id === 'a2' ? 0.25 : null), (id) => (id === 'a1' ? { calls: 2, cost: 0.3 } : null));
+  const advRow = mp.classRow(be, advCosts[be.key]);
+  check('a class whose agents consulted the advisor says how many calls and how much of its cost; one that did not says nothing',
+    advCosts[be.key].advisorCalls === 2 && Math.abs(advCosts[be.key].advisorCost - 0.3) < 1e-9 && Math.abs(advCosts[be.key].cost - 0.75) < 1e-9
+    && /^Advisor: 2 calls, ~\$0\.30 of it\./.test(advRow.advisor ?? '') && advRow.costNote.endsWith(advRow.advisor)
+    && beCost.advisor === null && docsCost.advisor === null && mp.costCell({ cost: 1, costed: 1, runs: 1, advisorCalls: 1, advisorCost: null }, 1).advisor === 'Advisor: 1 call, its cost not priced. A second model the agents consulted, at that model\'s rates; included above.',
+    advRow.advisor ?? 'no advisor words');
   check('a page is sent the lines of the agents it shows and no others',
     Object.keys(m.byAgent).sort().join() === 'a1,a2,a3,a4,a5,a6,a7,a8' && Object.keys(mo.readModels(dir).byAgent).length === 0
     && m.all === undefined && Object.keys(mo.readModels(dir, { agents: ['a20', '__proto__', 'constructor'] }).byAgent).join() === 'a20');
@@ -1289,6 +1331,99 @@ check('prose without a notice yields nothing', none.size === 0);
   check('a project with no record is not measured, and says so instead of showing an empty table',
     mo.readModels(path.join(dir, 'nowhere')).measured === false && /^Not measured/.test(mp.emptyNote(mo.readModels(path.join(dir, 'nowhere')))));
 
+  /* Normal work above the table's model (finding 33). The gate holds a floor and no ceiling; the view says where
+     normal work ran higher than both the table and the floor, and says the table's model would have done only
+     where the record shows it. Each exclusion has its twin: the same call without the reason counts. */
+  {
+    const at0 = Date.parse('2026-02-01T00:00:00Z');
+    let n = 0;
+    const call = (o) => { n += 1; return { line: n, agentId: `u${n}`, ts: new Date(at0 + n * 1000).toISOString().replace(/\.\d+Z$/, 'Z'), at: at0 + n * 1000, agent: 'crew-backend-expert', change: 'feature', risk: 'normal', card: null, model: 'opus', verify: 'pass', fixes: 0, escalatedFrom: null, ranOn: null, confidence: null, ...o }; };
+    const one = (rows, rules = [], floors = []) => mo.aboveTableOf(rows, rules, floors).reduce((s, c) => s + c.runs, 0);
+    const opus = call({});
+    const pairs = {
+      'the agent\'s own floor': [call({ agent: 'crew-security-expert', change: 'audit' }), call({ agent: 'crew-test-expert', change: 'audit' })],
+      'a re-run one model up': [call({ escalatedFrom: 'sonnet' }), call({})],
+      'critical work': [call({ risk: 'critical' }), call({})],
+      'a sonnet call': [call({ model: 'sonnet' }), call({})],
+    };
+    const counted = Object.fromEntries(Object.entries(pairs).map(([why, [held, twin]]) => [why, `${one([held])}/${one([twin])}`]));
+    const rule = mo.parseRuleFloors('# the project\'s\nfloor crew-backend-expert * normal claude-opus-5-5  # held\nfloor x y\n');
+    const raise = { agent: 'crew-backend-expert', change: 'feature', risk: 'normal', model: 'opus', when: new Date(at0 + 500_000).toISOString().replace(/\.\d+Z$/, 'Z') };
+    const after = call({ at: at0 + 600_000, ts: new Date(at0 + 600_000).toISOString().replace(/\.\d+Z$/, 'Z') });
+    check('normal work is above the table when it ran higher than Sonnet and than the floor the gate held it to; each reason a call was held has a twin without it that counts',
+      one([opus]) === 1 && Object.values(counted).every((v) => v === '0/1')
+      && rule.length === 1 && rule[0].model === 'opus' && rule[0].change === '*' && one([opus], rule) === 0 && one([opus], rule.map((r) => ({ ...r, risk: 'critical' }))) === 1
+      && one([after], [], [raise]) === 0 && one([opus], [], [raise]) === 1,
+      `held/twin: ${JSON.stringify(counted)}; a rule ${one([opus], rule)}, a raise before ${one([opus], [], [raise])} after ${one([after], [], [raise])}`);
+    const gate = read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? '';
+    const gateFloors = {};
+    for (const m of gate.matchAll(/^\s*([a-z|-]+)\) floor=([1-4]); why=/gm)) for (const a of m[1].split('|')) gateFloors[a] = ['haiku', 'sonnet', 'opus', 'fable'][Number(m[2]) - 1];
+    check('the agents\' floors are the gate\'s, agent for agent, and so are the rules\' floor lines and the table\'s tier',
+      Object.keys(gateFloors).length >= 5 && JSON.stringify(Object.entries(gateFloors).sort()) === JSON.stringify(Object.entries(mo.AGENT_FLOORS).sort())
+      && /"floor "\*\) IFS=\$' \\t' read -r a b c d _ <<< "\$\{l#floor \}"/.test(gate) && mo.NORMAL_TIER === 'sonnet',
+      `gate ${JSON.stringify(gateFloors)}`);
+    const onSonnet = (k, o = {}) => Array.from({ length: k }, () => call({ model: 'sonnet', ...o }));
+    const verdict = (rows) => mo.aboveTableOf(rows)[0]?.passed;
+    check('that Sonnet would have done is said only when the class\'s latest ten verified calls on Sonnet all passed first time: nine, or one fixed, or one unverified among ten, say nothing',
+      verdict([opus, ...onSonnet(10)]) === 10 && verdict([opus, ...onSonnet(9)]) === 0 && verdict([opus, ...onSonnet(9), call({ model: 'sonnet', fixes: 1 })]) === 0
+      && verdict([opus, ...onSonnet(9), call({ model: 'sonnet', verify: 'none' })]) === 0
+      && verdict([opus, ...onSonnet(10, { change: 'refactor' })]) === 0 && mo.aboveTableOf([opus])[0].need === mo.LOOSEN_AFTER,
+      `ten ${verdict([opus, ...onSonnet(10)])}, nine ${verdict([opus, ...onSonnet(9)])}`);
+    const above = mo.aboveTableOf([opus, call({}), call({ model: 'fable' }), call({ change: 'refactor' })]);
+    const priced = mo.aboveCosts(above, (id) => (id === 'u_none' ? null : id === opus.agentId ? { cost: 2, atNormal: 1 } : id === above[0].ids[1] ? { cost: 4, atNormal: 2 } : null));
+    const big = mp.aboveText(above[0], priced[above[0].key]);
+    const all = mp.aboveText(above[0], { cost: 6, atNormal: 3, costed: 3, runs: 3 });
+    check('what the work above cost is the priced calls only, said as a floor with how many; the same tokens at Sonnet\'s price is named as that and not as a saving',
+      above.length === 2 && above[0].runs === 3 && above[0].models.opus === 2 && above[0].models.fable === 1
+      && priced[above[0].key].cost === 6 && priced[above[0].key].atNormal === 3 && priced[above[0].key].costed === 2 && priced[above[0].key].runs === 3
+      && /^≥\$6\.00 as run; the same tokens at Sonnet's price ≥\$3\.00 \(2 of 3 priced\)\. API list price; another model would not spend the same tokens\.$/.test(big.costs)
+      && /^~?\$6\.00 as run; .*price ~?\$3\.00\. API/.test(all.costs) && mp.aboveText(above[0], { cost: 0, atNormal: 0, costed: 0, runs: 3 }).costs === null && mp.aboveText(above[0]).costs === null,
+      big.costs);
+    check('the class is said with what ran it, and the verdict is "not measured" until the record shows it',
+      /^Backend .* · feature$|· feature$/.test(big.title) && big.says === 'normal risk, 3 tasks above Sonnet: 2 on Opus, 1 on Fable.'
+      && big.measured === false && /^Whether Sonnet would have done is not measured: this class does not have 10 verified calls on Sonnet/.test(big.verdict)
+      && mp.aboveText({ ...above[0], passed: 10 }).verdict === 'Sonnet is enough for this class: its latest 10 verified calls on Sonnet all passed the first time.',
+      `${big.title} ${big.says} ${big.verdict}`);
+    const u = new (await import(`../../kit/studio/server/lib/usage.js?a=${Date.now()}`)).Usage();
+    const pr = await import(`../../kit/studio/server/lib/pricing.js?a=${Date.now()}`);
+    const rec = (id, model) => ({ type: 'assistant', message: { id, model, usage: { input_tokens: 1000, output_tokens: 2000, cache_read_input_tokens: 5000, cache_creation_input_tokens: 300 } } });
+    u.add([rec('m1', 'claude-opus-5-5')], 'x1').add([rec('m2', 'some-model-with-no-price')], 'x2');
+    const x1 = u.of('x1'); const x2 = u.of('x2');
+    const sonnetSame = pr.costOf({ model: pr.NORMAL_TIER_MODEL, input: 1000, output: 2000, cacheRead: 5000, cacheWrite5m: 300, cacheWrite1h: 0, fast: false, usOnly: false });
+    check('the same tokens at Sonnet\'s price is the price table\'s own arithmetic on the agent\'s tokens, and is not given where the agent\'s own cost is not',
+      pr.NORMAL_TIER_MODEL === 'claude-sonnet-5-5' && pr.priceOf(pr.NORMAL_TIER_MODEL) !== null && Math.abs(x1.costAtNormal - sonnetSame) < 1e-12
+      && x1.cost > x1.costAtNormal && x2.cost === null && x2.costAtNormal === null,
+      `opus ${x1.cost}, the same at sonnet ${x1.costAtNormal}`);
+    const d4 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-above-'));
+    fs.mkdirSync(path.join(d4, '.claude', 'state'), { recursive: true });
+    const tsv = (r) => [r.ts, r.agentId, r.agent, r.change, r.risk, '-', r.model, r.verify, String(r.fixes), r.escalatedFrom ?? '-', '-', '-'].join('\t');
+    fs.writeFileSync(path.join(d4, '.claude', 'state', 'model-outcomes.tsv'), `${mo.COLUMNS.join('\t')}\n${tsv(opus)}\n`);
+    const m4 = mo.readModels(d4, { agents: [] });
+    fs.writeFileSync(path.join(d4, '.claude', 'crew-model-rules'), 'floor crew-backend-expert feature normal opus\n');
+    const m5 = mo.readModels(d4, { agents: [] });
+    check('a page is sent the classes above the table and not the ids of their agents; a floor line added to the project\'s rules is read without a restart',
+      m4.above.length === 1 && m4.above[0].ids === undefined && m4.above[0].runs === 1 && mo.readRecord(d4).above.length === 0 && m5.above.length === 0
+      && mo.readAboveCosts(path.join(d4, 'nowhere'), () => null) === null,
+      `before the rule ${m4.above.length}, after ${m5.above.length}`);
+    fs.rmSync(d4, { recursive: true, force: true });
+    const dom = installDom();
+    try {
+      const { Models } = await import(`../../kit/studio/web/models.js?a=${Date.now()}`);
+      const root = document.createElement('div');
+      const view = new Models(root, {});
+      const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+      view.setData({ measured: true, rows: 3, classes: mo.classesOf([opus]), suggestions: [], above: mo.aboveTableOf([opus]).map(({ ids, ...c }) => c), byAgent: {} });
+      const box = walkAll(root, (e) => e.className === 'mv-above')[0];
+      const texts = box ? walkAll(box, () => true).map((e) => e.textContent) : [];
+      view.setData({ measured: true, rows: 1, classes: mo.classesOf([opus]), suggestions: [], above: [], byAgent: {} });
+      const none = walkAll(root, (e) => e.className === 'mv-above').length;
+      check('the view says the work above the table under its own heading, with no button: nothing in it is acted on, and with none there is no box',
+        Boolean(box) && texts[0] === mp.ABOVE_HEAD && texts.some((t) => /^Whether Sonnet would have done is not measured/.test(t))
+        && texts.at(-1) === mp.ABOVE_RULE && walkAll(box, (e) => e.tagName === 'BUTTON').length === 0 && none === 0,
+        texts.join(' | '));
+    } finally { dom(); }
+  }
+
   const card = mp.cardOf('files: src/a.js, src/b.js\nchange: logic\nverify: npm test -- a\n\nDo the thing.');
   check('the task card is the three lines the task text starts with, and a text without them has no card',
     card.files === 'src/a.js, src/b.js' && card.change === 'logic' && card.verify === 'npm test -- a' && mp.cardOf('Do the thing.') === null);
@@ -1309,6 +1444,18 @@ check('prose without a notice yields nothing', none.size === 0);
     && steps('a4').note === 'A re-run with the same or a lower model is refused by the gate.' && steps('a1').note === null
     && mp.workSteps(null).steps.length === 0 && /^Not recorded yet/.test(mp.workSteps(null).note), said('a4'));
   {
+    // A line from before the gate kept its reason has twelve columns: still whole, with no reason, not one made up.
+    const old12 = ['2026-01-01T00:00:01Z', 'o1', 'crew-docs-agent', 'text', 'critical', 'c', 'opus', 'none', '0', '-', '-', 'high'].join('\t');
+    const p12 = mo.parseOutcomes(old12);
+    check('a line written before the reason was kept is read whole, and its critical work shows no reason rather than a guessed one',
+      p12.rows.length === 1 && p12.dropped === 0 && p12.rows[0].riskWhy === null && mp.workSteps(p12.rows[0]).risk === 'critical' && mp.workSteps(p12.rows[0]).riskWhy === null,
+      JSON.stringify(p12.why));
+  }
+  check('an agent that is not crew-* is said to be outside model routing (the gate leaves it alone); a crew agent or an unknown type is not',
+    /^Outside model routing: not a crew agent/.test(mp.outsideRouting('general-purpose') ?? '') && mp.outsideRouting('Explore') === mp.outsideRouting('general-purpose')
+    && mp.outsideRouting('crew-docs-agent') === null && mp.outsideRouting(undefined) === null && mp.outsideRouting('') === null,
+    String(mp.outsideRouting('general-purpose')));
+  {
     // The same card given twice: its first call failed on sonnet, the second ran on opus. The second's line carries the first.
     const two = [mo.COLUMNS.join('\t'),
       ['2026-01-01T00:00:01Z', 't1', 'crew-backend-expert', 'feature', 'normal', 'cardX', 'sonnet', 'fail', '1', '-', 'claude-sonnet-9', '-'].join('\t'),
@@ -1328,7 +1475,7 @@ check('prose without a notice yields nothing', none.size === 0);
   }
   check('Models is a fourth view with its own tab, and the record is read for the session on screen',
     /<button id="view-models"[^>]*aria-controls="models"/.test(read(path.join(WEB_ROOT, 'index.html')) ?? '')
-    && /\['graph', 'timeline', 'list', 'models'\]\.includes\(next\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
+    && /\['graph', 'timeline', 'list', 'models', 'map'\]\.includes\(next\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '')
     && /\/api\/models\?session=\$\{encodeURIComponent\(asked\)\}/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   check('the command a suggestion offers is the class in three words, with no model in it, and none is offered for a word it could not take',
     mp.lowerCommand(m.suggestions[0]) === '/crew-loosen crew-test-expert test-run normal'
@@ -1363,6 +1510,12 @@ check('prose without a notice yields nothing', none.size === 0);
         && all(root, (e) => e.className === 'mv-suggest-h')[0]?.textContent === 'Suggestion · needs your approval'
         && all(root, (e) => e.className === 'mv-raised').length === 2 && all(root, (e) => e.dataset?.kind === 'raised').length === 4,
         `${buttons.length} button(s); copied: ${copied.join()}`);
+      const noTag = all(root, (e) => e.dataset?.kind === 'advisor').length;
+      view.setCosts({ measured: true, costs: advCosts, sessionsRead: 1 });
+      const tags = all(root, (e) => e.dataset?.kind === 'advisor');
+      check('the cost cell carries an advisor tag only for a class that consulted it, its words on hover',
+        noTag === 0 && tags.length === 1 && tags[0].textContent === 'advisor' && /^Advisor: 2 calls/.test(tags[0].title ?? ''),
+        `${noTag} before, ${tags.length} after`);
     } finally { dom(); }
   }
   check('the view\'s classes are its own: none of them is one the Markdown renderer styles',
@@ -1418,13 +1571,18 @@ check('prose without a notice yields nothing', none.size === 0);
     const trail = mp.workSteps(m3.byAgent.f2).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
     check('the record the hook wrote is read whole: five lines, none dropped, its header and its words as they are',
       // A Windows checkout hands this file over with CRLF line ends; the reader takes either, and so does this.
-      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0].replace(/\r$/, '') === mo.COLUMNS.join('\t')
+      parsed.header === true && parsed.rows.length === 5 && parsed.dropped === 0 && kept.split('\n')[0].replace(/\r$/, '') === [...mo.COLUMNS, ...mo.LATER_COLUMNS].join('\t')
       && parsed.rows.map((r) => r.verify).join() === 'fail,pass,pass,none,blocked' && parsed.rows.every((r) => mo.CHANGES.includes(r.change) && mo.RISKS.includes(r.risk)),
       `${parsed.rows.length} rows, ${parsed.dropped} dropped`);
     check('from the hook\'s own lines: a failed card and its re-run are one class, half first try, one escalated; the re-run\'s trail starts with the failure',
       back.runs === 2 && back.verified === 2 && back.firstTryRate === 0.5 && back.escalated === 1 && back.failed === 1 && back.fixed === 1
       && trail === 'Ran on Sonnet \u00b7 fixed once inside the agent [fail] > Re-run on Opus [pass] [escalated]'
       && m3.classes.length === 4 && m3.classes.find((c) => c.risk === 'critical').notVerified.blocked === 1, trail);
+    // The gate's reason for critical work, as the hook copied it from the record; normal work has none to show.
+    check('the reason the gate gave for critical work is read from the hook\'s own line and shown only for critical work',
+      m3.byAgent.f5.riskWhy === 'src/billing/batch.js is on a critical path: billing' && mp.workSteps(m3.byAgent.f5).riskWhy === m3.byAgent.f5.riskWhy
+      && ['f1', 'f2', 'f3', 'f4'].every((id) => m3.byAgent[id].riskWhy === null && mp.workSteps(m3.byAgent[id]).riskWhy === null),
+      String(m3.byAgent.f5?.riskWhy));
     const made = spawnSync('bash', [path.join(fx, 'make-model-outcomes.sh'), REPO, fs.mkdtempSync(path.join(os.tmpdir(), 'crew-hookrun-'))], { encoding: 'utf8', timeout: 60000 });
     const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').slice(1).join('\t')).join('\n');
     if (made.status === 3 || made.error) skip('the hook, run now, writes the lines that are kept as the fixture', 'tool', `bash or git is not available to run it (${(made.stderr || made.error?.message || '').trim().slice(0, 80)})`);
@@ -1432,6 +1590,455 @@ check('prose without a notice yields nothing', none.size === 0);
       made.status === 0 && noTime(made.stdout) === noTime(kept) && noTime(kept).split('\n').length === 6,
       made.status === 0 ? 'six lines, the same' : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
     fs.rmSync(d3, { recursive: true, force: true });
+  }
+  /* The crew-map documents the Map view is built against: written by Crewforth's own scanner
+     (kit/eval/lib/crew-map/scan.mjs) over three of its fixtures, see fixtures/make-crew-map.mjs. Kept so the view
+     reads what the scanner really writes; the scanner is run again here and has to write the same bytes. */
+  {
+    const cmDir = path.join(HERE, 'fixtures', 'crew-map');
+    const names = ['node-ws', 'dotnet-sln', 'compose'];
+    const kept = Object.fromEntries(names.map((nm) => [nm, read(path.join(cmDir, `${nm}.json`)) ?? '']));
+    const docs = Object.fromEntries(names.map((nm) => { try { return [nm, JSON.parse(kept[nm])]; } catch { return [nm, null]; } }));
+    const all = Object.values(docs).filter(Boolean);
+    const kinds = new Set(all.flatMap((d) => d.nodes.map((x) => x.kind)));
+    const shown = all.flatMap((d) => d.findings).filter((f) => !f.data?.defaultHidden).length;
+    const hidden = all.flatMap((d) => d.findings).filter((f) => f.data?.defaultHidden).length;
+    const said = `${all.length} documents · nodes ${[...kinds].sort().join('/')} · findings ${shown} shown, ${hidden} hidden · `
+      + `${all.reduce((n, d) => n + d.edges.length, 0)} edges · ${all.reduce((n, d) => n + d.provides.endpoints.length, 0)} provided, `
+      + `${all.reduce((n, d) => n + d.consumes.endpoints.length, 0)} called · ${all.reduce((n, d) => n + d.notMeasured.length, 0)} not measured`;
+    check('the Map view\'s sample documents are crew-map documents and hold every shape the view draws: three kinds of node, findings shown and hidden, edges, endpoints both ways, what was not measured, and a map with no finding',
+      all.length === 3 && all.every((d) => d.schema === 'crewforth.crew-map/1') && ['module', 'service', 'external'].every((k) => kinds.has(k))
+      && shown > 0 && hidden > 0 && all.every((d) => d.edges.length > 0)
+      && all.some((d) => d.provides.endpoints.length > 0) && all.some((d) => d.consumes.endpoints.length > 0)
+      && all.some((d) => d.notMeasured.length > 0) && all.some((d) => d.findings.length === 0),
+      said);
+    const scanner = path.join(REPO, 'packaging', 'crew-map-test', 'fixtures');
+    const planted = names.filter((nm) => fs.existsSync(path.join(scanner, nm)) && /\{\{(PW|TOKEN)\}\}/.test(
+      fs.readdirSync(path.join(scanner, nm), { recursive: true }).map((f) => { try { return fs.readFileSync(path.join(scanner, nm, f), 'utf8'); } catch { return ''; } }).join('\n'))).length;
+    check('a sample carries no value the scanner was given to hide and no path of this machine; the inputs it was made from do carry such values',
+      planted === 3 && names.every((nm) => !/PwSample0000Z9|ghp_0{36}/.test(kept[nm]))
+      && names.every((nm) => !kept[nm].includes(os.tmpdir()) && !kept[nm].includes(REPO) && !/(^|")\/(Users|home)\/|[A-Za-z]:\\\\/.test(kept[nm])),
+      `${planted} of 3 fixtures plant a secret`);
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-map-sample-'));
+    const made = spawnSync(process.execPath, [path.join(HERE, 'fixtures', 'make-crew-map.mjs'), REPO, work], { encoding: 'utf8', timeout: 60000 });
+    if (made.status === 3) skip('the scanner, run now, writes the documents that are kept as the samples', 'fixture', made.stderr.trim().slice(0, 120));
+    else {
+      const differ = names.filter((nm) => (read(path.join(work, 'out', `${nm}.json`)) ?? '') !== kept[nm]);
+      check('the scanner, run now, writes the documents that are kept as the samples, byte for byte',
+        made.status === 0 && differ.length === 0,
+        made.status === 0 ? (differ.length ? `differ: ${differ.join(', ')} (run fixtures/make-crew-map.mjs and keep its output)` : 'three documents, the same') : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
+    }
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+  /* The Map view. The map is the scanner's (the samples above); the server reads it and runs nothing that writes,
+     the plan puts each node in a band by what the map shows of it, and the view draws it. Each rule has its twin. */
+  {
+    const cm = await import(`../../kit/studio/server/lib/crew-map.js?m=${Date.now()}`);
+    const mpl = await import(`../../kit/studio/web/map-plan.js?m=${Date.now()}`);
+    const sample = (nm) => JSON.parse(read(path.join(HERE, 'fixtures', 'crew-map', `${nm}.json`)) ?? 'null');
+    const ws = sample('node-ws'); const sln = sample('dotnet-sln'); const cmp = sample('compose');
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-map-read-'));
+    const missing = cm.readMap(proj);
+    fs.mkdirSync(path.join(proj, '.crewforth'));
+    const put = (v) => fs.writeFileSync(path.join(proj, '.crewforth', 'crew-map.json'), typeof v === 'string' ? v : JSON.stringify(v));
+    put('{ not json'); const bad = cm.readMap(proj);
+    put({ ...ws, schema: 'crewforth.crew-map/2' }); const later = cm.readMap(proj);
+    put({ ...ws, edges: undefined }); const noEdges = cm.readMap(proj);
+    put(ws);
+    const before = cm._stats.parsed;
+    const ok = cm.readMap(proj); for (let k = 0; k < 20; k += 1) cm.readMap(proj);
+    check('the map is read whole or not at all: missing, not JSON, another schema, a list missing each say so; a good one is read once and kept',
+      missing.measured === false && missing.missing === true && missing.reason.endsWith(`Write one there with: ${cm.WRITER}`)
+      && cm.WRITER.startsWith('/crew-map') && fs.existsSync(path.join(REPO, 'kit', 'skills', 'crew-map', 'SKILL.md'))
+      && bad.measured === false && /not JSON/.test(bad.reason) && later.measured === false && /crewforth\.crew-map\/2/.test(later.reason)
+      && noEdges.measured === false && /no edges list/.test(noEdges.reason)
+      && ok.measured === true && ok.file === '.crewforth/crew-map.json' && ok.doc.nodes.length === ws.nodes.length && cm._stats.parsed - before === 1,
+      `${missing.reason} | ${bad.reason} | ${later.reason} | parses for 21 asks: ${cm._stats.parsed - before}`);
+    const notHex = await cm.behindOf(proj, '--output=/tmp/x');
+    const none = await cm.behindOf(proj, undefined);
+    let behind = null;
+    const git = (...a) => spawnSync('git', a, { cwd: proj, encoding: 'utf8' });
+    if (git('init', '-q').status !== 0) skip('how far HEAD is past the scanned commit is git\'s count', 'tool', 'git is not available');
+    else {
+      git('-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'one');
+      const first = git('rev-parse', 'HEAD').stdout.trim();
+      git('-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'two');
+      git('-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'three');
+      behind = await cm.behindOf(proj, first);
+      const head = await cm.behindOf(proj, git('rev-parse', 'HEAD').stdout.trim());
+      const gone = await cm.behindOf(proj, 'deadbeefdeadbeef');
+      check('how far HEAD is past the scanned commit is git\'s count; a commit git does not know is said, not guessed',
+        behind.count === 2 && head.count === 0 && gone.count === null && /git could not say/.test(gone.reason), `${JSON.stringify(behind)} ${JSON.stringify(gone)}`);
+    }
+    check('only a commit id reaches git: anything else in the file is not handed to it',
+      notHex.count === null && /names no commit/.test(notHex.reason) && none.count === null
+      && /execFile\('git', \['rev-list', '--count', `\$\{commit\}\.\.HEAD`\]/.test(read(path.join(STUDIO, 'server', 'lib', 'crew-map.js')) ?? ''));
+    fs.rmSync(proj, { recursive: true, force: true });
+
+    const band = (doc, id) => mpl.nodesOf(doc).find((n) => n.id === id)?.band;
+    const bareMod = { id: 'mod:x:lone', kind: 'module', name: 'lone' };
+    const bare = { nodes: [bareMod], edges: [], provides: { endpoints: [] }, consumes: { endpoints: [] } };
+    const twins = {
+      provides: [band(bare, 'mod:x:lone'), band({ ...bare, provides: { endpoints: [{ module: 'mod:x:lone', method: 'GET', path: '/a' }] } }, 'mod:x:lone')],
+      calls: [band(bare, 'mod:x:lone'), band({ ...bare, consumes: { endpoints: [{ module: 'mod:x:lone', method: 'GET', path: '/a' }] } }, 'mod:x:lone')],
+      referenced: [band(bare, 'mod:x:lone'), band({ ...bare, edges: [{ from: 'mod:x:other', to: 'mod:x:lone', kind: 'references' }] }, 'mod:x:lone')],
+      built: [band(bare, 'mod:x:lone'), band({ ...bare, edges: [{ from: 'svc:x', to: 'mod:x:lone', kind: 'builds' }] }, 'mod:x:lone')],
+      entry: [band(bare, 'mod:x:lone'), band({ ...bare, nodes: [{ ...bareMod, entry: true }] }, 'mod:x:lone')],
+    };
+    check('each band is what the map shows of a module, and a module with nothing to place it is Unplaced: each reason has its twin without it',
+      Object.values(twins).every(([a]) => a === 'unplaced') && twins.provides[1] === 'entry' && twins.calls[1] === 'clients'
+      && twins.referenced[1] === 'core' && twins.built[1] === 'entry' && twins.entry[1] === 'entry'
+      && band(ws, 'mod:node:@demo/api') === 'entry' && band(ws, 'mod:node:@demo/web') === 'clients' && band(ws, 'mod:node:@demo/shared') === 'core'
+      && band(ws, 'mod:node:@demo/orphan-lib') === 'unplaced' && band(cmp, 'svc:api') === 'infra' && band(cmp, 'mod:node:compose-api') === 'entry'
+      && mpl.nodesOf(ws).filter((n) => n.kind === 'external').every((n) => n.band === 'external'),
+      JSON.stringify(twins));
+    const fw = mpl.findingsOf(ws); const fwAll = mpl.findingsOf(ws, { showHidden: true });
+    const marked = ws.findings.filter((f) => f.data?.defaultHidden).length;
+    check('a finding the scanner hides by default is hidden until asked for, and counted while it is; proven ones are listed first',
+      marked > 0 && fw.hidden === marked && fw.shown.length === ws.findings.length - marked && fwAll.shown.length === ws.findings.length
+      && fw.shown.every((f) => !f.hidden) && fwAll.shown.findIndex((f) => !f.proven) > fwAll.shown.findLastIndex((f) => f.proven),
+      `${fw.shown.length} shown, ${fw.hidden} hidden`);
+    check('a finding belongs to the module it names, or else to the module whose folder holds its cited file, the deepest one',
+      mpl.findingModules({ data: { module: 'mod:a' }, evidence: [{ file: 'x/y.js' }] }, []).join() === 'mod:a'
+      && mpl.findingModules({ data: {}, evidence: [{ file: 'packages/api/src/s.js' }] }, [{ id: 'root', path: '.' }, { id: 'api', path: 'packages/api' }]).join() === 'api'
+      && mpl.findingModules({ data: {}, evidence: [{ file: 'tools/t.js' }] }, [{ id: 'api', path: 'packages/api' }]).length === 0);
+    check('an endpoint is matched by its method and its path, a parameter written any of the usual ways being one',
+      cm.endpointKey({ method: 'get', path: '/a/:id/' }) === cm.endpointKey({ method: 'GET', path: '/a/{id}' })
+      && cm.endpointKey({ method: 'GET', path: '/a/<id>?q=1' }) === 'GET /a/*' && cm.endpointKey({ method: 'GET', path: '/a/b' }) !== cm.endpointKey({ method: 'GET', path: '/a/*' })
+      && cm.endpointKey({ method: 'POST', path: '/a' }) !== cm.endpointKey({ method: 'GET', path: '/a' }));
+    const here = { nodes: [{ id: 'mod:h:api', kind: 'module', name: 'api' }], provides: { endpoints: [{ module: 'mod:h:api', method: 'GET', path: '/orders/{id}' }] } };
+    const other = {
+      nodes: [{ id: 'mod:o:web', kind: 'module', name: 'web' }, { id: 'mod:o:cron', kind: 'module', name: 'cron' }],
+      provides: { endpoints: [{ module: 'mod:o:web', method: 'GET', path: '/health' }] },
+      consumes: { endpoints: [
+        { module: 'mod:o:web', method: 'GET', path: '/orders/:id', evidence: [{ file: 'web/a.ts', line: 3 }] },
+        { module: 'mod:o:web', method: 'POST', path: '/refunds', evidence: [{ file: 'web/a.ts', line: 9 }] },
+        { module: 'mod:o:web', method: 'GET', path: '/health' },
+        { module: 'mod:o:cron', method: 'POST', path: '/elsewhere' },
+      ] },
+    };
+    const clients = cm.compareMaps(here, other);
+    const cf = mpl.findingsOf(here, { compare: { label: 'shop-web', clients } });
+    check('compared, a call the other project makes and does not serve itself is matched here or missing; a module none of whose calls is served here is no client',
+      clients.length === 1 && clients[0].name === 'web' && clients[0].calls.length === 1 && clients[0].calls[0].to === 'mod:h:api'
+      && clients[0].missing.length === 1 && clients[0].missing[0].path === '/refunds' && !clients.some((c) => c.id === 'mod:o:cron')
+      && cf.shown.some((f) => f.rule === 'compare-missing' && /POST \/refunds is called by web and not provided here/.test(f.title) && f.from === 'shop-web'),
+      JSON.stringify(clients.map((c) => [c.name, c.calls.length, c.missing.length])));
+    const ce = mpl.edgesOf(here, { label: 'shop-web', clients });
+    check('a compared client is drawn in the Clients band with one line to the module it calls, labelled with its calls and its missing ones',
+      mpl.nodesOf(here, { label: 'shop-web', clients }).find((n) => n.id === 'cmp:mod:o:web')?.band === 'clients'
+      && ce.length === 1 && ce[0].to === 'mod:h:api' && ce[0].calls === 1 && ce[0].missing === 1
+      && mpl.edgesOf(here, { label: 'x', clients: [{ ...clients[0], calls: [{ method: 'GET', path: '/orders/1' }] }] }).length === 0,
+      'a call with no module matched by the server draws no line: the view does not pick one');
+    const lay = mpl.layoutOf(mpl.nodesOf(ws), { width: 720 });
+    const overlap = Object.entries(lay.pos).some(([a, p], i, all) => all.slice(i + 1).some(([, q]) => p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h));
+    check('the layout keeps every card inside its band, no two cards over each other, and bands in the order of the design',
+      !overlap && mpl.nodesOf(ws).every((n) => { const b = lay.bands.find((x) => x.key === n.band); const p = lay.pos[n.id]; return b && p.y >= b.y && p.y + p.h <= b.y + b.h; })
+      && lay.bands.map((b) => b.key).join() === 'clients,entry,core,external,unplaced'
+      && lay.bands.every((b, i) => i === 0 || b.y === lay.bands[i - 1].y + lay.bands[i - 1].h),
+      lay.bands.map((b) => `${b.key}@${b.y}+${b.h}`).join(' '));
+    {
+      // CM3: the layer /crew-map wrote is the band; without one the scan's band stands. A card says its kind, three of
+      // what it is built with and how many more, and the outside services it calls; the tour keeps the stops on this
+      // map; a search names nodes by name, folder and what they are built with; the inspector says layer, domain, inside.
+      const lw = JSON.parse(JSON.stringify(ws));
+      const apiN = lw.nodes.find((n) => n.id === 'mod:node:@demo/api');
+      const c1 = `${apiN.evidence[0].file}:${apiN.evidence[0].line}`;
+      apiN.narrative = { text: 'Serves the API.', cites: [c1], layer: 'api', domain: 'orders' };
+      apiN.tech = ['Express', 'TypeScript', 'Vitest', 'Docker', 'Prisma'];
+      apiN.structure = { folders: [{ folder: 'src', files: 4 }], testFiles: 2 };
+      const nodes2 = mpl.nodesOf(lw);
+      const lay2 = mpl.layoutOf(nodes2, { width: 960 });
+      const card = mpl.cardOf(apiN, lw);
+      const root = lw.nodes.find((n) => n.id === 'mod:node:demo-root');
+      const tour = mpl.tourOf({ ...lw, tour: [{ node: apiN.id, text: 'a', cites: [c1] }, { node: 'mod:x:gone', text: 'b', cites: [] }] });
+      const ins = mpl.inspectOf(nodes2.find((n) => n.id === apiN.id), lw, mpl.edgesOf(lw), []);
+      check('a module /crew-map gave a layer is drawn in that layer\'s band, and a module it did not keeps the band the scan gives it',
+        nodes2.find((n) => n.id === apiN.id).band === 'api' && nodes2.find((n) => n.id === 'mod:node:@demo/shared').band === mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared').band
+        && lay2.bands.some((b) => b.key === 'api' && lay2.pos[apiN.id].y >= b.y && lay2.pos[apiN.id].y < b.y + b.h) && mpl.nodesOf({ ...ws, nodes: [{ ...apiN, narrative: { ...apiN.narrative, layer: 'backend' } }] })[0].band !== 'backend',
+        lay2.bands.map((b) => b.key).join());
+      check('a card says its domain and what it is built with, three of it and how many more, and the outside services it calls, by name',
+        card.kind.startsWith('orders') && card.chips.join() === 'Express,TypeScript,Vitest' && card.more === 2
+        && mpl.cardOf(root, lw).outside.join() === [...new Set(lw.edges.filter((e) => e.from === root.id && e.to.startsWith('ext:'))
+          .map((e) => { const x = lw.nodes.find((n) => n.id === e.to); return x.label && x.label !== 'unknown' ? x.label : x.hosts[0]; }))].sort().join()
+        && mpl.cardOf(root, lw).outside.length === 4 && mpl.cardOf(lw.nodes.find((n) => n.id === 'mod:node:@demo/shared'), lw).outside.length === 0,
+        JSON.stringify([card, mpl.cardOf(root, lw).outside]));
+      check('the tour keeps the stops on this map, by name; a search names by name, folder and what a module is built with, and an empty one names none',
+        tour.length === 1 && tour[0].name === apiN.name && mpl.searchOf('vitest', nodes2).has(apiN.id) && mpl.searchOf('SRC', nodes2).has(apiN.id)
+        && mpl.searchOf('orders', nodes2).has(apiN.id) && mpl.searchOf('  ', nodes2).size === 0 && !mpl.searchOf('vitest', nodes2).has('mod:node:@demo/shared'),
+        JSON.stringify(tour));
+      check('the inspector says the layer and domain /crew-map wrote, and what is inside the module: its folders with their files and its tests',
+        ins.layer === 'API' && ins.domain === 'orders' && ins.inside.folders[0].folder === 'src' && ins.inside.folders[0].files === 4 && ins.inside.tests === 2
+        && mpl.inspectOf(mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared'), ws, mpl.edgesOf(ws), []).layer === null,
+        JSON.stringify([ins.layer, ins.domain, ins.inside]));
+    }
+    const t = mpl.taskOf(fwAll.shown.find((f) => !f.proven));
+    check('a finding copied as a task says what, where, and, for an inferred one, to check it first',
+      /^.+\. Evidence: \S+:\d+/.test(t) && /inferred this; check it before acting on it/.test(t) && /From the crew map \(rule /.test(t)
+      && !/inferred this/.test(mpl.taskOf(fw.shown.find((f) => f.proven))), t);
+    {
+      const dom = installDom();
+      try {
+        const { MapView } = await import(`../../kit/studio/web/map.js?m=${Date.now()}`);
+        const root = document.createElement('div');
+        const copied = []; const compared = [];
+        const view = new MapView(root, { onCopy: (x) => copied.push(x), onCompare: (c) => compared.push(c) });
+        const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+        view.setData(null); const reading = root.children[0]?.children?.[0]?.textContent;
+        view.setData({ measured: false, missing: true, reason: 'no map here', others: [] }); const empty = root.children[0]?.children?.[0]?.textContent;
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p', doc: ws, behind: { count: 2 }, others: [{ label: 'billing-web', cwd: '/q' }], compare: null });
+        const cards = walkAll(root, (e) => String(e.className).startsWith('mp-card'));
+        const isLine = (e) => (e.getAttribute?.('class') ?? e.className) === 'mp-line';
+        const paths = walkAll(root, isLine);
+        const rows = walkAll(root, (e) => e.className === 'mp-frow');
+        const pill = walkAll(root, (e) => e.dataset?.tone === 'behind')[0]?.textContent;
+        cards.find((c) => c.dataset.id === 'mod:node:@demo/api').emit('click');
+        const litNow = walkAll(root, isLine).filter((p) => p.dataset.lit === 'true').length;
+        const tabs = walkAll(root, (e) => e.className === 'mp-tab');
+        tabs.find((b) => /^Findings/.test(b.textContent))?.emit('click');
+        walkAll(root, (e) => e.tagName === 'BUTTON' && e.textContent === 'Copy as task')[0]?.emit('click');
+        const sel = walkAll(root, (e) => e.className === 'mp-compare')[0];
+        sel.value = '/q'; sel.emit('change');
+        const esc = view.escape();
+        const after = walkAll(root, isLine).filter((p) => p.dataset.lit !== undefined).length;
+        // An outside service is not a card (CM3): it is named on the line under the card of every module that calls it.
+        const kindOf = new Map(ws.nodes.map((n) => [n.id, n.kind]));
+        const drawn = ws.nodes.filter((n) => n.kind !== 'external');
+        const between = ws.edges.filter((e) => kindOf.get(e.from) !== 'external' && kindOf.get(e.to) !== 'external');
+        const folds = Object.fromEntries(cards.map((c) => [c.dataset.id, walkAll(c, (e) => String(e.className).startsWith('mp-fold'))[0]?.textContent ?? '']));
+        const unfolded = ws.edges.filter((e) => kindOf.get(e.to) === 'external').filter((e) => {
+          const x = ws.nodes.find((n) => n.id === e.to); return !(folds[e.from] ?? '').includes(x.label && x.label !== 'unknown' ? x.label : x.hosts[0]);
+        });
+        check('the view draws one card for each module and service, one line for each edge between them, one row for each shown finding, and how far behind the map is; every outside service is named under the card of each module that calls it',
+          reading === 'Reading the map…' && empty === 'No map yet \u2014 no map here'
+          && cards.length === drawn.length && paths.length === between.length && rows.length === fw.shown.length && pill === '2 commits behind'
+          && unfolded.length === 0 && ws.edges.some((e) => kindOf.get(e.to) === 'external'),
+          `${cards.length} cards, ${paths.length} lines, ${rows.length} rows; not named under their caller: ${unfolded.map((e) => `${e.from}>${e.to}`).join(' ')}`);
+        check('selecting a module lights its lines only; its findings copy as a task; Compare asks for the other project; Esc lets the selection go',
+          litNow === between.filter((e) => e.from === 'mod:node:@demo/api' || e.to === 'mod:node:@demo/api').length && litNow > 0
+          && copied.length === 1 && /Evidence: /.test(copied[0]) && compared.join() === '/q' && esc === true && after === 0 && view.escape() === false,
+          `${litNow} lit; copied ${copied.length}; compared ${compared.join()}`);
+        // CM3: a map /crew-map described is drawn by its layers, and steps through its tour; a search dims what it does not name.
+        const lw = JSON.parse(JSON.stringify(ws));
+        const api = lw.nodes.find((n) => n.id === 'mod:node:@demo/api');
+        const cite = `${api.evidence[0].file}:${api.evidence[0].line}`;
+        api.narrative = { text: 'Serves the API.', cites: [cite], layer: 'api', domain: 'orders' };
+        lw.tour = [{ node: api.id, text: 'Start at the API.', cites: [cite] }, { node: 'mod:node:gone', text: 'Not on this map.', cites: [cite] }];
+        const r2 = document.createElement('div');
+        const v2 = new MapView(r2, {});
+        v2.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p2', doc: lw, behind: { count: 0 }, others: [], compare: null });
+        const tourBtn = walkAll(r2, (e) => e.className === 'mp-tog' && e.textContent === 'Tour')[0];
+        tourBtn?.emit('click');
+        const box = walkAll(r2, (e) => e.className === 'mp-tour')[0];
+        const boxText = walkAll(box ?? { children: [] }, (e) => e.className === 'lbl')[0]?.textContent;
+        const selAfter = walkAll(r2, (e) => String(e.className).startsWith('mp-card') && e.dataset.selected === 'true')[0]?.dataset.id;
+        const v3root = document.createElement('div'); const v3 = new MapView(v3root, {});
+        v3.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/p3', doc: ws, behind: { count: 0 }, others: [], compare: null });
+        const noTour = walkAll(v3root, (e) => e.className === 'mp-tog' && e.textContent === 'Tour').length;
+        const search = walkAll(r2, (e) => e.className === 'mp-search')[0];
+        search.value = 'shared'; search.emit('input');
+        const marks = walkAll(r2, (e) => String(e.className).startsWith('mp-card')).map((c) => `${c.dataset.id}=${c.dataset.match}`);
+        check('a tour /crew-map wrote is a button; it opens at stop 1 of the stops on this map and selects that node; a map with no tour has no button',
+          tourBtn && box && box.hidden === false && boxText === 'Tour · 1 of 1' && selAfter === api.id && noTour === 0, `${boxText} · selected ${selAfter} · ${noTour}`);
+        check('a search marks the cards it names and dims the rest', marks.includes('mod:node:@demo/shared=true') && marks.includes('mod:node:@demo/api=false'), marks.join(' '));
+      } finally { dom(); }
+    }
+    const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
+    const libSrc = read(path.join(STUDIO, 'server', 'lib', 'crew-map.js')) ?? '';
+    const srvSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+    check('the Map runs nothing and writes nothing: the reader has no write, the one process it starts is git rev-list, the view asks the server nothing itself, and a comparison is only with a listed project that has a map',
+      !/writeFileSync|appendFileSync|renameSync|createWriteStream|unlinkSync|rmSync|spawn\(|exec\(/.test(libSrc) && (libSrc.match(/execFile\(/g) ?? []).length === 1
+      && !/fetch\(|XMLHttpRequest/.test(mapSrc) && /const peer = asked \? others\.find\(\(o\) => o\.cwd === asked\) : null;/.test(srvSrc)
+      && /readMap\(p\.cwd\)\.measured/.test(srvSrc) && !/from '[^']*(scan\.mjs|eval\/lib\/crew-map)|import\([^)]*scan|'crew-map\.sh'/.test(srvSrc + libSrc));
+  }
+  /* The map as the design has it (faz6 brief §7, screen spec §11): on the graph's own pan-and-zoom pane, with cards
+     placed by hand and folders folded, the line language, the inspector's copyable file:line, a legend that closes
+     from outside, findings that bring their card to the middle, the phone's list, and the navigator's Map entry. */
+  {
+    const mpl = await import(`../../kit/studio/web/map-plan.js?v2=${Date.now()}`);
+    const cm = await import(`../../kit/studio/server/lib/crew-map.js?v2=${Date.now()}`);
+    const vpSrc = read(path.join(WEB_ROOT, 'viewport.js')) ?? '';
+    const cvSrc = read(path.join(WEB_ROOT, 'canvas.js')) ?? '';
+    const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
+    check('the map pans, zooms and places cards with the graph\'s own code: one viewport, used by both, and no second copy of the wheel or the drag',
+      /export class Viewport/.test(vpSrc) && /export function draggable/.test(vpSrc)
+      && /this\.vp = new Viewport\(this\.root, this\.viewport,/.test(cvSrc) && /draggable\(el, \{/.test(cvSrc)
+      && /this\.vp = new Viewport\(this\.pane, this\.layer,/.test(mapSrc) && /draggable\(card, \{/.test(mapSrc)
+      && !/addEventListener\('wheel'/.test(cvSrc + mapSrc) && (vpSrc.match(/addEventListener\('wheel'/g) ?? []).length === 1);
+    const e = (o) => ({ from: 'a', to: 'b', kind: 'k', ...o });
+    check('a line is drawn as what it rests on: a file, an inference, or the model; a resource only inferred is drawn as only inferred',
+      mpl.lineOf(e({ confidence: 'evidence' })) === 'evidence' && mpl.lineOf(e({ confidence: 'inferred' })) === 'inferred'
+      && mpl.lineOf(e({ confidence: 'inferred', source: 'model' })) === 'model' && mpl.lineOf(e({ confidence: 'evidence', source: 'model' })) === 'model'
+      && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' })]) === true
+      && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' }), e({ from: 'c', to: 'x', confidence: 'evidence' })]) === false
+      && mpl.inferredOnly({ id: 'x', kind: 'external' }, []) === false && mpl.inferredOnly({ id: 'x', kind: 'module' }, [e({ to: 'x', confidence: 'inferred' })]) === false);
+    const mods = [
+      { id: 'm1', kind: 'module', band: 'core', path: 'src/a' }, { id: 'm2', kind: 'module', band: 'core', path: 'src/b' },
+      { id: 'm3', kind: 'module', band: 'entry', path: 'src/c' }, { id: 'm4', kind: 'module', band: 'core', path: 'lib' },
+      { id: 'x', kind: 'external', band: 'external' },
+    ];
+    const groups = mpl.groupsOf(mods);
+    const gid = 'grp:core:src';
+    const lines = [e({ from: 'm1', to: 'x', kind: 'uses-db', confidence: 'inferred' }), e({ from: 'm2', to: 'x', kind: 'uses-db', confidence: 'evidence' }), e({ from: 'm1', to: 'm2', kind: 'references' }), e({ from: 'm3', to: 'm1', kind: 'references' })].map((l) => ({ ...l, line: mpl.lineOf(l), solid: l.confidence !== 'inferred' }));
+    const fv = mpl.foldView(mods, lines, groups, new Set([gid]));
+    const open = mpl.foldView(mods, lines, groups, new Set());
+    check('modules of one band under one folder fold into one card; a module alone in its folder, or in another band, is in no group; folded, their lines are the group\'s, once each, solid when any was',
+      Object.keys(groups).join() === gid && groups[gid].members.join() === 'm1,m2'
+      && fv.nodes.map((n) => n.id).join() === 'grp:core:src,m3,m4,x' && fv.nodes[0].kind === 'group'
+      && fv.edges.length === 2 && fv.edges.find((l) => l.to === 'x').line === 'evidence' && !fv.edges.some((l) => l.from === l.to)
+      && fv.edges.some((l) => l.from === 'm3' && l.to === gid) && open.nodes.length === 5 && open.edges.length === 4,
+      fv.edges.map((l) => `${l.from}>${l.to}:${l.line}`).join(' '));
+    const lay = mpl.layoutOf(mods.map((n) => ({ ...n })), { width: 900 });
+    const pl = mpl.placed(lay, { m1: { x: 1500, y: 900 }, gone: { x: 1, y: 1 } });
+    check('a card placed by hand is drawn where it was put, the picture grows to hold it, and a placing for a card that is not drawn is ignored',
+      pl.pos.m1.x === 1500 && pl.pos.m1.y === 900 && pl.pos.m2.x === lay.pos.m2.x && pl.width >= 1500 + lay.pos.m1.w && pl.height >= 900 + lay.pos.m1.h && !pl.pos.gone);
+    {
+      // A folded card, then an open group of two, in one band: the group's frame must hold its own cards and no other.
+      const row = [{ id: 'gA', kind: 'group', band: 'core' }, { id: 'p', kind: 'module', band: 'core' }, { id: 'q', kind: 'module', band: 'core' }];
+      const key = (n) => (n.id === 'p' || n.id === 'q' ? 'grp:core:tools' : null);
+      const frameHoldsOther = (l) => {
+        const b = ['p', 'q'].map((id) => l.pos[id]);
+        const fx = Math.min(...b.map((v) => v.x)); const fy = Math.min(...b.map((v) => v.y));
+        const fx2 = Math.max(...b.map((v) => v.x + v.w)); const fy2 = Math.max(...b.map((v) => v.y + v.h));
+        const g = l.pos.gA; return g.x < fx2 && g.x + g.w > fx && g.y < fy2 && g.y + g.h > fy;
+      };
+      // Two cards to a row, so the group's second card wraps under the folded one: that is the frame's trap.
+      const keyed = mpl.layoutOf(row, { width: 900, rowKey: key });
+      const plain = mpl.layoutOf(row, { width: 900 });
+      check('an open group starts a row of its own, so its frame holds its own cards and no other; without that the frame took in a folded neighbour',
+        !frameHoldsOther(keyed) && frameHoldsOther(plain) && keyed.pos.p.y > keyed.pos.gA.y,
+        `with rows: ${JSON.stringify(keyed.pos)}`);
+    }
+    const ws2 = JSON.parse(read(path.join(HERE, 'fixtures', 'crew-map', 'node-ws.json')) ?? 'null');
+    const api = mpl.nodesOf(ws2).find((n) => n.id === 'mod:node:@demo/api');
+    const ins = mpl.inspectOf(api, ws2, mpl.edgesOf(ws2), mpl.findingsOf(ws2).shown);
+    check('the inspector lists the connections by kind and the node\'s own evidence as file:line',
+      ins.byKind.map(([k]) => k).join() === [...new Set([...ins.connections.out, ...ins.connections.in].map((c) => c.kind))].sort().join()
+      && ins.byKind.every(([, v]) => v.out.length + v.in.length > 0) && ins.evidence.length > 0 && ins.evidence.every((x) => /^[^:]+:\d+$/.test(x)),
+      `${ins.byKind.map(([k, v]) => `${k} ${v.out.length}+${v.in.length}`).join(', ')}; evidence ${ins.evidence.join(', ')}`);
+    {
+      // What /crew-map adds: the inspector shows a module's description and the lines it cites; with none it says so.
+      const c0 = `${api.evidence[0].file}:${api.evidence[0].line}`;
+      const described = { ...ws2, overview: { text: 'Start at the API package; data goes to postgres.', cites: [c0] },
+        nodes: ws2.nodes.map((n) => (n.id === api.id ? { ...n, narrative: { text: 'Serves the HTTP API.', cites: [c0] } } : n)) };
+      const dn = mpl.nodesOf(described).find((n) => n.id === api.id);
+      const di = mpl.inspectOf(dn, described, mpl.edgesOf(described), mpl.findingsOf(described).shown);
+      check('a module /crew-map described shows its description and the lines it cites; one it did not says it is not written',
+        di.narrative === 'Serves the HTTP API.' && di.narrativeCites.join() === c0 && ins.narrative === null && /^Not written yet/.test(ins.narrativeNote),
+        `${di.narrative} · ${di.narrativeCites.join()}`);
+      const dom = installDom();
+      try {
+        const { MapView } = await import(`../../kit/studio/web/map.js?v3=${Date.now()}`);
+        const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+        const root = document.createElement('div');
+        const view = new MapView(root, { onCopy: () => {}, onZoom: () => {} });
+        view.pane.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600 });
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-d', doc: described, behind: { count: 0 }, others: [], compare: null });
+        const ov = walkAll(root, (x) => x.className === 'mp-overview').map((x) => x.textContent);
+        const from = walkAll(root, (x) => String(x.className).includes('mp-cites')).map((x) => x.textContent);
+        view.select?.(api.id);
+        const fromSel = walkAll(root, (x) => String(x.className).includes('mp-cites')).map((x) => x.textContent);
+        check('with nothing selected the Map shows the project\'s overview and the lines it rests on; a selected module, its description\'s',
+          ov.join() === 'Start at the API package; data goes to postgres.' && from.join() === `From ${c0}`
+          && fromSel.some((t) => t === `From ${c0}`) && walkAll(root, (x) => x.textContent === 'Serves the HTTP API.').length >= 1,
+          `overview ${JSON.stringify(ov)} · cites ${JSON.stringify(from)} · selected ${JSON.stringify(fromSel)}`);
+      } finally { dom(); }
+    }
+    {
+      const dom = installDom();
+      const docListeners = [];
+      document.addEventListener = (t, fn) => docListeners.push([t, fn]);
+      try {
+        const { MapView, LAYOUT_KEY } = await import(`../../kit/studio/web/map.js?v2=${Date.now()}`);
+        const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
+        const copied = []; const zooms = [];
+        const root = document.createElement('div');
+        const view = new MapView(root, { onCopy: (t, w) => copied.push([w, t]), onZoom: (k) => zooms.push(k) });
+        view.pane.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600 });
+        const grouped = { ...ws2, nodes: [...ws2.nodes, { id: 'mod:node:extra', kind: 'module', name: 'extra', stack: 'node', path: 'packages/extra', tech: [] }],
+          edges: [...ws2.edges, { from: 'mod:node:extra', to: 'mod:node:@demo/shared', kind: 'references', confidence: 'evidence', source: 'scanner', evidence: [] }] };
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
+        const card = (id) => walkAll(root, (x) => x.dataset?.id === id && String(x.className).startsWith('mp-card'))[0];
+        const frames = walkAll(root, (x) => x.className === 'mp-group');
+        // drag a card 50 px at 100%: it is placed, kept for this project, and the click that ends the drag selects nothing
+        const c = card('mod:node:@demo/api');
+        const at = { ...view.lay.pos['mod:node:@demo/api'] };
+        c.emit('pointerdown', { clientX: 0, clientY: 0, pointerId: 1 }); c.emit('pointermove', { clientX: 50, clientY: 20 }); c.emit('pointerup'); c.emit('click');
+        const saved = JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`) ?? 'null');
+        const placedOk = view.pins['mod:node:@demo/api']?.x === at.x + Math.round(50 / view.zoom) && saved?.pins?.['mod:node:@demo/api'] && view.selected === null;
+        // another project starts from its own layout, and coming back restores this one
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-b', doc: ws2, behind: { count: 0 }, others: [], compare: null });
+        const otherClean = view.moved === 0;
+        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
+        const back = view.moved === 1;
+        const undo = view.resetLayout(); const reset = view.moved === 0 && undo && view.restoreLayout(undo) && view.moved === 1;
+        // fold the folder of two modules in one band, and open it again from its card
+        const fold = walkAll(root, (x) => x.className === 'mp-group-fold')[0];
+        fold?.emit('click');
+        const foldedCard = walkAll(root, (x) => x.dataset?.kind === 'group')[0];
+        const foldedOk = Boolean(foldedCard) && !card('mod:node:extra') && JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`)).folded.length === 1;
+        foldedCard?.emit('click');
+        const reopened = Boolean(card('mod:node:extra')) && !walkAll(root, (x) => x.dataset?.kind === 'group').length;
+        // the legend opens, a press inside keeps it, a press outside closes it
+        walkAll(root, (x) => x.tagName === 'BUTTON' && x.textContent === 'Legend')[0].emit('click');
+        const opened = walkAll(root, (x) => x.className === 'mp-legend-box').length === 1;
+        const press = docListeners.find(([t]) => t === 'pointerdown')[1];
+        press({ target: { closest: (s) => (s === '.mp-legend' ? {} : null) } });
+        const kept = walkAll(root, (x) => x.className === 'mp-legend-box').length === 1;
+        press({ target: { closest: () => null } });
+        const closed = walkAll(root, (x) => x.className === 'mp-legend-box').length === 0;
+        // a finding row selects its module and brings its card to the middle of the pane
+        zooms.length = 0;
+        const row = walkAll(root, (x) => x.className === 'mp-frow')[0];
+        row.emit('click');
+        const sel = view.selected; const p = view.lay.pos[sel];
+        const centred = Math.abs(view.vp.view.x + (p.x + p.w / 2) * view.zoom - 500) < 1 && Math.abs(view.vp.view.y + (p.y + p.h / 2) * view.zoom - 300) < 1;
+        // the inspector's file:line copies the path, and says it is a path
+        walkAll(root, (x) => String(x.className).includes('mp-cite'))[0]?.emit('click');
+        const cite = copied.find(([w]) => w === 'path');
+        const modRows = walkAll(root, (x) => x.className === 'mp-mrow').length;
+        check('a card dragged is placed and kept for its project, its click selects nothing, another project keeps its own, and Reset forgets and Undo brings back',
+          placedOk && otherClean && back && reset && frames.length === 1, `pins ${JSON.stringify(view.pins)}; frames ${frames.length}`);
+        check('a folder is folded into one card and opened again from it, and the fold is kept for the project',
+          foldedOk && reopened);
+        check('the legend is a popover: a press inside keeps it open, a press anywhere else closes it',
+          opened && kept && closed);
+        check('a finding row selects its module and brings its card to the middle of the pane; a file:line copies, as a path',
+          Boolean(sel) && centred && zooms.length > 0 && Boolean(cite) && /^[^:]+:\d+$/.test(cite[1]),
+          `${sel}; view ${JSON.stringify(view.vp.view)}; copied ${JSON.stringify(cite)}`);
+        // A click must not move the cards it did not touch, even when the pane is another width than at the first draw.
+        const v2 = new MapView(document.createElement('div'), {});
+        v2.pane.clientWidth = 900;
+        // Twelve resources in one band: at 900 px they wrap onto two rows, at 1500 px they would fit on one.
+        const wide = { ...ws2, nodes: [...ws2.nodes, ...Array.from({ length: 8 }, (_, i) => ({ id: `ext:http-api:w${i}`, kind: 'external', resource: 'http-api', label: `w${i}`, hosts: [], evidence: [] }))] };
+        v2.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-c', doc: wide, behind: { count: 0 }, others: [], compare: null });
+        const before = JSON.stringify(v2.lay.pos);
+        v2.pane.clientWidth = 1500;
+        v2.select('mod:node:@demo/web');
+        const stable = JSON.stringify(v2.lay.pos) === before;
+        check('a click redraws the map without moving a card: the width cards wrap at is taken once per map and pane size',
+          stable, stable ? 'the same places' : 'cards moved on a click');
+        check('the phone\'s list holds every module, and the stylesheet shows it in place of the pane below 640 px',
+          modRows === grouped.nodes.filter((n) => n.kind !== 'external').length
+          && /@media \(max-width: 639px\) \{\s*\.mp-canvas-pane, \.mp-hint \{ display: none; \}\s*\.mp-modlist \{ display: flex; \}/.test(read(path.join(WEB_ROOT, 'style.css')) ?? ''),
+          `${modRows} rows`);
+      } finally { dom(); }
+    }
+    const d5 = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-map-nav-'));
+    const none = cm.mapSummary(d5);
+    fs.mkdirSync(path.join(d5, '.crewforth'));
+    fs.writeFileSync(path.join(d5, '.crewforth', 'crew-map.json'), JSON.stringify(ws2));
+    const some = cm.mapSummary(d5);
+    fs.writeFileSync(path.join(d5, '.crewforth', 'crew-map.json'), '{ broken');
+    const broken = cm.mapSummary(d5);
+    fs.rmSync(d5, { recursive: true, force: true });
+    const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+    check('the navigator has a Map entry under a project, with the number of findings the map shows unasked; none says so, and a map that cannot be read is no number',
+      none === null && some.findings === ws2.findings.filter((f) => !f.data?.defaultHidden).length && broken.findings === null && /not JSON/.test(broken.reason)
+      && /p\.map = p\.exists && p\.cwd \? mapSummary\(p\.cwd\) : null;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? '')
+      && /if \(p\.local !== false && p\.exists && sessions\.length\) group\.append\(mapRow\(p, sessions\[0\]\)\);/.test(appSrc)
+      && /const go = \(\) => \{ selectSession\(latest\.sessionId\); setView\('map'\); \};/.test(appSrc),
+      `none ${JSON.stringify(none)}, some ${JSON.stringify(some)}, broken ${JSON.stringify(broken)}`);
   }
   const serverJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   const outcomesJs = read(path.join(STUDIO, 'server', 'lib', 'model-outcomes.js')) ?? '';
@@ -1498,6 +2105,39 @@ check('prose without a notice yields nothing', none.size === 0);
   check('a record with no tokens, and one that is not a model\'s answer, add nothing',
     new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 }), { type: 'user', message: { usage: u1 } }, null]).result().responses === 0
     && new us.Usage().add([rec('z', '<synthetic>', { input_tokens: 0, output_tokens: 0 })]).result().cost === 0);
+  {
+    // A real response that consulted the advisor, its numbers as Claude Code wrote them (ids are made up). Claude Code
+    // put that session's cost at $0.210956, $0.15358 of it the advisor: the oracle here is the real bill, not this code.
+    const advU = {
+      input_tokens: 4, cache_creation_input_tokens: 12670, cache_read_input_tokens: 57130, output_tokens: 138,
+      cache_creation: { ephemeral_1h_input_tokens: 12400, ephemeral_5m_input_tokens: 0 }, inference_geo: 'global',
+      iterations: [
+        { type: 'message', input_tokens: 2, output_tokens: 26, cache_read_input_tokens: 22365, cache_creation_input_tokens: 12400, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 12400 } },
+        { type: 'advisor_message', model: 'claude-opus-5-5', input_tokens: 36345, output_tokens: 410, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 } },
+        { type: 'message', input_tokens: 2, output_tokens: 112, cache_read_input_tokens: 34765, cache_creation_input_tokens: 270, cache_creation: { ephemeral_5m_input_tokens: 270, ephemeral_1h_input_tokens: 0 } },
+      ],
+    };
+    // The response is written as three records (the advisor call, its result, the answer), each repeating the usage.
+    const adv = new us.Usage().add([1, 2, 3].map(() => rec('madv', 'claude-sonnet-5-5', advU))).result();
+    // Whose advisor call it was: the agent whose transcript made it, apart from the session's own.
+    const whose = new us.Usage().add([rec('mx', 'claude-sonnet-5-5', u1)]).add([1, 2].map(() => rec('madv2', 'claude-sonnet-5-5', advU)), 'ag1');
+    check('an advisor call is the agent\'s whose transcript made it, and the session\'s own has none',
+      whose.advisorWho.get('ag1')?.result().responses === 1 && near(whose.advisorWho.get('ag1').result().cost, 0.15358) && !whose.advisorWho.has('session'),
+      JSON.stringify([...whose.advisorWho.keys()]));
+    check('an advisor call is priced at its own model and counted once: the total is what Claude Code billed for the session',
+      adv.responses === 1 && adv.advisor?.calls === 1 && near(adv.advisor.cost, 0.15358) && near(adv.cost, 0.210956)
+      && near(adv.byModel['claude-opus-5-5']?.cost, 0.15358) && adv.advisorModels['claude-opus-5-5']?.calls === 1 && adv.tokens.input === 4 + 36345,
+      `${adv.responses} responses, ${adv.advisor?.calls} advisor calls, $${adv.cost}, advisor $${adv.advisor?.cost}`);
+    check('a cache write the split leaves out is counted as the five-minute kind, not dropped',
+      us.usageOfRecord(rec('w', 'claude-sonnet-5-5', advU)).cacheWrite5m === 270 && us.usageOfRecord(rec('w', 'claude-sonnet-5-5', advU)).cacheWrite1h === 12400
+      && us.usageOfRecord(rec('w', 'claude-sonnet-5-5', { input_tokens: 1, cache_creation_input_tokens: 500 })).cacheWrite5m === 500);
+    const none = new us.Usage().add([rec('m1', 'claude-opus-5-5', u1)]).result();
+    const advRow = wu.summaryRows(adv).find((r) => r.label === 'Advisor');
+    check('the advisor has a line only where a call is recorded: no call is no line, not a zero',
+      none.advisor === null && Object.keys(none.advisorModels).length === 0 && !wu.summaryRows(none).some((r) => r.label === 'Advisor')
+      && Boolean(advRow) && /^1 call · /.test(advRow.value) && /Opus/.test(advRow.note) && /leaves it out/.test(advRow.note),
+      advRow ? `${advRow.value} | ${advRow.note.split('\n')[0]}` : 'no row');
+  }
   check('with no split recorded a cache write is the five-minute kind',
     us.usageOfRecord(rec('m', 'claude-opus-5-5', { input_tokens: 1, cache_creation_input_tokens: 40 })).cacheWrite5m === 40);
   const times = us.timesOf([
@@ -1769,7 +2409,272 @@ check('a request with no Origin at all still needs the header',
 check('a token always exists, generated when none was supplied',
   /CREW_STUDIO_TOKEN \|\| randomUUID\(\)/.test(idxSrc));
 check('the token gate covers every /api/ path',
-  /url\.pathname\.startsWith\('\/api\/'\) && !authorised/.test(idxSrc));
+  /url\.pathname\.startsWith\('\/api\/'\) && !who\)/.test(idxSrc));
+
+/* -- remote viewers: a second token that reads and changes nothing -------------------
+   Asked of a real server on a loopback port the system picks, as the owner and as a viewer. The refusal is
+   read from the status the server sends, not from the source: a pin on the words would pass with the check
+   deleted. node:http and not fetch, because the DOM stub this suite installs owns `fetch`. */
+{
+  resetViewers();
+  const srv = http.createServer((q, r) => { studioHandle(q, r).catch(() => { if (!r.headersSent) { r.writeHead(500); } r.end(); }); });
+  await new Promise((done) => srv.listen(0, '127.0.0.1', done));
+  const port = srv.address().port;
+  const call = (method, p, { token, write = false, body } = {}) => new Promise((resolve) => {
+    const headers = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    if (write) headers['x-crew-studio'] = '1';
+    if (body) headers['content-type'] = 'application/json';
+    const q = http.request({ host: '127.0.0.1', port, path: p, method, headers, timeout: 5000 }, (r) => {
+      let raw = '';
+      r.setEncoding('utf8');
+      r.on('data', (c) => { raw += c; });
+      r.on('end', () => { let json = null; try { json = JSON.parse(raw); } catch { /* not JSON */ } resolve({ status: r.statusCode, json }); });
+    });
+    q.on('timeout', () => q.destroy());
+    q.on('error', (e) => resolve({ status: 0, json: null, error: e.message }));
+    q.end(body ? JSON.stringify(body) : undefined);
+  });
+  const owner = serverInternals.token;
+
+  const none = await call('GET', '/api/health');
+  check('an /api/ request with no token is refused with 403', none.status === 403, `status ${none.status}`);
+  const wrong = await call('GET', '/api/health', { token: 'not-a-token' });
+  check('an /api/ request with an unknown token is refused with 403', wrong.status === 403, `status ${wrong.status}`);
+  const asOwner = await call('GET', '/api/health', { token: owner });
+  check('the owner is told it is the owner', asOwner.status === 200 && asOwner.json?.role === 'owner', `status ${asOwner.status}, role ${asOwner.json?.role}`);
+  check('health says whether the server runs the code on disk: a server that just started says unchanged',
+    asOwner.json?.code?.changed === false, JSON.stringify(asOwner.json?.code));
+
+  const bare = await call('POST', '/api/remote', { token: owner, body: {} });
+  check('adding a viewer needs the write header, like every other write', bare.status === 403 && listViewers().length === 0, `status ${bare.status}`);
+  const made = await call('POST', '/api/remote', { token: owner, write: true, body: { label: '  phone \n on the sofa ' } });
+  const vt = made.json?.viewer?.token;
+  check('the owner adds a viewer and is handed its token',
+    made.status === 201 && typeof vt === 'string' && vt.length >= 32 && vt !== owner && made.json.viewer.label === 'phone on the sofa',
+    `status ${made.status}, label ${JSON.stringify(made.json?.viewer?.label)}`);
+
+  const asViewer = await call('GET', '/api/health', { token: vt });
+  check('a viewer reads, and is told it is a viewer', asViewer.status === 200 && asViewer.json?.role === 'viewer', `status ${asViewer.status}, role ${asViewer.json?.role}`);
+  const byQuery = await call('GET', `/api/health?token=${vt}`);
+  check('a viewer token in the link works as the owner token does', byQuery.status === 200 && byQuery.json?.role === 'viewer', `status ${byQuery.status}`);
+
+  // The directory does not exist ON PURPOSE. If this refusal ever regresses, the request reaches createSession,
+  // and with a real directory that starts a `claude` process on whoever runs the suite. Measured once, by
+  // mutation: status 201 and a session. With no such directory the regression still reads red (400, not 403)
+  // and starts nothing.
+  const vPost = await call('POST', '/api/owned', { token: vt, write: true, body: { cwd: path.join(os.tmpdir(), `crew-no-such-dir-${process.pid}`) } });
+  const ownedAfter = await call('GET', '/api/owned', { token: owner });
+  check('a viewer cannot start a session: refused as read-only with 403, before the request is looked at',
+    vPost.status === 403 && /read-only/.test(vPost.json?.reason ?? '') && ownedAfter.json?.sessions?.length === 0,
+    `status ${vPost.status}, reason ${JSON.stringify(vPost.json?.reason)}`);
+  const vList = await call('GET', '/api/remote', { token: vt });
+  check('a viewer cannot read the list of viewers', vList.status === 403, `status ${vList.status}`);
+  const vAdd = await call('POST', '/api/remote', { token: vt, write: true, body: {} });
+  const vDel = await call('DELETE', `/api/remote/${made.json?.viewer?.id}`, { token: vt, write: true });
+  check('a viewer can neither add a viewer nor revoke one',
+    vAdd.status === 403 && vDel.status === 403 && listViewers().length === 1,
+    `add ${vAdd.status}, delete ${vDel.status}, viewers ${listViewers().length}`);
+
+  const seen = await call('GET', '/api/remote', { token: owner });
+  const row = seen.json?.viewers?.[0];
+  check('the owner sees the viewer, how often it asked and when, and never its token again',
+    seen.status === 200 && row?.requests >= 2 && typeof row?.lastSeenAt === 'number' && !('token' in row) && !JSON.stringify(seen.json).includes(vt),
+    `requests ${row?.requests}`);
+
+  // A stream the viewer holds open is closed by the revoke, not left to run on a token that no longer exists.
+  const held = { destroyed: false, on() {}, destroy() { this.destroyed = true; } };
+  const live = addViewer('held');
+  noteRequest(viewerByToken(live.viewer.token), { headers: {} }, held);
+  const closed = revokeViewer(live.viewer.id);
+  check('a revoke closes what the viewer holds open, and forgets its token',
+    closed.revoked === true && held.destroyed === true && viewerByToken(live.viewer.token) === null,
+    `revoked ${closed.revoked}, destroyed ${held.destroyed}`);
+  const gone = await call('DELETE', `/api/remote/${made.json?.viewer?.id}`, { token: owner, write: true });
+  const after = await call('GET', '/api/health', { token: vt });
+  check('a revoked viewer is refused from the next request', gone.json?.revoked === true && after.status === 403, `revoked ${gone.json?.revoked}, then status ${after.status}`);
+  const again = await call('DELETE', `/api/remote/${made.json?.viewer?.id}`, { token: owner, write: true });
+  check('revoking twice says the second did nothing', again.status === 200 && again.json?.revoked === false, `revoked ${again.json?.revoked}`);
+
+  resetViewers();
+  for (let i = 0; i < MAX_VIEWERS; i += 1) addViewer();
+  const full = await call('POST', '/api/remote', { token: owner, write: true, body: {} });
+  check('the number of viewers is capped', full.status === 409 && listViewers().length === MAX_VIEWERS, `status ${full.status}, viewers ${listViewers().length}`);
+  resetViewers();
+
+  check('a viewer may GET and nothing else',
+    viewerMay('GET', '/api/fleet').ok === true && viewerMay('POST', '/api/fleet').ok === false
+    && viewerMay('DELETE', '/api/owned/x/permissions/Bash').ok === false && viewerMay('HEAD', '/api/fleet').ok === false
+    && viewerMay('GET', '/api/remote').ok === false && viewerMay('GET', '/api/remote/abc').ok === false);
+
+  await new Promise((done) => srv.close(done));
+}
+
+/* -- REM-1: a phone on the same Wi-Fi ----------------------------------------------------------------------------
+   The Wi-Fi listener is a real one (lib/lan.js), on loopback here with a port the system picks, because a CI runner
+   may have no Wi-Fi; what makes a request a Wi-Fi one is which listener took it, so the gate is the same. Every
+   answer is read from what the server sends. */
+{
+  resetViewers();
+  const handler = (q, r) => { studioHandle(q, r).catch(() => { if (!r.headersSent) r.writeHead(500); r.end(); }); };
+  const lan = lanListener({ handler, port: 0, env: { CREW_STUDIO_LAN_ADDR: '127.0.0.1' } });
+  serverInternals.setLan(lan);
+  onViewersChange((n) => { lan.sync(n); });
+  const loop = http.createServer(handler);
+  await new Promise((done) => loop.listen(0, '127.0.0.1', done));
+  const lport = loop.address().port;
+  const ask = (port, method, p, { token, write = false, body } = {}) => new Promise((resolve) => {
+    const headers = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    if (write) headers['x-crew-studio'] = '1';
+    if (body) headers['content-type'] = 'application/json';
+    const q = http.request({ host: '127.0.0.1', port, path: p, method, headers, timeout: 5000 }, (r) => {
+      let raw = ''; r.setEncoding('utf8'); r.on('data', (c) => { raw += c; });
+      r.on('end', () => { let json = null; try { json = JSON.parse(raw); } catch { /* not JSON */ } resolve({ status: r.statusCode, json, raw }); });
+    });
+    q.on('timeout', () => q.destroy());
+    q.on('error', (e) => resolve({ status: 0, json: null, error: e.code ?? e.message }));
+    q.end(body ? JSON.stringify(body) : undefined);
+  });
+  const owner = serverInternals.token;
+
+  check('with no viewer nothing listens beyond loopback', lan.state().listening === false, JSON.stringify(lan.state()));
+  const made = await ask(lport, 'POST', '/api/remote', { token: owner, write: true, body: { label: 'phone' } });
+  const vt = made.json?.viewer?.token; const vid = made.json?.viewer?.id;
+  const wport = lan.state().port;
+  check('the first viewer opens the Wi-Fi listener, and its link is that address with the viewer token, never the panel\'s',
+    made.status === 201 && lan.state().listening === true && made.json?.lanUrls?.length === 1
+    && made.json.lanUrls[0] === `http://127.0.0.1:${wport}/?token=${encodeURIComponent(vt)}` && !made.json.lanUrls[0].includes(owner),
+    JSON.stringify({ status: made.status, lan: lan.state(), urls: made.json?.lanUrls }));
+  check('a viewer lasts eight hours and hides transcripts unless asked to show them',
+    made.json?.viewer?.expiresAt - made.json?.viewer?.createdAt === VIEWER_TTL_MS && VIEWER_TTL_MS === 8 * 3600 * 1000
+    && made.json?.viewer?.transcripts === false, JSON.stringify(made.json?.viewer));
+
+  const lanNone = await ask(wport, 'GET', '/api/health');
+  const lanOwner = await ask(wport, 'GET', '/api/health', { token: owner });
+  const lanView = await ask(wport, 'GET', '/api/health', { token: vt });
+  check('from the Wi-Fi: no token is 401, the panel\'s own token is 401, a viewer token reads',
+    lanNone.status === 401 && lanOwner.status === 401 && lanView.status === 200 && lanView.json?.role === 'viewer',
+    `none ${lanNone.status}, owner ${lanOwner.status}, viewer ${lanView.status}`);
+  const lanWrite = await ask(wport, 'POST', '/api/owned', { token: vt, write: true, body: {} });
+  const lanList = await ask(wport, 'GET', '/api/remote', { token: vt });
+  const lanOwnerWrite = await ask(wport, 'POST', '/api/remote', { token: owner, write: true, body: {} });
+  check('from the Wi-Fi nothing is written: a viewer\'s write and its read of the viewers are 403, the panel\'s token adds no viewer',
+    lanWrite.status === 403 && lanList.status === 403 && lanOwnerWrite.status === 401 && listViewers().length === 1,
+    `write ${lanWrite.status}, list ${lanList.status}, owner add ${lanOwnerWrite.status}, viewers ${listViewers().length}`);
+
+  // Transcripts hidden: the routes that are nothing but transcript are refused, and every other answer loses its
+  // strings but the safe ones. Health carries one that is not (the Node version): proof the filter is on the path.
+  const conv = await ask(wport, 'GET', '/api/session/0000/conversation', { token: vt });
+  const agent = await ask(wport, 'GET', '/api/session/0000/agent/a1', { token: vt });
+  const ownedEv = await ask(wport, 'GET', '/api/owned-events', { token: vt });
+  check('with transcripts hidden, the conversation, an agent\'s detail and the live conversation are refused, 403',
+    conv.status === 403 && conv.json?.transcriptsHidden === true && agent.status === 403 && ownedEv.status === 403,
+    `conversation ${conv.status}, agent ${agent.status}, owned-events ${ownedEv.status}`);
+  const ownHealth = await ask(lport, 'GET', '/api/health', { token: owner });
+  const shown = addViewer('shows', { transcripts: true }).viewer;
+  const shownHealth = await ask(wport, 'GET', '/api/health', { token: shown.token });
+  check('every other answer to a hidden-transcript link goes through the filter on the server: a string it does not allow is not sent',
+    typeof ownHealth.json?.node === 'string' && lanView.json?.node === undefined && lanView.json?.role === 'viewer'
+    && shownHealth.json?.node === ownHealth.json.node && shownHealth.json?.transcripts === true,
+    JSON.stringify({ owner: ownHealth.json?.node, hidden: lanView.json?.node, shown: shownHealth.json?.node }));
+  revokeViewer(shown.id);
+
+  const g = { sessionId: 's1', nodes: [
+    { id: 'session', kind: 'session', label: 's1', name: 'Fix the login bug', openCall: { toolName: 'Bash', detail: 'rm -rf build', at: 1 },
+      backgroundCommands: [{ id: 'b1', toolName: 'Bash', detail: 'npm test -- secret', startedAt: 2 }] },
+    { id: 'a1', kind: 'agent', label: 'crew-review-agent', agentType: 'crew-review-agent', description: 'Review the auth change',
+      status: 'done', model: 'claude-sonnet-5-5', tokens: 120, refusedCalls: [{ text: 'the gate said no to /etc/passwd' }], tomorrow: 'a field added later' },
+    { id: 't1', kind: 'tool', label: 'cat ~/.ssh/id_rsa' }] };
+  const r = redact(g); const flat = JSON.stringify(r);
+  const leaks = ['Fix the login bug', 'rm -rf build', 'npm test -- secret', 'Review the auth change', '/etc/passwd', 'a field added later', 'id_rsa'].filter((x) => flat.includes(x));
+  check('the filter keeps the shape, the states, the models and the numbers, and drops every text from a transcript, a field nobody has allowed yet included',
+    leaks.length === 0 && r.nodes.length === 3 && r.nodes[1].status === 'done' && r.nodes[1].tokens === 120 && r.nodes[1].agentType === 'crew-review-agent'
+    && r.nodes[1].label === 'crew-review-agent' && r.nodes[0].openCall.toolName === 'Bash' && r.nodes[2].label === undefined && g.nodes[1].description === 'Review the auth change',
+    `leaked: ${leaks.join(' | ')} · ${flat.slice(0, 200)}`);
+  const idxR = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('the event stream is filtered the same way as every JSON answer',
+    /res\.write\(`event: \$\{event\}\\ndata: \$\{JSON\.stringify\(REDACTED\.has\(res\) \? redact\(data\) : data\)\}/.test(idxR)
+    && transcriptOnly('/api/owned/x/events') && transcriptOnly('/api/owned') && !transcriptOnly('/api/session/x/graph'));
+
+  // Eight hours: the clock is moved rather than waited for. The phone is told its link expired, not that it has none.
+  const t0 = Date.now();
+  _setClock(() => t0 + VIEWER_TTL_MS + 1000);
+  const late = await ask(wport, 'GET', '/api/health', { token: vt });
+  check('after eight hours the link is refused with 401 and says it expired',
+    late.status === 401 && late.json?.expired === true, `status ${late.status} ${JSON.stringify(late.json)}`);
+  await lan.sync(0);
+  check('the last viewer expiring closes the Wi-Fi listener', lan.state().listening === false && listViewers().length === 0, JSON.stringify(lan.state()));
+  const closedPort = await ask(wport, 'GET', '/api/health', { token: vt });
+  check('and the port answers nothing', closedPort.status === 0, `status ${closedPort.status} ${closedPort.error ?? ''}`);
+  _setClock(null);
+
+  // Revoke: the listener closes with the last viewer, and the same token is refused.
+  const again = await ask(lport, 'POST', '/api/remote', { token: owner, write: true, body: {} });
+  const vt2 = again.json?.viewer?.token; const wport2 = lan.state().port;
+  const rv = await ask(lport, 'DELETE', `/api/remote/${again.json?.viewer?.id}`, { token: owner, write: true });
+  const after = await ask(lport, 'GET', '/api/health', { token: vt2 });
+  const afterLan = await ask(wport2, 'GET', '/api/health', { token: vt2 });
+  check('a revoke closes the Wi-Fi listener with the last viewer, and its token is refused on loopback too',
+    rv.json?.revoked === true && rv.json?.lan?.listening === false && after.status === 403 && afterLan.status === 0,
+    `revoked ${rv.json?.revoked}, lan ${JSON.stringify(rv.json?.lan)}, loopback ${after.status}, wifi ${afterLan.status}`);
+
+  const lg = remoteLog(50);
+  check('every viewer connection and every refusal is logged with when, from where, which viewer and what happened',
+    lg.some((e) => e.event === 'connected' && e.over === 'wifi' && e.viewer === 'phone' && e.ip && e.result === 'ok')
+    && lg.some((e) => e.event === 'refused' && e.over === 'wifi' && /^401/.test(e.result) && e.ip)
+    && lg.some((e) => e.event === 'refused' && e.viewer === 'phone' && /^403/.test(e.result))
+    && lg.some((e) => e.event === 'expired' && e.viewer === 'phone') && lg.some((e) => e.event === 'revoked')
+    && lg.every((e) => typeof e.at === 'number'), JSON.stringify(lg.slice(-6)));
+
+  const before = remoteLog(200).length;
+  const fake = { url: '/api/owned?token=x', crewLan: true, socket: { remoteAddress: '192.168.1.9' } };
+  for (let i = 0; i < 5; i++) noteRefusal(fake, { viewer: 'phone', status: 403, reason: 'transcripts hidden' });
+  noteRefusal({ ...fake, url: '/api/remote' }, { viewer: 'phone', status: 403, reason: 'transcripts hidden' });
+  const tail = remoteLog(200).slice(before);
+  check('the same refusal again is counted on its entry, not written again: a page that keeps asking cannot push the rest out of the log',
+    tail.length === 2 && tail[0].count === 5 && tail[0].path === '/api/owned' && tail[1].path === '/api/remote', JSON.stringify(tail));
+  check('the Wi-Fi addresses are the private ones: 10/8, 172.16/12 and 192.168/16, not loopback, link-local or public',
+    JSON.stringify(lanAddresses({}, { en0: [{ family: 'IPv4', address: '192.168.1.5', internal: false }, { family: 'IPv6', address: 'fe80::1', internal: false }],
+      lo0: [{ family: 'IPv4', address: '127.0.0.1', internal: true }], utun: [{ family: 'IPv4', address: '100.64.0.3', internal: false }],
+      x: [{ family: 'IPv4', address: '169.254.1.1', internal: false }, { family: 'IPv4', address: '8.8.8.8', internal: false }, { family: 4, address: '10.0.0.2', internal: false }, { family: 'IPv4', address: '172.20.1.1', internal: false }, { family: 'IPv4', address: '172.32.0.1', internal: false }] }))
+      === JSON.stringify(['192.168.1.5', '10.0.0.2', '172.20.1.1']));
+
+  onViewersChange(null); serverInternals.setLan(null); await lan.close(); resetViewers();
+  await new Promise((done) => loop.close(done));
+}
+
+// W12 (Windows): a viewer revoked through the API left its QR code and link on the panel until Done was pressed.
+{
+  const appR = read(path.join(STUDIO, 'web', 'app.js')) ?? '';
+  const poll = appR.match(/async function pollRemote\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  check('the link shown once leaves the panel when its viewer is gone, whoever revoked it or however it ended',
+    /remote = await getJson\('\/api\/remote'\)/.test(poll) && /if \(handed && !\(remote\.viewers \?\? \[\]\)\.some\(\(v\) => v\.id === handed\.id\)\) handed = null;/.test(poll)
+    && poll.indexOf('handed = null') < poll.indexOf('paintMachines()'), poll.slice(0, 300));
+}
+
+/* -- REM-1: the QR code ------------------------------------------------------------------------------------------
+   Made in the page by web/qr.js. Its correctness was measured against an independent decoder (OpenCV, two detectors:
+   packaging/studio-test/qr-oracle, run by hand) on every version 1-10 and every mask; this pins those exact codes, so
+   a change to the encoder has to be measured again before this check can be moved. */
+{
+  const { qr, qrSvg } = await import('../../kit/studio/web/qr.js');
+  const lens = [10, 20, 35, 55, 75, 95, 115, 140, 170, 205];
+  const { createHash } = await import('node:crypto');
+  const h = createHash('sha256'); const versions = new Set();
+  for (const L of lens) {
+    let t = 'http://192.168.1.134:7777/?token='; let k = 0; while (t.length < L) t += 'abcdef0123456789-'[k++ % 17]; t = t.slice(0, L);
+    for (let mk = 0; mk < 8; mk++) { const c = qr(t, { mask: mk }); versions.add(c.version); h.update(`${c.version}:${c.mask}:` + c.modules.map((r) => r.map((x) => (x ? 1 : 0)).join('')).join('/') + '\n'); }
+  }
+  check('the QR codes are the ones an independent decoder read: versions 1 to 10, every mask, byte for byte',
+    h.digest('hex') === '8792bddab56811778783519925c85c322ce7be747f73e6e6aa07bfb4480d7da0' && versions.size === 10);
+  const link = `http://192.168.1.134:7777/?token=${'00000000-0000-4000-8000-000000000000'}`;   // a made-up token of the real length
+  const c = qr(link); const svg = qrSvg(link);
+  let tooLong = null; try { qr('x'.repeat(214)); } catch (e) { tooLong = e.message; }
+  check('a Wi-Fi link with a token is a version-5 code (37 modules); its picture uses the theme-proof tokens; a text too long is refused, not cut',
+    c.version === 5 && c.size === 37 && /class="qr-dark"/.test(svg) && /class="qr-light"/.test(svg) && !/#[0-9a-f]{3,6}/i.test(svg) && /do not fit/.test(tooLong ?? ''),
+    JSON.stringify({ version: c.version, tooLong }));
+}
 
 const sessSrc = read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? '';
 check('owned sessions are spawned with an id we chose, so the transcript lands where the graph reads it',
@@ -2535,12 +3440,35 @@ process.stdout.write('\n== §14 no raw shell, no python ==\n');
 // Behaviour: the plan a terminal launch would run, quoted.
 process.stdout.write('\n== §15 handing a session to a real terminal ==\n');
 
-const tp = terminalPlan({ cwd: "/tmp/it's here", sessionId: 'abc-123' });
+const SID = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+const tp = terminalPlan({ cwd: "/tmp/it's here", sessionId: SID, platform: 'darwin' });
 check('a path with a quote in it cannot break out of the command',
   tp.line.includes("/tmp/it'\\''s here") || tp.line.includes(String.raw`it'\''s here`),
   tp.line);
-check('the session id is quoted too', tp.line.includes("'abc-123'"));
+check('the session id is quoted too', tp.line.includes(`'${SID}'`));
 check('the plan is inspectable before anything launches', typeof tp.line === 'string' && tp.line.length > 0);
+// Windows (W10, measured there): cmd.exe hands single quotes to the program as part of the id, so `--resume '<id>'`
+// resumed nothing. What runs inside wt is cmd, so the line is a cmd line and the id goes bare.
+{
+  const wp = terminalPlan({ cwd: 'D:\\p q', sessionId: SID, platform: 'win32' });
+  check('on Windows the terminal runs `claude --resume <id>` with no single quote, and the line shown is a cmd line',
+    wp?.argv?.[0] === 'wt.exe' && wp.argv[2] === 'D:\\p q' && wp.argv[5] === `claude --resume ${SID}` && !wp.argv.join(' ').includes("'")
+    && wp.line === `cd /d "D:\\p q" && claude --resume ${SID}` && wp.shell === 'cmd', JSON.stringify(wp));
+  // The id comes from the URL; in a cmd line `&` starts a second command. Nothing is built for what is not a UUID.
+  const bad = 'x&calc';
+  const { open: tOpen, desktopLine: tDesk } = await import('../../kit/studio/server/lib/terminal.js');
+  const refused = tOpen({ cwd: os.tmpdir(), sessionId: bad });
+  check('an id that is not a session id builds no terminal command and no desktop command, and launches nothing',
+    terminalPlan({ cwd: 'D:\\p', sessionId: bad, platform: 'win32' }) === null && terminalPlan({ cwd: '/p', sessionId: bad, platform: 'darwin' }) === null
+    && tDesk({ cwd: '/p', sessionId: bad }) === null && refused.ok === false && /not a session id/.test(refused.reason ?? ''), JSON.stringify(refused));
+  // What a terminal runs is never the caller's: a `command` is not taken from the request, and a plan asked with one
+  // still runs `claude --resume <id>` (and still refuses an id that is not one). Asked of plan(), which launches nothing.
+  const idxT = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  const withCmd = terminalPlan({ cwd: '/p', sessionId: SID, command: 'calc', platform: 'darwin' });
+  check('the terminal route takes no command from the request: what it opens is always claude --resume <id>',
+    !/body\.command/.test(idxT) && /claude --resume '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d'$/.test(withCmd?.line ?? '') && !(withCmd?.line ?? '').includes('calc')
+    && terminalPlan({ cwd: '/p', sessionId: bad, command: 'calc', platform: 'darwin' }) === null, JSON.stringify(withCmd));
+}
 
 /* ------------------------------------------- §16 the kit's own numbers ---
    The panel reports what the kit's tools said, including when they said they
@@ -2582,7 +3510,7 @@ check('verdicts are counted', own.measured && typeof own.counts?.BLOCK === 'numb
 
 const noLog = gateLog(os.tmpdir());
 check('a project with no gate log says so rather than showing an empty list',
-  noLog.measured === false && /no .claude\/gate-log/.test(noLog.reason ?? ''),
+  noLog.measured === false && /no gate log/.test(noLog.reason ?? '') && /\.claude\/gate-log\.tsv/.test(noLog.reason ?? '') && /crewforth-gate-log\.tsv/.test(noLog.reason ?? ''),
   noLog.reason);
 check('"not measured" never carries entries', (noLog.entries ?? []).length === 0);
 
@@ -3096,7 +4024,7 @@ function computed(rules, el, ancestors, media = []) {
   const rules = cssRules(cssText);
   const REDUCE = ['(prefers-reduced-motion: reduce)'];
 
-  const { Canvas } = await import(`../../kit/studio/web/canvas.js?motion=${Date.now()}`);
+  const { Canvas, RESIZE_SETTLE_MS } = await import(`../../kit/studio/web/canvas.js?motion=${Date.now()}`);
   // The palette says whose an agent is. Its colours are no longer read here: colour is status.
   const PAL = {
     measured: true,
@@ -3542,6 +4470,57 @@ function computed(rules, el, ancestors, media = []) {
       err ? `${err.name}: ${err.message}` : null);
   }
 
+  /* -- 10. a pane being resized: the view follows, the choice of density waits (finding 31) ---------------------
+     Measured before the change, in a browser with 43 agents: an edge moved to and fro across Auto's limit for 60
+     frames turned the cards into chips and back 57 times, each a full redraw. Here the plan is counted: a new plan
+     object is a redraw. The twin is the call the observer made before, which plans on every frame. */
+  {
+    const auto = plain('resize-fixture');
+    auto.setDensity('auto');
+    auto.render(FIXTURE);
+    let h = 0;
+    auto.root.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 800, bottom: h, width: 800, height: h });
+    const drag = (call, last = 1400) => { let plans = 0; for (let i = 0; i < 60; i += 1) { h = i % 2 ? last : (last === 1400 ? 900 : 1400); const was = auto.lastPlan; call(); if (auto.lastPlan !== was) plans += 1; } return plans; };
+    const before = drag(() => auto.fitIfUntouched());
+    // Ending where the last plan was made: nothing to plan once it stops. Ending elsewhere: one plan, after it stops.
+    const settle = () => new Promise((r) => { setTimeout(r, RESIZE_SETTLE_MS + 60); });
+    let was = auto.lastPlan;
+    drag(() => auto.paneResized(), 1400);
+    await settle();
+    const same = auto.lastPlan !== was ? 1 : 0;
+    was = auto.lastPlan;
+    const during = drag(() => auto.paneResized(), 900);
+    const heldDuring = auto.lastPlan === was;
+    await settle();
+    const after = auto.lastPlan !== was ? 1 : 0;
+    check('a pane dragged to and fro across Auto\'s limit is planned again once it stops, not on every frame; the call it replaced plans every time',
+      RESIZE_SETTLE_MS >= 100 && RESIZE_SETTLE_MS <= 300 && before >= 30 && during === 0 && heldDuring && after === 1 && same === 0,
+      `60 frames: ${before} plans before, ${during} during, ${after} after the pane settled elsewhere, ${same} where it began (${RESIZE_SETTLE_MS} ms)`);
+  }
+
+  /* -- 11. a picture Auto keeps as cards past the pane is opened at a zoom they are read at --------------------
+     The overflow is panned to, not shrunk away: the canvas's own fit stops at AUTO.readable. The toolbar's Fit still
+     shows the whole picture. The twin is a picture that fits: its own fit is the whole of it, as before. */
+  {
+    const gp = await import(`../../kit/studio/web/graph-plan.js?fit=${Date.now()}`);
+    const nodes = (n) => [{ id: 'session', kind: 'session', status: 'session', turns: 1, cwd: '/x' },
+      ...Array.from({ length: n }, (_, i) => ({ id: `o${i}`, kind: 'agent', agentType: `type-${i}`, status: 'done', parentId: 'session', description: `task ${i}`, order: i + 1 }))];
+    const pane = (c) => { const rect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 600, width: 800, height: 600 }); c.root.getBoundingClientRect = rect; if (c.vp?.pane) c.vp.pane.getBoundingClientRect = rect; };
+    const open = (name, n) => { const c = plain(name); pane(c); c.setDensity('auto'); c.render({ nodes: nodes(n), edges: [] }); c.fit({ readable: true }); return c; };
+    let n = 2;
+    while (n < 60) { const p = gp.plan(nodes(n), { tallest: gp.tallestFor(600) }); if (p.density === 'comfortable' && gp.fitZoom(p.width, p.height, 800, 600) < gp.AUTO.readable) break; n += 1; }
+    const over = open('overflow-fit', n);
+    const own = over.view.k;
+    const top = over.view.y;
+    over.fit();
+    const whole = over.view.k;
+    const fits = open('fits-fit', 2);
+    check('a picture Auto keeps as cards past the pane opens at the zoom cards are read at, from its top; Fit still shows the whole of it; one that fits opens whole',
+      over.lastPlan.density === 'comfortable' && own >= gp.AUTO.readable && top === gp.ZOOM.pad && whole < gp.AUTO.readable
+      && fits.view.k === gp.fitZoom(fits.lastPlan.width, fits.lastPlan.height, 800, 600),
+      `${n} agents, ${over.lastPlan.height}px as cards: opened at ${own}, Fit ${whole.toFixed(3)}; a picture that fits at ${fits.view.k}`);
+  }
+
   dom();
 }
 
@@ -3788,9 +4767,9 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       `(724 - ${2 * gp.ZOOM.pad}) / 0.75 = ${derived.toFixed(0)}; limit ${gp.AUTO.tallest}`);
     let last = 1;
     while (gp.plan(many(last + 1), {}).density === 'comfortable') last += 1;
-    check('cards stay cards up to the limit and become chips one agent past it',
-      gp.plan(many(last), {}).height <= gp.AUTO.tallest && gp.plan(many(last + 1), { density: 'comfortable' }).height > gp.AUTO.tallest
-      && gp.plan(many(last + 1), {}).density === 'compact' && last >= 9 && last <= 13,
+    check('cards stay cards up to the limit and its overflow, and become chips one agent past it',
+      gp.plan(many(last), {}).height <= gp.AUTO.tallest * gp.AUTO.overflow && gp.plan(many(last + 1), { density: 'comfortable' }).height > gp.AUTO.tallest * gp.AUTO.overflow
+      && gp.plan(many(last + 1), {}).density === 'compact' && last >= 13 && last <= 20,
       `${last} distinct agents are cards (${gp.plan(many(last), {}).height}px); ${last + 1} are chips`);
     // Under "Workflow run" agents of one type are one card, however few they are and wherever they stand in the
     // order: three of a kind called fifth, eighth and ninth are the same thing three times, and were drawn as
@@ -3855,7 +4834,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const p = gp.plan(big, { open: new Map(folds.map((id) => [id, false])) });
     const planMs = Number(process.hrtime.bigint() - t0) / 1e6;
     check('250 agents open as a picture short enough to read, with every agent accounted for',
-      agentsOf(big) === 250 && p.height <= gp.AUTO.tallest && p.items.length < 40
+      agentsOf(big) === 250 && p.height <= gp.AUTO.tallest * gp.AUTO.overflow && p.items.length < 40
       && p.items.filter((it) => it.kind === 'group').reduce((n, it) => n + it.members.length, 0) === 250,
       `${p.items.length} boxes, ${p.height}px tall, ${p.density}; planned in ${planMs.toFixed(1)} ms`);
     const c = made(big, 'big');
@@ -4136,7 +5115,7 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const kitTypes = fs.readdirSync(path.join(PAYLOAD, 'agents')).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3));
     const roles = kitTypes.map(nm.roleName).sort().join(', ');
     check('each of the kit\'s agents is shown by its role, without the prefix and the suffix its file has',
-      roles === 'Backend, Commit, Database, DevOps, Frontend, Performance, Planner, Privacy, Review, Security, Session Manager, Test',
+      roles === 'Backend, Commit, Database, DevOps, Docs, Frontend, Performance, Planner, Privacy, Refuter, Review, Security, Session Manager, Test',
       roles);
     check('a built-in agent is shown by its words, and a name that is not hyphenated words is left as it came',
       nm.roleName('general-purpose') === 'General Purpose' && nm.roleName('Explore') === 'Explore'
@@ -5227,7 +6206,7 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
 
   check('the dock is not a dialog and takes no focus',
     !/showModal|role="dialog"|aria-modal|\.focus\(/.test(dockJs)
-    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="models"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
+    && /<div id="canvas" class="canvas"><\/div>\s*<div id="timeline"[^>]*hidden><\/div>\s*<div id="list"[^>]*hidden><\/div>\s*<div id="models"[^>]*hidden><\/div>\s*<div id="map"[^>]*hidden><\/div>\s*<div id="first-run"[^>]*hidden><\/div>\s*<div id="terminal-wait"[^>]*hidden><\/div>\s*<div id="dock" role="region"[^>]*hidden><\/div>\s*<\/main>/.test(indexHtml),
     'a region under the canvas, inside the stage: the graph stays usable above it');
   check('the dock is the one place requests are drawn: the conversation pane no longer draws its own',
     !/perm-queue|paintPermissions/.test(chatJs) && !/\.perm-/.test(cssSrc31) && /this\.onPermissions\(this, rec\)/.test(chatJs));
@@ -5411,6 +6390,26 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
       /Continues it in Studio\. If it is still open somewhere else, Studio starts a copy instead/.test(chatJs)
       && /the original does not see this, and messages here never reach your terminal/.test(chatJs),
       'the design\'s sentence promised a copy every time; a session nothing else holds is continued itself');
+    // V6: what Continue here will do is said BEFORE the press, from the check it acts on; the way back to the desktop app is a command to copy.
+    {
+      const tm = await import(`../../kit/studio/server/lib/terminal.js?v6=${Date.now()}`);
+      const sid = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+      const d = tm.desktopLine({ cwd: "/p/it's here", sessionId: sid, platform: 'darwin' });
+      check('the desktop command reopens the session from its own directory, quoted as the terminal command is',
+        d?.shell === 'sh' && d.line === `cd '/p/it'\\''s here' && claude --desktop --resume '${sid}'`, JSON.stringify(d));
+      // W10: cmd does not take single quotes and PowerShell 5.1 rejects `&&`; on Windows it is a PowerShell line.
+      const w = tm.desktopLine({ cwd: "D:\\it's here", sessionId: sid, platform: 'win32' });
+      check('on Windows the desktop command is a PowerShell line: a literal path with its quote doubled, `;` and not `&&`, and the panel says PowerShell',
+        w?.shell === 'PowerShell' && w.line === `Set-Location -LiteralPath 'D:\\it''s here'; claude --desktop --resume ${sid}`
+        && /r\?\.desktop\?\.shell === 'PowerShell'/.test(chatJs) && /r\?\.desktop\?\.line/.test(chatJs), JSON.stringify(w));
+      const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+      check('the terminal route says what Continue here will do, from the same check createSession acts on, and the desktop command',
+        /const held = await isHeldOpen\(id\);/.test(idx) && /continueAs: held \? 'copy' : 'same', desktop:/.test(idx)
+        && /const forked = resume \? await isHeldOpen\(String\(resume\)\) : false;/.test(read(path.join(STUDIO, 'server', 'lib', 'session.js')) ?? ''));
+      check('the foot says it before the press: the same session (its id and history stay) or a copy, and offers the desktop command to copy',
+        /continueAs === 'same'[\s\S]*Continues this same session in Studio: its id and history stay/.test(chatJs)
+        && /continueAs === 'copy'[\s\S]*so Studio starts a copy/.test(chatJs) && /Open it in the desktop app again/.test(chatJs));
+    }
     check('the terminal command at the foot is the server\'s, read before anything runs',
       /\/api\/session\/\$\{encodeURIComponent\(this\.id\)\}\/terminal/.test(chatJs) && /r\?\.plan\?\.line \?\? 'not measured/.test(chatJs));
     check('options are offered on the reply waiting for an answer, not on the history',
@@ -5851,7 +6850,9 @@ process.stdout.write('\n== §33 the Timeline ==\n');
     check('the toolbar switches between the graph and the Timeline, and each view shows only its own controls',
       /id="view-graph"[^>]*role="tab"[^>]*aria-selected="true"/.test(indexHtml) && /id="view-timeline"[^>]*role="tab"/.test(indexHtml)
       && /for \(const c of document\.querySelectorAll\('\.toolbar \[data-view\]'\)\) c\.hidden = !c\.dataset\.view\.split\(' '\)\.includes\(view\);/.test(appJs)
-      && ['tb-density', 'tb-zoom-out', 'tb-zoom', 'tb-zoom-in', 'tb-fit'].every((i) => new RegExp(`id="${i}" data-view="graph"`).test(indexHtml))
+      && /id="tb-density" data-view="graph"/.test(indexHtml)
+      // Zoom and Fit act on the graph and on the project map, the two views that pan and zoom (viewport.js).
+      && ['tb-zoom-out', 'tb-zoom', 'tb-zoom-in', 'tb-fit', 'tb-reset'].every((i) => new RegExp(`id="${i}" data-view="graph map"`).test(indexHtml))
       // Expand all and Fold all belong to all three views: each has groups of its own to open and fold.
       && ['tb-expand', 'tb-fold'].every((i) => new RegExp(`id="${i}" data-view="graph timeline list"`).test(indexHtml))
       && (indexHtml.match(/data-view="timeline"/g) ?? []).length === 4);
@@ -6194,6 +7195,124 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     /result\.onScreen = measured\?\.shown === true && result\.onScreenAfter\.shown === true;/.test(prof)
     && /result\.valid = result\.valid && result\.onScreen;/.test(prof) && /process\.exit\(result\.valid \? 0 : 1\)/.test(prof),
     'measured: with the view off screen it read 1.3 ms a redraw; on screen, 5.6 ms');
+}
+
+/* == Where transcripts are read, and one connection for every open conversation (W5, Windows) ============== */
+{
+  // A moved config dir: Claude Code writes its transcripts under CLAUDE_CONFIG_DIR/projects, and Studio read only
+  // ~/.claude/projects, so sessions started under one were not listed and read a cost of 0.
+  const home = path.join(os.tmpdir(), 'home-x');
+  const cfg = path.join(os.tmpdir(), 'cfg moved');
+  check('the transcript root is <config dir>/projects: ~/.claude without CLAUDE_CONFIG_DIR, the moved dir with it, and CREW_STUDIO_PROJECTS_ROOT over both',
+    projectsRoot({}, home) === path.join(home, '.claude', 'projects')
+    && projectsRoot({ CLAUDE_CONFIG_DIR: cfg }, home) === path.join(cfg, 'projects')
+    && projectsRoot({ CLAUDE_CONFIG_DIR: cfg, CREW_STUDIO_PROJECTS_ROOT: '/elsewhere' }, home) === '/elsewhere'
+    && projectsRoot({ CLAUDE_CONFIG_DIR: 'rel-cfg' }, home) === path.resolve('rel-cfg', 'projects'),
+    JSON.stringify([projectsRoot({}, home), projectsRoot({ CLAUDE_CONFIG_DIR: cfg }, home)]));
+
+  // The server side: several sessions on one stream, each event and state carrying its session, each session
+  // resumed from its own point, an unknown one answered with `gone`, everything let go when the client leaves.
+  const fakeSession = (id, n) => {
+    const events = Array.from({ length: n }, (_, i) => ({ seq: i + 1, rec: { type: 'assistant', id } }));
+    const subs = new Set();
+    return {
+      subs, summary: () => ({ sessionId: id, events: events.length }),
+      subscribe(fn, after = 0) { for (const ev of events) if (ev.seq > after) fn(ev); subs.add(fn); return () => subs.delete(fn); },
+      push(rec) { const ev = { seq: events.length + 1, rec }; events.push(ev); for (const f of subs) f(ev); },
+    };
+  };
+  const sa = fakeSession('a', 3); const sb = fakeSession('b', 2);
+  const reg = { a: sa, b: sb };
+  const handlers = {}; const req = { on: (k, f) => { handlers[k] = f; } };
+  let out = ''; let ended = false;
+  const res = { writeHead() {}, write(c) { out += c; }, end() { ended = true; } };
+  const stop = streamOwned(req, res, new URL('http://x/api/owned-events?ids=a,b,zz,a&after=a:2'), { getSession: (id) => reg[id] ?? null, stateAfter: new Set(['result']), beatMs: 60000 });
+  sb.push({ type: 'result' });
+  const frames = out.split('\n\n').filter(Boolean).map((f) => ({ ev: /^event: (\w+)/.exec(f)?.[1], d: JSON.parse(f.split('\ndata: ')[1]) }));
+  const evs = frames.filter((f) => f.ev === 'event');
+  check('one stream carries several sessions: each event names its session, a session resumes from its own point, an unknown one is answered with gone',
+    evs.filter((f) => f.d.id === 'a').map((f) => f.d.ev.seq).join() === '3'
+    && evs.filter((f) => f.d.id === 'b').map((f) => f.d.ev.seq).join() === '1,2,3'
+    && frames.some((f) => f.ev === 'gone' && f.d.id === 'zz')
+    && frames.filter((f) => f.ev === 'state' && f.d.id === 'b').length === 2
+    && sa.subs.size === 1 && sb.subs.size === 1,
+    frames.map((f) => `${f.ev}:${f.d.id}:${f.d.ev?.seq ?? ''}`).join(' '));
+  handlers.close();
+  check('the stream lets every session go when the client leaves', sa.subs.size === 0 && sb.subs.size === 0 && ended === true);
+  stop();
+  const many = Array.from({ length: MAX_STREAM_IDS + 8 }, (_, i) => `s${i}`).join(',');
+  check(`a stream takes at most ${MAX_STREAM_IDS} sessions, each once`,
+    parseOwnedQuery(new URL(`http://x/?ids=${many}`)).ids.length === MAX_STREAM_IDS
+    && parseOwnedQuery(new URL('http://x/?ids=a,a,b')).ids.join() === 'a,b');
+
+  // The page side: five panes open ONE connection, not five; closing one opens it again for the other four with
+  // each session's last event number; an event already taken is not taken twice; a dropped stream resumes.
+  const opened = [];
+  class FakeES {
+    constructor(url) { this.url = url; this.closed = false; this.l = {}; opened.push(this); }
+    addEventListener(k, f) { this.l[k] = f; }
+    close() { this.closed = true; }
+    emit(k, data) { this.l[k]?.({ data: JSON.stringify(data) }); }
+  }
+  const timers = [];
+  const realSet = globalThis.setTimeout; const realClear = globalThis.clearTimeout;
+  globalThis.setTimeout = (f) => { timers.push(f); return timers.length; };
+  globalThis.clearTimeout = (t) => { if (t) timers[t - 1] = null; };
+  const flush = () => { const fs = timers.splice(0); for (const f of fs) if (f) f(); };
+  try {
+    const hub = new OwnedStream((p) => p, { EventSourceImpl: FakeES, retryMs: 10 });
+    const got = {};
+    const mk = (id) => ({ id, takeState() {}, takeEvent(ev) { (got[id] ??= []).push(ev.seq); }, streamLost() { this.lost = true; } });
+    const panes = ['p1', 'p2', 'p3', 'p4', 'p5'].map(mk);
+    for (const p of panes) hub.attach(p);
+    flush();
+    const live = () => opened.filter((e) => !e.closed);
+    const one = live().length === 1 && opened.length === 1 && /ids=p1%2Cp2%2Cp3%2Cp4%2Cp5/.test(opened[0].url);
+    opened[0].emit('event', { id: 'p2', ev: { seq: 1 } }); opened[0].emit('event', { id: 'p2', ev: { seq: 2 } });
+    hub.detach(panes[0]); flush();
+    const reopened = live().length === 1 && opened.length === 2 && /ids=p2%2Cp3%2Cp4%2Cp5/.test(opened[1].url) && /p2%3A2/.test(opened[1].url);
+    opened[1].emit('event', { id: 'p2', ev: { seq: 2 } }); opened[1].emit('event', { id: 'p2', ev: { seq: 3 } });
+    opened[1].onerror(); flush();
+    const resumed = live().length === 1 && opened.length === 3 && /p2%3A3/.test(opened[2].url) && panes[1].lost === true;
+    check('five conversation panes share ONE connection; closing one reopens it for the rest from each session\'s last event; nothing is taken twice; a dropped stream resumes',
+      one && reopened && resumed && (got.p2 ?? []).join() === '1,2,3',
+      `opened ${opened.length}, live ${live().length}, p2 took ${(got.p2 ?? []).join()}, urls ${opened.map((e) => e.url.slice(0, 60)).join(' | ')}`);
+    hub.close();
+  } finally { globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; }
+  const chatJs = read(path.join(WEB_ROOT, 'chat.js')) ?? '';
+  check('a conversation pane opens no stream of its own: chat.js makes an EventSource in one place, the shared one',
+    (chatJs.match(/new (?:EventSource|this\.ES)\(/g) ?? []).length === 1 && !/new EventSource\(/.test(chatJs));
+}
+
+/* == A server older than the page it serves (seen on a real project: Map read "HTTP 404") ================ */
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-stamp-'));
+  try {
+    fs.mkdirSync(path.join(d, 'lib'));
+    fs.writeFileSync(path.join(d, 'index.js'), 'a');
+    fs.writeFileSync(path.join(d, 'lib', 'x.js'), 'b');
+    fs.writeFileSync(path.join(d, 'notes.txt'), 'c');
+    let t = 0; const changed = stampAtStart(d, { everyMs: 10, now: () => t });
+    const before = changed().changed;
+    fs.writeFileSync(path.join(d, 'notes.txt'), 'not code, longer');
+    t = 20; const afterNotCode = changed().changed;
+    fs.writeFileSync(path.join(d, 'lib', 'x.js'), 'b, an update');
+    t = 40; const afterCode = changed().changed;
+    check('the code stamp moves when a server file changes on disk, and not for a file that is not code',
+      before === false && afterNotCode === false && afterCode === true && codeStamp(d).includes(`lib${path.sep}x.js:`),
+      JSON.stringify({ before, afterNotCode, afterCode }));
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  const lvs = await import('../../kit/studio/web/liveness.js');
+  check('the page asks for a restart when the server says its code changed, or says nothing of it (older than the field), and not otherwise',
+    lvs.staleServerNote({ code: { changed: false } }) === null && lvs.staleServerNote({ code: { changed: true } }) === lvs.RESTART_NOTE
+    && lvs.staleServerNote({ ok: true, role: 'owner' }) === lvs.RESTART_NOTE && lvs.staleServerNote(null) === null
+    && /Restart it/.test(lvs.RESTART_NOTE) && /\/crew-studio/.test(lvs.RESTART_NOTE));
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const cssSrc = read(path.join(WEB_ROOT, 'style.css')) ?? '';
+  check('a Map the old server cannot answer says to restart, not its 404, and is read again once health says so; the note wraps',
+    /reason: restartNote \?\? e\.message/.test(appSrc) && /restartNote = staleServerNote\(h\);/.test(appSrc)
+    && /if \(view === 'map'\) loadMap\(true\)/.test(appSrc)
+    && /\.stage-note\[data-kind="restart"\] \.stage-note-text \{ white-space: normal; \}/.test(cssSrc));
 }
 
 process.stdout.write(`${pass}/${pass + fail} assertions passed`

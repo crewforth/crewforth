@@ -5,6 +5,334 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.2.0] — 2026-10-21
+
+### Added
+
+- **Watch Studio from a phone on the same Wi-Fi.** A viewer is a second token that only reads: the Machines tab makes
+  one, lists each with its last request, and revokes it. **Add viewer** shows its link as a QR code; a phone on
+  the same network scans it and the panel opens there, with no ssh and no tunnel. While a viewer is live the server
+  also listens on the machine's private Wi-Fi address, for viewer tokens only (the panel's own token gets `401` from
+  the network); with none, nothing listens beyond `127.0.0.1`. A viewer lasts eight hours, then the phone shows
+  Session expired; revoking it closes its stream at once, and the last one closes the Wi-Fi listener. Transcripts
+  are hidden by default: the server sends such a link no transcript text at all (an allow-list of fields, applied to
+  every answer and to the event stream), and shows them only for a link added with them ticked. Every viewer
+  connection and refusal is logged. Measured with an Android phone; the firewall asks once (macOS: allow `node`;
+  Windows: Private networks).
+
+- **The advisor, measured.** `review-bench --advisor <model>` runs the agent arm with an advisor and reports each
+  run's cost by model and its advisor calls; a case of `kind: "task"` is an implementation graded by a check the
+  session never saw. Against Opus alone on five review cases and a task (24 runs), Sonnet with an Opus advisor
+  never called it: 6 of 6 defects caught against 5 of 6, for $1.06 against $2.23. No rule is added; the runs and
+  their numbers are in `packaging/advisor-bench/`.
+
+- **An organisation preset.** `--preset <name|file>` on the installers (and `preset.sh --apply` later) writes an
+  organisation's critical paths, model floors, verify commands and language as one marked block at the top of
+  `.claude/crew-model-rules`; the project's own lines stay below it and win where the rules let them. Three ship:
+  `default`, `strict`, `solo`. An invalid preset is refused before anything is installed; `doctor` names the one
+  in force. It covers the surfaces the gates read today; which agents a project gets is not part of it.
+
+- **Continue here says what it will do before it is pressed.** Studio continues a session it did not start as
+  that same session when nothing else holds it open, and starts a copy when something does; the read-only foot now
+  says which it will be before the press, from the check it acts on, and offers the command that opens the session
+  in the desktop app again (`claude --desktop --resume <id>`) to copy. Measured with a real session: its id stayed
+  the same from a terminal, through Studio, and back to a terminal, in one transcript.
+  On Windows the desktop command is a PowerShell line, and the terminal Studio opens runs `claude --resume <id>`
+  without single quotes, which cmd.exe handed to the program as part of the id. An id that is not a session id
+  builds no command at all.
+  The terminal Studio opens runs `claude --resume <id>` and nothing else: the route no longer takes a `command`
+  from the request, which it ran unchecked and the panel never sent.
+
+- **A stopped command says what it would have touched.** When the shell gate stops `git reset --hard`,
+  `git clean -f`, `git push --force` or `rm -r`, or asks about a commit or a push, one line says what it would
+  have done: the uncommitted changes and commits it discards, the paths a dry run lists, the remote commits it
+  overwrites, the files under a target inside the project, what a commit takes and a push sends. Read only, after
+  the decision and in a subshell of its own, so a failing preview never changes the decision. The push question
+  became cheaper too: the branch is read from HEAD without a process.
+
+- **What a compaction keeps is written down first.** A PreCompact hook writes the state of the work from the files
+  and the gates (branch, uncommitted files, the last gate refusal, the findings on record, a handover if there is
+  one) inside the repository's git directory, and SessionStart gives it back after the compaction, to the same
+  session only. It never blocks the compaction. Studio's session card adds how much of the context since the last
+  compaction is tool output, and how many times the session was compacted.
+
+- **The Map reads like a project, not a graph.** Studio's Map draws modules in the layers `/crew-map` wrote (UI,
+  API, Service, Data, Infrastructure, Library, Tools), each card naming the module in full with its domain, up to
+  three of what it is built with and the outside services it calls folded into one line under it. A search dims
+  what it does not name; the tour `/crew-map` wrote steps through the map over the bottom of the pane; the
+  inspector shows the layer, the domain and what is inside a module (its entry point, its folders and their file
+  counts). A map with no layers is drawn in the bands the scan gives, as before.
+
+- **The Crew Map says where each module sits, and how to read the project.** `/crew-map` now has the model add,
+  to each module, its layer (`ui`, `api`, `service`, `data`, `infra`, `tool`, `library`) and the part of the
+  business it serves, and to the map a tour of up to eight stops a newcomer reads in order. Each rests on lines
+  the scan read; `--validate` refuses a layer not on the list, a domain written as a sentence, a tour stop at no
+  node, citing another node's lines or visiting a node twice, and a scan again drops what no longer holds.
+  A module's README is read too: its first line of prose is a line a description may rest on (measured on a real
+  project, four of ten modules had nothing else to describe them by).
+
+- **How right the review is, in numbers.** `eval/review-bench.sh` runs the review on labelled cases and reports
+  recall, precision and every false alarm by name; the pre-pass arm costs nothing, the agent arm runs Claude Code
+  headless as the review agent under a per-case and a per-run dollar cap, isolated from the user's own settings.
+  Crewforth's 27 cases come from its own history (a fix undone, its explanation left out) and 8 are held out; the
+  pre-pass's floor on them is a CI gate. Measured with Sonnet: 18 of 20 defects found, 34 of 49 findings about the defect, $1.62.
+
+- **The review starts from a deterministic pre-pass.** `eval/lib/review-prepass/prepass.sh` reads the lines a
+  change adds (staged, or `--base <ref>` for a branch) and writes `.crewforth/review-prepass.json` in the findings
+  shape: a secret pattern (cited by hash), a debug call or a TODO comment left in code, shellcheck on shell files, a lock
+  file that moved without its manifest, a very large change. The review agent carries those over and writes its
+  own findings to `.crewforth/review.json`, blockers through the refuter. What it could not check (no shellcheck,
+  a file edited after staging, no Node) is said, never read as clean.
+
+- **In `auto`, approve a commit or a push with one click.** A fixed question, asked with AskUserQuestion: Commit
+  only, Commit + push, Push only, No. It is handed to the session when `crew-commit-agent` is called, so `/crew-ship`
+  asks it with the message, and a refused commit offers it too (measured in real sessions: offered by the refusal
+  alone, it never came up, since the session asks before trying a commit). A new gate, `guard-question.sh`, answers `ask` on it,
+  so a hook that fills in the answer cannot answer it for you (measured in 34 runs and by hand in the terminal), and
+  `prompt-approval.sh` records your click exactly as it records `/crew-approve`: tied to what is staged, `HEAD`, the
+  session, for 30 minutes.
+  Any other wording, a question with answers already in it, or an answer the hook did not ask for records nothing.
+- **Studio's Models view shows normal work that ran above the table's model.** The gate holds a floor, not a
+  ceiling, so this is shown and nothing is blocked: the classes of normal work that ran higher than Sonnet and than
+  the floor the gate held them to, with what they cost as run and the same tokens at Sonnet's list price. That
+  Sonnet is enough for a class is said only when its last ten verified calls on Sonnet all passed first time, the
+  test a held class is offered for lowering by; otherwise the view says it is not measured.
+- **Studio draws a project's crew map.** The Map view (`p`, or **Map** under a project in the navigator, beside its
+  number of findings) reads `.crewforth/crew-map.json` and scans nothing. Modules sit in bands from the clients down
+  to the external resources, and a module the map does not place goes to Unplaced. Lines are solid where a file
+  proves them, dotted where inferred, and marked where the model proposed them. The pane pans and zooms with the
+  graph's own code; a card placed by hand stays placed for the project, and modules sharing a folder fold into one
+  card. The findings are listed proven first, with the scanner's hidden rules counted until asked for. The inspector
+  copies any `file:line` and copies a finding as a task. Compare with matches another project's calls against this
+  one's endpoints. On a phone, the findings and a list of the modules stand in for the pane.
+- **A crew map of the project.** `bash .claude/eval/lib/crew-map/crew-map.sh` reads the modules (Node and TypeScript,
+  Python, Go, .NET, Java and Kotlin), the external resources they touch, the endpoints they provide and call, and
+  writes `.crewforth/crew-map.json`. Every module, line and finding cites the `file:line` it was read from, the same
+  tree gives the same bytes (`--check` holds it in CI), and a configuration value is read only to name its kind. Ten
+  gap rules: five proven by the lines they cite, five concluded from absence and hidden until their false-positive
+  rate is measured.
+- **Findings are held to the lines they cite.** The findings core (`.claude/eval/lib/findings/findings.sh`) checks
+  every citation: the file is inside the project, the lines exist, and they are still the lines that were read. A
+  document that does not verify is reported entry by entry and never written.
+- **A finding is verified by an agent that tries to refute it.** `crew-refuter` gets one claim and its cited lines,
+  not the reasoning, and works on one lens. `refuter-ledger.sh` records its verdict from the agent's own task and
+  answer in `.claude/state/crew-refuter.tsv`. With `--verified`, a `medium` finding needs one verdict and a `high` or
+  `critical` one three, each a line of that ledger.
+- **`crew-docs-agent` writes the text.** README, guides, release notes, legal and privacy texts and store listings had
+  no owner and ran outside model routing. Legal, privacy, consent and terms paths and store metadata are critical
+  paths, so that text runs on the critical tier and a legal or privacy text is audited by `crew-privacy-agent` before
+  it closes.
+- **Doctor names three more things, none of which changes its verdict.** Both editions enabled at once (every hook
+  would run twice), read from `claude plugin list --json`; the advisor, whether it is on, on what and from which
+  settings file, or turned off; and, before any update check has run, the published version, said as not measured
+  instead of nothing.
+- **Studio shows why work was critical, and says when an agent is outside routing.** The gate records its reason
+  (`risk_why`, a new last column of `model-outcomes.tsv`) and the inspector shows it under the task card; an older
+  line shows none rather than a guessed one. An agent that is not `crew-*` gets a Model routing note: the gate leaves
+  it alone, so it has no card.
+- **Studio counts the advisor in what a session cost.** An advisor call is billed at the advisor model's rates and the
+  API keeps it out of a response's top-level usage; Studio now reads it from `usage.iterations` and prices it at its
+  own model. The session table has an Advisor line (calls, tokens, cost) when a call is recorded. Measured on a real
+  session: Studio read $0.0567 before, $0.2110 after, the same as Claude Code's own figure.
+- **Studio's Models view marks the classes whose agents consulted the advisor.** The cost cell carries an advisor tag
+  whose hover says how many calls and how much of the cost they were, already included; a class whose agents consulted
+  none has no tag.
+- **A visible way to the repository.** `/crew-doctor` now shows the star line once per version under its own marker,
+  so a line already shown at install no longer silences it, and a plugin install shows it too, with the plugin's
+  version. `/crew-update` keeps it to one line per update. The READMEs and the site's home page have a Star on GitHub
+  button.
+- **A status line.** One line under the prompt: the gate's last word in this session, a commit or push approval that
+  still holds, the crew agents still running, the measured context fill and the session's cost. The installers set it
+  only where no status line is set, in the project or in your own settings, and `/crew-doctor` says which one is in
+  use.
+- **`/crew-map`.** It runs the scanner, then has the model describe what it found: at most two sentences per module on
+  what it is for, and a short overview, each citing lines the scan itself read. `crew-map.sh --validate` refuses a
+  description that cites anything else or nothing, or a scanner field changed by hand; a scan again keeps the
+  descriptions that still hold and drops the rest. Studio's Map shows them, and `crew-planner` reads the map on an
+  unfamiliar project.
+
+### Changed
+
+- **A typed approval is caught at the turn's end.** The one-click question reached the user only from a refused
+  commit or a call to the commit agent, and a session that wrote the message itself asked the user to type
+  `/crew-approve` without trying either: 9 of 18 typed asks in two real `auto` sessions. Now, when a reply asks for
+  `/crew-approve` in `auto` with the question open and it was not asked since the user's last message, the session
+  is told once to ask the click. It never blocks the turn; a question that was refused or dismissed leaves the typed
+  way, and a turn's end does not end an approval.
+
+- **A refused commit asks one way.** In `auto`, with the approval question open, the refusal offered the click and
+  the typed `/crew-approve` side by side, and a session picked the typed one 7 times in 9. The click is now the way
+  to ask, and the typed command is only the fallback for a question that cannot be asked.
+
+- **A task card on one line is read.** `files: … · change: … · verify: …` (with `;` or `|` too, after an optional
+  `Card:`, and `above:` on the same line) is read by its labels and held to the rules of the three-line card, and a
+  kind with a note in parentheses (`architecture (planning only)`) is that kind, on either form. Measured on one
+  machine's sessions: 37 calls had been refused for their card, every one followed by a second call; 17 of them now
+  pass on the first.
+
+- **A model is chosen to cost what the work needs.** Measured on a real project: 186 crew tasks, 0 on haiku, 73 (39%)
+  above their card's floor, and no verify command ever passing, so the cheaper path never opened. Now:
+  - the card's model is the default: a call above it runs on it (the gate rewrites the call's model), unless the
+    card adds `above: <why>`;
+  - outside the crew, a call asking for opus or fable runs on sonnet, and so does a general-purpose call that names
+    no model in a session that is not on haiku (it took the session's model; measured on Claude Code 2.1.299, the
+    project's settings `env` could not change that, so the gate does);
+  - a verify command in a sub-folder (`cd apps/x && <command>`, 41 of 71 refusals) is run in that folder;
+    `none (why)` is none; and `/crew-doctor` lists the commands that were never allowed to run, with the line that
+    allows each.
+
+- **A commit's command is read by one reader.** `guard-bash.sh` paired quotes in three places: the reader of a call,
+  an older walk that looks for a path or `-a` in a commit, and the check of a call the user's approval covers. The
+  last two now take their text from the first, and keep only their own question. What a call the user approved may
+  hold is unchanged. The older walk read a here-document's body and a comment as arguments of the commit; it no
+  longer does, so a call that only holds the words of a commit inside a here-document body, or `-a` after a `#`,
+  asks as any other commit does instead of being refused.
+- **npm releases are published over OIDC.** The release job proves its identity with a short-lived GitHub Actions
+  token (npm Trusted Publishing); the repository holds no npm token, and each version carries a provenance statement.
+- **The session line shows the measured fill.** The last line of a reply was `🔋 Session: low fill · …`: the template
+  had no number, so the figure the hook measures every turn stayed out of sight. It is now `🔋 Session %NN → low fill ·
+  …`, the hook's own figure, never an estimate.
+- **Studio keeps cards for a longer session.** At Auto density a picture may now run up to half again past the pane
+  before its cards become chips; it opens at the zoom cards are read at, from its top, and Fit still shows all of it.
+  A compact group card says how its agents went as well as their models (`5 done · 3 Sonnet · 2 Opus`).
+- **The session's own write to a critical path is recorded.** Agents not on Opus are refused a critical path; the
+  session's own writes were not looked at at all. They are still not refused (the choice is yours), but each one now
+  leaves a NOTE line in the gate log with the path and the rule that made it critical, which Studio's Gates tab and
+  the status line show.
+
+### Security
+
+- **The session-link trailer is a trace.** Claude Code asks the model to end a commit message with a line linking the
+  session on claude.ai; the trace scan had no pattern for it, and six commits of a project with Crewforth installed
+  carried it to a remote. The trailer and its address are both caught now, in the message and in staged files.
+
+- **A `PermissionRequest` hook could approve a commit with nobody at the keyboard.** Such a hook answers a
+  permission prompt before the person does, and the answer cannot be told from a click: measured, it approved the
+  Bash prompt `guard-bash.sh` raises for a commit in `default`, and it answered the new question too. Before it
+  asks, the gate now looks for one in every source it can read (user, project and local settings, the
+  managed-settings files, skill, agent and command front matter, installed plugins). Where one may be wired the
+  question closes, and so does the gate's own prompt in `default` and `acceptEdits`: `/crew-approve`, which no hook
+  can type, is the approval left. The limit: settings passed with `--settings` and managed settings delivered by a
+  server cannot be read.
+- **`crewforth.hookschain` is guarded the way `core.hooksPath` is.** The key holds the path of a project hook chain
+  the shim reads on every commit, and `git config crewforth.hookschain …` passed. A write is now refused in every form
+  `core.hooksPath` is (a value, `--unset`, `-c`, `--config-env`, `GIT_CONFIG_` variables); reading it still passes.
+
+### Fixed
+
+- **Crew Map reads a `fetch` call's method from its own options only.** The method was taken from the next four
+  lines, so in a file of one-line calls a `{ method: 'POST' }` on a later call was given to the earlier ones, and the
+  map reported `POST /api/products is called but no endpoint in this repo provides it` (endpoint-missing) for a
+  plain `fetch('/api/products')`. The scan now reads the call's arguments up to its own closing parenthesis, over
+  strings and nested brackets; a method on a later line of the same call is still read.
+- **A push approval covers a tag on the approved commit.** `git push <remote> <tag>` had no way to be approved: the
+  click and `/crew-approve push` both record a push of the branch, and the tag push of a release was refused after
+  either, so the session handed the user the command to run. It now passes when the tag points at the commit the
+  approval covers (after a commit + push, the new one) and no branch has its name; a tag on another commit, a full
+  ref, a refspec and `--tags` are still refused.
+- **`change: review` is read as `audit`.** The model table of the working rules names review with audit, and
+  `crew-review-agent` cards that said `change: review` were refused. It now takes the audit floor, on a critical path
+  too; a kind that is not on the list is still refused.
+- **An install or an update never loosens the trace gate by itself.** The installer suggested exempting
+  the co-author trailer whenever the last 80 commits carried one, and with no terminal to ask in it took its own
+  suggestion: an update wrote the line into `.trace-allowlist.txt` and staged it, undoing a removal the team had
+  committed. The suggestion is now always to keep the gate, and the exemption is written only when you type
+  `loosen` in the interactive review.
+- **A commit refusal names a trace in the message even when the staged content also fails.** The content gate
+  scanned the `-m` message only when the staged change was clean, so a refusal for a silenced lint check said nothing about
+  the session-link trailer in the same message, and the session showed the user the traced message again. Both are
+  named in one refusal now, and a trace in the message adds that a harness reminder to end a message with a
+  trailer does not override §4.1. The git `commit-msg` hook still stops the trailer at the commit itself.
+- **A one-line task card may open with `Kart`.** Sessions that write in Turkish lead the card with `Kart —` as
+  others write `Card —`, and the call was refused as having no card. The Turkish word is read like the English one;
+  the fields after it are held to the same rules.
+- **`above:` is read anywhere among a task card's three lines.** A card with `above: <why>` between `change:` and
+  `verify:` was refused ("line 3 of the task is not one of files:, change:, verify:") and the call was sent again
+  with the line moved down. It is now read in any position and keeps the model as it does after the three; the three
+  are still all required.
+- **A click on the approval question is recorded whatever order its keys come back in.** Claude Code hands the
+  answered question back either as it was asked or with its keys sorted, and the answer side matched it byte for
+  byte: in real `auto` sessions 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused
+  ("the question answered is not the fixed one"), so the user clicked and was then told to type `/crew-approve`. The
+  answer side now checks each text of the fixed question wherever it sits; the exact match stays where the question
+  is asked, and the answer is still bound to that call.
+
+- **The Crew Map says what a project is made of.** A Flutter project read as a pile of Gradle modules and its
+  server as an external API (seen on a real project). The scanner now reads Dart: one module per `pubspec.yaml`,
+  its packages and `path:` references, and a Flutter app's `android/` and `ios/` folders as platforms of the app.
+  Each module says what it is built with (Hono, Cloudflare Workers, Flutter, Riverpod…, from `rules/tech.json`)
+  and what is inside it (folders with file counts, tests apart). A module served at a host its wrangler routes or
+  `fly.toml` name is called, module to module, by any module that writes that host; a Dart call to that host or a
+  Dio call's relative path is matched to the endpoints provided. A `.dart` file no `pubspec.yaml` owns is listed
+  as not measured, as is Dart package usage: Flutter declares packages nothing imports.
+
+- **A commit message and a reworded paragraph no longer go to the expensive model.** Two floors of the model gate
+  raised prose for no gain (seen on a real project): with no verify command a commit message was held to sonnet,
+  though the commit hook checks it, and a two-sentence fix under a critical path such as `legal/` was held to opus.
+  A text change now runs on haiku without a verify command, the commit agent too; on a critical path a text change
+  whose every file is prose (`.md`, `.txt`, `.rst`, `.adoc`) is written on sonnet, and the audit of it stays on opus.
+  One code file on the card keeps it on opus, and an agent on sonnet still writes no code there. A project that
+  wants opus for such text says so in `.claude/crew-model-rules` (`floor * text critical opus`).
+- **The gate log is written in every project, and Studio shows a refused agent call.** A project that tracks
+  `.claude/` had no gate log at all: no record of a refusal, no 🛡 on the status line, no note of a model lowered to
+  its card's floor (seen on a real project). The log now goes inside the repository's own `.git` there
+  (`crewforth-gate-log.tsv`, never committed); one rule (`eval/lib/gate-log.sh`) serves every gate and reader. A
+  call the model gate refused starts no agent, so the canvas showed nothing while the session said "2 failed"; the
+  session's card now says how many calls were refused and not made again, with the gate's words on hover.
+- **`/crew-doctor` offers a verify rule that works, in every mode.** For `cd sub && ./check.sh` it offered the line
+  with the `cd` in it, which allows nothing (the rule names the command alone), and in default mode it offered
+  nothing, because that refusal is worded differently. Measured on Windows.
+- **Studio keeps answering with many conversations open.** Each conversation pane held its own stream, and a
+  browser opens six connections to one host: at five panes a message sent and every request the page made waited
+  for a pane to close (on Windows a send did not arrive in 35 s; on macOS the page's own request timed out at 4 s).
+  Every open conversation now shares one stream, resumed from each session's last event when it reconnects.
+- **Studio finds sessions under a moved config dir.** It read `~/.claude/projects` only, so sessions under
+  `CLAUDE_CONFIG_DIR` were not listed and read a cost of 0. It now reads `projects` there, as Claude Code writes.
+- **Studio says when it needs a restart.** A running server keeps the code it started with, and an update
+  replaces the files the page is read from: on a real project the Map view of the new page asked a server from
+  before it and showed "Not read — HTTP 404". The server now says whether its code changed on disk since it
+  started; a page that hears so, or talks to a server too old to say, shows a note to restart it, and Map says the
+  same instead of the 404.
+- **Two agents starting together no longer share one model record on Windows.** A record was taken by renaming
+  it, which is a lock on macOS and Linux; on Windows two hook processes both reported the rename as done (seen
+  twice on the Windows CI). Each record is now locked first with an exclusive create, a shell builtin that costs no
+  process, and only the hook that made the lock takes it.
+- **An rc says it is one, and its final is offered.** A release candidate installed `.claude/VERSION` as the final's
+  number (3.2.0 for 3.2.0-rc.1), so the update check, doctor and the refresh's "what's new" all read it as the final,
+  and someone who tried the rc was never told the final shipped. The rc's archive and npm package now carry its own
+  version, and one definition (`eval/lib/version.sh`) orders an rc before its final. A version off the network is
+  still held to X.Y.Z.
+- **`adopt.sh --help` prints its usage.** It ran the project detection instead; the usage now comes in English and
+  Turkish, before anything is read.
+- **The crew map reads what two real projects showed it missing.** Scanned before release, they put three rules
+  well over a 20% false-positive rate, and one scan refused its own document. Read now: a route with an empty path,
+  a decorator whose path is on the next line, `api.get<T>(` and a call split over lines, a client made in one file
+  and called in another (it had read as a server), an import ending in a comment, twelve more import names, and a
+  string in a test that looks like an import. A call with a run-time host is matched but never reported missing. A
+  route a healthcheck or a Kubernetes probe calls has a caller, and a package that works without an import (a
+  server started from the command line, a database driver named in a URL, a pytest plugin) is not unused.
+  Source in a language the scanner has no reader for, and routes registered with a variable path, are listed in
+  `notMeasured` instead of being silently absent. On the Python project the proven `endpoint-missing` went from 2
+  real out of 10 to 4 out of 4.
+- **Studio's cards no longer flicker while a window is resized.** At Auto density, an edge dragged across the limit
+  between cards and chips redrew every card on every frame (measured: 57 times in 60 frames with 43 agents). The view
+  still follows the edge at once; the choice between cards and chips is made once the window has stopped for 150 ms.
+- **`crew-commit-agent` and `crew-session-manager` are called.** Both were exempt from the delegation cue and nothing
+  pulled them, so the main thread wrote every commit message and handover itself. The discipline and `/crew-handoff`
+  now call them, and smoke fails when a chain-step agent has no caller.
+- **Doctor names the 2.x plugin enabled beside a 3.x install.** The 2.x plugin, under its old name, wires the same
+  hooks; the check looked for `crewforth@…` only and said one edition while every hook ran twice.
+- **The crew map no longer reads a regex literal as an import.** `from '[^']*…` inside a regular expression was
+  reported as a proven undeclared dependency named `[^`; a specifier counts as a package only when it is named the way
+  npm names one.
+- **A cache write the usage split leaves out is counted.** Studio dropped cache writes that the top-level split of a
+  response did not account for; they are now the five-minute kind, which is how they were billed.
+- **Doctor's advisor lines match how Claude Code attaches it.** An advisor below the model it would advise is not
+  attached at all, so critical work runs without one; the warning said it would advise a stronger model.
+- **`incident-runbook` is picked for an outage that keeps coming back.** Its description named only a production that
+  is degraded or broken; a request about a recurring outage picked it in none of three held-out eval runs before, and
+  in two of three after.
+
 ## [3.1.1] — 2026-10-12
 
 ### Fixed

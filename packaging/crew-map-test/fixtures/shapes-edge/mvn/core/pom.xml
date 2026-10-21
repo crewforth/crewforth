@@ -1,0 +1,7 @@
+<project>
+  <groupId>com.my</groupId>
+  <artifactId>core</artifactId>
+  <dependencies>
+    <dependency><groupId>org.thirdparty</groupId><artifactId>api</artifactId><version>1.0</version></dependency>
+  </dependencies>
+</project>

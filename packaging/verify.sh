@@ -34,14 +34,15 @@ fi
 
 # The step list is the contract with ci.yml. Adding a gate here is what makes it runnable locally;
 # adding it to ci.yml alone is what put this file here in the first place.
-STEPS="syntax smoke routing site manifests e2e studio parser i18n subshell"
+STEPS="syntax smoke routing site manifests e2e studio findings map parser i18n subshell skilleval"
 
 step_syntax(){
   bash -n start.sh || return 1
   bash -n adopt.sh || return 1
   local s
   for s in kit/hooks/*.sh kit/eval/*.sh packaging/*.sh packaging/studio-test/*.sh \
-           kit/studio/*.sh kit/studio/server/hooks/*.sh; do
+           kit/studio/*.sh kit/studio/server/hooks/*.sh kit/eval/lib/findings/*.sh \
+           kit/eval/lib/crew-map/*.sh; do
     [ -f "$s" ] || continue
     bash -n "$s" || return 1
   done
@@ -127,6 +128,51 @@ step_studio(){
   diff -r kit/studio plugin/studio >/dev/null 2>&1 || {
     echo "plugin/studio has drifted from kit/studio — run packaging/build-plugin.sh and commit the result"
     diff -rq kit/studio plugin/studio | head -10; return 1; }
+}
+
+# The findings core (kit/eval/lib/findings): the document shape and the validator that holds each finding to the
+# lines it cites, the review pre-pass that writes into it (kit/eval/lib/review-prepass), and the bench that says how
+# right the review is (kit/eval/lib/review-bench: the matcher, and the pre-pass at its floor; no model runs here). A NODE gate like the panel's, with the same rule for a machine without one: SKIPPED, never a
+# quiet pass. It ships in eval/lib, the one directory both editions carry, so the plugin copy is asserted to be
+# the payload's bytes for the same reason the panel's is.
+step_findings(){
+  [ -f kit/eval/lib/findings/findings.mjs ] || { echo "kit/eval/lib/findings is MISSING — the findings core ships in the payload"; return 1; }
+  command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
+  node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
+  node packaging/findings-test/selfcheck.mjs || return 1
+  node packaging/review-prepass-test/selfcheck.mjs || return 1
+  node packaging/review-bench/selfcheck.mjs || return 1
+  local d
+  for d in findings review-prepass review-bench; do
+    diff -r "kit/eval/lib/$d" "plugin/eval/lib/$d" >/dev/null 2>&1 || {
+      echo "plugin/eval/lib/$d is missing or has drifted from kit/eval/lib/$d — run packaging/build-plugin.sh and commit the result"
+      diff -rq "kit/eval/lib/$d" "plugin/eval/lib/$d" 2>&1 | head -10; return 1; }
+  done
+}
+
+# Crew Map's scanner (kit/eval/lib/crew-map): planted defects in eight fixture projects found exactly, the same
+# bytes on every run, no secret and no absolute path in what it writes, two child processes per scan. A Node gate
+# like the findings core it writes through, so the same rule: no Node is SKIPPED, never a quiet pass. It ships in
+# eval/lib as well, so the plugin copy must be the payload's bytes.
+step_map(){
+  [ -f kit/eval/lib/crew-map/scan.mjs ] || { echo "kit/eval/lib/crew-map is MISSING — the Crew Map scanner ships in the payload"; return 1; }
+  command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
+  node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
+  node packaging/crew-map-test/selfcheck.mjs || return 1
+  diff -r kit/eval/lib/crew-map plugin/eval/lib/crew-map >/dev/null 2>&1 || {
+    echo "plugin/eval/lib/crew-map is missing or has drifted from kit/eval/lib/crew-map — run packaging/build-plugin.sh and commit the result"
+    diff -rq kit/eval/lib/crew-map plugin/eval/lib/crew-map 2>&1 | head -10; return 1; }
+}
+
+# A skill's description, held to a measurement (K10): only a change that touches a model-picked skill's description
+# is judged, and it passes only when packaging/skill-eval/results.tsv measured THAT text, three runs a case, at or
+# above the case's floor. Free: the measurement is run.mjs, by hand, on the developer's own session; this step
+# reads its file and calls no model. The gate's own cases come first, in a repository it builds for itself.
+step_skilleval(){
+  command -v node >/dev/null 2>&1 || { echo "SKIP: node is not on PATH"; return 3; }
+  node --version >/dev/null 2>&1 || { echo "SKIP: node is on PATH but does not run"; return 3; }
+  node packaging/skill-eval/selftest.mjs || return 1
+  node packaging/skill-eval/check.mjs
 }
 
 # The only step that needs a tool the repo does not carry. CI installs the CLI; a developer machine

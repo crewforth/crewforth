@@ -1,0 +1,24 @@
+{
+  "id": "utf8-cut",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": true,
+  "source": "3d31598e1 fix(gates): the cut of a verify command's output finds the character boundary itself",
+  "intent": "Shorten a verify command's output before it is reported.",
+  "strippedComments": 6,
+  "modes": {
+    "before": {
+      "kit/hooks/agent-outcome.sh": "100755"
+    },
+    "after": {
+      "kit/hooks/agent-outcome.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "kit/hooks/agent-outcome.sh",
+      "from": 64,
+      "to": 72
+    }
+  ]
+}

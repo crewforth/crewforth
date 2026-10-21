@@ -36,6 +36,9 @@ export const PRICES = {
   'claude-haiku-4-5': { input: 1, output: 5 },
 };
 
+// The model the table's normal tier is priced at, for the Models view's "the same tokens on the table's model".
+export const NORMAL_TIER_MODEL = 'claude-sonnet-5-5';
+
 /** The row for a model id, or null. A dated snapshot (`<id>-20260101`) is the same model; nothing else matches. */
 export function priceOf(model) {
   if (typeof model !== 'string') return null;

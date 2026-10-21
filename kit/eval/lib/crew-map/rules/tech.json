@@ -1,0 +1,35 @@
+{
+  "about": "What a module is built with, in the words a newcomer reads: a package a manifest declares, or a file the module holds, gives a label. One list for every stack; a label is shown once per module, frameworks before tools, in the order of this file. Versions are not part of a label: the manifest line the label was read from is the module's evidence.",
+  "packages": {
+    "npm": [
+      ["next", "Next.js"], ["react", "React"], ["vue", "Vue"], ["svelte", "Svelte"], ["@angular/core", "Angular"],
+      ["astro", "Astro"], ["react-native", "React Native"], ["expo", "Expo"], ["electron", "Electron"],
+      ["hono", "Hono"], ["express", "Express"], ["fastify", "Fastify"], ["@nestjs/core", "NestJS"], ["koa", "Koa"],
+      ["graphql", "GraphQL"], ["socket.io", "Socket.IO"], ["wrangler", "Cloudflare Workers"],
+      ["@prisma/client", "Prisma"], ["prisma", "Prisma"], ["drizzle-orm", "Drizzle"], ["typeorm", "TypeORM"],
+      ["mongoose", "Mongoose"], ["tailwindcss", "Tailwind CSS"], ["vite", "Vite"], ["typescript", "TypeScript"],
+      ["vitest", "Vitest"], ["jest", "Jest"], ["@playwright/test", "Playwright"]
+    ],
+    "pypi": [
+      ["django", "Django"], ["fastapi", "FastAPI"], ["flask", "Flask"], ["sqlalchemy", "SQLAlchemy"],
+      ["celery", "Celery"], ["pydantic", "Pydantic"], ["langchain", "LangChain"], ["torch", "PyTorch"],
+      ["transformers", "Transformers"], ["spacy", "spaCy"], ["uvicorn", "Uvicorn"], ["pytest", "pytest"]
+    ],
+    "pub": [
+      ["flutter_riverpod", "Riverpod"], ["hooks_riverpod", "Riverpod"], ["riverpod", "Riverpod"],
+      ["flutter_bloc", "Bloc"], ["bloc", "Bloc"], ["provider", "Provider"], ["get", "GetX"], ["go_router", "go_router"],
+      ["dio", "Dio"], ["http", "http"], ["drift", "Drift"], ["sqflite", "sqflite"], ["hive", "Hive"], ["isar", "Isar"],
+      ["firebase_core", "Firebase"], ["freezed", "Freezed"], ["google_mobile_ads", "Google Mobile Ads"],
+      ["in_app_purchase", "In-app purchase"], ["flutter_test", "flutter_test"]
+    ],
+    "go": [
+      ["github.com/gin-gonic/gin", "Gin"], ["github.com/labstack/echo/v4", "Echo"], ["github.com/go-chi/chi/v5", "chi"],
+      ["gorm.io/gorm", "GORM"]
+    ]
+  },
+  "files": [
+    ["wrangler.toml", "Cloudflare Workers"], ["wrangler.jsonc", "Cloudflare Workers"], ["tsconfig.json", "TypeScript"],
+    ["Dockerfile", "Docker"], ["vercel.json", "Vercel"], ["netlify.toml", "Netlify"], ["fly.toml", "Fly.io"],
+    ["firebase.json", "Firebase"]
+  ]
+}

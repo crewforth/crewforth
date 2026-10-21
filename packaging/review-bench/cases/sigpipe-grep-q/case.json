@@ -1,0 +1,34 @@
+{
+  "id": "sigpipe-grep-q",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "435c79557 test(routing): the stale-miss check does not pipe into grep -q",
+  "intent": "Simplify the stale-miss check in the routing eval.",
+  "strippedComments": 4,
+  "modes": {
+    "before": {
+      "kit/eval/routing-eval.sh": "100755"
+    },
+    "after": {
+      "kit/eval/routing-eval.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "kit/eval/routing-eval.sh",
+      "from": 150,
+      "to": 150
+    },
+    {
+      "file": "kit/eval/routing-eval.sh",
+      "from": 169,
+      "to": 169
+    },
+    {
+      "file": "kit/eval/routing-eval.sh",
+      "from": 172,
+      "to": 172
+    }
+  ]
+}

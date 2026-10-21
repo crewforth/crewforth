@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "crewforth.findings/1",
+  "title": "Crewforth findings document",
+  "description": "A list of findings, each one tied to the lines of the project it was read from. This file is the one definition of the shape: findings.mjs reads it at run time, so a field cannot be accepted by the validator and absent here, or the reverse. Whether an evidence entry is TRUE (the file is there, the lines are there, the anchor still matches) is not expressible in JSON Schema; findings.mjs checks that against the project and its header says how.",
+  "type": "object",
+  "required": ["schema", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "crewforth.findings/1" },
+    "producer": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" }
+      }
+    },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "notMeasured": { "type": "array", "items": { "$ref": "#/$defs/notMeasured" } }
+  },
+  "x-verifiers": {
+    "description": "Under --verified: a finding of one of these severities needs this many verifiers, each its own agent on its own lens, and keeps the severity only when the verdict is TRUE_POSITIVE. A severity not listed needs none.",
+    "medium": 1, "high": 3, "critical": 3
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["id", "rule", "title", "confidence", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable across runs and unique in the document.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._:-]*$",
+          "maxLength": 200
+        },
+        "rule": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 80 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "confidence": {
+          "description": "proven: the cited lines show it on their own. inferred: the cited lines are what the conclusion was drawn from.",
+          "enum": ["proven", "inferred"]
+        },
+        "severity": { "enum": ["info", "low", "medium", "high", "critical"] },
+        "detail": { "type": "string", "maxLength": 4000 },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+        "data": {
+          "description": "The producer's own fields. Not interpreted here.",
+          "type": "object"
+        },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "verification": {
+      "description": "What independent refuters concluded. verdict is not chosen by the producer: it is FALSE_POSITIVE when any verifier said so, else CANNOT_VERIFY when any did, else TRUE_POSITIVE, and the validator checks it. Under --verified every verifier must be a line of the refuter ledger.",
+      "type": "object",
+      "required": ["verdict", "verifiers"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "verifiers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/verifier" } }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "required": ["agent", "lens", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "description": "The refuter agent's id, as the ledger records it.", "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+        "lens": { "enum": ["reachability", "protection", "reproduction", "exclusion", "blast-radius", "claim"] },
+        "verdict": { "$ref": "#/$defs/verdict" }
+      }
+    },
+    "verdict": { "enum": ["TRUE_POSITIVE", "FALSE_POSITIVE", "CANNOT_VERIFY"] },
+    "evidence": {
+      "description": "One cited range of one file. An entry needs an anchor, text or sha256, because a line number alone only says the file is that long.",
+      "type": "object",
+      "required": ["file", "line"],
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["text"] }, { "required": ["sha256"] }],
+      "properties": {
+        "file": {
+          "description": "Relative to the project root, forward slashes, no '.' or '..' segment.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "line": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "text": {
+          "description": "A quote from the cited lines. Compared with runs of whitespace collapsed.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "sha256": {
+          "description": "SHA-256 of the cited lines joined by LF, CR at line ends removed, no trailing newline.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "note": { "type": "string", "maxLength": 400 }
+      }
+    },
+    "notMeasured": {
+      "type": "object",
+      "required": ["what", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "what": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 400 }
+      }
+    }
+  }
+}

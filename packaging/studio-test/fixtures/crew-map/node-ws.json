@@ -1,0 +1,895 @@
+{
+  "schema": "crewforth.crew-map/1",
+  "producer": {
+    "name": "crew-map",
+    "version": "1"
+  },
+  "stacks": [
+    "node"
+  ],
+  "coverage": {
+    "files": 15,
+    "modules": 5,
+    "listing": "walk"
+  },
+  "nodes": [
+    {
+      "id": "ext:cache:redis",
+      "kind": "external",
+      "resource": "cache",
+      "label": "redis",
+      "hosts": [
+        "cache.internal:6379"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 2,
+          "text": "REDIS_URL"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "ext:db:postgres",
+      "kind": "external",
+      "resource": "db",
+      "label": "postgres",
+      "hosts": [
+        "db.internal:5432"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 1,
+          "text": "DATABASE_URL"
+        },
+        {
+          "file": "packages/api/package.json",
+          "line": 7,
+          "text": "pg",
+          "sha256": "8109889898e622ab4c7ede30d9b0b731e7d99206e0c92b83d55db57fcf5fbbfe"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "ext:http-api:hooks.vendor.io",
+      "kind": "external",
+      "resource": "http-api",
+      "label": "hooks.vendor.io",
+      "hosts": [
+        "hooks.vendor.io"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 5,
+          "text": "WEBHOOK_URL"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "ext:http-api:payments.partner.io",
+      "kind": "external",
+      "resource": "http-api",
+      "label": "payments.partner.io",
+      "hosts": [
+        "payments.partner.io"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 4,
+          "text": "PAYMENTS_URL"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:node:@demo/api",
+      "kind": "module",
+      "name": "@demo/api",
+      "stack": "node",
+      "path": "packages/api",
+      "manifest": "packages/api/package.json",
+      "tech": [
+        "Docker",
+        "Express"
+      ],
+      "entry": true,
+      "entryPoint": {
+        "evidence": [
+          {
+            "file": "packages/api/package.json",
+            "line": 4,
+            "text": "start",
+            "sha256": "4c440b62af4e87789d5d729ee2002446c22a24886d9208870dc988f40b897219"
+          }
+        ]
+      },
+      "dependencies": 5,
+      "structure": {
+        "folders": [
+          {
+            "folder": "src",
+            "files": 1
+          }
+        ],
+        "testFiles": 1
+      },
+      "evidence": [
+        {
+          "file": "packages/api/package.json",
+          "line": 2,
+          "text": "@demo/api",
+          "sha256": "6bc9f3c98c66c129523858514286037137e7c23eded2f449957a8fe00afb7ce1"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:node:@demo/orphan-lib",
+      "kind": "module",
+      "name": "@demo/orphan-lib",
+      "stack": "node",
+      "path": "packages/orphan-lib",
+      "manifest": "packages/orphan-lib/package.json",
+      "tech": [],
+      "entry": false,
+      "dependencies": 0,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
+      "evidence": [
+        {
+          "file": "packages/orphan-lib/package.json",
+          "line": 1,
+          "text": "@demo/orphan-lib",
+          "sha256": "7143ed6a2065e508a658fbfbe09253fb78c4eb5c3107869ffed80f84651a6178"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:node:@demo/shared",
+      "kind": "module",
+      "name": "@demo/shared",
+      "stack": "node",
+      "path": "packages/shared",
+      "manifest": "packages/shared/package.json",
+      "tech": [],
+      "entry": false,
+      "dependencies": 0,
+      "structure": {
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
+        "testFiles": 0
+      },
+      "evidence": [
+        {
+          "file": "packages/shared/package.json",
+          "line": 1,
+          "text": "@demo/shared",
+          "sha256": "d1b48eeed328e8849d5537ed714763d01766a009257b4005175a6c32f1272771"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:node:@demo/web",
+      "kind": "module",
+      "name": "@demo/web",
+      "stack": "node",
+      "path": "packages/web",
+      "manifest": "packages/web/package.json",
+      "tech": [
+        "Next.js",
+        "TypeScript"
+      ],
+      "entry": true,
+      "entryPoint": {
+        "evidence": [
+          {
+            "file": "packages/web/package.json",
+            "line": 4,
+            "text": "dev",
+            "sha256": "439dc928eba3f96c4448fc1b9424002b5be6b0088cd9db9895135abde6af7115"
+          }
+        ]
+      },
+      "dependencies": 5,
+      "structure": {
+        "folders": [
+          {
+            "folder": "src",
+            "files": 2
+          }
+        ],
+        "testFiles": 0
+      },
+      "evidence": [
+        {
+          "file": "packages/web/package.json",
+          "line": 2,
+          "text": "@demo/web",
+          "sha256": "951f5940b41783514591a528238e4c7c5f90fc9982a1c7aa2d5e446afb97c3c5"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:node:demo-root",
+      "kind": "module",
+      "name": "demo-root",
+      "stack": "node",
+      "path": ".",
+      "manifest": "package.json",
+      "tech": [
+        "TypeScript"
+      ],
+      "entry": true,
+      "entryPoint": {
+        "evidence": [
+          {
+            "file": "package.json",
+            "line": 4,
+            "text": "workspaces",
+            "sha256": "c94421cde3f3cae593ece5142a20bac871dc3cc8db203d4ff877e9ae393921da"
+          }
+        ]
+      },
+      "dependencies": 1,
+      "structure": {
+        "folders": [],
+        "testFiles": 0
+      },
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 2,
+          "text": "demo-root",
+          "sha256": "eaec2c37a9d0305e13412fb3a25dee1751d5172f9f9004e65eb4efceb520595f"
+        }
+      ],
+      "narrative": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "mod:node:@demo/api",
+      "to": "ext:db:postgres",
+      "kind": "uses-db",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "package"
+      ],
+      "evidence": [
+        {
+          "file": "packages/api/package.json",
+          "line": 7,
+          "text": "pg",
+          "sha256": "8109889898e622ab4c7ede30d9b0b731e7d99206e0c92b83d55db57fcf5fbbfe"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:@demo/api",
+      "to": "mod:node:@demo/shared",
+      "kind": "references",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "code"
+      ],
+      "evidence": [
+        {
+          "file": "packages/api/package.json",
+          "line": 10,
+          "text": "@demo/shared",
+          "sha256": "6063e1be1367950c8b2065bbfb7251af023c2ff6e622a3a9dab8355194e8fa1a"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:@demo/shared",
+      "to": "mod:node:@demo/web",
+      "kind": "references",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "code"
+      ],
+      "evidence": [
+        {
+          "file": "packages/shared/index.js",
+          "line": 1,
+          "text": "../web/src/client.ts",
+          "sha256": "ec4296631e4e1ede148e5720279e9d50ea807609186270f7af2ff74f4e4b79ec"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:@demo/web",
+      "to": "mod:node:@demo/shared",
+      "kind": "references",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "code"
+      ],
+      "evidence": [
+        {
+          "file": "packages/web/package.json",
+          "line": 5,
+          "text": "@demo/shared",
+          "sha256": "6c353a424d11b5d32b68684f131ddc51d0e01311650e637b10a3aacd0b08bf86"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:demo-root",
+      "to": "ext:cache:redis",
+      "kind": "configured-cache",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "config"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 2,
+          "text": "REDIS_URL"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:demo-root",
+      "to": "ext:db:postgres",
+      "kind": "configured-db",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "config"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 1,
+          "text": "DATABASE_URL"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:demo-root",
+      "to": "ext:http-api:hooks.vendor.io",
+      "kind": "configured-http-api",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "config"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 5,
+          "text": "WEBHOOK_URL"
+        }
+      ]
+    },
+    {
+      "from": "mod:node:demo-root",
+      "to": "ext:http-api:payments.partner.io",
+      "kind": "configured-http-api",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "config"
+      ],
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 4,
+          "text": "PAYMENTS_URL"
+        }
+      ]
+    }
+  ],
+  "provides": {
+    "endpoints": [
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/health",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 19,
+            "text": "/api/health",
+            "sha256": "bf30823a4a0c6a4df834c22a3e9844e2f4dbd435a6e422587b8679d3b1bef914"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/orders",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 18,
+            "text": "/api/orders",
+            "sha256": "c94b5fdf232c3233ed31ec3ac283a5e26e532aab1302c3f19b71fb6d733e28c0"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "POST",
+        "path": "/api/orders",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 17,
+            "text": "/api/orders",
+            "sha256": "22876de2ee47fd00cd608aa564df88a244183ca3c3bb05d10739105f172dbebb"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/ready",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 20,
+            "text": "/api/ready",
+            "sha256": "3ae20a134df8b0f46810727bfd8308640168428983812f2a6ab57c4f1b89b2c0"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/users",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 15,
+            "text": "/api/users",
+            "sha256": "91586cd9b2f539162f1eefee58151153ee26800069586379ee85d4db803055b3"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/api",
+        "method": "GET",
+        "path": "/api/users/{}",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/api/src/server.js",
+            "line": 16,
+            "text": "/api/users/:id",
+            "sha256": "052dbfd7898743de052a2e37375508247d1df38a73d161325d49888b1b94e64c"
+          }
+        ]
+      }
+    ]
+  },
+  "consumes": {
+    "endpoints": [
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/api/invoices",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/client.ts",
+            "line": 10,
+            "text": "/api/invoices",
+            "sha256": "b6df288d091459311b229a0b7956191228eb1f46d61283db6e88b014e8f83ba1"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/api/orders",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/orders.ts",
+            "line": 6,
+            "text": "/api/orders",
+            "sha256": "9a69ae1142ef79702ab637ceb14262c60c5ed552831ef54e4d7be5ed74dad5ea"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "PATCH",
+        "path": "/api/orders/7",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/orders.ts",
+            "line": 8,
+            "text": "/api/orders/7",
+            "sha256": "011f854e81cb0149acdd80abd11560c45d6e95f96d9fda13e40b024601f2b004"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/api/users",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/client.ts",
+            "line": 8,
+            "text": "/api/users",
+            "sha256": "41510b92fdae47780e966de54257b8907aeee43bb23ec23e3f9a811bc4ea3dde"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/api/users/{}",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/client.ts",
+            "line": 9,
+            "text": "/api/users/${id}",
+            "sha256": "393ce53ebf9d2c018786273a37cb2b96f9c1c8a2bef36f92001cd1c90b3973d1"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/billing/summary",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/client.ts",
+            "line": 11,
+            "text": "/billing/summary",
+            "sha256": "e5b44957adbf95a743dc9417dae2f784b2cbaa4dea9a1f20b8a33249ac6fe655"
+          }
+        ]
+      },
+      {
+        "module": "mod:node:@demo/web",
+        "method": "GET",
+        "path": "/health",
+        "resolved": true,
+        "evidence": [
+          {
+            "file": "packages/web/src/client.ts",
+            "line": 12,
+            "text": "${BASE}/health",
+            "sha256": "2a3e49ca7ce79fb20ccec7fafcc0bd98f668686cd7d2d1a0e451b1f305645f8b"
+          }
+        ],
+        "base": "${BASE}"
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "config-missing:api.secret.key:877833d9",
+      "rule": "config-missing",
+      "title": "API_SECRET_KEY is read but defined in no configuration file",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/api/src/server.js",
+          "line": 10,
+          "text": "API_SECRET_KEY",
+          "sha256": "dde6b5fd8f491db4fd1cbb9ca039fbd6f28f48d75290780bf48bf4ce2074eaa5"
+        }
+      ],
+      "data": {
+        "subject": "api.secret.key",
+        "key": "API_SECRET_KEY"
+      }
+    },
+    {
+      "id": "config-unread:.env-payments_url:80c0b0bb",
+      "rule": "config-unread",
+      "title": "PAYMENTS_URL is configured in .env but no read of it was found",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 4,
+          "text": "PAYMENTS_URL"
+        }
+      ],
+      "data": {
+        "subject": ".env PAYMENTS_URL",
+        "key": "PAYMENTS_URL",
+        "file": ".env",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "config-unread:.env-redis_url:bd044b87",
+      "rule": "config-unread",
+      "title": "REDIS_URL is configured in .env but no read of it was found",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 2,
+          "text": "REDIS_URL"
+        }
+      ],
+      "data": {
+        "subject": ".env REDIS_URL",
+        "key": "REDIS_URL",
+        "file": ".env",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "config-unread:.env-unused_flag:1c00f64e",
+      "rule": "config-unread",
+      "title": "UNUSED_FLAG is configured in .env but no read of it was found",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 3,
+          "text": "UNUSED_FLAG"
+        }
+      ],
+      "data": {
+        "subject": ".env UNUSED_FLAG",
+        "key": "UNUSED_FLAG",
+        "file": ".env",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "cycle:mod:node:-demo-shared-mod:node:-demo-web:2ca049b4",
+      "rule": "cycle",
+      "title": "Modules reference each other in a cycle: @demo/shared → @demo/web → @demo/shared",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/shared/index.js",
+          "line": 1,
+          "text": "../web/src/client.ts",
+          "sha256": "ec4296631e4e1ede148e5720279e9d50ea807609186270f7af2ff74f4e4b79ec"
+        },
+        {
+          "file": "packages/web/package.json",
+          "line": 5,
+          "text": "@demo/shared",
+          "sha256": "6c353a424d11b5d32b68684f131ddc51d0e01311650e637b10a3aacd0b08bf86"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/shared mod:node:@demo/web",
+        "modules": [
+          "mod:node:@demo/shared",
+          "mod:node:@demo/web"
+        ]
+      }
+    },
+    {
+      "id": "dep-undeclared:mod:node:-demo-api-lodash:11724c33",
+      "rule": "dep-undeclared",
+      "title": "lodash is imported but not declared in packages/api/package.json",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/api/src/server.js",
+          "line": 4,
+          "text": "lodash",
+          "sha256": "df9d3dbdf0798c0c47bdb44be0ca769b9849dba02b13e8386edbc556224e6ece"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/api lodash",
+        "module": "mod:node:@demo/api",
+        "package": "lodash"
+      }
+    },
+    {
+      "id": "dep-unused:mod:node:-demo-api-left-pad:00ef3dad",
+      "rule": "dep-unused",
+      "title": "left-pad is declared but no import of it was found in this repo",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": "packages/api/package.json",
+          "line": 9,
+          "text": "left-pad",
+          "sha256": "fde76e3aa7888d0b63624143af1ff8bb1d14df1838ad8ed76f2d25a94ac456f0"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/api left-pad",
+        "module": "mod:node:@demo/api",
+        "package": "left-pad",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "endpoint-missing:mod:node:-demo-web-get-api-invoices:41ed8393",
+      "rule": "endpoint-missing",
+      "title": "GET /api/invoices is called but no endpoint in this repo provides it",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/web/src/client.ts",
+          "line": 10,
+          "text": "/api/invoices",
+          "sha256": "b6df288d091459311b229a0b7956191228eb1f46d61283db6e88b014e8f83ba1"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/web GET /api/invoices",
+        "method": "GET",
+        "path": "/api/invoices",
+        "module": "mod:node:@demo/web"
+      }
+    },
+    {
+      "id": "endpoint-missing:mod:node:-demo-web-patch-api-orders-7:5ca46f0e",
+      "rule": "endpoint-missing",
+      "title": "PATCH /api/orders/7 is called but no endpoint in this repo provides it",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/web/src/orders.ts",
+          "line": 8,
+          "text": "/api/orders/7",
+          "sha256": "011f854e81cb0149acdd80abd11560c45d6e95f96d9fda13e40b024601f2b004"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/web PATCH /api/orders/7",
+        "method": "PATCH",
+        "path": "/api/orders/7",
+        "module": "mod:node:@demo/web"
+      }
+    },
+    {
+      "id": "endpoint-unused:mod:node:-demo-api-post-api-orders:91643f8e",
+      "rule": "endpoint-unused",
+      "title": "POST /api/orders is provided but no caller found in this repo",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": "packages/api/src/server.js",
+          "line": 17,
+          "text": "/api/orders",
+          "sha256": "22876de2ee47fd00cd608aa564df88a244183ca3c3bb05d10739105f172dbebb"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/api POST /api/orders",
+        "method": "POST",
+        "path": "/api/orders",
+        "module": "mod:node:@demo/api",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "external-unowned:.env-payments_url:a5972b23",
+      "rule": "external-unowned",
+      "title": "payments.partner.io is configured under PAYMENTS_URL but no client using it was found",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": ".env",
+          "line": 4,
+          "text": "PAYMENTS_URL"
+        }
+      ],
+      "data": {
+        "subject": ".env PAYMENTS_URL",
+        "key": "PAYMENTS_URL",
+        "host": "payments.partner.io",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "module-orphan:mod:node:-demo-orphan-lib:a28bd60b",
+      "rule": "module-orphan",
+      "title": "No module references @demo/orphan-lib, and it has no entry point",
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "file": "packages/orphan-lib/package.json",
+          "line": 1,
+          "text": "@demo/orphan-lib",
+          "sha256": "7143ed6a2065e508a658fbfbe09253fb78c4eb5c3107869ffed80f84651a6178"
+        }
+      ],
+      "data": {
+        "subject": "mod:node:@demo/orphan-lib",
+        "module": "mod:node:@demo/orphan-lib",
+        "defaultHidden": true,
+        "hiddenReason": "inferred from absence in this repository; shown on request until its false-positive rate is measured"
+      }
+    },
+    {
+      "id": "version-drift:npm:zod:50aa44c0",
+      "rule": "version-drift",
+      "title": "zod is declared at 2 versions: 3.22.0, 3.23.8",
+      "confidence": "proven",
+      "evidence": [
+        {
+          "file": "packages/api/package.json",
+          "line": 8,
+          "text": "zod",
+          "sha256": "0c65d504421e193edd768917907c06d7204fae03e5159ff816f8d3d58257c96e"
+        },
+        {
+          "file": "packages/web/package.json",
+          "line": 5,
+          "text": "zod",
+          "sha256": "6c353a424d11b5d32b68684f131ddc51d0e01311650e637b10a3aacd0b08bf86"
+        }
+      ],
+      "data": {
+        "subject": "npm:zod",
+        "package": "zod",
+        "versions": [
+          "3.22.0",
+          "3.23.8"
+        ],
+        "modules": [
+          "mod:node:@demo/api",
+          "mod:node:@demo/web"
+        ]
+      }
+    }
+  ],
+  "notMeasured": [
+    {
+      "what": "Kubernetes manifests (1 file)",
+      "reason": "not parsed: services and resources declared there are not on the map"
+    },
+    {
+      "what": "routes registered with a run-time path (1)",
+      "reason": "the path is a variable, not a literal, so the route is not on the map"
+    }
+  ],
+  "overview": null,
+  "tour": null
+}

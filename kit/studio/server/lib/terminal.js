@@ -17,9 +17,38 @@ function q(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
+/** PowerShell literal string: a quote is doubled, nothing else is special inside one. */
+function psq(s) {
+  return `'${String(s).replace(/'/g, "''")}'`;
+}
+
+/**
+ * A session id is a UUID. It comes from the URL, and on Windows it ends up in a line cmd.exe interprets, where a
+ * quote is not a quote (cmd hands `'` to the program as part of the id) and `&` starts a second command. So
+ * nothing is built for anything else, and an id that passes needs no quoting in any shell.
+ */
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isSessionId(s) {
+  return typeof s === 'string' && SESSION_ID.test(s);
+}
+
 /** AppleScript string literal: backslashes and quotes, nothing else. */
 function osaQuote(s) {
   return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * The command that opens the session in the Claude Desktop app again (`claude --desktop`, CLI 2.1.299), from its
+ * own directory: `--resume <id>` looks for the session among that directory's. On Windows it is a PowerShell line
+ * (5.1 and 7; Windows Terminal opens PowerShell): cmd needs `&&` and does not take single quotes, PowerShell 5.1
+ * rejects `&&`, and no one line works in both. `shell` says which, so the panel can say so.
+ */
+export function desktopLine({ cwd, sessionId, platform = process.platform }) {
+  if (!isSessionId(sessionId)) return null;
+  if (platform === 'win32') {
+    return { shell: 'PowerShell', line: `Set-Location -LiteralPath ${psq(cwd)}; claude --desktop --resume ${sessionId}` };
+  }
+  return { shell: 'sh', line: `cd ${q(cwd)} && claude --desktop --resume ${q(sessionId)}` };
 }
 
 /**
@@ -27,11 +56,21 @@ function osaQuote(s) {
  * Returns null when nothing here knows how to open a terminal, so the caller
  * can say so rather than fail silently.
  */
-export function plan({ cwd, sessionId, command }) {
-  const inner = command ?? `claude --resume ${q(sessionId)}`;
+export function plan({ cwd, sessionId, platform = process.platform }) {
+  if (!isSessionId(sessionId)) return null;
+
+  if (platform === 'win32') {
+    // Windows Terminal when present, the console host otherwise. wt sets the directory itself; what runs inside is
+    // cmd.exe, so the line shown is a cmd line: double quotes, `cd /d` for another drive, and the id bare (a UUID).
+    const inner = `claude --resume ${sessionId}`;
+    const wt = ['wt.exe', '-d', cwd, 'cmd.exe', '/k', inner];
+    return { platform: 'win32', via: 'wt.exe', shell: 'cmd', line: `cd /d "${cwd}" && ${inner}`, argv: wt };
+  }
+
+  const inner = `claude --resume ${q(sessionId)}`;
   const line = `cd ${q(cwd)} && ${inner}`;
 
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     return {
       platform: 'darwin',
       via: 'Terminal.app',
@@ -39,12 +78,6 @@ export function plan({ cwd, sessionId, command }) {
       argv: ['osascript', '-e', `tell application "Terminal" to do script ${osaQuote(line)}`,
         '-e', 'tell application "Terminal" to activate'],
     };
-  }
-
-  if (process.platform === 'win32') {
-    // Windows Terminal when present, the console host otherwise.
-    const wt = ['wt.exe', '-d', cwd, 'cmd.exe', '/k', inner];
-    return { platform: 'win32', via: 'wt.exe', line, argv: wt };
   }
 
   // Linux and the rest: whichever emulator is actually installed. Names are
@@ -57,14 +90,19 @@ export function plan({ cwd, sessionId, command }) {
     ['xfce4-terminal', ['--working-directory', cwd, '-e', `bash -lc ${q(line)}`]],
     ['xterm', ['-e', 'bash', '-lc', line]],
   ];
-  return { platform: process.platform, via: 'candidates', line, candidates };
+  return { platform, via: 'candidates', line, candidates };
 }
 
-/** Launch it, detached, and report what was run. */
-export function open({ cwd, sessionId, command }) {
+/**
+ * Launch it, detached, and report what was run. What runs is always `claude --resume <id>`: the route used to take a
+ * `command` from the request body and run it in place of that, with no id check, and the panel never sent one. An
+ * unused way to run anything in a terminal, behind a token that remote access puts on the network, was removed.
+ */
+export function open({ cwd, sessionId }) {
   if (!cwd || !fs.existsSync(cwd)) return { ok: false, reason: `no such directory: ${cwd}` };
 
-  const p = plan({ cwd, sessionId, command });
+  if (!isSessionId(sessionId)) return { ok: false, reason: `not a session id: ${sessionId}` };
+  const p = plan({ cwd, sessionId });
   if (!p) return { ok: false, reason: `no terminal launcher known for ${process.platform}` };
 
   const attempts = p.argv ? [p.argv] : p.candidates.map(([bin, args]) => [bin, ...args]);

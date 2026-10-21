@@ -1,0 +1,10 @@
+using Demo.Core;
+var builder = WebApplication.CreateBuilder(args);
+var cs = builder.Configuration.GetConnectionString("Default");
+var pay = builder.Configuration["Payments:BaseUrl"];
+var miss = builder.Configuration["Missing:Key"];
+builder.Services.Configure<MailOptions>(builder.Configuration.GetSection("Mail"));
+var app = builder.Build();
+var api = app.MapGroup("/api");
+api.MapGet("/health", () => "ok");
+app.Run();

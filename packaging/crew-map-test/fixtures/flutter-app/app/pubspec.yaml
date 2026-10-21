@@ -1,0 +1,23 @@
+name: shop_app
+description: A Flutter app with a local package.
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  dio: ^5.4.0
+  core:
+    path: ../packages/core
+  ui:
+    path: ../packages/ui
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

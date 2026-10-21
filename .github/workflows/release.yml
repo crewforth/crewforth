@@ -4,6 +4,10 @@ name: release
 #   git tag vX.Y.Z && git push origin main --tags
 # This workflow then builds the tarball + GitHub release and publishes to npm, all automatically.
 #
+# npm takes the publish from this workflow's own identity (Trusted Publishing, OIDC): there is no npm token in the
+# repository. npmjs.com trusts exactly this file name and the `release` environment, so renaming either one stops
+# the publish until the package's trusted publisher is recreated to match (packaging/README.md).
+#
 # A rehearsal is tagged vX.Y.Z-rc.N on the same commit shape (VERSION stays X.Y.Z, the heading may still read
 # "[Unreleased] — X.Y.Z"). It publishes a GitHub pre-release and npm under the `next` dist-tag only: `latest`,
 # the plugin channel (plugin-stable) and the site do not move. packaging/release-check.sh decides which it is.
@@ -22,6 +26,11 @@ jobs:
     # The limit is on the job's own run (4 to 5 minutes measured); the wait for the approval comes before it starts.
     timeout-minutes: 20
     environment: release   # publish waits for manual approval (see repo → Environments → release)
+    # Job-level permissions replace the workflow's, so both are named. id-token lets the job ask GitHub for the
+    # short-lived OIDC token npm exchanges for publish rights; without it `npm publish` has no identity at all.
+    permissions:
+      contents: write
+      id-token: write
     outputs:
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
@@ -63,8 +72,24 @@ jobs:
       - name: Verify — installer e2e (start.sh combos + adopt.sh)
         run: bash packaging/e2e.sh
 
+      # An rc's archive says it is one: its VERSION is the tag's version, so an install of it is offered the final.
       - name: Build tarball
-        run: bash make-release.sh
+        run: |
+          if [ "${{ steps.v.outputs.prerelease }}" = true ]; then bash make-release.sh "${{ steps.v.outputs.version }}"
+          else bash make-release.sh; fi
+
+      # Before anything is published, so an npm that cannot be installed stops the release with no channel moved.
+      # Trusted Publishing needs Node 22.14+ and npm 11.5.1+; moving a dist-tag over OIDC needs npm 11.21.0+, and
+      # Node 24 ships an older one (24.21.0 carries 11.19.0), so npm is pinned to an exact version here.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Pin the npm that publishes
+        run: |
+          npm install -g npm@11.21.0
+          [ "$(npm --version)" = 11.21.0 ] || { echo "::error::npm is $(npm --version), not 11.21.0"; exit 1; }
 
       - name: GitHub release
         env:
@@ -113,11 +138,6 @@ jobs:
           [ "$now" = "${GITHUB_SHA}" ] || { echo "::error::plugin-stable is $now, not ${GITHUB_SHA}"; exit 1; }
           echo "plugin-stable advanced to ${GITHUB_SHA}"
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
       # The repo README is rich (diagrams, collapsible sections, all install channels) — right for GitHub, noisy on
       # the npm page. Swap in the lean, npm-focused README for the published tarball ONLY (the commit is untouched).
       - name: Use the npm-flavoured README for the package
@@ -131,20 +151,23 @@ jobs:
             echo "npm README staged for publish; README.npm.md and README.tr.md left out of the package"
           fi
 
+      # No token: npm authenticates with the job's OIDC identity, and attaches a provenance statement on its own
+      # (public repository, public package).
       # A final publishes as `latest`. An rc takes its version from the tag in THIS checkout only (the repository keeps
       # X.Y.Z) and publishes as `next`, so `npx crewforth` still resolves the last final and `crewforth@next` the rc.
       - name: Publish to npm
         run: |
           if [ "${{ steps.v.outputs.prerelease }}" = true ]; then
             npm version "${{ steps.v.outputs.version }}" --no-git-tag-version
+            # The installer copies VERSION into the project: an rc must say it is one, or its final looks installed.
+            printf '%s\n' "${{ steps.v.outputs.version }}" > VERSION
           fi
           npm publish --access public --tag "${{ steps.v.outputs.npm_tag }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # A final moves `latest` only, so `next` went on naming the rc before it (or an older final): `crewforth@next`
       # installed something older than `crewforth@latest`. After a final, `next` follows when what it names is older;
       # an rc of a LATER version stays. The release is published by now, so a failure here warns and does not fail.
+      # The tag moves over OIDC too, which the package's trusted publisher must allow ("Allow npm dist-tag").
       - name: Move npm's `next` to this final when it names something older
         if: steps.v.outputs.prerelease != 'true'
         run: |
@@ -160,8 +183,6 @@ jobs:
           else
             echo "next stays at $cur (not older than ${{ steps.v.outputs.version }})"
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # crewforth.com, from this tag: .github/workflows/site.yml, which can also be run by hand for a tag whose release ran
   # before Pages was ready. OFF by default: it runs only when the repository variable SITE_DEPLOY is 1, because until

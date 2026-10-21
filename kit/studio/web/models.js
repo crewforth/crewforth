@@ -3,8 +3,9 @@
 // A class is an agent, a kind of change and a risk. Each line says what ran it, how many tasks, how many of the
 // verified ones passed the first time, how many were repeated one model up, and what the agents' tokens come to.
 // Under the table: the holds the record could let go of. They are shown, not acted on: the one button copies
-// Crewforth's command for it and lowers nothing.
-import { classRow, suggestionText, emptyNote, totalsLine, costLine, SOURCE, LOWER_RULE } from './models-plan.js';
+// Crewforth's command for it and lowers nothing. Then the normal work that ran above the table's model: said, with
+// the record's evidence where there is some, and not acted on either.
+import { classRow, suggestionText, aboveText, emptyNote, totalsLine, costLine, SOURCE, LOWER_RULE, ABOVE_HEAD, ABOVE_RULE } from './models-plan.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -26,7 +27,7 @@ export class Models {
   }
 
   setData(data) { this.data = data; this.render(); }
-  /** What the classes cost, read apart and less often: { measured, costs: { classKey: { cost, costed, runs } } }. */
+  /** What the classes cost, read apart and less often: { measured, costs: { classKey: { cost, costed, runs } }, above }. */
   setCosts(costs) { this.costs = costs; this.render(); }
 
   render() {
@@ -88,6 +89,7 @@ export class Models {
       const cost = mk('td', 'mv-num', r.cost);
       cost.title = r.costNote;
       if (r.partial) cost.dataset.partial = 'true';
+      if (r.advisor) { const t = mk('span', 'mv-tag', 'advisor'); t.dataset.kind = 'advisor'; t.title = r.advisor; cost.append(t); }
       tr.append(who, risk, model, mk('td', 'mv-num', r.tasks), first, mk('td', 'mv-num', r.escalated), cost);
       tbody.append(tr);
     }
@@ -113,6 +115,20 @@ export class Models {
         }
         box.append(row);
       }
+      pane.append(box);
+    }
+    if (d.above?.length) {
+      const box = mk('section', 'mv-above');
+      box.append(mk('h3', 'mv-suggest-h', ABOVE_HEAD));
+      for (const a of d.above) {
+        const t = aboveText(a, this.costs?.measured ? (this.costs.above?.[a.key] ?? null) : null);
+        box.append(mk('p', 'mv-suggest-text', `${t.title} ${t.says}`));
+        const v = mk('p', 'mv-above-verdict', t.verdict);
+        v.dataset.measured = String(t.measured);
+        box.append(v);
+        if (t.costs) box.append(mk('p', 'sub', t.costs));
+      }
+      box.append(mk('p', 'sub', ABOVE_RULE));
       pane.append(box);
     }
     for (const note of raisedNotes) {

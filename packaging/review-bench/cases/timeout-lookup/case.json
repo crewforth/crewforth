@@ -1,0 +1,24 @@
+{
+  "id": "timeout-lookup",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "a9a99101d fix(board): look for gtimeout too, and say so where it is not found",
+  "intent": "Use timeout for the board's lock wait.",
+  "strippedComments": 6,
+  "modes": {
+    "before": {
+      "claude-starter/hooks/board.sh": "100755"
+    },
+    "after": {
+      "claude-starter/hooks/board.sh": "100755"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/hooks/board.sh",
+      "from": 56,
+      "to": 56
+    }
+  ]
+}

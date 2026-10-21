@@ -1,0 +1,20 @@
+[project]
+name = "pysvc"
+version = "0.1.0"
+dependencies = [
+  "fastapi>=0.110",
+  "psycopg[binary]>=3.1",
+  "PyYAML>=6",
+  "requests",
+  "unused-lib==1.0",
+  "faiss-cpu>=1.8",
+  "uvicorn[standard]>=0.29",
+  "pytest-asyncio>=0.23",
+  "en-core-web-sm",
+]
+
+[project.scripts]
+pysvc = "app.main:run"
+
+[tool.ruff]
+line-length = 100

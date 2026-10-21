@@ -198,6 +198,27 @@ reported as unreachable, never as empty.
 Nothing listens on a network interface in this arrangement: both Studios stay on
 loopback and the tunnel does the crossing.
 
+## Remote viewers
+
+A viewer is a second token that reads and changes nothing, for watching the
+panel from a phone on the same Wi-Fi without handing it the panel. Add one in
+the Machines tab; its link is shown once, as a QR code (`web/qr.js`, made in the
+page). The server refuses a viewer's every request that is not a `GET`, and its
+reads of `/api/remote`, with 403 before any handler runs (`server/lib/remote.js`).
+A viewer lasts eight hours, then its link answers 401 and the page says Session
+expired. Revoke ends the token at once and closes a stream it holds open.
+Viewers live in memory and end with the server.
+
+Transcripts are hidden unless the viewer was added with them shown: the routes
+that are only transcript are refused, and every other answer, the event stream
+included, passes through `server/lib/redact.js`, which drops every string whose
+key is not on its allow-list.
+
+While a viewer is live the server also listens on the machine's private Wi-Fi
+address (`server/lib/lan.js`), and there it takes a viewer's token only, never
+the panel's. With none, it is on loopback alone. Every viewer connection and
+refusal is logged (`GET /api/remote`, and the server's output).
+
 ## What Crewforth already measured
 
 The panel does not recompute any of it. Selecting the session node opens what
@@ -249,8 +270,10 @@ channel that does not exist.
 
 ## Security
 
-The server binds to `127.0.0.1` only, and the host is deliberately not
-configurable — it reads a developer's live sessions and can start new ones.
+The server binds to `127.0.0.1`, and the host is deliberately not configurable —
+it reads a developer's live sessions and can start new ones. The one exception is
+the Wi-Fi listener above: open only while a viewer is live, for viewer tokens
+only, read-only.
 
 A token is always required for `/api/`. Supply one, or let the server generate
 one and print it with the URL:

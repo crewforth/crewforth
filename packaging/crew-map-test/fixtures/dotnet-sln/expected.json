@@ -1,0 +1,64 @@
+{
+  "about": "Three class libraries and an API: attribute routes, a MapGroup, appsettings with a connection string.",
+  "findings": [
+    [
+      "module-orphan",
+      "mod:dotnet:Legacy"
+    ],
+    [
+      "version-drift",
+      "nuget:Newtonsoft.Json"
+    ],
+    [
+      "config-missing",
+      "missing.key"
+    ],
+    [
+      "config-unread",
+      "Api/appsettings.json Features:Unused"
+    ]
+  ],
+  "nearMisses": [
+    "Tools is an Exe, so not an orphan",
+    "Mail:* is read through GetSection",
+    "Logging:* is read by the framework",
+    "Payments:BaseUrl is read, so its host is owned",
+    "Tools reaches Core only through a using: an inferred edge"
+  ],
+  "nodes": [
+    "ext:db:postgres",
+    "ext:http-api:pay.vendor.net",
+    "mod:dotnet:Api",
+    "mod:dotnet:Core",
+    "mod:dotnet:Legacy",
+    "mod:dotnet:Tools"
+  ],
+  "edges": [
+    [
+      "mod:dotnet:Api",
+      "mod:dotnet:Core",
+      "references",
+      "evidence"
+    ],
+    [
+      "mod:dotnet:Tools",
+      "mod:dotnet:Core",
+      "references",
+      "inferred"
+    ],
+    [
+      "mod:dotnet:Api",
+      "ext:db:postgres",
+      "configured-db",
+      "evidence"
+    ]
+  ],
+  "provides": [
+    "mod:dotnet:Api GET /api/health",
+    "mod:dotnet:Api GET /api/users/{}",
+    "mod:dotnet:Api POST /api/users"
+  ],
+  "notMeasured": [
+    ".NET package usage"
+  ]
+}

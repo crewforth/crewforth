@@ -1,0 +1,17 @@
+{
+  "id": "clean-board-refusals",
+  "kind": "clean",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "450887596 feat(board): record refusals, because they were the lock's only evidence and it left none",
+  "intent": "Record a refused board claim, so the lock leaves evidence.",
+  "modes": {
+    "before": {
+      "claude-starter/hooks/board.sh": "100755"
+    },
+    "after": {
+      "claude-starter/hooks/board.sh": "100755"
+    }
+  },
+  "expect": []
+}

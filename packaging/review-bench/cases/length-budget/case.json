@@ -1,0 +1,44 @@
+{
+  "id": "length-budget",
+  "kind": "defect",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "da6ae2578 fix(studio): the length check measured one object against another's budget",
+  "intent": "Check the size of the fetched runtime against its budget.",
+  "strippedComments": 15,
+  "modes": {
+    "before": {
+      "claude-starter/studio/ensure-node.sh": "100644"
+    },
+    "after": {
+      "claude-starter/studio/ensure-node.sh": "100644"
+    }
+  },
+  "expect": [
+    {
+      "file": "claude-starter/studio/ensure-node.sh",
+      "from": 39,
+      "to": 39
+    },
+    {
+      "file": "claude-starter/studio/ensure-node.sh",
+      "from": 53,
+      "to": 53
+    },
+    {
+      "file": "claude-starter/studio/ensure-node.sh",
+      "from": 276,
+      "to": 276
+    },
+    {
+      "file": "claude-starter/studio/ensure-node.sh",
+      "from": 278,
+      "to": 278
+    },
+    {
+      "file": "claude-starter/studio/ensure-node.sh",
+      "from": 280,
+      "to": 280
+    }
+  ]
+}

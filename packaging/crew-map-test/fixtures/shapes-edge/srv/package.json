@@ -1,0 +1,1 @@
+{ "name": "edge-srv", "scripts": { "start": "node index.js" }, "dependencies": { "express": "4.19.0", "@prisma/client": "5.0.0" } }

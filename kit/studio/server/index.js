@@ -21,25 +21,34 @@ import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentM
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
-import { readModels, readRecord, readCosts } from './lib/model-outcomes.js';
+import { streamOwned } from './lib/owned-stream.js';
+import { stampAtStart } from './lib/code-stamp.js';
+import { readModels, readRecord, readCosts, readAboveCosts } from './lib/model-outcomes.js';
+import { readMap, behindOf, compareMaps, mapSummary, MAP_FILE } from './lib/crew-map.js';
 
 const USAGE_BATCH = 12;
 import { palette } from './lib/palette.js';
 import { latestVersion, latestVersionCached, kitStatus } from './lib/kit.js';
 import { parsePeers, askAll, ask } from './lib/peers.js';
 import {
-  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES,
+  createSession, getSession, listSessionsOwned, reap, stopAll, dropSpools, ALLOWED_MODES, isHeldOpen,
 } from './lib/session.js';
 import { decide, pending, alwaysList, revoke, sweepLeft } from './lib/permissions.js';
-import { open as openTerminal, plan as terminalPlan } from './lib/terminal.js';
+import { open as openTerminal, plan as terminalPlan, desktopLine } from './lib/terminal.js';
 import { gateLog, gateReport, sessionStats, board } from './lib/kit-telemetry.js';
 import { writeState, clearStateSync, findRunning } from './lib/instance.js';
 import { remoteRoster } from './lib/roster.js';
+import { addViewer, listViewers, viewerByToken, revokeViewer, noteRequest, noteRefusal, viewerMay, MAX_VIEWERS, VIEWER_TTL_MS,
+  liveCount, remoteLog, sweep as sweepViewers, onViewersChange, onLog } from './lib/remote.js';
+import { redact, transcriptOnly } from './lib/redact.js';
+import { lanListener } from './lib/lan.js';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.resolve(HERE, '..', 'web');
+// The server's own code as it was when it started: an update on disk since then is said to the page (code-stamp.js).
+const codeChanged = stampAtStart(HERE);
 const LOOPBACK = '127.0.0.1';
 
 const MIME = {
@@ -92,8 +101,12 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
+// The answers that go to a viewer whose link hides transcripts: every one of them passes through redact() on its way
+// out, here and in the event stream, so no route has to remember to.
+const REDACTED = new WeakSet();
+
 function sendJson(res, status, value) {
-  send(res, status, JSON.stringify(value, null, 2), {
+  send(res, status, JSON.stringify(REDACTED.has(res) ? redact(value) : value, null, 2), {
     'content-type': 'application/json; charset=utf-8',
   });
 }
@@ -108,15 +121,35 @@ function sendJson(res, status, value) {
 const TOKEN = process.env.CREW_STUDIO_TOKEN || randomUUID();
 const TOKEN_GENERATED = !process.env.CREW_STUDIO_TOKEN;
 
+// The Wi-Fi listener (lib/lan.js): set by main() once the port is known, and opened and closed with the number of
+// live viewers. Null in the self-check unless it makes one.
+let LAN = null;
+
+/** For the self-check, which asks a real server as the owner and as a viewer. */
+export const _internals = { token: TOKEN, setLan: (l) => { LAN = l; } };
+
 // Peers are other machines running Studio, reached over a forwarded port. This
 // server still listens on loopback only; a peer never widens that.
 let PEERS = [];
 let SELF_NAME = 'this machine';
 
-function authorised(req, url) {
+/**
+ * Whose request this is: the owner's, a read-only viewer's (lib/remote.js), or nobody's.
+ * The token is read from the same two places for both, so a viewer's link works exactly as the owner's does.
+ */
+function whoAsks(req, url) {
   const header = req.headers['authorization'];
-  if (header === `Bearer ${TOKEN}`) return true;
-  return url.searchParams.get('token') === TOKEN;
+  const bearer = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null;
+  const given = [bearer, url.searchParams.get('token')].filter(Boolean);
+  // The panel's own token is accepted on loopback only. From the Wi-Fi it is not a token at all: a phone holding it
+  // would hold the panel, and nothing on the network should.
+  if (!req.crewLan && given.includes(TOKEN)) return { role: 'owner' };
+  for (const t of given) {
+    const viewer = viewerByToken(t);
+    if (viewer?.expired) return { role: 'expired', label: viewer.expired };
+    if (viewer) return { role: 'viewer', viewer };
+  }
+  return null;
 }
 
 /**
@@ -167,10 +200,16 @@ async function modelCosts(cwd) {
     for (const s of (await listSessions(dir)).filter((x) => x.modifiedAt >= since).slice(0, MODELS_SESSIONS_MAX)) {
       const u = await cachedUsage(s);
       read += 1;
-      for (const [id, a] of Object.entries(u.agents ?? {})) per.set(id, a.cost);
+      for (const [id, a] of Object.entries(u.agents ?? {})) per.set(id, a);
     }
   }
-  return { measured: true, costs: readCosts(cwd, (id) => (per.has(id) ? per.get(id) : null)), sessionsRead: read };
+  return {
+    measured: true,
+    costs: readCosts(cwd, (id) => per.get(id)?.cost ?? null,
+      (id) => (per.get(id)?.advisorCalls ? { calls: per.get(id).advisorCalls, cost: per.get(id).advisorCost } : null)),
+    above: readAboveCosts(cwd, (id) => (per.has(id) ? { cost: per.get(id).cost, atNormal: per.get(id).costAtNormal } : null)),
+    sessionsRead: read,
+  };
 }
 const MODELS_SESSIONS_MAX = 60;
 
@@ -214,23 +253,52 @@ async function serveStatic(res, urlPath) {
   }
 }
 
-async function handle(req, res) {
+export async function handle(req, res) {
   const url = new URL(req.url, `http://${LOOPBACK}`);
 
   // The token guards data and actions, not the app shell. A browser does not
   // carry the page's query string into its sub-resource requests, so demanding
   // it for /style.css served an unstyled page and protected nothing: the shell
   // holds no secrets, and every /api/ path below is still gated.
-  if (url.pathname.startsWith('/api/') && !authorised(req, url)) {
-    return sendJson(res, 403, { ok: false, reason: 'token required' });
+  const who = url.pathname.startsWith('/api/') ? whoAsks(req, url) : null;
+  // From the Wi-Fi, no token (or the panel's own) is 401: the network is asked who it is. On loopback the answer
+  // stays 403, as it always was.
+  if (url.pathname.startsWith('/api/') && !who) {
+    if (req.crewLan) noteRefusal(req, { status: 401, reason: 'no viewer token' });
+    return sendJson(res, req.crewLan ? 401 : 403, { ok: false, reason: 'token required' });
+  }
+  if (who?.role === 'expired') {
+    noteRefusal(req, { viewer: who.label, status: 401, reason: 'expired' });
+    return sendJson(res, 401, { ok: false, expired: true, reason: 'this link has expired: viewer links last eight hours' });
+  }
+  // A viewer is refused HERE, before any handler: no route below has to remember that a viewer exists, and a
+  // route added tomorrow is read-only for a viewer without anyone writing a line for it. The same holds for a
+  // link that hides transcripts: the routes that are nothing but transcript are refused here, and every other
+  // answer is filtered on its way out (REDACTED).
+  if (who?.role === 'viewer') {
+    const may = viewerMay(req.method, url.pathname);
+    if (!may.ok) { noteRefusal(req, { viewer: who.viewer.label, status: 403, reason: may.reason }); return sendJson(res, 403, { ok: false, reason: may.reason }); }
+    if (!who.viewer.transcripts) {
+      if (transcriptOnly(url.pathname)) {
+        noteRefusal(req, { viewer: who.viewer.label, status: 403, reason: 'transcripts hidden' });
+        return sendJson(res, 403, { ok: false, transcriptsHidden: true, reason: 'transcripts are hidden on this link' });
+      }
+      REDACTED.add(res);
+    }
+    noteRequest(who.viewer, req, res);
   }
 
   if (url.pathname === '/api/health') {
     return sendJson(res, 200, {
       ok: true,
+      role: who.role,
+      ...(who.role === 'viewer' ? { transcripts: who.viewer.transcripts, expiresAt: who.viewer.expiresAt } : {}),
       node: process.version,
       pid: process.pid,
       uptimeMs: Math.round(process.uptime() * 1000),
+      // `changed`: the server's files on disk are not the ones it started with. A page that finds no `code` at all
+      // is talking to a server older than this field, which is the same thing.
+      code: codeChanged(),
     });
   }
 
@@ -288,7 +356,12 @@ async function handle(req, res) {
     // dead time whenever the feed hung, measured. The refresh runs behind this response.
     const latest = latestVersionCached();
     const projects = await listProjects({ currentCwd: cwd, kitOf: (c) => kitStatus(c, latest) });
-    for (const p of projects) { p.origin = SELF_NAME; p.local = true; }
+    for (const p of projects) {
+      p.origin = SELF_NAME; p.local = true;
+      // The navigator's Map entry and its count: the findings the map shows unasked. A stat per project; the map
+      // is parsed again only when its file changes (crew-map.js).
+      p.map = p.exists && p.cwd ? mapSummary(p.cwd) : null;
+    }
 
     const origins = [{ name: SELF_NAME, local: true, ok: true, projects: projects.length }];
     if (PEERS.length) {
@@ -339,7 +412,7 @@ async function handle(req, res) {
     const sid = url.searchParams.get('session');
     const session = sid ? await findSession(sid) : null;
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
-    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], byAgent: {} });
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], above: [], byAgent: {} });
     return sendJson(res, 200, readModels(cwd, { agents: await agentIdsOf(session) }));
   }
 
@@ -347,8 +420,27 @@ async function handle(req, res) {
     const sid = url.searchParams.get('session');
     const session = sid ? await findSession(sid) : null;
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
-    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', costs: {}, sessionsRead: 0 });
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', costs: {}, above: {}, sessionsRead: 0 });
     return sendJson(res, 200, await modelCosts(cwd));
+  }
+
+  // The project's crew map, as Crewforth's scanner wrote it, and how far HEAD has moved since. Nothing is scanned here.
+  // `compare` names another project of this machine by its directory; only a project the panel lists, with a map
+  // of its own, is read, so the route cannot be pointed at an arbitrary path.
+  if (url.pathname === '/api/map') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', others: [] });
+    const map = readMap(cwd);
+    const others = (await listProjects({ currentCwd: cwd })).filter((p) => p.cwd && p.cwd !== cwd && readMap(p.cwd).measured)
+      .map((p) => ({ label: p.label, cwd: p.cwd }));
+    if (!map.measured) return sendJson(res, 200, { ...map, cwd, others });
+    const asked = url.searchParams.get('compare');
+    const peer = asked ? others.find((o) => o.cwd === asked) : null;
+    const compare = peer ? { label: peer.label, cwd: peer.cwd, clients: compareMaps(map.doc, readMap(peer.cwd).doc) }
+      : asked ? { label: null, cwd: asked, clients: [], reason: 'not a project of this machine with a crew map' } : null;
+    return sendJson(res, 200, { ...map, cwd, behind: await behindOf(cwd, map.doc.source?.commit), others, compare });
   }
 
   if (url.pathname === '/api/kit') {
@@ -441,8 +533,12 @@ async function handle(req, res) {
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
 
     if (req.method === 'GET') {
-      // What WOULD run, so the panel can show it before anything is launched.
-      return sendJson(res, 200, { measured: true, cwd, plan: cwd ? terminalPlan({ cwd, sessionId: id }) : null });
+      // What WOULD run, so the panel can show it before anything is launched; and, before Continue here is pressed,
+      // what it will do: continue this same session (nothing else holds it), or start a copy (something does). The
+      // answer is the one createSession acts on, asked the same way.
+      const held = await isHeldOpen(id);
+      return sendJson(res, 200, { measured: true, cwd, plan: cwd ? terminalPlan({ cwd, sessionId: id }) : null,
+        continueAs: held ? 'copy' : 'same', desktop: cwd ? desktopLine({ cwd, sessionId: id }) : null });
     }
 
     const gate = writeAllowed(req);
@@ -454,13 +550,42 @@ async function handle(req, res) {
     const out = openTerminal({
       cwd: typeof body.cwd === 'string' ? body.cwd : cwd,
       sessionId: id,
-      command: typeof body.command === 'string' ? body.command : undefined,
     });
     return sendJson(res, out.ok ? 200 : 400, out);
   }
 
   if (url.pathname === '/api/stream') {
     return stream(req, res, url);
+  }
+
+  /* --------------------------------------------------------- remote ---
+     Read-only viewers: who holds a link, and the way to take it back. Only
+     the owner reaches this far; a viewer was refused above. */
+
+  if (url.pathname === '/api/remote' && req.method === 'GET') {
+    return sendJson(res, 200, { measured: true, viewers: listViewers(), max: MAX_VIEWERS, ttlMs: VIEWER_TTL_MS, now: Date.now(),
+      lan: LAN ? LAN.state() : { listening: false, addresses: [], errors: [] }, log: remoteLog(30) });
+  }
+
+  const remoteMatch = url.pathname.match(/^\/api\/remote(?:\/([^/]+))?$/);
+  if (remoteMatch) {
+    const gate = writeAllowed(req);
+    if (!gate.ok) return sendJson(res, 403, { ok: false, reason: gate.reason });
+    if (req.method === 'POST' && !remoteMatch[1]) {
+      const body = await readBody(req);
+      if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
+      const made = addViewer(body.label, { transcripts: body.transcripts === true });
+      // The Wi-Fi listener opens with the first viewer; its links are known once it listens.
+      if (made.ok && LAN) await LAN.sync(liveCount());
+      const lanUrls = made.ok && LAN ? LAN.urls(made.viewer.token) : [];
+      return sendJson(res, made.ok ? 201 : 409, { ...made, lanUrls, lan: LAN ? LAN.state() : null, viewers: listViewers() });
+    }
+    if (req.method === 'DELETE' && remoteMatch[1]) {
+      const out = revokeViewer(decodeURIComponent(remoteMatch[1]));
+      if (LAN) await LAN.sync(liveCount());
+      return sendJson(res, 200, { ...out, lan: LAN ? LAN.state() : null, viewers: listViewers() });
+    }
+    return sendJson(res, 405, { ok: false, reason: 'POST to add a viewer, or DELETE a viewer id' });
   }
 
   /* ---------------------------------------------------------- owned ---
@@ -524,6 +649,10 @@ async function handle(req, res) {
     if (out.ok) s.noteDecision(toolUseId, body.verdict);
     return sendJson(res, out.ok ? 200 : 400, out);
   }
+
+  // Every open conversation on ONE connection (lib/owned-stream.js). Reading, so it sits beside /events, not
+  // behind the write gate.
+  if (url.pathname === '/api/owned-events') return streamOwned(req, res, url, { getSession, stateAfter: STATE_AFTER });
 
   const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events|mode))?$/);
   if (ownedMatch) {
@@ -655,7 +784,7 @@ async function stream(req, res, url) {
   });
 
   const send = (event, data) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    res.write(`event: ${event}\ndata: ${JSON.stringify(REDACTED.has(res) ? redact(data) : data)}\n\n`);
   };
 
   // A session the panel just started has no transcript until its first turn
@@ -830,6 +959,28 @@ async function selftest() {
     fleet.measured ? `${fleet.sessions.length} session(s)` : `not measured: ${fleet.reason}`,
   );
 
+  // The Map view: its files are installed, and the reader takes a crew map and refuses one of another schema. On a
+  // scratch map of its own, so the verdict does not depend on whether this project has one; this project's own map,
+  // when there is one, is reported beside it.
+  check('map view installed', ['map.js', 'map-plan.js', 'viewport.js'].every((f) => fs.existsSync(path.join(WEB_ROOT, f))), null);
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-studio-map-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.crewforth'));
+      const doc = { schema: 'crewforth.crew-map/1', nodes: [{ id: 'mod:x:a', kind: 'module', name: 'a' }], edges: [], findings: [], notMeasured: [] };
+      fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify(doc));
+      const read = readMap(dir);
+      // A different size, not only a different schema: the reader caches on mtime and size, and on Windows both writes
+      // land on one timestamp, so a same-size rewrite read back the first map (seen on a CI runner).
+      fs.writeFileSync(path.join(dir, MAP_FILE), JSON.stringify({ ...doc, schema: 'crewforth.crew-map/99' }));
+      const other = readMap(dir);
+      check('map read', read.measured === true && read.doc.nodes.length === 1 && other.measured === false,
+        read.measured ? `a scratch map read; one of another schema refused (${other.reason ?? 'read'})` : read.reason);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    const own = readMap(process.cwd());
+    process.stdout.write(`INFO this project's map — ${own.measured ? `${own.doc.nodes.length} node(s), ${own.doc.findings.length} finding(s)` : own.reason}\n`);
+  }
+
   const cost = await measureSpawnCost(3);
   if (cost === null) skip('spawn cost measured', 'claude CLI absent');
   else check('spawn cost measured', true, `min ${cost.minMs}ms · median ${cost.medianMs}ms · max ${cost.maxMs}ms`);
@@ -877,6 +1028,11 @@ async function main() {
         '  --help       this text\n\n' +
         'Set CREW_STUDIO_TOKEN to require a bearer token, CREW_STUDIO_PEERS for a\n' +
         'comma-separated peer list.\n\n' +
+        'To watch from a phone on the same Wi-Fi, add a viewer under Machines in\n' +
+        'the panel and scan its QR code. A viewer reads and changes nothing, its\n' +
+        'link lasts eight hours, and transcripts stay hidden unless you show them.\n' +
+        'While a viewer is live the server also listens on this machine\'s Wi-Fi\n' +
+        'address, for viewer links only; with none it is on loopback alone.\n\n' +
         'Peers are normally reached over a forwarded port, which keeps every\n' +
         'Studio on loopback:\n' +
         '  ssh -N -L 7778:127.0.0.1:7777 other-machine\n' +
@@ -893,12 +1049,21 @@ async function main() {
   // Only a server that is about to run does this; asking for --help or --selftest removes nothing.
   sweepLeft();
 
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     handle(req, res).catch((e) => {
       process.stderr.write(`crewforth-studio: unhandled: ${e?.stack ?? e}\n`);
       if (!res.headersSent) send(res, 500, 'internal error');
     });
-  });
+  };
+  const server = http.createServer(handler);
+
+  // Viewers on the same Wi-Fi: a second listener on this machine's private address, open only while a viewer is
+  // live (lib/lan.js). It closes when the last one is revoked or expires; the sweep ends expired ones even when no
+  // request comes to notice them.
+  LAN = lanListener({ handler, port: args.port });
+  onViewersChange((n) => { LAN.sync(n); });
+  onLog((e) => process.stdout.write(`            viewer ${e.event}: ${e.viewer ?? 'unknown'}${e.ip ? ` from ${e.ip}` : ''}${e.over ? ` (${e.over})` : ''}${e.result ? ` — ${e.result}` : ''}\n`));
+  setInterval(sweepViewers, 60 * 1000).unref();
 
   // A BUSY PORT IS NOT AUTOMATICALLY A PROBLEM. Before 2.10.2 this printed "try --port n+1" and exited 1, which
   // is the right answer only when a stranger holds the port. When the holder is our OWN panel -- the common case,
@@ -979,6 +1144,7 @@ async function main() {
       // leaks running sessions is worse than one that never started them.
       stopAll();
       dropSpools();
+      LAN?.close();
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 2000).unref();
     });

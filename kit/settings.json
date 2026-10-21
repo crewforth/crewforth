@@ -108,6 +108,17 @@
             "timeout": 600
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/guard-question.sh",
+            "timeout": 600
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -142,6 +153,12 @@
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/session-guard.sh",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/prompt-approval.sh",
+            "timeout": 60
           }
         ]
       }
@@ -168,6 +185,17 @@
             "timeout": 600
           }
         ]
+      },
+      {
+        "matcher": "(.*:)?crew-refuter",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/refuter-ledger.sh",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -179,6 +207,29 @@
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/agent-outcome.sh",
             "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/prompt-approval.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/precompact-snapshot.sh",
+            "timeout": 30
           }
         ]
       }

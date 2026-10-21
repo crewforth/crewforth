@@ -4,6 +4,8 @@
 
 **Gereksinimler:** Claude Code 2.1.214 veya sonrası (2.1.282 ile test edildi) ve `npx` için Node.js 20 veya sonrası (22 ya da 24 önerilir).
 
+npm paketini yayın iş akışının kendisi yayımlıyor; kimliğini npm'e kısa ömürlü bir token'la kanıtlıyor (npm Trusted Publishing). Depoda npm token'ı yok ve 3.2.0'dan itibaren her sürüm, npm sayfasında görünen bir provenance kaydı taşıyor.
+
 ```bash
 # npx: kurulum gerektirmez
 npx crewforth init                  # yeni proje

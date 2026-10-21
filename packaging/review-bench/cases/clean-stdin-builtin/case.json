@@ -1,0 +1,17 @@
+{
+  "id": "clean-stdin-builtin",
+  "kind": "clean",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "4f628a43c perf(hooks): read stdin with the builtin, so a PowerShell call without bash opens no process",
+  "intent": "Read stdin with the read builtin in the PowerShell gate instead of cat.",
+  "modes": {
+    "before": {
+      "kit/hooks/guard-powershell.sh": "100755"
+    },
+    "after": {
+      "kit/hooks/guard-powershell.sh": "100755"
+    }
+  },
+  "expect": []
+}

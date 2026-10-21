@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <groupId>com.demo</groupId>
+  <artifactId>parent</artifactId>
+  <packaging>pom</packaging>
+  <modules>
+    <module>api</module>
+    <module>core</module>
+  </modules>
+</project>

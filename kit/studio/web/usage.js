@@ -111,6 +111,18 @@ export function summaryRows(u, { live = false, now = null } = {}) {
   };
   part('Session', u.parts?.session, 'The session\'s own transcript');
   part('Agents', u.parts?.agents, 'Everything its agents did');
+  // The advisor: a second model the main one consulted mid-response. Its tokens are in the rows above already; this
+  // says how much of them it was. No call recorded, no row: a session that never consulted it shows no zero.
+  if (u.advisor?.calls) {
+    const a = u.advisor;
+    const who = Object.keys(u.advisorModels ?? {}).map(modelName).join(', ');
+    rows.push({
+      label: 'Advisor',
+      value: `${a.calls} ${a.calls === 1 ? 'call' : 'calls'} \u00b7 ${fmtCount(a.tokens.fresh)} \u00b7 ${fmtCost(a.cost)}`,
+      note: `Advice the main model asked a second model for${who ? ` (${who})` : ''}, priced at that model's rates. Included in the totals above; the API's own token count leaves it out\n${costNote(a)}`,
+      detail: kinds(a.tokens),
+    });
+  }
   // Behind the cost: each model's new tokens and what they come to. A model with no price says so with a dash.
   const perModel = Object.entries(u.byModel ?? {}).map(([model, t]) => [modelName(model), `${fmtCount(t.tokens.fresh)} \u00b7 ${fmtCost(t.cost)}`]);
   rows.push({ label: 'Cost', value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u), detail: perModel.length ? perModel : undefined });

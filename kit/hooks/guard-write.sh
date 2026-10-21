@@ -72,7 +72,8 @@ trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esa
 _gate_main(){
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
+[ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"; unset _crew_d   # where the gate log goes
 # Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
 # of this hook. `read` returns 1 at end of input; the text is read regardless.
 IFS= read -r -d '' INPUT || true
@@ -365,12 +366,7 @@ block(){  # $1 = rule name for the log (must keep the `gate-file edit` prefix �
   # and with the same rule about the payload: the path is NOT recorded unless CREW_GATE_LOG_CMD=1, because
   # /crew-gates reports rule names and counts and never the argument. Logged after the verdict; it cannot
   # change it. CREW_GATE_LOG overrides the path; point it at /dev/null to turn recording off.
-  _GL="${CREW_GATE_LOG:-}"
-  if [ -z "$_GL" ] && [ -d ".claude" ]; then
-    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null; then
-      _GL=".claude/gate-log.tsv"
-    fi
-  fi
+  _GL=""; declare -F crew_gate_log_write >/dev/null && { crew_gate_log_write; _GL="$_CREW_GL"; }
   if [ -n "$_GL" ]; then
     if [ "${CREW_GATE_LOG_CMD:-0}" = 1 ]; then
       printf 'BLOCK\t§4.5\t%s\t%s\n' "$1" \
@@ -388,6 +384,7 @@ WHY_SCRIPT="This file is a gate script — rewriting it would disarm the trace/s
 WHY_DISC="This file is Crewforth's discipline document — it IS the text of §4.1-§4.5, so editing it empties the rules the gates enforce."
 WHY_LINK="A parent directory of this path is a symlink and it resolves into a gate directory, so the write would land on a gate file."
 WHY_MODEL="This file is what model routing decides from: the user's rules, a class's floor, the critical paths, or the record of a call and its result. Only the user and Crewforth's own hooks write it, so a session cannot lower its own floor or erase its own failure."
+WHY_REFUTER="This file is the refuter ledger: what crew-refuter concluded about a finding, written by Crewforth's hook from the agent's own task and answer. A findings document is held to it, so a session that writes it would verify its own findings."
 WHY_APPR="This file records the user's own approval for a commit or a push (§4.4). Only the user's message writes it, so a session cannot approve its own commit."
 WHY_GITCFG="This file holds core.hooksPath: writing it can switch the git hooks off without touching one of them. Settings go through git config, which the Bash guard reads."
 WHY_LONG="The path in this payload is longer than any filesystem accepts. It is refused rather than parsed, because parsing it is the slow path an attacker would aim at."
@@ -545,6 +542,10 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
     # Matched by name wherever it is: a linked worktree keeps its git directory elsewhere.
     */[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll]|[Cc][Rr][Ee][Ww][Ff][Oo][Rr][Tt][Hh]-[Aa][Pp][Pp][Rr][Oo][Vv][Aa][Ll])
       GATE_RULE="approval-record edit (Write/Edit tools)"; GATE_WHY="$WHY_APPR"; return 0 ;;
+    # The refuter ledger (hooks/refuter-ledger.sh): what crew-refuter concluded, as the hook read it from the agent's
+    # own task and answer. findings.mjs --ledger trusts it; a session that writes it verifies its own findings.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-[Rr][Ee][Ff][Uu][Tt][Ee][Rr].[Tt][Ss][Vv]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ss][Tt][Aa][Tt][Ee]/[Cc][Rr][Ee][Ww]-[Rr][Ee][Ff][Uu][Tt][Ee][Rr].[Tt][Ss][Vv])
+      GATE_RULE="gate-file edit (refuter ledger)"; GATE_WHY="$WHY_REFUTER"; return 0 ;;
     # What model routing decides from (hooks/guard-agent-model.sh, hooks/agent-outcome.sh): the user's own rules,
     # the floors raised from the record of outcomes, the list of critical paths, and the records of calls and
     # results. A session that writes one lowers its own floor or wipes its own failure.
@@ -629,6 +630,22 @@ case "$INPUT" in *'"agent_id"'*)
           echo "GUARD (agent model): an agent does not write ${FP##*/}: a permission rule there decides which verify command a hook may run, and that is the user's to give. Stop, say what you wanted to change, and end your report with confidence: low" >&2
           exit 2 ;;
       esac
+    fi
+  fi ;;
+*)
+  # The session's own write to a critical path (no agent_id: the main thread). Not refused (K7: the user may be
+  # doing exactly this, and an agent is a choice, not a rule); recorded, so it is seen: a NOTE line in the gate log,
+  # which Studio's Gates tab and the status line read. The same definition of "critical path" the agents are held
+  # to; a file outside the project is not the project's critical path.
+  if [ "${CREW_MODEL_ROUTING:-}" != off ] && [ -n "${FP:-}" ]; then
+    _gwm="${BASH_SOURCE%/*}"; [ "$_gwm" = "${BASH_SOURCE}" ] && _gwm=.
+    if [ -f "$_gwm/guard-agent-model.sh" ]; then
+      . "$_gwm/guard-agent-model.sh"
+      if declare -F _am_crit_path >/dev/null 2>&1 && _am_crit_path "$FP"; then
+        case "$_AMRP" in /*|[A-Za-z]:*) ;; *)
+          declare -F _am_log >/dev/null 2>&1 && _am_log "note: the session wrote a critical path itself, not through an agent: $_AMRP ($_AMW)" ;;
+        esac
+      fi
     fi
   fi ;;
 esac

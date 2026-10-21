@@ -55,8 +55,10 @@ deduplicated by tool-use id, with main-thread and nested turns beside them. The 
 real transcripts the calls it caught alone were echo banners, not runs. `final_tested` says whether a test or build
 run came after the last `Edit`/`Write` — the run that says the code left behind works, which a rule that cuts test
 runs must not cut; file edits made through `Bash` are not seen. Each arm then prints a `trace` line —
-delegated k/n, cost, tokens, test runs and turns, nested in brackets. Grading still reads only the files on disk;
-the trace is a second measurement beside the grade, never an input to it.
+delegated k/n, cost, tokens, test runs and turns, nested in brackets, and an `agents` line naming which agents the
+main thread started and how often. For `commit-format` that line also says in how many runs `crew-commit-agent`
+wrote the message: a commit can pass the grade with a message the main thread wrote itself, and only this shows it.
+Grading still reads only the files on disk; the trace is a second measurement beside the grade, never an input to it.
 
 **A run that did not happen is not graded.** A run whose stream is empty, carries no `result` event, ends in an
 error result or hit the usage limit is printed **NOT MEASURED** and left out of the score. The last two are the

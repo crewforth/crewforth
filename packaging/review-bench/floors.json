@@ -1,0 +1,4 @@
+{
+  "about": "The pre-pass's floor on the bench cases, run with --no-tools (no shellcheck), so it is the same on every machine. Deterministic: the floor is the measured value. The agent arm has no floor here: it is measured by hand and its result is written in the docs with its date, model and case count.",
+  "prepass": { "recall-pattern": 100, "precision": 100, "falseAlarms": 0 }
+}

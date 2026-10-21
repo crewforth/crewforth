@@ -1,0 +1,4 @@
+REDIS_URL=redis://:{{PW}}#x@cache.corp.io:6379
+DATABASE_URL=postgres://app:ab/{{PW}}@db.corp.io:5432/app
+{{TOKEN}}
+{{TOKEN}}=1

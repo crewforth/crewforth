@@ -25,6 +25,7 @@
   <span class="bar-fill"></span>
   <div id="graph-summary" class="chips" role="group" aria-label="Session summary"></div>
   <span class="bar-sep" aria-hidden="true"></span>
+  <span id="role" class="badge" title="This link reads the panel and changes nothing" hidden>Read-only</span>
   <span id="pulse" class="live" role="status" data-state="connecting"><span class="dot"></span><strong>Connecting</strong><span class="live-detail"></span></span>
   <button id="theme" class="btn icon ghost" type="button" aria-label="Switch theme">
     <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/></svg>
@@ -95,6 +96,9 @@
         <button id="view-models" class="seg-btn" type="button" role="tab" aria-label="Models view" aria-selected="false" aria-controls="models">
           <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V8M8 13V3M13 13V6"/></svg><span class="tb-words">Models</span>
         </button>
+        <button id="view-map" class="seg-btn" type="button" role="tab" aria-label="Map view" aria-selected="false" aria-controls="map">
+          <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="5" height="3.5" rx="1"/><rect x="9" y="2.5" width="5" height="3.5" rx="1"/><rect x="5.5" y="10" width="5" height="3.5" rx="1"/><path d="M4.5 6v2h7V6M8 8v2"/></svg><span class="tb-words">Map</span>
+        </button>
       </div>
       <button id="tb-group" data-view="graph timeline" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Group <span>Workflow run</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
       <button id="tb-density" data-view="graph" class="btn sm ghost tb-menu" type="button" aria-haspopup="menu">Density <span>Auto</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
@@ -119,17 +123,17 @@
       <button id="tb-fold" data-view="graph timeline list" class="btn sm" type="button" aria-label="Fold all groups">
         <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg><span class="tb-words">Fold all</span>
       </button>
-      <button id="tb-zoom-out" data-view="graph" class="btn icon sm ghost" type="button" aria-label="Zoom out">
+      <button id="tb-zoom-out" data-view="graph map" class="btn icon sm ghost" type="button" aria-label="Zoom out">
         <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg>
       </button>
-      <button id="tb-zoom" data-view="graph" class="tb-zoom" type="button" title="Back to 100%" aria-label="Zoom 100%. Back to 100%">100%</button>
-      <button id="tb-zoom-in" data-view="graph" class="btn icon sm ghost" type="button" aria-label="Zoom in">
+      <button id="tb-zoom" data-view="graph map" class="tb-zoom" type="button" title="Back to 100%" aria-label="Zoom 100%. Back to 100%">100%</button>
+      <button id="tb-zoom-in" data-view="graph map" class="btn icon sm ghost" type="button" aria-label="Zoom in">
         <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
       </button>
-      <button id="tb-reset" data-view="graph" class="btn sm" type="button" title="Reset layout (r)" aria-label="Reset layout: put the cards moved by hand back where they belong" disabled>
+      <button id="tb-reset" data-view="graph map" class="btn sm" type="button" title="Reset layout (r)" aria-label="Reset layout: put the cards moved by hand back where they belong" disabled>
         <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7M3 3v3h3"/></svg><span class="tb-words">Reset layout</span>
       </button>
-      <button id="tb-fit" data-view="graph" class="btn sm" type="button" aria-label="Fit the graph to the view">
+      <button id="tb-fit" data-view="graph map" class="btn sm" type="button" aria-label="Fit the graph to the view">
         <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5.5v-3h3M10.5 2.5h3v3M13.5 10.5v3h-3M5.5 13.5h-3v-3"/></svg><span class="tb-words">Fit</span>
       </button>
     </div>
@@ -139,6 +143,7 @@
     <div id="timeline" role="tabpanel" aria-labelledby="view-timeline" hidden></div>
     <div id="list" role="tabpanel" aria-labelledby="view-list" hidden></div>
     <div id="models" role="tabpanel" aria-labelledby="view-models" hidden></div>
+    <div id="map" role="tabpanel" aria-labelledby="view-map" hidden></div>
     <div id="first-run" class="first-run" hidden></div>
     <div id="terminal-wait" class="terminal-wait" role="status" hidden></div>
     <div id="dock" role="region" aria-label="Waiting for approval" hidden></div>

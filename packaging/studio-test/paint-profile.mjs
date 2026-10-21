@@ -5,6 +5,7 @@
 //   node packaging/studio-test/paint-profile.mjs --headed        the same, in a window you can see
 //   node packaging/studio-test/paint-profile.mjs --real URL      a panel that is already running, as it is
 //   node packaging/studio-test/paint-profile.mjs --timeline      the Timeline: 250 agents, Group None, following now
+//   node packaging/studio-test/paint-profile.mjs --map           the project Map: 50 modules, 2,000 endpoints (faz6 §7)
 //   ... --nodes N --running N --secs N --chrome PATH --json FILE
 //
 // Not a gate, and not wired into verify.sh: it needs a Chrome and a display, and its numbers belong to the
@@ -43,6 +44,9 @@ const SECS = Number(arg('secs', 8));
 const REAL = arg('real', null);
 const HEADED = flag('headed');
 const TIMELINE = flag('timeline');
+const MAP = flag('map');
+const MODULES = Number(arg('modules', 50));
+const ENDPOINTS = Number(arg('endpoints', 2000));
 const JSON_OUT = arg('json', null);
 const W = Number(arg('width', 1440));
 const H = Number(arg('height', 900));
@@ -144,7 +148,7 @@ window.__pp = {
     const pin = (sel, display) => { const e = document.querySelector(sel); if (e) e.style.display = display; };
     pin('#first-run', 'none');
     pin('.toolbar', 'flex');
-    for (const other of ['canvas', 'timeline', 'list']) { const e = document.getElementById(other); if (e) { e.hidden = other !== id; e.style.display = other === id ? (id === 'canvas' ? 'block' : 'flex') : 'none'; } }
+    for (const other of ['canvas', 'timeline', 'list', 'map']) { const e = document.getElementById(other); if (e) { e.hidden = other !== id; e.style.display = other === id ? (id === 'canvas' ? 'block' : 'flex') : 'none'; } }
     this.stageId = id;
     return { root: document.getElementById(id), ...this.onScreen() };
   },
@@ -255,6 +259,55 @@ window.__pp = {
     on = false;
     return f;
   },
+  // A crew map the size the brief names: a .NET solution of about fifty projects and two thousand endpoints. Most
+  // modules under src/ (one foldable folder per band), ten external resources, references between neighbours.
+  mapDoc(modules, endpoints) {
+    const nodes = []; const edges = []; const provides = []; const consumes = []; const findings = [];
+    const ev = (f, l) => [{ file: f, line: l, text: 'x' }];
+    for (let i = 0; i < 10; i += 1) nodes.push({ id: 'ext:' + ['db', 'cache', 'http-api'][i % 3] + ':r' + i, kind: 'external', resource: ['db', 'cache', 'http-api'][i % 3], label: 'resource-' + i, hosts: ['h' + i + '.internal'], evidence: ev('appsettings.json', i + 1), narrative: null });
+    for (let i = 0; i < modules; i += 1) {
+      const id = 'mod:dotnet:P' + i;
+      nodes.push({ id, kind: 'module', name: 'Payments.Part' + i, stack: 'dotnet', path: (i < modules - 4 ? 'src/' : '') + 'Payments.Part' + i, manifest: 'src/P' + i + '.csproj', tech: ['aspnetcore@8', 'efcore@8'], entry: i % 7 === 0, dependencies: 6, evidence: ev('src/P' + i + '.csproj', 1), narrative: null });
+      if (i > 0) edges.push({ from: id, to: 'mod:dotnet:P' + (i - 1), kind: 'references', confidence: i % 5 ? 'evidence' : 'inferred', source: 'scanner', via: ['code'], evidence: ev('src/P' + i + '.csproj', 9) });
+      edges.push({ from: id, to: nodes[i % 10].id, kind: 'uses-db', confidence: 'evidence', source: 'scanner', via: ['package'], evidence: ev('src/P' + i + '.csproj', 12) });
+      if (i % 9 === 0) findings.push({ id: 'f' + i, rule: 'config-missing', title: 'Key' + i + ' is read but defined in no configuration file', confidence: 'proven', evidence: ev('src/P' + i + '/A.cs', 4), data: { subject: 'k' + i, module: id } });
+      if (i % 4 === 0) findings.push({ id: 'g' + i, rule: 'dep-unused', title: 'Polly is declared and never imported', confidence: 'inferred', evidence: ev('src/P' + i + '.csproj', 22), data: { subject: 'p' + i, module: id, defaultHidden: true } });
+    }
+    for (let k = 0; k < endpoints; k += 1) provides.push({ module: 'mod:dotnet:P' + (k % 7 === 0 ? 0 : (k % modules)), method: ['GET', 'POST', 'PUT', 'DELETE'][k % 4], path: '/api/r' + (k % 300) + '/{id}/s' + k, resolved: true, evidence: ev('src/C' + k + '.cs', 3) });
+    for (let k = 0; k < endpoints / 10; k += 1) consumes.push({ module: 'mod:dotnet:P' + ((k * 3) % modules), method: 'GET', path: '/api/r' + k + '/{id}/s' + k, resolved: true, evidence: ev('src/U' + k + '.cs', 8) });
+    return { schema: 'crewforth.crew-map/1', producer: { name: 'crew-map', version: '1' }, stacks: ['dotnet'], coverage: { files: 900, modules, listing: 'git' }, nodes, edges, provides: { endpoints: provides }, consumes: { endpoints: consumes }, findings, notMeasured: [], overview: null };
+  },
+  async takeOverMap(modules, endpoints) {
+    const { MapView } = await import('/map.js');
+    const stage = this.onStage('map');
+    this.shown = stage;
+    const root = stage.root;
+    root.replaceChildren();
+    const doc = this.mapDoc(modules, endpoints);
+    const t0 = performance.now();
+    const mv = new MapView(root, {});
+    mv.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/paint-profile-map', doc, behind: { count: 3 }, others: [], compare: null });
+    root.offsetHeight;
+    this.firstMs = +(performance.now() - t0).toFixed(1);
+    this.mv = mv; this.root = root; this.mapDocument = doc;
+    // pan() and zoom() move canvas.view and call canvas.applyView(): the map's viewport, under the same names.
+    this.canvas = { get view() { return mv.vp.view; }, applyView: () => mv.vp.apply() };
+    return this.describeMap();
+  },
+  describeMap() {
+    const r = this.root;
+    return { shown: this.shown?.shown ?? null, firstMs: this.firstMs, domNodes: r.querySelectorAll('*').length, cards: r.querySelectorAll('.mp-card').length,
+      lines: r.querySelectorAll('.mp-line').length, findingRows: r.querySelectorAll('.mp-frow').length, chips: r.querySelectorAll('.mp-chip').length,
+      endpoints: this.mapDocument.provides.endpoints.length + this.mapDocument.consumes.endpoints.length, zoom: +this.mv.zoom.toFixed(3) };
+  },
+  // What a click costs: selecting a module redraws the view, as a click does.
+  mapRedraws(n) {
+    const ids = this.mapDocument.nodes.filter((x) => x.kind === 'module').map((x) => x.id); const t = [];
+    for (let i = 0; i < n; i += 1) { const t0 = performance.now(); this.mv.select(ids[i % ids.length]); this.root.offsetHeight; t.push(performance.now() - t0); }
+    const s = [...t].sort((x, y) => x - y);
+    return { redraws: n, median: +s[Math.floor(n / 2)].toFixed(2), max: +s[n - 1].toFixed(2) };
+  },
+  mapLayer(name, on) { this.mv.layers[name] = on; this.mv.render(); this.root.offsetHeight; return this.describeMap(); },
   polls(n) {
     const c = this.canvas; const t = [];
     for (let i = 0; i < n; i += 1) { const t0 = performance.now(); c.render(this.g); t.push(performance.now() - t0); }
@@ -347,6 +400,18 @@ if (TIMELINE) {
   result.timelineAll = await ev(`window.__pp.describeTimeline()`);
   result.redrawAll = await ev(`window.__pp.redraws(30)`);
   result.followAll = await measure(`window.__pp.followFrames(${ms})`);
+} else if (MAP) {
+  result.mode = 'map';
+  result.map = await ev(`window.__pp.takeOverMap(${MODULES}, ${ENDPOINTS})`);
+  await sleep(600);
+  result.steady = await measure(`window.__pp.frames(${ms})`);
+  result.pan = await measure(`window.__pp.pan(${Math.min(ms, 5000)})`);
+  result.zoom = await measure(`window.__pp.zoom(${Math.min(ms, 5000)})`);
+  result.redraw = await ev(`window.__pp.mapRedraws(30)`);
+  result.withEndpoints = await ev(`window.__pp.mapLayer('endpoints', true)`);
+  await sleep(400);
+  result.endpointsPan = await measure(`window.__pp.pan(${Math.min(ms, 5000)})`);
+  result.redrawEndpoints = await ev(`window.__pp.mapRedraws(30)`);
 } else if (REAL) {
   result.page = await ev(`window.__pp.describe()`);
   result.steady = await measure(`window.__pp.frames(${ms})`);
@@ -374,7 +439,7 @@ if (TIMELINE) {
 }
 
 // The second validity test: the view that was measured was on the screen, with a size.
-const measured = TIMELINE ? result.timeline : REAL ? { shown: true } : result.asOpened;
+const measured = TIMELINE ? result.timeline : MAP ? result.map : REAL ? { shown: true } : result.asOpened;
 result.onScreenAfter = REAL ? { shown: true } : await ev(`window.__pp.onScreen()`);
 result.onScreen = measured?.shown === true && result.onScreenAfter.shown === true;
 result.valid = result.valid && result.onScreen;
@@ -396,6 +461,15 @@ if (TIMELINE) {
   console.log(`the whole session: ${JSON.stringify(result.timelineAll)}`);
   console.log(`redraw, whole session: render() ${result.redrawAll.median} ms median, ${result.redrawAll.max} ms worst over ${result.redrawAll.redraws}`);
   row('following now, whole session', result.followAll);
+} else if (MAP) {
+  console.log(`map (${MODULES} modules, ${ENDPOINTS} endpoints): ${JSON.stringify(result.map)}`);
+  row('steady', result.steady);
+  row('panning', result.pan);
+  row('zooming', result.zoom);
+  console.log(`redraw on a click: ${result.redraw.median} ms median, ${result.redraw.max} ms worst over ${result.redraw.redraws}`);
+  console.log(`endpoints layer on: ${JSON.stringify(result.withEndpoints)}`);
+  row('panning, endpoints on', result.endpointsPan);
+  console.log(`redraw on a click, endpoints on: ${result.redrawEndpoints.median} ms median, ${result.redrawEndpoints.max} ms worst over ${result.redrawEndpoints.redraws}`);
 } else if (REAL) {
   console.log(`page: ${JSON.stringify(result.page)}`);
   row('steady, as the viewer has it', result.steady);

@@ -1,0 +1,17 @@
+{
+  "id": "clean-plugin-panel",
+  "kind": "clean",
+  "stratum": "judgement",
+  "holdout": false,
+  "source": "7f9e04b9a feat(plugin): the plugin edition carries the panel too",
+  "intent": "Explain beside the runtime cache why a fetched Node stays under the home directory and not inside the plugin.",
+  "modes": {
+    "before": {
+      "claude-starter/studio/ensure-node.sh": "100644"
+    },
+    "after": {
+      "claude-starter/studio/ensure-node.sh": "100644"
+    }
+  },
+  "expect": []
+}

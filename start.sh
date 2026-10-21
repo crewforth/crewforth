@@ -96,6 +96,8 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
   if [ "$CREW_LANG" = tr ]; then
     case "$s" in
       "Crewforth · setup wizard") s='Crewforth · kurulum' ;;
+      "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost).") s="Durum satırı: Crewforth'unki (kapının son sözü, geçerli onay, crew ajanları, doluluk, maliyet)." ;;
+      "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor).") s="Durum satırı: seninki korundu; Crewforth'unki tek komutla açılır (/crew-doctor'a bak)." ;;
       "stack-agnostic") s='her yığınla çalışır' ;;
       "[1/2] Who is this install for?") s='[1/2] Kurulumu kim kullanacak?' ;;
       "Decides whether your teammates get Crewforth's configuration — and what goes into .gitignore.") s="Crewforth ayarlarının ekiple paylaşılıp paylaşılmayacağını ve .gitignore'a nelerin ekleneceğini belirler." ;;
@@ -189,6 +191,8 @@ Crewforth her zaman eksiksiz kurulur: tüm ajanlar ve skill'ler — backend, web
 (CLAUDE.md ## Stack ya da depo). React Native/Expo, hazır isteğe bağlı katmanlardan yalnız biridir.
   --backend | --frontend | --mobile | --fullstack   hâlâ kabul edilir ama etkisi yok (eski komutlar bozulmasın diye)
   --private | --shared   kurulum yalnızca sizin mi, yoksa ekiple paylaşılıp commit'lenecek mi? (varsayılan: private)
+  --preset <ad|dosya>    bir kurum preset'i uygula: kritik yollar, model tabanları, izinli verify komutları
+                         (gelenler: default, strict, solo; ya da kendi .json dosyanız)
   --lang tr|en   kurulum dili (verilmezse sihirbaz sorar)
   --yes, -y      tüm sorulara evet de (gözetimsiz kurulum)
   --version, -v  Crewforth sürümünü yazdırıp çık
@@ -207,6 +211,8 @@ Every install ships everything: all agents, all skills — backend, web and mobi
 (CLAUDE.md ## Stack, or the repo). React Native/Expo is only one of the optional ready-made layers.
   --backend | --frontend | --mobile | --fullstack   accepted, no effect (kept so older commands still run)
   --private | --shared   is the install yours alone, or committed for the team? (default: private)
+  --preset <name|file>   apply an organisation preset: critical paths, model floors, allowed verify commands
+                         (shipped: default, strict, solo; or a .json file of your own)
   --lang tr|en   installer language (asked interactively when not given)
   --yes, -y     answer every question with yes (unattended install)
   --version, -v  print the Crewforth version and exit
@@ -430,9 +436,13 @@ case "$CREW_LANG" in tr|en) ;; *) CREW_LANG=en ;; esac
 # choice made by --lang or the menu above stayed in this shell, and the preflight block printed English.
 export CREW_LANG
 
-STACK="generic"; DOTNET_FLAG=0; LEGACY_FLAGS=""; ASSUME_YES=0; VISIBILITY=""
+STACK="generic"; DOTNET_FLAG=0; LEGACY_FLAGS=""; ASSUME_YES=0; VISIBILITY=""; PRESET=""; _preset_take=0
 for a in "$@"; do
+  # `--preset NAME`: the next word is its value, whatever it looks like (`--preset strict`, `--preset ./org.json`).
+  if [ "$_preset_take" = 1 ]; then _preset_take=0; PRESET="$a"; continue; fi
   case "$a" in
+    --preset=*) PRESET="${a#--preset=}" ;;
+    --preset)   _preset_take=1 ;;
     --lang) ;;                       # value consumed in the language pass above
     --lang=*) ;;
     tr|en) ;;                        # the value of a separated --lang
@@ -446,6 +456,9 @@ for a in "$@"; do
     *) printf '%s\n' "$(m 'Unknown parameter: %s' "$a")"; echo; usage; exit 1 ;;
   esac
 done
+[ "$_preset_take" = 1 ] && { printf '%s\n' "$(m 'Unknown parameter: %s' "--preset (no value)")"; echo; usage; exit 1; }
+# A preset is checked before anything is installed: one that is not valid stops here, with nothing written.
+if [ -n "$PRESET" ]; then bash "$SRC/eval/lib/preset.sh" --check "$PRESET" || exit 1; fi
 
 # ===================== COLOR / STYLE HELPERS =====================
 # Color is emitted ONLY on an interactive TTY + TERM!=dumb + NO_COLOR empty.
@@ -638,6 +651,14 @@ count_showcase .claude/skills
 # studio's gate hook is invoked as `bash <path>` today, so the bit is not load-bearing
 # yet; set it anyway, because a future direct exec would fail silently.
 chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg .claude/eval/*.sh .claude/studio/server/hooks/*.sh 2>/dev/null || true
+# The status line, only where none is set: a user's own would lose to the project's setting, so it is never
+# replaced. eval/lib/statusline.sh --install decides and writes; this only says what it did.
+if [ -f .claude/eval/lib/statusline.sh ]; then
+  case "$(bash .claude/eval/lib/statusline.sh --install 2>/dev/null)" in
+    installed) _mt "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost)."; echo "  ${_M}" ;;
+    kept) _mt "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor)."; echo "  ${_M}" ;;
+  esac
+fi
 
 # §4.2: a vendor line that was armed before this run stays armed (the copy above resets it to a comment); nothing
 # else arms it. Rationale, and the measured failure of "arm it whenever the pattern skill exists", in adopt.sh.
@@ -679,6 +700,8 @@ cp "$SRC/README.md"         .claude/ 2>/dev/null || true
   # as if somebody had chosen it. --lang, CREW_LANG and the menu are choices, and are.
   [ "${_LANG_GUESSED:-0}" = 1 ] || echo "lang=${CREW_LANG:-en}"
 } > .claude/kit.conf
+# The organisation's preset, now that .claude/ is in place (checked above): a block at the top of crew-model-rules.
+if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
 
 # Discipline (kit-owned, refreshed on every update) vs project section (yours, written once), joined by @import.
 kit_require_sentinel "$SRC/CLAUDE.md"

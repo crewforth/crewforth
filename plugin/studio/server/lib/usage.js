@@ -4,25 +4,41 @@
 // usage. Measured on one machine before this was written: 23,867 assistant records carried usage, for 11,245
 // responses, and every repeat carried the same numbers. So a response is counted once, by its message id — and
 // once across the session's files too, which is what keeps an agent's tokens from being added twice.
+//
+// An advisor call (the advisor tool: the model consults a second one mid-response) is not in that usage. The API
+// keeps it out of the top-level fields, which are the executor's, and lists it in `usage.iterations[]` as an
+// `advisor_message` entry with its own `model`. It is billed at that model's rates, so it is priced on its own.
+// Measured on a real advisor session: the entry is written to the transcript, and repeated, like the rest of the
+// usage, on every record of the response; the message id above counts it once.
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { readAll } from './transcript.js';
 import { agentMetaFiles } from './projects.js';
-import { costOf, SOURCE } from './pricing.js';
+import { costOf, SOURCE, NORMAL_TIER_MODEL } from './pricing.js';
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+
+/**
+ * A usage's cache writes by kind. A write the split does not account for is the 5-minute kind: that is the default,
+ * and the cheaper of the two. The split can fall short of the total: measured on a real response, the split said
+ * 12,400 one-hour and 0 five-minute against a total of 12,670, and the 270 missing were billed as five-minute
+ * writes (its iterations listed them so, and Claude Code's own cost for the session matched only with them in).
+ */
+function writesOf(u) {
+  const split = u.cache_creation && typeof u.cache_creation === 'object' ? u.cache_creation : null;
+  const w1h = num(split?.ephemeral_1h_input_tokens);
+  const w5m = num(split?.ephemeral_5m_input_tokens);
+  return { cacheWrite5m: w5m + Math.max(0, num(u.cache_creation_input_tokens) - w5m - w1h), cacheWrite1h: w1h };
+}
 
 /** One response's usage, in the shape pricing.js prices. Null when the record carries none. */
 export function usageOfRecord(r) {
   const m = r?.type === 'assistant' ? r.message : null;
   const u = m?.usage;
   if (!u || typeof u !== 'object') return null;
-  const split = u.cache_creation && typeof u.cache_creation === 'object' ? u.cache_creation : null;
-  const w1h = num(split?.ephemeral_1h_input_tokens);
-  // With no split recorded, a cache write is the 5-minute kind: that is the default, and the cheaper of the two.
-  const w5m = split ? num(split.ephemeral_5m_input_tokens) : num(u.cache_creation_input_tokens);
+  const { cacheWrite5m: w5m, cacheWrite1h: w1h } = writesOf(u);
   return {
     id: typeof m.id === 'string' ? m.id : null,
     model: typeof m.model === 'string' ? m.model : null,
@@ -33,7 +49,26 @@ export function usageOfRecord(r) {
     cacheRead: num(u.cache_read_input_tokens),
     fast: u.speed === 'fast',
     usOnly: u.inference_geo === 'us',
+    advisor: advisorCallsOf(u),
   };
+}
+
+/** The advisor calls one response's usage lists, each in the shape pricing.js prices: [] when it made none. */
+export function advisorCallsOf(u) {
+  const out = [];
+  for (const it of Array.isArray(u?.iterations) ? u.iterations : []) {
+    if (it?.type !== 'advisor_message') continue;
+    out.push({
+      model: typeof it.model === 'string' ? it.model : null,
+      input: num(it.input_tokens),
+      output: num(it.output_tokens),
+      ...writesOf(it),
+      cacheRead: num(it.cache_read_input_tokens),
+      fast: false,
+      usOnly: u.inference_geo === 'us',
+    });
+  }
+  return out;
 }
 
 const KINDS = ['input', 'output', 'cacheWrite', 'cacheRead'];
@@ -43,25 +78,29 @@ class Tally {
   constructor() {
     this.tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
     this.usd = 0;
+    this.usdAtNormal = 0;     // the same tokens at NORMAL_TIER_MODEL's price
     this.responses = 0;
     this.unpriced = new Set();
   }
 
-  take(u, usd) {
-    this.responses += 1;
+  /** @param response  false for an advisor call: its tokens and cost are added, but it is part of a response, not one. */
+  take(u, usd, atNormal = null, response = true) {
+    if (response) this.responses += 1;
     this.tokens.input += u.input;
     this.tokens.output += u.output;
     this.tokens.cacheWrite += u.cacheWrite5m + u.cacheWrite1h;
     this.tokens.cacheRead += u.cacheRead;
     if (usd === null) this.unpriced.add(u.model ?? 'unknown model');
     else this.usd += usd;
+    if (atNormal !== null) this.usdAtNormal += atNormal;
   }
 
   /**
    * `fresh` is what was sent and written for the first time: input, output and cache writes. `cacheRead` is the
    * same context read back from the cache on every later response, which is why it dwarfs the rest in a long
    * session and is kept out of the headline. `cost` is null when any of the tokens came from a model the price
-   * table has no row for — a sum that leaves some of them out would read as the whole.
+   * table has no row for — a sum that leaves some of them out would read as the whole. `costAtNormal` is the same
+   * tokens at NORMAL_TIER_MODEL's list price, null under the same rule.
    */
   result() {
     const t = this.tokens;
@@ -69,6 +108,7 @@ class Tally {
       tokens: { ...t, fresh: t.input + t.output + t.cacheWrite, total: KINDS.reduce((a, k) => a + t[k], 0) },
       responses: this.responses,
       cost: this.unpriced.size ? null : this.usd,
+      costAtNormal: this.unpriced.size ? null : this.usdAtNormal,
       unpriced: [...this.unpriced].sort(),
     };
   }
@@ -80,6 +120,9 @@ export class Usage {
     this.all = new Tally();
     this.who = new Map();      // 'session', or an agent's id -> Tally
     this.model = new Map();    // model id -> Tally
+    this.advisor = new Tally(); // the advisor calls alone, one take per call
+    this.advisorModels = new Map(); // advisor model id -> Tally
+    this.advisorWho = new Map();    // 'session' or an agent's id -> Tally of its advisor calls alone
     this.first = null;         // the earliest and the latest record of any file added
     this.last = null;
   }
@@ -104,11 +147,22 @@ export class Usage {
       const u = usageOfRecord(r);
       if (!u) continue;
       if (u.id) { if (this.seen.has(u.id)) continue; this.seen.add(u.id); }
-      if (!(u.input + u.output + u.cacheWrite5m + u.cacheWrite1h + u.cacheRead)) continue;   // a record the harness made up carries no tokens
-      const usd = costOf(u);
-      this.all.take(u, usd);
-      this.#tally(this.who, who === 'session' && r.isSidechain === true ? 'agents:inline' : who).take(u, usd);
-      this.#tally(this.model, u.model ?? 'unknown model').take(u, usd);
+      if (!(u.input + u.output + u.cacheWrite5m + u.cacheWrite1h + u.cacheRead) && !u.advisor.length) continue;   // a record the harness made up carries no tokens
+      const mine = this.#tally(this.who, who === 'session' && r.isSidechain === true ? 'agents:inline' : who);
+      // The response, then each advisor call it made, priced at the advisor's own model.
+      for (const x of [u, ...u.advisor]) {
+        const usd = costOf(x);
+        const atNormal = costOf({ ...x, model: NORMAL_TIER_MODEL });
+        const own = x === u;
+        this.all.take(x, usd, atNormal, own);
+        mine.take(x, usd, atNormal, own);
+        this.#tally(this.model, x.model ?? 'unknown model').take(x, usd, atNormal, own);
+        if (!own) {   // here each call is one
+          this.advisor.take(x, usd, atNormal);
+          this.#tally(this.advisorWho, who === 'session' && r.isSidechain === true ? 'agents:inline' : who).take(x, usd, atNormal);
+          this.#tally(this.advisorModels, x.model ?? 'unknown model').take(x, usd, atNormal);
+        }
+      }
     }
     return this;
   }
@@ -134,6 +188,9 @@ export class Usage {
       ...all,
       models: [...this.model.keys()].filter((m) => !all.unpriced.includes(m)).sort(),
       parts: { session: (this.who.get('session') ?? new Tally()).result(), agents: agents.result() },
+      // Null when no advisor call is recorded: a session without one has no advisor line, not a zero.
+      advisor: this.advisor.responses ? { ...this.advisor.result(), calls: this.advisor.responses } : null,
+      advisorModels: Object.fromEntries([...this.advisorModels].map(([m, t]) => [m, { ...t.result(), calls: t.responses }])),
       byModel: Object.fromEntries([...this.model].map(([m, t]) => [m, t.result()]).sort((a, b) => b[1].tokens.total - a[1].tokens.total)),
       startedAt: this.first,
       lastAt: this.last,
@@ -192,7 +249,10 @@ export async function sessionUsage(session) {
   for (const [who, t] of usage.who) {
     if (who === 'session' || who.startsWith('agents:')) continue;
     const r = t.result();
-    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost };
+    // What of it was the advisor: its calls and their cost, already in `cost`. Zero calls when it consulted none.
+    const adv = usage.advisorWho.get(who)?.result() ?? null;
+    agents[who] = { fresh: r.tokens.fresh, cacheRead: r.tokens.cacheRead, cost: r.cost, costAtNormal: r.costAtNormal,
+      advisorCalls: adv?.responses ?? 0, advisorCost: adv?.cost ?? null };
   }
   return { ...withTimes(usage, records), agents };
 }

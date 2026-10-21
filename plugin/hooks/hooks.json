@@ -37,6 +37,12 @@
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-agent-model.sh\"", "timeout": 600 }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/guard-question.sh\"", "timeout": 600 }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -51,7 +57,8 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 }
         ]
       }
     ],
@@ -59,10 +66,15 @@
       { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] }
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 600 } ] },
+      { "matcher": "(.*:)?crew-refuter", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/refuter-ledger.sh\"", "timeout": 30 } ] }
     ],
     "PostToolUse": [
-      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] }
+      { "matcher": "Agent|Task", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/agent-outcome.sh\"", "timeout": 60 } ] },
+      { "matcher": "AskUserQuestion", "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/precompact-snapshot.sh\"", "timeout": 30 } ] }
     ],
     "SessionStart": [
       {

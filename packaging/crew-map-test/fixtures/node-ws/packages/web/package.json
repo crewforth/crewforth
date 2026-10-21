@@ -1,0 +1,6 @@
+{
+  "name": "@demo/web",
+  "version": "1.0.0",
+  "scripts": { "dev": "vite" },
+  "dependencies": { "axios": "1.6.0", "zod": "3.23.8", "@demo/shared": "workspace:*", "next": "14.2.0", "react-dom": "18.3.1" }
+}

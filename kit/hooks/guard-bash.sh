@@ -148,7 +148,14 @@ _join_cmd(){  # CMD -> CMD with its continued lines joined
 # ---- /CREW-JOIN
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
-[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
+[ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
+# Where the gate log goes: one rule for every gate and reader (eval/lib/gate-log.sh).
+[ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"
+# What a stopped or asked command would have touched (eval/lib/preview.sh), read only when one is stopped or asked.
+_CREW_PV_LIB="$_crew_d/../eval/lib/preview.sh"; unset _crew_d
+# The preview of a command. ALWAYS called as "$(_pv_line …)": the command substitution is the subshell that keeps an
+# exit or a failure in the library from ending this hook or changing its decision (smoke plants both).
+_pv_line(){ [ -f "$_CREW_PV_LIB" ] || return 0; . "$_CREW_PV_LIB" 2>/dev/null && crew_preview "$1" "$2" 2>/dev/null && printf '%s' "${_CREW_PV:-}"; return 0; }
 # Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
 # of this hook. `read` returns 1 at end of input; the text is read regardless.
 IFS= read -r -d '' INPUT || true
@@ -168,20 +175,17 @@ IFS= read -r -d '' INPUT || true
 # token, and `/crew-gates` never prints it — the report is rule names and counts. Recording it by default would
 # buy nothing and add a place for a secret to sit. `CREW_GATE_LOG_CMD=1` puts it back for debugging a false
 # positive, which is the only thing it is good for.
-# Where the default log may go. An explicit CREW_GATE_LOG is the operator's call and is used as given. The
-# DEFAULT path is only used when writing there cannot surprise anyone: outside a git repo, or inside one where
-# the path is already ignored. A kit install gitignores .claude/, so this is the normal case — but the plugin
-# edition drops into repos the installer never touched, and this repo proved the failure itself: the suite left
-# a gate-log.tsv sitting in `git status` as an untracked file waiting to be committed. One `git check-ignore`
-# runs only when a decision is logged (a block, an approval prompt or a CLAUDE_GIT_OK allow); ordinary commands
-# never reach it.
+# Where the log goes. An explicit CREW_GATE_LOG is the operator's call and is used as given. .claude/gate-log.tsv
+# only where writing there cannot surprise anyone: outside a git repo, or where git ignores it (a kit install
+# ignores .claude/; the plugin edition drops into repos the installer never touched, and this repo proved the
+# failure: the suite left a gate-log.tsv in `git status` waiting to be committed). Elsewhere it goes inside the
+# repository's .git, which is never committed. git is asked only when a decision is logged (a block, an approval
+# prompt or a CLAUDE_GIT_OK allow); ordinary commands never reach it.
+# Since 3.2.0 a repository that tracks .claude/ gets the log inside its .git (eval/lib/gate-log.sh), where it was
+# not written at all before.
 _gatelog_path(){
-  if [ -n "${CREW_GATE_LOG:-}" ]; then printf '%s' "$CREW_GATE_LOG"; return; fi
-  [ -d ".claude" ] || return 0
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git check-ignore -q ".claude/gate-log.tsv" 2>/dev/null || return 0
-  fi
-  printf '%s' ".claude/gate-log.tsv"
+  declare -F crew_gate_log_write >/dev/null || return 0
+  crew_gate_log_write; printf '%s' "$_CREW_GL"
 }
 gatelog(){  # $1 = verdict (BLOCK|ASK|ALLOW)  $2 = section  $3 = rule
   # Resolve the path ONCE per hook run and remember it HERE, not inside _gatelog_path: that function is invoked
@@ -720,6 +724,8 @@ block(){
   gatelog BLOCK "$2" "$1"
   echo "GUARD (§$2): '$1' stopped AT THE TOOL LEVEL." >&2
   [ -z "${_BLOCK_NOTE:-}" ] || echo "$_BLOCK_NOTE" >&2
+  # What it would have touched, when the rule names a kind (_PV_KIND): read only, after the decision is made.
+  if [ -n "${_PV_KIND:-}" ]; then _pvo="$(_pv_line "$_PV_KIND" "${_PV_CMD:-$CMD}")"; [ -n "$_pvo" ] && echo "$_pvo" >&2; fi
   case "${3:-}" in
     loss)     echo "Nothing here is undone by retrying — but the refusal is not the end of the task. Do the same job the reversible way: name the paths instead of sweeping, and look first (git clean -n, ls) so you act on what you can see. Only if the broad form is genuinely required does the user run it in their own terminal." >&2 ;;
     history)  echo "This rewrites or discards work that is already committed. Ask the person who shares the branch; a new commit usually reaches the same end without rewriting." >&2 ;;
@@ -865,15 +871,15 @@ _push_forces(){   # $1 = one captured `git push …` span -> 0 when a force flag
 _git_d45(){  # $1 = command text; block() exits on the first rule it breaks
   local CMD="$1" HAS_GIT=0 _PUSHSEG _seg                                         # has() reads CMD: this one
   case "$CMD" in *[Gg][Ii][Tt]*) HAS_GIT=1 ;; esac
-  { git_has "$CMD" 'reset'  && has '--hard'; }                                                && block "git reset --hard" "4.5" history
+  { git_has "$CMD" 'reset'  && has '--hard'; }                                                && { _PV_KIND=reset; _PV_CMD="$CMD"; block "git reset --hard" "4.5" history; }
   if [ "$HAS_GIT" = 1 ] && git_has "$CMD" 'push'; then
     _grep_out "$CMD" -oE 'git[[:space:]]+([^;&|]*[[:space:]])?push([^;&|]*)'; _PUSHSEG="$_GO"
     while IFS= read -r _seg; do
       [ -n "$_seg" ] || continue
-      _push_forces "$_seg" && { block "git push --force" "4.5" history; break; }
+      _push_forces "$_seg" && { _PV_KIND=push; _PV_CMD="$_seg"; block "git push --force" "4.5" history; break; }
     done <<< "$_PUSHSEG"
   fi
-  { git_has "$CMD" 'clean'  && has '-[A-Za-z]*f'; }                                           && block "git clean -f" "4.5" loss
+  { git_has "$CMD" 'clean'  && has '-[A-Za-z]*f'; }                                           && { _PV_KIND=clean; _PV_CMD="$CMD"; block "git clean -f" "4.5" loss; }
   return 0
 }
 # ---- the quoted argument of a command that does not run it ---------------------------------------------------
@@ -1109,7 +1115,7 @@ case "$CMD" in *branch*) _HAS_BRANCH=1 ;; *) _HAS_BRANCH=0 ;; esac
 # short cluster, so `rm -Rf /`, `rm -fR /`, `rm -f -r /` and `rm --recursive --force /` all walked past while
 # `rm -rf /` was blocked. Same class as the chmod hole found in evals/permission-pressure: one spelling gated,
 # another reaching the identical state. Case, flag order and the long form are all the same command.
-case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && block "destructive rm -rf" "4.5" loss
+case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
 # ADDED (3.1.0): `.` and `..` as a target carry none of those three characters and are the widest targets there are —
 # `rm -rf .` at a project root takes the whole tree, `..` its parent (both passed). Narrower than the test above on
 # purpose, so that it adds no noise: `rm` must stand at a command position, `sudo` or not (`git rm -r --cached .`, `npm rm`,
@@ -1121,7 +1127,7 @@ case "$CMD" in *[Rr][Mm]*)
   _rmc="$CMD"
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
   case "$CMD" in *\\"$_RMNL"*) [ "${#CMD}" -le 4096 ] && _rmc="${CMD//\\$_RMNL/ }" ;; esac
-  [[ $_rmc =~ $_RMDOT ]] && block "destructive rm -rf" "4.5" loss ;; esac
+  [[ $_rmc =~ $_RMDOT ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; } ;; esac
 # A whole-tree `git checkout -- .` / `git restore .` destroys every uncommitted change with no reflog and no
 # undo — the same loss as `reset --hard`, which has been gated since the beginning, by a command that was not.
 # Not hypothetical: a verification subagent ran exactly this over uncommitted work in this repo and took the
@@ -1303,15 +1309,20 @@ case "$CMD" in *[Ii][Cc][Aa][Cc][Ll][Ss]*) : ;; *) false ;; esac && _grep "$CMD"
 _HP_B=$' \t'   # blank = space or TAB only; a literal `\t` inside [ ] is a backslash and a t to ERE
 _HP_OPT="(--local|--global|--system|--worktree|--show-origin|--show-scope|--includes|--no-includes|-z|--null|--name-only|--bool|--int|--path|--bool-or-int|--expiry-date|--all|--type=[A-Za-z-]+|--file=[^${_HP_B}]+|--blob=[^${_HP_B}]+|(--file|-f|--blob|--type)[${_HP_B}]+[^${_HP_B}]+)"
 _HP_PRE="^[${_HP_B}]*git([${_HP_B}]+(-C[${_HP_B}]+[^${_HP_B}]+|--git-dir=[^${_HP_B}]+|--work-tree=[^${_HP_B}]+))*[${_HP_B}]+config([${_HP_B}]+${_HP_OPT})*[${_HP_B}]+"
-_hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core]
-  local bsnl=$'\\\n' c="$1" t seg r n=0 nc=0
-  local bare="${_HP_PRE}core\\.hooksPath[${_HP_B}]*\$"
+# THE SAME RULE FOR crewforth.hookschain. When a project's own hook chain lives OUTSIDE the repository, adopt.sh
+# keeps its path in this clone's git config under that key and the shim reads it on every commit. A write to it
+# drops the project's chain or points the shim at another directory, so it is judged by the reader above, key for
+# key: reads pass, every write form is refused, and so is removing or renaming the [crewforth] section.
+_HP_G='*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*'; _HC_G='*[Hh][Oo][Oo][Kk][Ss][Cc][Hh][Aa][Ii][Nn]*'
+_hp_blocks() {  # $1 = command, $2 = key as an ERE, $3 = glob of the key's name, $4 = its section -> 0 when it writes the key or drops the section
+  local bsnl=$'\\\n' c="$1" key="$2" kg="$3" sec="$4" t seg r n=0 nc=0
+  local bare="${_HP_PRE}${key}[${_HP_B}]*\$"
   local verb="${_HP_PRE}(--get|--get-all|--get-regexp|--get-urlmatch|--list|-l|get|list)([${_HP_B}]|\$)"
   local wr="[${_HP_B}](--unset|--unset-all|--add|--replace-all|--edit|-e|set|unset|--rename-section|--remove-section|rename-section|remove-section)([${_HP_B}]|\$)"
   local -a reads=()
   case "$c" in *"$bsnl"*) _gsub "$c" '\\'$'\n' ' ' bs; c="$_GS" ;; esac   # backslash-newline -> a space
   _unquoted "$c"; t="$_GS"
-  case "$t" in *[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*|*[Ss][Ee][Cc][Tt][Ii][Oo][Nn]*) ;; *) return 1 ;; esac   # after unquoting: hooks"P"ath
+  [[ $t == $kg || $t == *[Ss][Ee][Cc][Tt][Ii][Oo][Nn]* ]] || return 1   # after unquoting: hooks"P"ath
   shopt -q nocasematch && nc=1; shopt -s nocasematch
   # The payload reader decodes JSON escapes lossily — `\r` arrives as nothing, so `git config core.hooksPath <CR>`
   # would look value-less here while git sets the path to a CR byte (verified in review). With any such escape in
@@ -1327,7 +1338,7 @@ _hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core
   case "$raw" in *'\r'*|*'\f'*|*'\b'*|*'\v'*|*'\u'*) ;; *)
     _split_segs "$c"
     for seg in ${_SPL[@]+"${_SPL[@]}"}; do
-      [[ $seg == *[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]* ]] || continue
+      [[ $seg == $kg ]] || continue
       n=$((n+1)); [ "$n" -gt 64 ] && { reads=(); break; }   # past 64, no read is argued: the old rule judges it all
       # A write flag anywhere in the segment disproves the read (`--list --unset core.hooksPath`): git 2.54 refuses
       # those pairs, but the gate does not lean on another tool's option parser.
@@ -1339,14 +1350,15 @@ _hp_blocks() {  # $1 = command -> 0 when it writes core.hooksPath or drops [core
   # Leftover text of a read still matches the rule below, so cutting the wrong copy can only over-block.
   for r in ${reads[@]+"${reads[@]}"}; do c="${c/"$r"/ }"; done
   _unquoted "$c"; t="$_GS"
-  _ere i "$t" 'git([^|]*[^[:alnum:]_|])?config[^[:alnum:]_|][^|]*core\.hooksPath' '*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*' && return 0
-  _ere i "$t" 'config[^;&|]*[[:space:]](--remove-section|--rename-section|remove-section|rename-section)[[:space:]]+(--[[:space:]]+)?([^;&|[:space:]]+[[:space:]]+)?core([^A-Za-z0-9_.-]|$)' '*[Ss][Ee][Cc][Tt][Ii][Oo][Nn]*' && return 0   # [core] as the old name OR the new one
+  _ere i "$t" 'git([^|]*[^[:alnum:]_|])?config[^[:alnum:]_|][^|]*'"$key" "$kg" && return 0
+  _ere i "$t" 'config[^;&|]*[[:space:]](--remove-section|--rename-section|remove-section|rename-section)[[:space:]]+(--[[:space:]]+)?([^;&|[:space:]]+[[:space:]]+)?'"$sec"'([^A-Za-z0-9_.-]|$)' '*[Ss][Ee][Cc][Tt][Ii][Oo][Nn]*' && return 0   # the section as the old name OR the new one
   return 1
 }
 # Inline config override: `git -c core.hooksPath=…` / `git --config-env core.hooksPath=…` turns the hooks off for
 # that one command WITHOUT the word `config` (so the rule above misses it) — the exact equivalent of --no-verify.
 [ "$HAS_GIT" = 1 ] && _ere i "$CMD" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+core\.hooksPath' '*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*' && block "git -c core.hooksPath (disarms the git hooks)" "4.5" tamper
-[ "$HAS_GIT" = 1 ] && _hp_blocks "$CMD" && block "git config core.hooksPath (disarms the git hooks)" "4.5" tamper
+[ "$HAS_GIT" = 1 ] && _hp_blocks "$CMD" 'core\.hooksPath' "$_HP_G" core && block "git config core.hooksPath (disarms the git hooks)" "4.5" tamper
+[ "$HAS_GIT" = 1 ] && _hp_blocks "$CMD" 'crewforth\.hookschain' "$_HC_G" crewforth && block "git config crewforth.hookschain (the project's own hook chain, dropped or pointed elsewhere)" "4.5" tamper
 # The same setting by two side doors. `git config include.path f` (or includeIf.<cond>.path) makes git read ANOTHER
 # file as configuration, and that file can carry hooksPath; GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n
 # hand git a setting through the environment (measured: with them a commit skipped its hooks). Both are refused by
@@ -1359,6 +1371,8 @@ if [ "$HAS_GIT" = 1 ]; then
   # key right after `-c` (measured, 3.1.0 review).
   _ere i "$_t" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+core\.hooksPath' '*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*' \
     && block "git -c core.hooksPath (disarms the git hooks)" "4.5" tamper
+  _ere i "$_t" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+crewforth\.hookschain' "$_HC_G" \
+    && block "git -c crewforth.hookschain (the project's own hook chain, dropped or pointed elsewhere)" "4.5" tamper
   _ere i "$_t" 'git[[:space:]]+([^;&|]*[[:space:]])?(-c|--config-env)[[:space:]=]+include(if)?\.' '*[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*' \
     && block "git config include.path (another file read as configuration)" "4.5" tamper
   _ere i "$_t" 'git([^|;&]*[^[:alnum:]_|;&])?config[^[:alnum:]_|;&][^|;&]*(include\.path|includeif\.)' '*[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*' \
@@ -1367,6 +1381,7 @@ if [ "$HAS_GIT" = 1 ]; then
   _ere i "$_t" 'git([^|;&]*[^[:alnum:]_|;&])?config[^[:alnum:]_|;&]([^|;&]*[[:space:]])?(--edit|-e)([[:space:]]|$)' '*[Cc][Oo][Nn][Ff][Ii][Gg]*' \
     && block "git config --edit (the configuration file opened for writing)" "4.5" tamper
   case "$_t" in *GIT_CONFIG_*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*) block "core.hooksPath through GIT_CONFIG_ variables (disarms the git hooks)" "4.5" tamper ;; esac
+  case "$_t" in *GIT_CONFIG_*[Hh][Oo][Oo][Kk][Ss][Cc][Hh][Aa][Ii][Nn]*) block "crewforth.hookschain through GIT_CONFIG_ variables (the project's own hook chain, dropped or pointed elsewhere)" "4.5" tamper ;; esac
 fi
 # A write to a gate path (hook script, settings.json, or .git/hooks) via ANY common mechanism — writer verbs, the
 # in-place editors, and the interpreters an evasion reaches for (perl/python/ruby/node/ed) — plus the variable-
@@ -1447,8 +1462,14 @@ fi
 # ---- the reader of a call (the commit gate further down describes what it is for) ----
 _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span and every escaped character as one marker
               # (\001 n \001, its text in _C47_Q[n]); redirections set apart from the words they touch; heredoc bodies gone
+  [ "${_C47_SRC-$'\002'}" = "$1" ] && return 0       # the same text, already read in this call
   local s="$1" out="" pre c w hd="" c2 nl=$'\n' n=0 body t bt=0
-  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""
+  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""; _C47_SRC="$1"
+  # WHAT THE READER MET, for a caller that accepts only the plainest text (_a44_collapse): b = a backslash that
+  # escapes a character outside quotes · u = a quote that is never closed · x = a double-quoted text holding `$`, a
+  # backtick, a backslash or `!` (other than a message read from a here-document with a quoted delimiter, closed
+  # at once) · a = a $'…' text · c = a comment that was left out. Flags only: what is read does not depend on them.
+  _C47_F=""
   _gsub "$s" $'\r' ''; _gsub "$_GS" "$_C47_M" ''; s="$_GS"
   while :; do
     pre="${s%%[\"\'\\\;\&\|\<\>\#\(\)\`\$$nl]*}"; out="$out$pre"
@@ -1457,22 +1478,45 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
     case "$c" in
       \\) case "$s" in
             "$nl"*) s="${s:1}" ;;                                  # a backslash-newline joins: both characters go
-            '') ;;
-            *) _C47_Q[n]="${s:0:1}"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)); s="${s:1}" ;;   # an escaped character is itself, quoted
+            '') _C47_F="${_C47_F}b" ;;                             # the last character of the call: it escapes nothing, and goes
+            *) _C47_Q[n]="${s:0:1}"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)); s="${s:1}"; _C47_F="${_C47_F}b" ;;   # an escaped character is itself, quoted
           esac ;;
-      \') case "$s" in *\'*) body="${s%%\'*}"; s="${s:${#body}+1}" ;; *) body="$s"; s="" ;; esac
+      \') case "$s" in *\'*) body="${s%%\'*}"; s="${s:${#body}+1}" ;; *) body="$s"; s=""; _C47_F="${_C47_F}u" ;; esac
           _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
       \") body=""
+          t=0                                                      # t = 1: the strict form of that message (below)
           case "$s" in
             '$(cat <<'*)   # a message read from a here-document: its body is skipped as a whole, quotes and all
+              # THE STRICT FORM, the only substitution an approved call may hold: `"$(cat <<'WORD'` + newline, a body
+              # that ends at the first line that is WORD, then `)"` with nothing but blanks before it. Its body is
+              # literal. Anything looser (an unquoted delimiter, text after it, something after the body) is flagged x.
+              case "$s" in '$(cat <<'\'*)
+                c2="${s:9}"; w="${c2%%\'*}"
+                case "$w" in ''|*[!A-Za-z0-9_]*) ;; *)
+                  c2="${c2:${#w}+1}"
+                  case "$c2" in "$nl"*) c2="${c2:1}"
+                    case "$c2" in
+                      "$w$nl"*)      c2="${c2:${#w}+1}"; t=1 ;;
+                      *"$nl$w$nl"*)  pre="${c2%%"$nl$w$nl"*}"; c2="${c2:${#pre}+${#w}+2}"; t=1 ;;
+                    esac
+                    if [ "$t" = 1 ]; then
+                      while :; do case "$c2" in [$' \t']*) c2="${c2:1}" ;; *) break ;; esac; done
+                      case "$c2" in ')"'*) ;; *) t=0 ;; esac
+                    fi ;;
+                  esac ;;
+                esac ;;
+              esac
+              [ "$t" = 1 ] || _C47_F="${_C47_F}x"
               w="${s:8}"; w="${w#-}"; w="${w#[\'\"]}"; w="${w%%[!A-Za-z0-9_]*}"
               case "$s" in *"$nl$w$nl"*) [ -n "$w" ] && { pre="${s%%"$nl$w$nl"*}"; s="${s:${#pre}+${#w}+2}"; body='(a here-document)'; } ;; esac ;;
           esac
           while :; do                                              # to the closing quote that is not escaped
             pre="${s%%[\"\\]*}"
-            [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
+            case "$pre" in *[\$\`\!]*) [ "$t" = 1 ] || _C47_F="${_C47_F}x" ;; esac
+            [ "$pre" = "$s" ] && { body="$body$s"; s=""; _C47_F="${_C47_F}u"; break; }
             c2="${s:${#pre}:1}"; body="$body$pre"; s="${s:${#pre}+1}"
             [ "$c2" = '"' ] && break
+            _C47_F="${_C47_F}x"
             body="$body${s:0:1}"; s="${s:1}"
           done
           # "$@" and "${A[@]}" stay quoted and still become SEVERAL words: `set -- -n; git commit -m x "$@"`.
@@ -1480,7 +1524,7 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
           _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
       \$) case "$s" in
             \'*) # $'…' : a quoted text in which a backslash escapes, so a quote after one does not close it
-                 s="${s:1}"; body=""
+                 s="${s:1}"; body=""; _C47_F="${_C47_F}a"
                  while :; do
                    pre="${s%%[\'\\]*}"
                    [ "$pre" = "$s" ] && { body="$body$s"; s=""; break; }
@@ -1535,7 +1579,7 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
           esac
           out="$out$c" ;;
       \#) case "$out" in
-            ''|*[$' \t']) case "$s" in *"$nl"*) pre="${s%%"$nl"*}"; s="${s:${#pre}}" ;; *) s="" ;; esac ;;   # a comment, to the end of its line
+            ''|*[$' \t']) case "$s" in *"$nl"*) pre="${s%%"$nl"*}"; s="${s:${#pre}}" ;; *) s="" ;; esac; _C47_F="${_C47_F}c" ;;   # a comment, to the end of its line
             *) out="$out#" ;;
           esac ;;
     esac
@@ -1556,6 +1600,30 @@ _c47_w(){  # $1 = one token of _C47_T -> _W: the word as the command receives it
   done
   case "$t" in *[\$\*\?\[\{]*) _WX=1 ;; esac
   _W="$_W$t"
+}
+_c47_q(){  # _C47_T -> _C47_TQ: the same text with every quoted span and escaped character as the one placeholder Q
+  # Split on the marker once (the fields are text, number, text, number, …) and joined: one pass. A first version
+  # cut the markers off one at a time, and each cut scans the string: 9.6 s for 30 KB of escaped characters.
+  # bash does not split on \001 itself (it is the character bash quotes with, measured: one field), so the marker
+  # is first written as \037. A command that holds a \037 of its own is cut the slow way: its fields would shift.
+  [ "${_C47_TQS-$'\002'}" = "$_C47_T" ] && return 0     # this text, already written so in this call
+  local -a P=(); local f o="" b="" k=0 n=0 u=$'\037' m="$_C47_M" s="$_C47_T"
+  case "$s" in
+    *"$u"*) while :; do
+              case "$s" in *"$m"*"$m"*) ;; *) break ;; esac
+              b="${s%%"$m"*}"; s="${s:${#b}+1}"; s="${s#*"$m"}"; o="$o${b}Q"
+            done
+            o="$o$s" ;;
+    *) # The joined text is gathered 64 fields at a time: appending each field to the whole text copies the whole text.
+       _gsub "$s" "$m" "$u"
+       IFS="$u" read -r -d '' -a P <<< "$_GS" || true
+       for f in ${P[@]+"${P[@]}"}; do
+         if [ "$k" = 0 ]; then b="$b$f"; k=1; else b="${b}Q"; k=0; fi
+         n=$((n+1)); [ "$n" -ge 64 ] && { o="$o$b"; b=""; n=0; }
+       done
+       o="$o$b"; o="${o%$'\n'}" ;;                        # the newline the here-string added
+  esac
+  _C47_TQ="$o"; _C47_TQS="$_C47_T"
 }
 # The four rules below cost a grep each, so they run only for a command that could name a gate file at all. Builtin.
 _gate_named(){ case "$CMD" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|*[Gg][Ii][Tt][/\\]*[Cc][Oo][Nn][Ff][Ii][Gg]*|*[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]*|*.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]*) return 0 ;; esac; return 1; }
@@ -1823,7 +1891,7 @@ _appr_named(){  # sets _APN: 1 = the record is named, 2 = the hook is fed, 3 = a
   t="$CMD_UQ"; _APN=0
   shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$t" in
-    *crewforth-appr*|*crew-approval-pending*) _APN=1 ;;
+    *crewforth-appr*|*crew-approval-pending*|*crew-approval-asked*) _APN=1 ;;
   esac
   [ "$nc" = 0 ] && shopt -u nocasematch
   # FED means the hook is what the input goes INTO: it stands after a pipe, or shares its command with an input
@@ -1929,6 +1997,12 @@ _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
   fi
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
 _mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it)" "4.5" tamper
+# The refuter ledger (hooks/refuter-ledger.sh) by its file name: the agent's name alone is not refused, so a command
+# that greps for crew-refuter still runs. The same honest scope as the rule above.
+_rf_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$CMD_UQ" in *crew-refuter.tsv*) rc=0 ;; esac
+  [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
+_rf_named && block "the refuter ledger named in a command (only Crewforth's hook writes it)" "4.5" tamper
 _appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper
 
 # §4.5-adjacent: a .env file holds secrets. The settings.json Read-tool deny does NOT cover the Bash tool, so a
@@ -2288,43 +2362,28 @@ _a44_collapse(){  # $1 = command, $2 = commit|push, $3 = tool -> 0 and _A44_S (q
     local LC_ALL=C
     case "$s" in *[!\ -~]*|*\?*) _A44_WHY="outside the Bash tool an approved call is plain ASCII on one line (PowerShell reads typographic quotes as quotes); use the Bash tool for any other message"; return 1 ;; esac
   fi
+  # ONE READER. The pairing of quotes used to be done here a second time; the text is now read by _c47_read, and
+  # this function only says which of the things that reader met an approved call may not hold. Blanks and newlines
+  # around the call are no part of it (a newline INSIDE it is a second line, and is refused below as a separator).
   _gsub "$s" $'\r' ''; s="$_GS"
+  while :; do case "$s" in [$' \t\n']*) s="${s:1}" ;; *) break ;; esac; done
+  # A `2>&1` that ends the call goes with those blanks, on a line of its own too: it redirects nothing but the
+  # call's own output (`git commit -m x` + newline + `2>&1` was accepted before the readers were one, and still is).
   while :; do
-    pre="${s%%[\"\'\\]*}"; out="$out$pre"
-    [ "$pre" = "$s" ] && break
-    c="${s:${#pre}:1}"; s="${s:${#pre}+1}"
-    case "$c" in
-      \\) case "$s" in
-            $'\n'*) out="$out "; s="${s:1}" ;;                       # a backslash-newline joins two lines
-            *) _A44_WHY="a backslash outside quotes"; return 1 ;;
-          esac ;;
-      \') case "$s" in *\'*) ;; *) _A44_WHY="an unpaired quote"; return 1 ;; esac
-          body="${s%%\'*}"; s="${s:${#body}+1}"; out="${out}Q" ;;
-      *)  case "$s" in
-            '$(cat <<'\'*)
-              rest="${s:9}"; w="${rest%%\'*}"
-              case "$w" in ''|*[!A-Za-z0-9_]*) _A44_WHY="a here-document whose delimiter is not a plain quoted word"; return 1 ;; esac
-              rest="${rest:${#w}+1}"
-              case "$rest" in $'\n'*) rest="${rest:1}" ;; *) _A44_WHY="text on the line that opens the here-document"; return 1 ;; esac
-              # The body ends at the FIRST line that is the delimiter, as it does for the shell.
-              case "$rest" in
-                "$w"$'\n'*)       rest="${rest:${#w}+1}" ;;
-                *$'\n'"$w"$'\n'*) body="${rest%%$'\n'"$w"$'\n'*}"; rest="${rest:${#body}+${#w}+2}" ;;
-                *) _A44_WHY="a here-document that is not closed on its own line"; return 1 ;;
-              esac
-              while :; do case "$rest" in [$' \t']*) rest="${rest:1}" ;; *) break ;; esac; done
-              case "$rest" in
-                ')"'*) s="${rest:2}"; out="${out}Q" ;;
-                *) _A44_WHY="something follows the here-document inside the substitution"; return 1 ;;
-              esac ;;
-            *\"*)
-              body="${s%%\"*}"
-              case "$body" in *[\$\`\\\!]*) _A44_WHY="a double-quoted text that holds \$, a backtick, a backslash or ! (single-quote it, or read the message from a here-document with a quoted delimiter)"; return 1 ;; esac
-              s="${s:${#body}+1}"; out="${out}Q" ;;
-            *) _A44_WHY="an unpaired quote"; return 1 ;;
-          esac ;;
+    case "$s" in
+      *[$' \t\n'])        s="${s%?}" ;;
+      *[$' \t\n']'2>&1')  s="${s%'2>&1'}" ;;
+      *) break ;;
     esac
   done
+  _c47_read "$s"
+  case "$_C47_F" in
+    *u*) _A44_WHY="an unpaired quote"; return 1 ;;
+    *b*) _A44_WHY="a backslash outside quotes"; return 1 ;;
+    *x*) _A44_WHY="a double-quoted text that holds \$, a backtick, a backslash or ! (single-quote it, or read the message from a here-document with a quoted delimiter)"; return 1 ;;
+    *[ac]*) _A44_WHY="the call is more than one plain command (a separator, a substitution, a redirection, a comment, a glob or a second line)"; return 1 ;;
+  esac
+  _c47_q; out="$_C47_TQ"                          # a quoted span is one placeholder
   out="${out//$'\t'/ }"; out="${out// 2>&1/ }"
   while :; do case "$out" in [$' \n']*) out="${out:1}" ;; *) break ;; esac; done
   while :; do case "$out" in *[$' \n']) out="${out%?}" ;; *) break ;; esac; done
@@ -2378,7 +2437,7 @@ _p44_scan(){  # $1 = the collapsed `git push …` -> 0 when it is `git push [-u]
   return 0
 }
 _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise _APW says why not, for the message.
-  local k v op="" tr="" h="" b="" r="" u="" sid="" ts="" now age dir="${_CWD:-.}" hc=1 hp=1 cur tool
+  local k v op="" tr="" h="" b="" r="" u="" sid="" ts="" now age dir="${_CWD:-.}" hc=1 hp=1 cur tool tag _h2
   _APW="no approval from the user is on record"
   git_has "$CMD_SEEN" 'commit' && hc=0; git_has "$CMD_SEEN" 'push' && hp=0
   if [ "$hc" = 0 ] && [ "$hp" = 0 ]; then
@@ -2419,7 +2478,17 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   _p44_scan "$_A44_S" || { _APW="the push is not in the one form an approval covers, git push <remote> <branch> ($_P44_WHY)"; return 1; }
   [ -n "$b" ] && [ -n "$r" ] && [ -n "$u" ] || { _APW="the approval record could not be read"; return 1; }
   if [ "$_P44_REMOTE" != "$r" ]; then _APW="the user approved a push to $r, not to $_P44_REMOTE"; return 1; fi
-  case "$_P44_REF" in "$b"|HEAD) ;; *) _APW="the user approved a push of $b, not of $_P44_REF"; return 1 ;; esac
+  # A TAG ON THE APPROVED COMMIT is part of that push (a release is tagged on what was approved): `git push <remote>
+  # <tag>` passes when <tag> is a tag and not also a branch, and it points at the commit the approval covers. A tag
+  # on any other commit, --tags, and a refspec are refused as before.
+  tag=""
+  case "$_P44_REF" in
+    "$b"|HEAD) ;;
+    *[!A-Za-z0-9._/-]*|-*|*..*|*/) _APW="the user approved a push of $b, not of $_P44_REF"; return 1 ;;
+    *) if git -C "$dir" show-ref --verify --quiet "refs/tags/$_P44_REF" 2>/dev/null \
+          && ! git -C "$dir" show-ref --verify --quiet "refs/heads/$_P44_REF" 2>/dev/null; then tag="$_P44_REF"
+       else _APW="the user approved a push of $b, not of $_P44_REF"; return 1; fi ;;
+  esac
   cur="$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || true)"
   [ "$cur" = "$b" ] || { _APW="the user approved a push of $b, and the branch checked out now is ${cur:-<detached>}"; return 1; }
   # Where the remote pushes TO, with pushurl and pushInsteadOf applied: the name alone can be pointed elsewhere.
@@ -2432,7 +2501,15 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   cur="$(git -C "$dir" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
   if [ "$op" = push ]; then
     [ "$cur" = "$h" ] || { _APW="HEAD moved after the user approved the push (approved ${h:0:7}, now ${cur:0:7})"; return 1; }
+    if [ -n "$tag" ]; then
+      cur="$(git -C "$dir" rev-parse --verify --quiet "refs/tags/$tag^{commit}" 2>/dev/null || echo NONE)"
+      [ "$cur" = "$h" ] || { _APW="the tag $tag is on ${cur:0:7}, not on the commit the user approved for push (${h:0:7})"; return 1; }
+    fi
     return 0
+  fi
+  if [ -n "$tag" ]; then
+    _h2="$cur"; cur="$(git -C "$dir" rev-parse --verify --quiet "refs/tags/$tag^{commit}" 2>/dev/null || echo NONE)"
+    [ "$cur" = "$_h2" ] || { _APW="the tag $tag is on ${cur:0:7}, not on the commit the user approved for push (${_h2:0:7})"; return 1; }
   fi
   # commit+push: HEAD has to be the commit the approved index became.
   cur="$(git -C "$dir" rev-parse --verify --quiet 'HEAD^' 2>/dev/null || echo NONE)"
@@ -2463,11 +2540,129 @@ _appr_wired(){  # 0 = prompt-approval.sh is beside this hook and a settings file
   _APRW="read: ${seen:-no settings file found}"
   return 1
 }
+# IS THE APPROVAL QUESTION WIRED? The same reading as above, for the two halves on AskUserQuestion (guard-question.sh
+# on PreToolUse, prompt-approval.sh on PostToolUse). Asked only to choose which way the refusal offers first.
+_q_wired(){ declare -F _crew_q_wired >/dev/null 2>&1 && _crew_q_wired; }   # defined once, in prompt-approval.sh
+# MAY A PermissionRequest HOOK ANSWER THE PROMPT? One scan, defined in prompt-approval.sh (_crew_prh_scan) and read
+# from there. Without that file there is no other approval to fall back to, so the answer is "no" and the gate
+# asks as it always has.
+_gb_prh(){  # 0 = a PermissionRequest hook may be wired; _PRH names where
+  local here="${BASH_SOURCE%/*}"
+  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  [ -f "$here/prompt-approval.sh" ] || return 1
+  declare -F _crew_prh_scan >/dev/null 2>&1 || . "$here/prompt-approval.sh"
+  declare -F _crew_prh_scan >/dev/null 2>&1 || return 1
+  _crew_prh_scan
+}
 allow_approved(){
   gatelog ALLOW 4.4 "the user's own approval message covers this command"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"%s"}}\n' \
     "$(json_escape "§4.4: the user approved this in their own message, and what was approved is what this command does")"
   exit 0
+}
+# THE WRITTEN APPROVAL (and, in auto, the click). Reached where no prompt can be shown to a person - auto, dontAsk - and
+# in default / acceptEdits where a PermissionRequest hook may answer the prompt before the person does (3.2.0).
+_gate_written(){
+  # No prompt reaches a person here, but their own message does: see _approval_ok above.
+  _approval_ok && allow_approved
+  [ -n "${_PRF:-}" ] || { _PRF=0; _gb_prh && _PRF=1; }   # the default branch has already asked
+  gatelog BLOCK 4.4 "commit/push with no matching approval from the user"
+  case "$PERM_MODE" in
+    default|acceptEdits)
+      echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and a PermissionRequest hook may be wired ($_PRH). Such a hook answers the permission prompt before the person does, so this gate does not raise one." >&2 ;;
+    *)
+      echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and in '$PERM_MODE' a permission prompt is answered by software, not by a person." >&2
+      [ "$_PRF" = 1 ] && echo "The approval question is closed too: a PermissionRequest hook may be wired ($_PRH), and it can answer the question before the person does." >&2 ;;
+  esac
+  echo "Not allowed now: $_APW." >&2
+  if ! _appr_wired; then
+    # The record is written by one hook. Where it is not wired, a message from the user records nothing, and
+    # telling them to type one sends them into a wall (measured in the field: a worktree on an older Crewforth).
+    echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A '/crew-approve' message records nothing here." >&2
+    if [ "$_PRF" = 1 ]; then
+      echo "Tell the user exactly that, in their language, and give them the way that works: the command in their own terminal (or wire prompt-approval.sh, or remove the PermissionRequest hook)." >&2
+    else
+      echo "Tell the user exactly that, in their language, and give them the two ways that work: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
+    fi
+    echo "Do not create an approval any other way." >&2
+    exit 2
+  fi
+  _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
+  # WHAT WAS REFUSED IS WRITTEN DOWN, so that the user can approve it with `/crew-approve` and nothing after it:
+  # the session, the operation and the second, in .claude/state/crew-approval-pending. The operation is what
+  # THIS gate saw in the command it refused; a commit refused and then a push refused in the same session
+  # within 30 minutes are one thing waiting, commit+push. The file is closed to the session (guard-write.sh,
+  # and the name rule above): a session that could write it would choose what the user's approval covers.
+  _pw=""
+  if ! { git_has "$CMD_SEEN" 'commit' && git_has "$CMD_SEEN" 'push'; }; then
+    _pd="${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"; _pd="${_pd//\\//}"; _pd="${_pd%/}/.claude/state"
+    _json_slice "$INPUT" session_id >/dev/null; _psid="$_JS"
+    case "$_psid" in ''|*[!A-Za-z0-9._-]*) _psid="" ;; esac
+    if [ -n "$_psid" ] && mkdir -p "$_pd" 2>/dev/null; then
+      if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _pn '%(%s)T' -1; else _pn="$(date +%s)"; fi
+      _po=""; _ps=""; _pt=""
+      if [ -f "$_pd/crew-approval-pending" ]; then
+        while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; esac; done < "$_pd/crew-approval-pending"
+      fi
+      _pw="$_aps"
+      case "$_pt" in ''|*[!0-9]*) _pt=0 ;; esac
+      if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ]; then
+        case "$_po:$_aps" in commit:push|push:commit|commit+push:*) _pw="commit+push" ;; esac
+      fi
+      { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
+    fi
+  fi
+  # ONE WAY TO ASK. With the question open, the refusal used to print it and then the typed way as an equal choice,
+  # and the session picked the typed one 7 times in 9 (a real `auto` session on rc.3, 2026-10-18): the user was told
+  # to type a command for what one click does. The typed way is now the fallback, said as one.
+  _QOFF=0
+  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "${BASH_SOURCE%/*}/guard-question.sh" ]; then
+    _QOFF=1
+    echo "$_CREW_Q_ASK" >&2
+    echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
+    echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. Ask it this way only: do not also give the user a command to type." >&2
+  fi
+  if [ "$_QOFF" = 1 ]; then
+    echo "ONLY IF THAT QUESTION CANNOT BE ASKED (the tool call is refused, or the user dismisses it), ask instead, in their language, in this shape and with nothing after it:" >&2
+  else
+    echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
+  fi
+  echo "  1. the commit message, whole, in ONE code block;" >&2
+  if [ -n "$_pw" ]; then
+    echo "  2. under it one sentence in their language (If you approve, send only this:), and then the command on a line of its own, exactly as it is:" >&2
+    echo "/crew-approve"$'\n'"     That line is the whole message, and only the user can type it. It approves what was just refused here: $_pw. (Spelled out, the user can type /crew-approve commit, push or commit+push instead.)" >&2
+  else
+    echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
+    echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
+  fi
+  echo "Their message has to be that command alone, typed by them: a sentence such as 'go ahead and commit' is not an approval, and you cannot run the command for them. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
+  echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
+  if [ "$_PRF" = 1 ]; then
+    echo "The other way: the command in their own terminal. (Shift+Tab to default/acceptEdits does not help while that hook may be wired: the gate does not raise a prompt it could answer.)" >&2
+  else
+    echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
+  fi
+  echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2
+  exit 2
+}
+# WHO WROTE THE MESSAGE. The discipline gives the commit message to crew-commit-agent; for a long time nothing
+# called it and the main thread wrote every message itself. This says so, and never blocks (K7): the latest
+# crew-review-agent or crew-commit-agent call in the session's transcript, and when it is not the commit agent the
+# approval carries one line. A call made by a subagent (agent_id in the payload), a push, or a transcript that
+# cannot be read says nothing: not known is not "did not run". One grep over the transcript, on a commit only
+# (measured: 0.52 s on a 107 MB transcript, 0.03 s on a 3 MB one, macOS).
+_commit_agent_note(){
+  _CAN=""
+  git_has "$CMD_SEEN" 'commit' || return 0
+  case "$INPUT" in *'"agent_id"'*) return 0 ;; esac
+  local tp last
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; tp="${_JU//\\//}"
+  [ -n "$tp" ] && [ -f "$tp" ] || return 0
+  last="$(grep -E '"subagent_type": ?"([a-z0-9-]+:)?crew-(review|commit)-agent"' "$tp" 2>/dev/null | tail -n 1)"
+  case "$last" in *crew-commit-agent*) return 0 ;; esac
+  _CAN="⚠️  crew-commit-agent has not run since the last review: the message above was written by the main thread, not by the agent that owns it (/crew-ship).
+
+"
 }
 # Escalate to a permission prompt only the user can answer, then let Claude run the command itself.
 ask_user(){
@@ -2669,7 +2864,7 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
             if [ "$_WX" = 1 ]; then _C47_CFG="a -c setting the shell expands first"
             else
               shopt -q nocasematch && i=1 || i=0; shopt -s nocasematch
-              case "$_W" in *hookspath*|include.*|includeif.*|alias.*|core.worktree*|core.fsmonitor*) _C47_CFG="-c ${_W%%=*}" ;; esac
+              case "$_W" in *hookspath*|*hookschain*|include.*|includeif.*|alias.*|core.worktree*|core.fsmonitor*) _C47_CFG="-c ${_W%%=*}" ;; esac
               [ "$i" = 0 ] && shopt -u nocasematch
             fi ;;
           -C|--git-dir|--work-tree|--namespace|--exec-path|--super-prefix) shift ;;
@@ -2947,84 +3142,16 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     # arguments.
     _c46_scan() {
       _C46_REDIR=0; _C46_WT=""
-      local s="$1" pre rest
-      # An ESCAPED quote is not a delimiter, so it is neutralised before anything tries to pair quotes.
-      # `git commit -m 'don'\''t break this'` is the canonical POSIX way to put an apostrophe in a
-      # single-quoted string, and it was MEASURED refused: the pairing read `'don'` as one span and then lost
-      # the rest, leaving `break` looking like a pathspec. Its argv is identical to the `-m "don't break this"`
-      # spelling, which was already clean — the same one-command-two-spellings trap as the quoted pathspec, in
-      # the over-block direction this time. An apostrophe in a commit message is not an edge case.
-      # NORMALISE TO REAL CHARACTERS FIRST, so every rule below sees one shape. Two spellings of the same command
-      # reach this code and they are not interchangeable: with `jq` the command arrives DECODED and carries real
-      # control characters, and on a stock machine without it the fallback parser leaves JSON's two-character
-      # `\r` and `\n` in place. A stock Windows machine is the second case, so there the fallback IS the product.
-      #
-      # ALL carriage returns go, escaped or real, and THIS is the line that fixes the defect CI caught — stated
-      # plainly because the first explanation written here was wrong. A CI run on `windows-latest` refused
-      # `git commit \` + CRLF + `  -m c` while the same case passed on macOS AND on a real Windows desktop, and
-      # the cause is the TIER: that image has jq, so the command arrives DECODED, while a stock desktop has
-      # neither jq nor python3 and sees JSON's two-character escapes. A Windows-native binary also opens stdout
-      # in TEXT mode, so every LF it writes becomes CRLF — and a command that already held `\r\n` reaches the
-      # hook as `\` + CR + CR + LF. The previous single CRLF fold ate one CR, the continuation rule then looked
-      # for `\` + LF, found the other CR in the way, and the lone backslash was read as a pathspec. Stripping
-      # every CR handles any number of them with no loop. Isolated by measurement: this one line, applied to the
-      # failing version on its own, turns that case green.
-      #
-      # A LONE CR keeps its verdict rather than its bytes: it vanishes into the token before it, so
-      # `git commit -m c<CR>echo done` still leaves `done` a bare token and is still refused — confirmed correct
-      # by a Windows session that checked bash's own argv (CR is not in IFS, so git really is handed `done`).
-      #
-      # The bracket expression `[\\]` is used for every backslash below, and it is NOT what fixed the above. It
-      # replaced escaped patterns on a hypothesis about bash 5 reading them differently, and that hypothesis was
-      # MEASURED FALSE on bash 5.3.15 — both spellings behave alike there. It stays only because a bracket
-      # expression cannot be misread by anyone (calibrated here: `[\\]n` matches a backslash before an `n` and
-      # leaves a bare `n` alone) and because it keeps replacements free of backslashes. No correctness claim.
-      # Through _gsub (see there): the same substitutions, a piece at a time.
-      _gsub "$s" '[\\]r' '' bs; _gsub "$_GS" $'\r' ''; _gsub "$_GS" '[\\]n' $'\n' bs
-      _gsub "$_GS" '[\\]'"\\'" Q bs; _gsub "$_GS" '[\\]\"' Q bs; s="$_GS"
-      # A quoted span collapses to the single placeholder `Q`, and this is the whole design: the CONTENT of a
-      # quote must not be read as an option or a path, but the TOKEN has to survive. The first version DELETED
-      # the span, and that was a measured fail-open on Windows — `git commit -m c "a.txt"` and
-      # `git commit -m c -- "a.txt"` lost the pathspec entirely and were allowed, while their unquoted spellings
-      # were refused, and both commit the same unreviewed line. No trick is needed to get past a gate like that,
-      # only the ordinary habit of quoting a path, which is mandatory once it contains a space. The placeholder
-      # keeps adjacency too, so `-m"msg"` becomes `-mQ` (an attached value, correct) and not `-m Q`.
-      # Double quotes go FIRST: an apostrophe inside a double-quoted message (`-m "don't"`) is ordinary, whereas
-      # a double quote inside a single-quoted one is rare, so this order mangles the rarer shape.
-      # THE WALK IS BY LENGTH, and only over what is left. It used to be `rest="${s#*\"}"` on the whole string, and
-      # that one expansion costs the SQUARE of the distance to the quote in bash (measured, bash 3.2, one call: 13 ms at
-      # 5 KB, 108 ms at 10 KB, 317 ms at 21 KB) — once per pair, on a string whose collapsed front keeps growing. A
-      # quote-dense commit message therefore took 6 s at 10 KB, 14 s at 16 KB and 335 s at 46 KB (macOS; 14.2 s at
-      # 18 KB on Windows), in 3.0.1 too, and a hook that reaches its 600 s timeout does not block. The result is the
-      # same string: the text before a pair holds no quote and neither does the `Q` that replaces it, so the next pair
-      # is the first one in the remainder (pinned in smoke-test against the old loop, on the same inputs).
-      local acc="" p2
-      while :; do
-        case "$s" in *\"*\"*) ;; *) break ;; esac
-        pre="${s%%\"*}"; rest="${s:${#pre}+1}"; p2="${rest%%\"*}"; acc="$acc${pre}Q"; s="${rest:${#p2}+1}"
-      done
-      s="$acc$s"; acc=""
-      while :; do
-        case "$s" in *\'*\'*) ;; *) break ;; esac
-        pre="${s%%\'*}"; rest="${s:${#pre}+1}"; p2="${rest%%\'*}"; acc="$acc${pre}Q"; s="${rest:${#p2}+1}"
-      done
-      s="$acc$s"
-      # A backslash-newline is a LINE CONTINUATION, the opposite of a separator: it JOINS. Measured, before this,
-      # `git commit \` + newline + `  -m c` refused the commit, because the lone `\` became a token and read as a
-      # pathspec. It has to run before the conversion below, or the newline is gone when we look for it.
-      _gsub "$s" '[\\]'$'\n' ' ' bs; s="$_GS"
-      # A NEWLINE IS A COMMAND SEPARATOR and has to become one, or a multi-line Bash call is misread: measured,
-      # `git commit -m c` followed by a line `echo done` refused the commit, because `done` was read as a
-      # pathspec. Splitting alone cannot save it — the default IFS eats newlines, so the boundary is gone by the
-      # time the walk sees tokens.
-      _gsub "$s" $'\n' ';'; s="$_GS"
-      # SEPARATORS BECOME THEIR OWN TOKENS. Without this, `git commit -m c; echo done` refused the commit: the
-      # token was `c;`, `-m` swallowed it whole, the separator inside it was never seen, and `echo` read as a
-      # pathspec. The fail-open twin is worse and was measured too — in
-      # `if true; then git commit -m c -- a.txt; fi` the pathspec token was `a.txt;`, which the `--` lookahead
-      # dismissed as a separator, so the commit was ALLOWED. Padding fixes both at once, and `&&`/`||` simply
-      # become two tokens, which the walk already treats as one boundary.
-      _gsub "$s" ';' ' ; '; _gsub "$_GS" '&' ' & '; _gsub "$_GS" '|' ' | '; s="$_GS"
+      # ONE READER. This scan used to pair the quotes itself (double quotes first, then single, an escaped quote
+      # neutralised by hand, a newline turned into `;`), and so did the approval reader; three readings of the same
+      # text could disagree, and one of them did: `git commit -m 'a"' -a ; echo 'b"'` hid `-a` inside quotes paired
+      # the wrong way. It now walks what _c47_read reads (quotes as the shell pairs them, an escaped character as a
+      # character, a here-document's body gone, every separator as ` ; `, a redirection set apart from its word).
+      # A quoted span or an escaped character becomes the one placeholder `Q`: its CONTENT must not be read as an
+      # option or a path, but the TOKEN has to survive, and it keeps its place (`-m"msg"` is `-mQ`, an attached
+      # value; a quoted pathspec is still a word after `--`).
+      local s
+      _c47_read "$1"; _c47_q; s="$_C47_TQ"
       # Splitting has to happen with globbing OFF, or a pathspec like `*.ts` would expand against the cwd and a
       # commit could be judged on whatever files happen to sit there.
       local unglob=0
@@ -3227,7 +3354,11 @@ if git_has "$CMD_SEEN" 'commit|push'; then
   # answered by the thing it is gating is not a gate.
   case "$PERM_MODE" in
     default|acceptEdits)
-      # A prompt provably reaches the user in these modes: ask, and let them approve in one keypress.
+      # A prompt provably reaches the user in these modes: ask, and let them approve in one keypress. UNLESS a
+      # PermissionRequest hook may be wired: it answers that prompt before the person does (measured on 2.1.294:
+      # the Bash prompt this gate raises was approved by such a hook with nobody at the keyboard). Then the typed
+      # approval is the only one left, exactly as in auto.
+      _gb_prh && { _PRF=1; _gate_written; }
       SHORT="$CMD"
       [ "${#SHORT}" -gt 300 ] && { _utf8_cut "$SHORT" 300; SHORT="$_UC…"; }
       # §4.4 branch guard: committing straight onto main/master is not blocked (a fresh project legitimately
@@ -3235,70 +3366,30 @@ if git_has "$CMD_SEEN" 'commit|push'; then
       BRANCH_WARN=""
       # symbolic-ref names the branch even before its first commit, where rev-parse answers "HEAD" and the very
       # first commit onto main went by without this line. A detached HEAD reads empty: not the default branch.
-      case "$(git symbolic-ref --short -q HEAD 2>/dev/null)" in
+      # Read from HEAD with builtins (the gate log's crew_git_dir finds the git dir, a linked worktree's too): the
+      # preview below pays one subshell to keep this hook's decision out of its reach, and this pays it back.
+      _hb=""; if declare -F crew_git_dir >/dev/null 2>&1 && crew_git_dir . && [ -f "$_CREW_GD/HEAD" ]; then
+        IFS= read -r _hb < "$_CREW_GD/HEAD"; _hb="${_hb%$'\r'}"; case "$_hb" in "ref: refs/heads/"*) _hb="${_hb#ref: refs/heads/}" ;; *) _hb="" ;; esac
+      else _hb="$(git symbolic-ref --short -q HEAD 2>/dev/null)"; fi
+      case "$_hb" in
         main|master) BRANCH_WARN="⚠️  This commits DIRECTLY to the default branch. Prefer a feature branch unless you meant to.
 
 " ;;
       esac
+      _commit_agent_note
+      # What it takes or sends: the staged change for a commit, the commits for a push (read only).
+      _PVA=""; case "$CMD" in *push*) _PVA="$(_pv_line push-ask "$CMD")" ;; *) _PVA="$(_pv_line commit "$CMD")" ;; esac
       ask_user "§4.4 commit/push approval gate. Claude wants to run:
 
 $SHORT
 
-${BRANCH_WARN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
+${_PVA:+$_PVA
+
+}${BRANCH_WARN}${_CAN}Approve only if the commit message above was shown to you and you agree with it. Approving lets Claude run the command itself."
       ;;
     auto|dontAsk)
-      # No prompt reaches a person here, but their own message does: see _approval_ok above.
-      _approval_ok && allow_approved
-      gatelog BLOCK 4.4 "commit/push with no matching approval from the user"
-      echo "GUARD (§4.4): 'git commit/push' needs the user's approval, and in '$PERM_MODE' a permission prompt is answered by software, not by a person." >&2
-      echo "Not allowed now: $_APW." >&2
-      if ! _appr_wired; then
-        # The record is written by one hook. Where it is not wired, a message from the user records nothing, and
-        # telling them to type one sends them into a wall (measured in the field: a worktree on an older Crewforth).
-        echo "THE APPROVAL PATH IS CLOSED IN THIS SESSION: the hook that records the user's approval (prompt-approval.sh) is not wired on UserPromptSubmit in the settings in effect ($_APRW). A '/crew-approve' message records nothing here." >&2
-        echo "Tell the user exactly that, in their language, and give them the two ways that work: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
-        echo "Do not create an approval any other way." >&2
-        exit 2
-      fi
-      _aps=push; git_has "$CMD_SEEN" 'commit' && _aps=commit
-      # WHAT WAS REFUSED IS WRITTEN DOWN, so that the user can approve it with `/crew-approve` and nothing after it:
-      # the session, the operation and the second, in .claude/state/crew-approval-pending. The operation is what
-      # THIS gate saw in the command it refused; a commit refused and then a push refused in the same session
-      # within 30 minutes are one thing waiting, commit+push. The file is closed to the session (guard-write.sh,
-      # and the name rule above): a session that could write it would choose what the user's approval covers.
-      _pw=""
-      if ! { git_has "$CMD_SEEN" 'commit' && git_has "$CMD_SEEN" 'push'; }; then
-        _pd="${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"; _pd="${_pd//\\//}"; _pd="${_pd%/}/.claude/state"
-        _json_slice "$INPUT" session_id >/dev/null; _psid="$_JS"
-        case "$_psid" in ''|*[!A-Za-z0-9._-]*) _psid="" ;; esac
-        if [ -n "$_psid" ] && mkdir -p "$_pd" 2>/dev/null; then
-          if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _pn '%(%s)T' -1; else _pn="$(date +%s)"; fi
-          _po=""; _ps=""; _pt=""
-          if [ -f "$_pd/crew-approval-pending" ]; then
-            while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; esac; done < "$_pd/crew-approval-pending"
-          fi
-          _pw="$_aps"
-          case "$_pt" in ''|*[!0-9]*) _pt=0 ;; esac
-          if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ]; then
-            case "$_po:$_aps" in commit:push|push:commit|commit+push:*) _pw="commit+push" ;; esac
-          fi
-          { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
-        fi
-      fi
-      echo "ASK THE USER NOW, in their language, in this shape and with nothing after it (stage first: the approval covers what is staged at that moment):" >&2
-      echo "  1. the commit message, whole, in ONE code block;" >&2
-      if [ -n "$_pw" ]; then
-        echo "  2. under it one sentence in their language (If you approve, send only this:), and then the command on a line of its own, exactly as it is:" >&2
-        echo "/crew-approve"$'\n'"     That line is the whole message, and only the user can type it. It approves what was just refused here: $_pw. (Spelled out, the user can type /crew-approve commit, push or commit+push instead.)" >&2
-      else
-        echo "  2. under it ONE line, the sentence in their language and the command as it is (only the user can type it):  If you approve, send only this: /crew-approve $_aps" >&2
-        echo "     Name the one the user can type for this call: /crew-approve commit, /crew-approve push, or /crew-approve commit+push when a push follows the commit." >&2
-      fi
-      echo "Their message has to be that command alone, typed by them: a sentence such as 'go ahead and commit' is not an approval, and you cannot run the command for them. It is tied to the staged tree and HEAD, lasts 30 minutes and ends at their next message." >&2
-      echo "Then run the command ALONE in its call (no cd, no pipe, nothing chained): git commit -m '…', or git push <remote> <branch>." >&2
-      echo "The other ways: Shift+Tab to default/acceptEdits (this gate then asks them directly), or the command in their own terminal." >&2
-      echo "Only the user can write that message. Do not write it for them, and do not create an approval any other way." >&2
-      exit 2 ;;
+      _commit_agent_note; [ -n "$_CAN" ] && printf '%s' "$_CAN" >&2
+      _gate_written ;;
     *)
       # bypassPermissions, plan, or an unrecognised/absent mode: we cannot prove the prompt would reach a
       # human, so we fail closed rather than let the gate silently evaporate.

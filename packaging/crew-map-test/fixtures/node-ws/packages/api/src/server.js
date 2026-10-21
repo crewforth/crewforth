@@ -1,0 +1,23 @@
+import express from 'express';
+import { Pool } from 'pg';
+import { z } from 'zod';
+import _ from 'lodash';
+import { fmt } from '@demo/shared';
+import path from 'node:path';
+import fs from 'fs';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const secret = process.env.API_SECRET_KEY;
+const port = process.env.PORT;
+const level = process.env.LOG_LEVEL ?? 'info';
+const webhook = process.env.WEBHOOK_URL;
+const app = express();
+app.get('/api/users', list);
+app.get('/api/users/:id', one);
+app.post('/api/orders', create);
+app.get('/api/orders', listOrders);
+app.get('/api/health', health);
+app.get('/api/ready', ready);
+for (const p of ['/api/a', '/api/b']) app.get(p, list);
+const sample = 'import x from "ghost-pkg"';
+const importish = /from '[^']*(scan\.mjs)|require\('x y'\)/;

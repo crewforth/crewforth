@@ -15,9 +15,11 @@ destructive rm -rf	yıkıcı rm -rf
 disk-level destructive command	disk seviyesinde yıkıcı komut
 forced git branch (-D / -f / -M / -C)	zorlanmış git branch (-D / -f / -M / -C)
 git -c core.hooksPath (disarms the git hooks)	git -c core.hooksPath (git hook'larını devre dışı bırakır)
+git -c crewforth.hookschain (the project's own hook chain, dropped or pointed elsewhere)	git -c crewforth.hookschain (projenin kendi hook zinciri, düşürülmüş ya da başka yere yönlendirilmiş)
 git clean -f	git clean -f
 git commit --amend	git commit --amend
 git config core.hooksPath (disarms the git hooks)	git config core.hooksPath (git hook'larını devre dışı bırakır)
+git config crewforth.hookschain (the project's own hook chain, dropped or pointed elsewhere)	git config crewforth.hookschain (projenin kendi hook zinciri, düşürülmüş ya da başka yere yönlendirilmiş)
 git filter-branch/filter-repo	git filter-branch/filter-repo
 git rebase	git rebase
 git reset --hard	git reset --hard
@@ -68,3 +70,4 @@ git config --edit (the configuration file opened for writing)	git config --edit 
 git commit through a command the shell fills in	kabuğun doldurduğu bir komutla git commit
 a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)	bir Claude Code oturumuna istem olarak onay veren bir komut (yalnız kullanıcının kendi mesajı onaylar)
 a model routing record named in a command (the user and Crewforth's hooks write it)	komutta adı geçen bir model yönlendirme kaydı (onu kullanıcı ve Crewforth'un hook'ları yazar)
+the refuter ledger named in a command (only Crewforth's hook writes it)	komutta adı geçen çürütücü defteri (onu yalnız Crewforth'un hook'u yazar)

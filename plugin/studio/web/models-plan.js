@@ -52,15 +52,25 @@ function stepOf(r, again) {
  * How the work went, as steps: the earlier calls of the same card, then this one. `row` is Crewforth's line for
  * the agent with `before` (see server/lib/model-outcomes.js), or null when it has none: it has not stopped, or it
  * is not a crew agent.
- * @returns { risk, steps: [{ text, verify, tone, escalated }], note }
+ * @returns { risk, riskWhy, steps: [{ text, verify, tone, escalated }], note }
  */
 export function workSteps(row) {
-  if (!row) return { risk: null, steps: [], note: 'Not recorded yet: the line is written when the agent stops.' };
+  if (!row) return { risk: null, riskWhy: null, steps: [], note: 'Not recorded yet: the line is written when the agent stops.' };
   const steps = [...(row.before ?? []).map((r) => stepOf(r, false)), stepOf(row, Boolean(row.escalatedFrom))];
   if (row.escalatedFrom && !(row.before ?? []).length) {
     steps.unshift({ text: `An earlier call on ${tierWord(row.escalatedFrom)} did not pass; its line is not in the record`, verify: null, tone: null, escalated: false });
   }
-  return { risk: row.risk ?? null, steps, note: row.escalatedFrom ? 'A re-run with the same or a lower model is refused by the gate.' : null };
+  // The reason is the gate's own sentence, kept as it wrote it; a line written before the gate kept one has none.
+  return { risk: row.risk ?? null, riskWhy: row.risk === 'critical' ? row.riskWhy ?? null : null, steps, note: row.escalatedFrom ? 'A re-run with the same or a lower model is refused by the gate.' : null };
+}
+
+/**
+ * What is said about an agent the model gate does not look at: one whose type is not crew-* (hooks/guard-agent-model.sh
+ * leaves it alone), so there is no card to read and no line in the record. Null for a crew agent or an unknown type.
+ */
+export function outsideRouting(agentType) {
+  if (typeof agentType !== 'string' || !agentType || agentType.startsWith('crew-')) return null;
+  return 'Outside model routing: not a crew agent, so the gate chose nothing for it and Crewforth kept no record of it. It ran on the model its call asked for, or else the session\u2019s.';
 }
 
 /**
@@ -85,15 +95,29 @@ export function floorWords(floor) {
  * ("\u2265$0.75 \u00b7 2/7"), because a sum of two calls must not be read as the cost of seven. None: a dash.
  */
 export function costCell(cost, runs) {
-  if (!cost) return { cost: '\u2026', costNote: 'Reading what this class cost\u2026', partial: false };
-  if (!cost.costed) return { cost: '\u2014', costNote: 'No agent of this class has a transcript on this machine that could be priced', partial: false };
+  if (!cost) return { cost: '\u2026', costNote: 'Reading what this class cost\u2026', partial: false, advisor: null };
+  if (!cost.costed) return { cost: '\u2014', costNote: 'No agent of this class has a transcript on this machine that could be priced', partial: false, advisor: null };
   const usd = fmtCost(cost.cost);
-  if (cost.costed >= runs) return { cost: usd, costNote: `All ${runs} ${runs === 1 ? 'task' : 'tasks'} priced, at API list price. An estimate: what a subscription is charged is not known here.`, partial: false };
+  const advisor = advisorWords(cost);
+  const tail = advisor ? `\n${advisor}` : '';
+  if (cost.costed >= runs) return { cost: usd, costNote: `All ${runs} ${runs === 1 ? 'task' : 'tasks'} priced, at API list price. An estimate: what a subscription is charged is not known here.${tail}`, partial: false, advisor };
   return {
     cost: `\u2265${usd.replace(/^~/, '')} \u00b7 ${cost.costed}/${runs}`,
-    costNote: `At least this much: ${cost.costed} of ${runs} tasks could be priced; the others have no transcript on this machine. At API list price.`,
+    costNote: `At least this much: ${cost.costed} of ${runs} tasks could be priced; the others have no transcript on this machine. At API list price.${tail}`,
     partial: true,
+    advisor,
   };
+}
+
+/**
+ * What of a class's cost was the advisor (a second model its agents consulted mid-task), or null when they consulted
+ * none: no call is no tag, not a zero. Its share is already in the class's cost; this only says how much it was.
+ */
+export function advisorWords(cost) {
+  const n = cost?.advisorCalls ?? 0;
+  if (!(n > 0)) return null;
+  const share = typeof cost.advisorCost === 'number' && cost.advisorCost > 0 ? `${fmtCost(cost.advisorCost)} of it` : 'its cost not priced';
+  return `Advisor: ${n} ${n === 1 ? 'call' : 'calls'}, ${share}. A second model the agents consulted, at that model's rates; included above.`;
 }
 
 /** One class as the view's row: who and what kind of change, how risky, what ran it, and how it went. */
@@ -145,6 +169,36 @@ export function suggestionText(s) {
     command: lowerCommand(s),
   };
 }
+
+/**
+ * Normal work that ran above the table's model, in words. The gate holds a floor, not a ceiling, so this is said
+ * and nothing is blocked. That the table's model would have done is said only from the record (`a.passed`); the
+ * cost beside it is the same tokens at that model's price, which is not what that model would have spent.
+ * @param a     one class of server/lib/model-outcomes.js `aboveTableOf`
+ * @param cost  { cost, atNormal, costed, runs } for it, or null while costs have not been read
+ */
+export function aboveText(a, cost = null) {
+  const to = tierWord(a.to);
+  const ran = Object.entries(a.models ?? {}).sort((x, y) => y[1] - x[1]).map(([t, n]) => `${n} on ${tierWord(t)}`).join(', ');
+  let costs = null;
+  if (cost?.costed) {
+    const some = cost.costed < cost.runs;
+    const usd = (v) => (some ? `\u2265${fmtCost(v).replace(/^~/, '')}` : fmtCost(v));
+    costs = `${usd(cost.cost)} as run; the same tokens at ${to}'s price ${usd(cost.atNormal)}${some ? ` (${cost.costed} of ${cost.runs} priced)` : ''}. API list price; another model would not spend the same tokens.`;
+  }
+  return {
+    title: `${roleName(a.agent)} \u00b7 ${a.change}`,
+    says: `normal risk, ${plural(a.runs, 'task')} above ${to}: ${ran}.`,
+    verdict: a.passed
+      ? `${to} is enough for this class: its latest ${a.passed} verified calls on ${to} all passed the first time.`
+      : `Whether ${to} would have done is not measured: this class does not have ${a.need ?? 'enough'} verified calls on ${to} that all passed the first time.`,
+    measured: Boolean(a.passed),
+    costs,
+  };
+}
+
+export const ABOVE_HEAD = 'Above the table \u00b7 nothing is blocked';
+export const ABOVE_RULE = 'The gate holds a floor, not a ceiling: which model runs normal work is yours to choose.';
 
 /** What the view says when there is nothing to list. */
 export function emptyNote(data) {

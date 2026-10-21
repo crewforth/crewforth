@@ -14,10 +14,12 @@ Beş aşamaya yayılmış **{{AGENT_COUNT}} uzman ajan** var. Kalite, hiçbir ş
 | `crew-database-expert` | Üret | şema, migration, indeks, önbellek |
 | `crew-frontend-expert` | Üret | arayüz, bileşen, istemci işi |
 | `crew-devops-expert` | Üret | dağıtım, CI hattı, olay müdahalesi |
+| `crew-docs-agent` | Üret | README, kılavuz, sürüm notları, yasal ve gizlilik metinleri, mağaza metinleri |
 | `crew-security-expert` | Denetle | auth / IDOR / injection / sır · **güvenlik kritikse zorunlu** |
 | `crew-privacy-agent` | Denetle | kişisel veri: KVKK/GDPR ve projenin beyan ettiği diğer rejimler |
 | `crew-test-expert` | Denetle | test, kapsam, regresyon |
 | `crew-performance-expert` | Denetle | sıcak yol, sorgu/döngü, render, payload |
+| `crew-refuter` | Denetle | orta ve üstü bir bulgu, raporlanmadan önce: onu çürütmeye çalışır |
 | `crew-review-agent` | Kapat | commit öncesi kod sağlığı incelemesi |
 | `crew-commit-agent` | Kapat | commit'i önerir, onayı bekler |
 | `crew-session-manager` | Devret | bağlam dolduğunda / aşama bittiğinde |

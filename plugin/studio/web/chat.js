@@ -48,10 +48,76 @@ export function quickReplies(text) {
   return (opts.length >= 2 && opts.length <= 5 && /\?/.test(text)) ? opts : [];
 }
 
+/* ============================================== every open conversation === */
+
+/**
+ * One connection for every open conversation. A pane per EventSource reached the browser's six connections to a
+ * host at five panes beside the page's own stream, and from there a message sent and every request the page made
+ * waited for a pane to close (measured on Windows). The panes register here; the stream is opened again, with
+ * each session's last event number, whenever the set changes or the connection drops, so nothing is replayed
+ * twice and nothing is missed.
+ */
+export class OwnedStream {
+  constructor(api, { EventSourceImpl = globalThis.EventSource, retryMs = 1500 } = {}) {
+    this.api = api;
+    this.ES = EventSourceImpl;
+    this.retryMs = retryMs;
+    this.panes = new Map();     // session id -> pane
+    this.seq = new Map();       // session id -> the last event number taken
+    this.source = null;
+    this.timer = null;
+  }
+
+  attach(pane) { this.panes.set(pane.id, pane); this.#soon(0); }
+
+  detach(pane) {
+    if (this.panes.get(pane.id) !== pane) return;
+    this.panes.delete(pane.id); this.seq.delete(pane.id); this.#soon(0);
+  }
+
+  /** The URL the stream is opened at now: what a reconnect resumes from. */
+  url() {
+    const ids = [...this.panes.keys()];
+    const after = ids.map((id) => `${id}:${this.seq.get(id) ?? 0}`).join(',');
+    return this.api(`/api/owned-events?ids=${encodeURIComponent(ids.join(','))}&after=${encodeURIComponent(after)}`);
+  }
+
+  // Panes opened together (a page restoring its tabs) cost one reconnect, not one each.
+  #soon(ms) { clearTimeout(this.timer); this.timer = setTimeout(() => this.#open(), ms); }
+
+  #open() {
+    if (this.source) { this.source.close(); this.source = null; }
+    if (!this.panes.size) return;
+    const src = new this.ES(this.url());
+    const data = (e) => { try { return JSON.parse(e.data); } catch { return null; } };
+    src.addEventListener('state', (e) => { const d = data(e); if (d) this.panes.get(d.id)?.takeState(d.session); });
+    src.addEventListener('event', (e) => {
+      const d = data(e); const pane = d && this.panes.get(d.id);
+      if (!pane || !d.ev) return;
+      if (Number.isFinite(d.ev.seq)) {
+        if (d.ev.seq <= (this.seq.get(d.id) ?? 0)) return;    // already taken before a reconnect
+        this.seq.set(d.id, d.ev.seq);
+      }
+      pane.takeEvent(d.ev);
+    });
+    src.addEventListener('gone', (e) => { const d = data(e); if (d) this.panes.get(d.id)?.streamLost(); });
+    // The browser would reconnect at the same URL, from the same event numbers, and replay what was taken since.
+    // So the stream is closed and opened again here, from where each session is now.
+    src.onerror = () => {
+      if (this.source !== src) return;
+      for (const pane of this.panes.values()) pane.streamLost();
+      this.#soon(this.retryMs);
+    };
+    this.source = src;
+  }
+
+  close() { clearTimeout(this.timer); if (this.source) { this.source.close(); this.source = null; } this.panes.clear(); this.seq.clear(); }
+}
+
 /* ========================================================== one session === */
 
 class Pane {
-  constructor(session, { api, headers, onChange, onPermissions, hooks = {}, readOnly = false }) {
+  constructor(session, { api, headers, onChange, onPermissions, hub = null, hooks = {}, readOnly = false }) {
     this.api = api;
     this.headers = headers;
     this.onChange = onChange;
@@ -62,7 +128,8 @@ class Pane {
     this.readOnly = readOnly;
     this.session = session;
     this.id = session.sessionId;
-    this.source = null;
+    this.hub = hub;
+    this.connected = false;
     this.messages = [];
     this.streaming = null;
     this.permissions = [];
@@ -141,6 +208,7 @@ class Pane {
       this.note(`History not read: ${e.message}`, 'bad');
       return;
     }
+    if (conv?.transcriptsHidden) { this.note('Transcripts are hidden on this link', 'muted'); return; }
     if (conv?.measured === false) { this.note(`History not measured — ${conv.reason}`, 'bad'); return; }
 
     const frag = document.createDocumentFragment();
@@ -163,24 +231,21 @@ class Pane {
   }
 
   connect() {
-    if (this.source) return;
-    this.source = new EventSource(this.api(`/api/owned/${encodeURIComponent(this.id)}/events`));
-    this.source.addEventListener('state', (e) => {
-      try { this.session = JSON.parse(e.data); } catch { return; }
-      this.paintState();
-      this.onChange(this);
-    });
-    this.source.addEventListener('event', (e) => {
-      let ev;
-      try { ev = JSON.parse(e.data); } catch { return; }
-      this.absorb(ev.rec);
-    });
-    this.source.onerror = () => { this.streamBroken = true; this.onChange(this); };
+    if (this.connected || !this.hub) return;
+    this.connected = true;
+    this.hub.attach(this);
   }
 
   disconnect() {
-    if (this.source) { this.source.close(); this.source = null; }
+    if (!this.connected) return;
+    this.connected = false;
+    this.hub.detach(this);
   }
+
+  // What the shared stream hands this pane.
+  takeState(session) { if (!session) return; this.session = session; this.streamBroken = false; this.paintState(); this.onChange(this); }
+  takeEvent(ev) { this.streamBroken = false; this.absorb(ev.rec); }
+  streamLost() { this.streamBroken = true; this.onChange(this); }
 
   /* --------------------------------------------------------- ingestion */
 
@@ -495,9 +560,12 @@ class Pane {
     cont.type = 'button';
     cont.addEventListener('click', () => this.hooks.onContinue?.(this, cont));
     const contRow = el('div', 'chat-ro-row');
-    contRow.append(cont, el('span', 'sub',
-      'Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: '
-      + 'the original does not see this, and messages here never reach your terminal.'));
+    // Said before the press, from the server's own check (the one Continue here acts on): the same session, or a copy.
+    // Until the server answers, and if it cannot: the sentence true of both outcomes.
+    const FALLBACK = 'Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: '
+      + 'the original does not see this, and messages here never reach your terminal.';
+    const contText = el('span', 'sub', FALLBACK);
+    contRow.append(cont, contText);
 
     const term = el('button', 'btn sm', 'Open in terminal');
     term.type = 'button';
@@ -508,13 +576,34 @@ class Pane {
     const termRow = el('div', 'chat-ro-row');
     termRow.append(term, termText);
 
-    this.roEl.replaceChildren(lead, contRow, termRow);
+    // Back to the desktop app: the command, to copy and run where the app is.
+    const deskLine = el('code', 'chat-ro-cmd');
+    const deskCopy = el('button', 'btn sm', 'Copy');
+    deskCopy.type = 'button';
+    deskCopy.addEventListener('click', () => { if (deskLine.dataset.cmd) navigator.clipboard?.writeText(deskLine.dataset.cmd).then(() => { deskCopy.textContent = 'Copied'; }, () => {}); });
+    const deskText = el('span', 'sub');
+    deskText.append('Open it in the desktop app again: ', deskLine);
+    const deskRow = el('div', 'chat-ro-row');
+    deskRow.append(deskCopy, deskText);
 
-    // The command is the server's, read before anything runs. One that could not be worked out is said so.
+    this.roEl.replaceChildren(lead, contRow, termRow, deskRow);
+
+    // The commands are the server's, read before anything runs. One that could not be worked out is said so.
     fetch(this.api(`/api/session/${encodeURIComponent(this.id)}/terminal`), { cache: 'no-store' })
       .then((r) => r.json())
-      .then((r) => { line.textContent = r?.plan?.line ?? 'not measured — no working directory recorded'; })
-      .catch((e) => { line.textContent = `not read — ${e.message}`; });
+      .then((r) => {
+        line.textContent = r?.plan?.line ?? 'not measured — no working directory or session id recorded';
+        // On Windows the command is a PowerShell line (no one line works in cmd and PowerShell 5.1 both): say so.
+        deskLine.textContent = r?.desktop?.line ?? 'not measured — no working directory or session id recorded';
+        if (r?.desktop?.line) deskLine.dataset.cmd = r.desktop.line; else deskCopy.disabled = true;
+        if (r?.desktop?.shell === 'PowerShell') deskText.append(' (in PowerShell)');
+        contText.textContent = r?.continueAs === 'same'
+          ? 'Continues this same session in Studio: its id and history stay, and the desktop app or a terminal that opens it later sees what you add here. Nothing else has it open now.'
+          : r?.continueAs === 'copy'
+            ? 'It is open somewhere else right now, so Studio starts a copy: the original does not see this, and messages here never reach your terminal or the desktop app.'
+            : FALLBACK;
+      })
+      .catch((e) => { line.textContent = `not read — ${e.message}`; deskLine.textContent = `not read — ${e.message}`; deskCopy.disabled = true; });
   }
 
   paintState() {
@@ -591,6 +680,7 @@ export class Chat {
     this.headers = headers;
     this.hooks = hooks;
     this.panes = new Map();
+    this.hub = new OwnedStream(api);
     this.activeId = null;
     this.onActivate = () => {};
     // (pane, { pending }) — a session's waiting requests changed.
@@ -654,7 +744,7 @@ export class Chat {
     }
     if (!pane) {
       pane = new Pane(session, {
-        api: this.api, headers: this.headers, hooks: this.hooks, onChange: () => this.paintTabs(),
+        api: this.api, headers: this.headers, hooks: this.hooks, onChange: () => this.paintTabs(), hub: this.hub,
         onPermissions: (p, rec) => this.onPermissions(p, rec),
       });
       this.panesEl.append(pane.root);

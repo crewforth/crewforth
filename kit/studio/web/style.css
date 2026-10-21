@@ -402,6 +402,37 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 }
 .nav-foot-label:hover { color: var(--ink); }
 
+/* Remote viewers, under the machines: who holds a read-only link, and the way to take it back. */
+.rv { margin-top: var(--space-3); }
+.rv-head { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-1); }
+.rv-title {
+  font-size: 11px; line-height: var(--type-label-line); font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking); text-transform: uppercase; color: var(--ink-dim);
+}
+.rv-say { white-space: normal; padding: 0 var(--space-1); }
+.rv-give {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised);
+}
+.rv-give .rv-say { padding: 0; }
+.rv-url { font-size: 12px; line-height: 16px; overflow-wrap: anywhere; user-select: all; color: var(--ink); }
+.rv-acts { display: flex; gap: var(--space-2); }
+/* The QR code is dark on white whatever the theme: a phone's camera reads contrast, not the palette. */
+.rv-qr { align-self: center; line-height: 0; border-radius: var(--radius-md); overflow: hidden; }
+.rv-qr svg { display: block; width: 168px; height: auto; max-width: 100%; }
+.rv-qr .qr-light { fill: var(--qr-light); }
+.rv-qr .qr-dark { fill: var(--qr-dark); }
+.rv-opt { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-1); font-size: 12px; color: var(--ink-dim); }
+/* A viewer link past its eight hours: the page is covered, with what happened and what to do. */
+.expired {
+  position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-2); padding: var(--space-4); text-align: center; background: var(--surface); color: var(--ink);
+}
+.expired h1 { margin: 0; font-size: 20px; }
+.expired p { margin: 0; max-width: 34ch; color: var(--ink-dim); }
+/* A viewer's page offers no way to start a session: the server refuses it, and a button that only fails is noise. */
+body[data-role="viewer"] #new-session { display: none; }
+
 /* ---- menu and toast ---- */
 .menu {
   position: fixed; z-index: 60; min-width: 190px; max-width: 272px;
@@ -525,6 +556,12 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
   border-bottom-color: color-mix(in srgb, var(--status-fail) 45%, var(--line));
 }
 .stage-note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A server running older code than the page: the whole sentence is the instruction, so it wraps, not ellipsizes. */
+.stage-note[data-kind="restart"] {
+  color: var(--ink); background: color-mix(in srgb, var(--status-waiting) 12%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--status-waiting) 45%, var(--line));
+}
+.stage-note[data-kind="restart"] .stage-note-text { white-space: normal; }
 /* The last picture stays while the server is away, and is drawn as what it is: old. */
 .stage[data-offline="true"] .canvas,
 .stage[data-offline="true"] .tl,
@@ -553,6 +590,126 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 .mv { flex: 1; min-height: 0; min-width: 0; overflow: auto; background: var(--ground); padding: var(--space-4); }
 .mv[hidden] { display: none; }
 .mv-empty { padding: var(--space-6); color: var(--ink-dim); font-size: 13px; }
+
+/* The Map view: the project as its crew map shows it. Bands, cards, lines, the findings, the inspector. */
+.mp { flex: 1; min-height: 0; min-width: 0; overflow: auto; background: var(--ground); padding: var(--space-4); }
+.mp[hidden] { display: none; }
+.mp .sub { white-space: normal; flex: initial; min-width: 0; }
+.mp .lbl { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); }
+.mp-empty { padding: var(--space-6); color: var(--ink-dim); font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.mp-empty p { margin: 0; }
+.mp-pane { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; display: flex; flex-direction: column; min-height: 100%; }
+.mp-head, .mp-toolbar, .mp-source { display: flex; align-items: center; gap: var(--space-2); padding: 10px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.mp-title { margin: 0; font-size: 15px; font-weight: 700; }
+.mp-pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.mp-pill[data-tone="behind"], .mp-pill[data-tone="missing"] { color: var(--status-bad); background: color-mix(in srgb, var(--status-bad) 14%, transparent); }
+.mp-tog { height: 28px; padding: 0 10px; border-radius: var(--radius-pill); border: 1px solid var(--line); background: var(--surface); color: var(--ink-dim); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.mp-tog[aria-pressed="true"] { background: var(--surface-raised); color: var(--ink); }
+.mp-compare { height: 30px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; padding: 0 8px; max-width: 260px; }
+.mp-legend { position: relative; }
+.mp-legend-box { position: absolute; right: 0; top: 34px; z-index: 5; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); min-width: 220px; }
+.mp-legend-row { display: flex; align-items: center; gap: 8px; }
+.mp-legend-line { width: 28px; height: 0; border-top: 2px solid var(--ink-faint); flex: none; }
+.mp-legend-line[data-kind="inferred"] { border-top-style: dotted; }
+.mp-legend-line[data-kind="model"] { border-top-style: dashed; border-top-color: var(--studio-accent); opacity: 0.7; }
+.mp-legend-line[data-kind="lit"] { border-top-color: var(--studio-accent); }
+.mp-legend-card { width: 22px; height: 14px; border: 1px solid var(--ink-faint); border-radius: 4px; flex: none; }
+.mp-legend-card[data-kind="dashed"] { border-style: dashed; }
+.mp-file { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+.mp-body { display: flex; min-height: 0; flex: 1; }
+.mp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* The pane pans and zooms (viewport.js): the layer is moved by one transform, so nothing inside restyles. */
+.mp-canvas-pane { position: relative; flex: 1; min-height: 380px; overflow: hidden; cursor: grab; background-color: var(--ground); background-image: radial-gradient(var(--line) 1px, transparent 1.2px); background-size: 20px 20px; touch-action: none; }
+.mp-canvas-pane.cv-panning { cursor: grabbing; }
+.mp-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.mp-band { position: absolute; left: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; box-sizing: border-box; }
+.mp-group { position: absolute; border: 1px dashed var(--line); border-radius: var(--radius-md); box-sizing: border-box; }
+.mp-group-fold { position: absolute; left: 8px; top: 3px; border: 0; background: none; padding: 0; font: inherit; font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); cursor: pointer; }
+.mp-group-fold:hover { color: var(--ink); }
+.mp-lines { position: absolute; left: 0; top: 0; pointer-events: none; }
+.mp-line { fill: none; stroke: var(--ink-faint); stroke-width: 1.5; }
+.mp-line[data-line="inferred"] { stroke-dasharray: 2 4; }
+.mp-line[data-line="model"] { stroke-dasharray: 7 4; stroke: var(--studio-accent); opacity: 0.7; }
+.mp-line[data-lit="false"] { opacity: 0.35; }
+.mp-line[data-lit="true"] { stroke: var(--studio-accent); stroke-width: 2.2; }
+.mp-elab { position: absolute; transform: translate(-50%, -50%); display: flex; gap: 4px; z-index: 2; }
+.mp-mod, .mp-ext { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; color: var(--ink); cursor: pointer; border: 1px solid var(--line); border-radius: var(--radius-md); z-index: 1; overflow: hidden; }
+.mp-mod { background: var(--surface); padding: 10px 14px; }
+.mp-mod[data-kind="client"] { border-style: dashed; }
+.mp-mod[data-kind="group"] { background: var(--surface-raised); }
+.mp-ext[data-inferred="true"] { border-style: dashed; }
+.mp-card.cv-dragging { cursor: grabbing; z-index: 3; }
+.mp-ext { background: var(--ground); padding: 6px 10px; justify-content: center; }
+.mp-card:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 2px; }
+.mp-mod[data-selected="true"], .mp-ext[data-selected="true"] { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
+.mp-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mp-name { font-family: var(--font-mono); font-size: 14px; line-height: 20px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mp-ename { font-family: var(--font-mono); font-size: 13px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-kind { font-size: 10px; line-height: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); flex: none; }
+.mp-fb { min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--status-bad) 18%, transparent); color: var(--status-bad); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.mp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.mp-chip { font-family: var(--font-mono); font-size: 11px; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--surface-raised); display: inline-flex; align-items: center; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.mp-findings { border-top: 1px solid var(--line); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.mp-flist { max-height: 132px; overflow: auto; display: flex; flex-direction: column; }
+.mp-frow { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mp-frow:hover { background: var(--surface-raised); }
+.mp-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; box-sizing: border-box; border: 1.5px solid var(--status-bad); }
+.mp-dot[data-proven="true"] { background: var(--status-bad); }
+.mp-ftitle { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.mp-fcard .mp-ftitle { white-space: normal; }
+.mp-fwhere { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; }
+.mp-badge { font-family: var(--font-mono); font-size: 11px; height: 20px; padding: 0 6px; border-radius: var(--radius-pill); border: 1px solid var(--line); color: var(--ink-dim); display: inline-flex; align-items: center; flex: none; }
+.mp-inspect { width: 340px; flex: none; border-left: 1px solid var(--line); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.mp-inspect p { margin: 0; font-size: 13px; line-height: 19px; }
+.mp-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--line); }
+.mp-tab { font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-dim); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 0; cursor: pointer; }
+.mp-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.mp-isec { display: flex; flex-direction: column; gap: 8px; }
+.mp-overview { white-space: pre-wrap; margin: 4px 0 10px; line-height: 1.5; }
+.mp-cites { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
+.mp-conn { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.mp-ev { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
+.mp-fcard { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.mp-fcard[data-proven="false"] { border-style: dashed; }
+.mp-notmeasured { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+/* The navigator's Map entry under a project, and its count of findings (spec §11). */
+.map-row .map-word { font-size: 13px; font-weight: 600; }
+.map-count { min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--status-bad) 18%, transparent); color: var(--status-bad); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.mp-cite { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+.mp-cite:hover { color: var(--ink); text-decoration: underline; }
+.mp-pill[data-tone="model"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 14%, transparent); }
+/* A phone shows the findings and a list of the modules in place of the pane (spec §11). */
+/* CM3: a module card names itself in full (the kind line gives way), carries what it is built with, and folds the
+   outside services it calls into one line under it. A search dims what it does not name; the tour sits over the
+   bottom of the pane. */
+.mp-mod { gap: 6px; }
+.mp-mod .mp-row .mp-name { flex: none; overflow: visible; }
+.mp-mod .mp-row .mp-kind { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-fold { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-fold.none { color: var(--ink-faint); }
+.mp-card[data-match="false"] { opacity: 0.3; }
+.mp-card[data-match="true"] { border-color: var(--studio-accent); }
+.mp-search { height: 30px; min-width: 200px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
+.mp-search::placeholder { color: var(--ink-dim); }
+.mp-tour { position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 6; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--studio-accent); border-radius: var(--radius-md); background: var(--surface-raised); cursor: default; }
+.mp-tour p { margin: 0; font-size: 14px; line-height: 21px; }
+.mp-tour[hidden] { display: none; }
+.mp-inside { flex-direction: row; align-items: center; gap: 10px; }
+.mp-inside .mp-ev { margin-left: auto; }
+.mp-inside .mp-cite, .mp-inside .mp-file { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-inside .mp-ev:last-child { flex: none; }
+.mp-modlist { display: none; flex-direction: column; gap: 2px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.mp-mrow { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mp-mrow:hover { background: var(--surface-raised); }
+@media (max-width: 1023px) {
+  .mp-body { flex-direction: column; }
+  .mp-inspect { width: auto; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 639px) {
+  .mp-canvas-pane, .mp-hint { display: none; }
+  .mp-modlist { display: flex; }
+  .mp-flist { max-height: none; }
+}
 .mv-pane { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
 .mv-head { display: flex; align-items: center; gap: var(--space-2); padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .mv-title { margin: 0; font-size: 15px; font-weight: 700; }
@@ -571,6 +728,7 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 .mv-raised .mv-tag[data-kind="lowered"] { margin-left: 0; }
 .mv-tag[data-tone="pass"] { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 .mv-tag[data-tone="fail"] { color: var(--status-fail); background: color-mix(in srgb, var(--status-fail) 14%, transparent); }
+.mv-tag[data-kind="advisor"] { margin-left: 6px; color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
 .mv-tag[data-kind="escalated"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 16%, transparent); }
 .mv-table td[data-partial="true"] { color: var(--ink-dim); }
 .mv-meter { display: inline-block; width: 72px; height: 6px; margin-left: 8px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; vertical-align: middle; }
@@ -581,6 +739,11 @@ mark { background: color-mix(in srgb, var(--studio-accent) 30%, transparent); co
 .mv-suggest-h { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--studio-accent); }
 .mv-suggest-text { margin: 0; font-size: 14px; line-height: 21px; }
 .mv-suggest-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.mv-above { margin: 16px 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); }
+.mv-above .mv-suggest-h { color: var(--ink-dim); }
+.mv-above p { margin: 0; }
+.mv-above-verdict { font-size: 13px; line-height: 19px; }
+.mv-above-verdict[data-measured="false"] { color: var(--ink-dim); }
 .mv-cmd { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--surface-raised); font-size: 12px; user-select: all; }
 .mv-raised { display: flex; align-items: baseline; gap: var(--space-2); padding: 0 18px 16px; }
 .mv-raised .mv-tag { margin-left: 0; flex: none; }
@@ -1079,6 +1242,8 @@ button.tl-lab { cursor: pointer; }
    and do not shrink. */
 .cv-sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cv-sub[hidden] { display: none; }
+/* Agent calls the model gate refused: no agent started, so this line is the only trace on the canvas. */
+.cv-refused { color: var(--status-waiting); }
 .cv-node > .cv-row, .cv-node > .cv-under, .cv-node > .cv-name, .cv-node > .cv-sub { max-width: 100%; }
 .cv-word { font-size: 11px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 

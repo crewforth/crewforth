@@ -19,7 +19,8 @@
 #                                                   -> blocked: not run, nothing concluded.
 #                          not finished in CREW_VERIFY_TIMEOUT seconds (540)
 #                                                   -> timeout: stopped, nothing concluded.
-#                        Then one line is added to .claude/state/model-outcomes.tsv, and the class is looked at:
+#                        Then one line is added to .claude/state/model-outcomes.tsv, its last column the gate's reason
+#                        when the work is critical (risk_why, "-" when it is not), and the class is looked at:
 #                        where the first try failed too often, its floor goes one model up (crew-model-floors.auto).
 #                        Only ever up: lowering a floor is the user's decision and nothing here does it.
 #   PostToolUse (Agent)  a foreground call has come back. If its verify failed, or its report closed with
@@ -203,27 +204,36 @@ case "$EV" in
     low=9; cands=""; if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOWS '%(%s)T' -1; else NOWS="$(date +%s)"; fi
     for f in "$_AMD/pending"/*; do
       [ -f "$f" ] || continue
-      t="${f##*/}"; t="${t%%-*}"; case "$t" in ''|*[!0-9]*) ;; *) if [ $((NOWS - t)) -gt 300 ]; then rm -f "$f" 2>/dev/null; continue; fi ;; esac
+      t="${f##*/}"; t="${t%%-*}"; case "$t" in ''|*[!0-9]*) ;; *) if [ $((NOWS - t)) -gt 300 ]; then rm -f "$f" "$_AMD/agents/${f##*/}.take" 2>/dev/null; continue; fi ;; esac
       _am_rec_get "$f" agent || continue; [ "$_AMV" = "$AT" ] || continue
       cands="$cands$f"$'\n'
       _am_rec_get "$f" tier && { _am_rank "$_AMV"; [ "$_AMR" -lt "$low" ] && low="$_AMR"; }
     done
     [ -n "$cands" ] || exit 0
     mkdir -p "$_AMD/agents" 2>/dev/null || exit 0
-    # TAKEN BY RENAME. Two agents of one type start at the same moment, each in its own hook process, and both see
-    # the same oldest record. A rename either happens or fails, so exactly one of them gets it; the other goes on
-    # to the next record. (Reading it and deleting it afterwards gave both agents the same record.)
-    claim="$_AMD/agents/$AID.claim"; got=0
+    # TAKEN UNDER A LOCK, THEN BY RENAME. Two agents of one type start at the same moment, each in its own hook
+    # process, and both see the same oldest record. (Reading it and deleting it afterwards gave both the same record.)
+    # A rename alone was the lock on POSIX, and was not on Windows: two hook processes both reported the same rename
+    # as done (smoke, windows-latest, "2 got it", twice). Why is not measured; a rename there goes through an open
+    # handle, which two processes can both hold. So each record is first locked by creating <record>.take with
+    # O_EXCL (bash's noclobber, a builtin: no process); only the one that made the lock renames, the others go on to
+    # the next record.
+    claim="$_AMD/agents/$AID.claim"; got=0; take=""
+    set -C
     while IFS= read -r f; do
       [ -n "$f" ] || continue
+      take="$_AMD/agents/${f##*/}.take"
+      { : > "$take"; } 2>/dev/null || { take=""; continue; }
       if mv "$f" "$claim" 2>/dev/null; then got=1; break; fi
+      rm -f "$take" 2>/dev/null; take=""          # locked, but the record had gone (dropped as stale): let it be
     done <<< "$cands"
+    set +C
     [ "$got" = 1 ] || exit 0
     _am_rec_get "$claim" tier; _am_rank "$_AMV"
     if [ "$low" -lt "$_AMR" ]; then _am_name "$low"
       { grep -v '^tier=' "$claim"; printf 'asked=%s\ntier=%s\nambiguous=1\n' "$_AMV" "$_AMN"; } > "$_AMD/agents/$AID" 2>/dev/null
     else { cat "$claim"; printf 'asked=%s\n' "$_AMV"; } > "$_AMD/agents/$AID" 2>/dev/null; fi
-    rm -f "$claim" 2>/dev/null
+    rm -f "$claim" "$take" 2>/dev/null
     exit 0 ;;
 
   SubagentStop)
@@ -280,6 +290,8 @@ case "$EV" in
     _am_rec_get "$REC" verify; VCMD="$_AMV"
     _am_rec_get "$REC" agent; AG="$_AMV"; _am_rec_get "$REC" change; CH="$_AMV"; _am_rec_get "$REC" risk; RK="$_AMV"
     _am_rec_get "$REC" card; CID="$_AMV"; _am_rec_get "$REC" esc; ESC="${_AMV:--}"
+    # A record written before the gate kept its reason has none: that is "-", not a reason made up here.
+    _am_rec_get "$REC" why; RW="${_AMV:--}"; RW="${RW//$'\t'/ }"
     _am_rec_get "$REC" asked || _am_rec_get "$REC" tier; ASK="$_AMV"
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
@@ -287,7 +299,9 @@ case "$EV" in
     RES=none; WHYNOT=""
     if [ -n "$VCMD" ] && [ "$VCMD" != none ]; then
       _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
-      if ! _am_verify_ok "$VCMD" "$PM"; then
+      # `cd <folder> && <command>` is judged as the command and run in the folder (guard-agent-model.sh).
+      _am_verify_split "$VCMD"; VDIR="$_AMVD"; VRUN="$_AMVC"
+      if ! _am_verify_ok "$VRUN" "$PM"; then
         # Judged again here, at the moment it would run: the gate judged it when the agent was called, and this
         # is the place the command actually starts. Not run; nothing is concluded about the work.
         RES=blocked; WHYNOT="$_AMVW"; VRC=0
@@ -302,11 +316,11 @@ case "$EV" in
         # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
         # is ended by its Windows process id.
         if [ -z "${CREW_VERIFY_NO_SETSID:-}" ] && command -v setsid >/dev/null 2>&1; then
-          ( cd "$_AMP" 2>/dev/null && exec setsid bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$_AMP/$VDIR" 2>/dev/null && exec setsid bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
         else
           set -m
-          ( cd "$_AMP" 2>/dev/null && exec bash -c "$VCMD" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$_AMP/$VDIR" 2>/dev/null && exec bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
           set +m
         fi
@@ -359,10 +373,10 @@ case "$EV" in
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
-    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\n' > "$TSV" 2>/dev/null
+    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why\n' > "$TSV" 2>/dev/null
     _ao_now
     _ao_lock
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" >> "$TSV" 2>/dev/null
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" "$RW" >> "$TSV" 2>/dev/null
     _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
     exit 0 ;;
@@ -387,6 +401,24 @@ case "$EV" in
             && [ "$(wc -l < "$TSV.tmp")" = "$(wc -l < "$TSV")" ] && mv "$TSV.tmp" "$TSV" 2>/dev/null
           rm -f "$TSV.tmp" 2>/dev/null
           _ao_unlock
+        fi
+      fi
+    fi
+    # THE ONE-CLICK APPROVAL, OFFERED WHEN THE COMMIT MESSAGE IS ASKED FOR (B-2). In `auto` the click used to reach the
+    # user only inside a refused commit, and a session that asked for /crew-approve first never tried one (§4.4 says
+    # not to), so it was never offered. A call to crew-commit-agent is when the message is on its way: the session is
+    # told then, in foreground and background alike (a background launch answers here at once). Whether the question
+    # is open, and its words, come from prompt-approval.sh, as the refusal's do. Its verify is `none` (change: text),
+    # so no outcome below is lost by answering here; the model it ran on is already kept above.
+    _json_slice "$INPUT" subagent_type >/dev/null
+    if [ "$_JS" = crew-commit-agent ] && [ -f "$_ao_here/prompt-approval.sh" ]; then
+      _json_slice "$INPUT" permission_mode >/dev/null; _AOPM="$_JS"
+      if [ "$_AOPM" = auto ]; then
+        declare -F _crew_q_open >/dev/null 2>&1 || . "$_ao_here/prompt-approval.sh"
+        if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto; then
+          _ao_json "Crewforth: when you show the user the commit message this agent proposes, ask with one click before anything else. $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so); then run the commit it names. If that question is refused, the user can type /crew-approve instead, as the refusal says."
+          printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+          exit 0
         fi
       fi
     fi

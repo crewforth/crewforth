@@ -1,0 +1,17 @@
+{
+  "id": "clean-negative-routing",
+  "kind": "clean",
+  "stratum": "judgement",
+  "holdout": true,
+  "source": "ffd43b111 feat(1.4.0): phase 5 — review rigor (two-stage verdict, negative routing, lens panel)",
+  "intent": "Score negative routing rows in the routing eval.",
+  "modes": {
+    "before": {
+      "claude-starter/eval/routing-eval.sh": "100755"
+    },
+    "after": {
+      "claude-starter/eval/routing-eval.sh": "100755"
+    }
+  },
+  "expect": []
+}

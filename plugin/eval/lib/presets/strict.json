@@ -1,0 +1,11 @@
+{
+  "about": "For a team that ships to production from this repository: what deploys it is critical too, and the referees of the work run on opus whatever the risk.",
+  "name": "strict",
+  "critical": { "add": ["infra", "deploy", "terraform", "k8s", "helm", ".github/workflows"], "remove": [] },
+  "floors": [
+    ["crew-review-agent", "*", "*", "opus"],
+    ["*", "test-write", "*", "opus"],
+    ["*", "audit", "*", "opus"]
+  ],
+  "verify": []
+}

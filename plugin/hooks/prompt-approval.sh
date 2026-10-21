@@ -31,6 +31,24 @@
 #
 # COST. This runs on every prompt, so the ordinary one is builtins only: no process is started unless the
 # message is an approval (then git is asked what is staged). eval/smoke-test.sh pins both.
+#
+# THE SAME APPROVAL BY A CLICK (3.2.0). In `auto` the user can also answer ONE fixed question, asked with
+# AskUserQuestion: "Commit only" / "Commit + push" / "Push only" / "No". Two hooks on that tool share what is below:
+#   PreToolUse   guard-question.sh (_crew_q_pre): the question must be the fixed one (_CREW_Q_JSON), carry no
+#                answers, and be asked in `auto`; then it answers `ask`. A hook's `ask` beats another PreToolUse
+#                hook's `allow` that comes with filled-in answers, from every source and in every mode (measured:
+#                34 runs on Claude Code 2.1.294, and in the terminal by hand), so the question reaches the user.
+#   PostToolUse  this hook: the answer is read from the payload and recorded exactly as a typed approval would
+#                be, with the same proofs (an attended session, a transcript on disk, the session id) - and only
+#                when guard-question.sh asked THIS call (.claude/state/crew-approval-asked carries its tool_use_id).
+# WHAT `ask` DOES NOT STOP: a `PermissionRequest` hook. It answers the permission prompt that `ask` raises, before
+# the person does (measured, with `-p` and in the terminal), and it can do the same to the Bash prompt of the
+# §4.4 gate in `default` / `acceptEdits`. So both halves, and guard-bash.sh before it asks, first look for one
+# (_crew_prh_scan). Found, the click is closed and so is the gate's own prompt: the one approval left is the
+# typed one, which no hook can type. HONEST SCOPE: the scan reads the sources a hook can read (user, project and
+# local settings, the file-based managed settings, skill, agent and command front matter, installed plugins).
+# It cannot read settings handed over with `--settings`, managed settings delivered by a server, or a plugin
+# loaded with `--plugin-dir`: a PermissionRequest hook there is past it.
 set -uo pipefail
 # ---- CREW-LOCALE -----------------------------------------------------------------------------------------
 # Everything this gate matches with runs in the C locale, whatever the session's own is. Under a Turkish locale
@@ -56,7 +74,7 @@ export LC_ALL=C
 _PA_LIB=0; [ "${BASH_SOURCE[0]}" != "$0" ] && _PA_LIB=1
 if [ "$_PA_LIB" = 0 ]; then
   IFS= read -r -d '' INPUT || true
-  case "$INPUT" in *'"hook_event_name"'*UserPromptSubmit*) ;; *) exit 0 ;; esac
+  case "$INPUT" in *'"hook_event_name"'*UserPromptSubmit*|*'"hook_event_name"'*'"AskUserQuestion"'*|*'"AskUserQuestion"'*'"hook_event_name"'*|*'"hook_event_name"'*'"Stop"'*) ;; *) exit 0 ;; esac
 fi
 # ---- CREW-JSON-PARSE ------------------------------------------------------------------------------------
 _json_find(){  # $1 = text, $2 = a literal -> _JF = the offset of its first occurrence, -1 when there is none
@@ -403,7 +421,367 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
   fi
 }
 
+# ---- THE APPROVAL QUESTION: one fixed text, asked by the model and answered by the user (3.2.0) ----------------
+# What the user is asked is never the model's wording: PreToolUse refuses any other, so the person always reads the
+# same four answers and what each one does. guard-bash.sh prints it from here for the model to ask.
+_CREW_Q_TEXT='Crewforth approval: may Claude commit what is staged now, push this branch, or both?'
+_CREW_Q_JSON='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":[{"label":"Commit only","description":"Commit exactly what is staged now. No push."},{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."},{"label":"Push only","description":"Push this branch as it is now. No new commit."},{"label":"No","description":"Neither commit nor push."}],"multiSelect":false}'
+# THE ANSWERED QUESTION, IN ANY KEY ORDER. Claude Code hands PostToolUse the question back either as it was asked or
+# re-serialised with its keys sorted (`header,options[description,label],question`, sometimes without multiSelect):
+# 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused, on a byte match (real sessions,
+# 2.1.299 and 2.1.302, 2026-10-18). So the answer side checks every "key":"text" pair of the fixed question, wherever
+# it sits; the exact match stays on PreToolUse, and the tool id binds the answer to the call that passed it.
+_crew_q_is(){  # $1 = a payload -> 0 when it carries every "key":"text" pair of _CREW_Q_JSON
+  local rest="$_CREW_Q_JSON" re='("[A-Za-z]+":"[^"]*")' p
+  while [[ $rest =~ $re ]]; do
+    p="${BASH_REMATCH[1]}"
+    case "$1" in *"$p"*) ;; *) return 1 ;; esac
+    rest="${rest#*"$p"}"
+  done
+}
+_crew_q_op(){  # $1 = the label the user chose -> OP: commit | commit+push | push | no, or "" for anything else
+  case "$1" in
+    'Commit only') OP=commit ;; 'Commit + push') OP=commit+push ;; 'Push only') OP=push ;; 'No') OP=no ;; *) OP="" ;;
+  esac
+}
+
+# ---- IS A PermissionRequest HOOK WIRED WHERE THIS CAN SEE? -------------------------------------------------------
+# A PermissionRequest hook answers a permission prompt before the person does: the one `ask` raises for the approval
+# question, and the one guard-bash.sh raises for a commit in default / acceptEdits (both measured on 2.1.294, with
+# `-p` and in the terminal). Nothing in the answer tells it from a click. So the question is closed, and the gate's
+# prompt with it, whenever such a hook may be wired; the typed /crew-approve stays, because no hook can type.
+# Read here, as text (not parsed, so it errs towards "found"):
+#   settings      user (CLAUDE_CONFIG_DIR or ~/.claude: settings.json, settings.local.json), project (.claude/
+#                 settings.json, settings.local.json), the managed-settings.json files where guard-agent-model.sh
+#                 reads them, and Crewforth's own plugin hooks.json. FOUND: the event's name in any letter case, or a
+#                 `\u` escape in a file that has hooks (an escaped name is still the name).
+#   front matter  SKILL.md, agents/*.md and commands/*.md of the project, the user and every installed plugin.
+#                 Only the block between the first two `---` lines is read. FOUND: the event's name, or a backslash
+#                 in a front matter that has hooks (YAML spells a letter as \x52 or \u0052 in double quotes).
+#   plugins       every installed plugin (plugins/cache/<marketplace>/<plugin>/<version>): the .json files at its top,
+#                 in hooks/ and in .claude-plugin/ (hooks.json, a plugin.json with inline hooks). Same rule as settings.
+# NOT READ, and written as the limit in the docs: `--settings` given on the command line, managed settings a server
+# delivers, a plugin loaded with --plugin-dir. A hook added while the session runs is read at the next question:
+# the scan runs at every question and every commit, never cached.
+# _PRH names the first file found, for the message. No process is started; this runs only when a question or a
+# commit is decided, never on an ordinary prompt.
+_crew_prh_text(){  # $1 = json | fm, $2 = text -> 0 when it may wire a PermissionRequest hook
+  local t="$2" nc=0 r=1
+  shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$t" in *permissionrequest*) r=0 ;; esac
+  if [ "$r" = 1 ]; then
+    case "$t" in *hooks*)
+      if [ "$1" = json ]; then
+        t="${t//\\\\/}"                       # an escaped backslash is not the start of an escape
+        case "$t" in *'\u'*|*'\U'*) r=0 ;; esac
+      else
+        case "$t" in *\\*) r=0 ;; esac
+      fi ;;
+    esac
+  fi
+  [ "$nc" = 0 ] && shopt -u nocasematch
+  return "$r"
+}
+_crew_prh_fm(){  # $1 = a markdown file -> _FM: its front matter, "" when it has none
+  local l n=0
+  _FM=""
+  { IFS= read -r l || [ -n "$l" ]; l="${l%$'\r'}"; [ "$l" = --- ] || return 0
+    while IFS= read -r l || [ -n "$l" ]; do
+      l="${l%$'\r'}"; [ "$l" = --- ] && return 0
+      _FM="$_FM$l"$'\n'; n=$((n+1)); [ "$n" -le 400 ] || return 0
+    done; } < "$1"
+}
+_crew_prh_scan(){  # -> 0 when a PermissionRequest hook may be wired; _PRH names where
+  local p="${CLAUDE_PROJECT_DIR:-${CWD:-${_CWD:-.}}}" u="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}" f t list
+  local LC_ALL=C
+  p="${p//\\//}"; p="${p%/}"; u="${u//\\//}"; u="${u%/}"
+  _PRH=""
+  # The managed files are the ones guard-agent-model.sh reads (_am_settings_files), CREW_MANAGED_SETTINGS included:
+  # it can only add a file to look in, so it can only close the question. smoke-test.sh pins the two lists equal.
+  for f in "$u/settings.json" "$u/settings.local.json" "$p/.claude/settings.json" "$p/.claude/settings.local.json" \
+           "/Library/Application Support/ClaudeCode/managed-settings.json" "/etc/claude-code/managed-settings.json" \
+           "/c/Program Files/ClaudeCode/managed-settings.json" "/c/ProgramData/ClaudeCode/managed-settings.json" \
+           "${CREW_MANAGED_SETTINGS:-}" "${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT//\\//}/hooks/hooks.json}"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    t=""; IFS= read -r -d '' t < "$f" || true
+    _crew_prh_text json "$t" && { _PRH="$f"; return 0; }
+  done
+  # Globs, not `find`: no process is started, and this runs before every commit prompt (on Git Bash a process is
+  # 62-135 ms). A plugin is cache/<marketplace>/<plugin>/<version>/; a command or an agent may sit one folder down.
+  local ng=0 r=1
+  shopt -q nullglob && ng=1; shopt -s nullglob
+  for f in "$u"/plugins/cache/*/*/*/*.json "$u"/plugins/cache/*/*/*/hooks/*.json "$u"/plugins/cache/*/*/*/.claude-plugin/*.json; do
+    t=""; IFS= read -r -d '' t < "$f" || true
+    _crew_prh_text json "$t" && { _PRH="$f"; r=0; break; }
+  done
+  if [ "$r" = 1 ]; then
+    for f in "$p"/.claude/skills/*/SKILL.md "$p"/.claude/agents/*.md "$p"/.claude/agents/*/*.md "$p"/.claude/commands/*.md "$p"/.claude/commands/*/*.md \
+             "$u"/skills/*/SKILL.md "$u"/agents/*.md "$u"/agents/*/*.md "$u"/commands/*.md "$u"/commands/*/*.md \
+             "$u"/plugins/cache/*/*/*/skills/*/SKILL.md "$u"/plugins/cache/*/*/*/agents/*.md "$u"/plugins/cache/*/*/*/agents/*/*.md \
+             "$u"/plugins/cache/*/*/*/commands/*.md "$u"/plugins/cache/*/*/*/commands/*/*.md; do
+      _crew_prh_fm "$f"
+      [ -n "$_FM" ] && _crew_prh_text fm "$_FM" && { _PRH="$f"; r=0; break; }
+    done
+  fi
+  [ "$ng" = 0 ] && shopt -u nullglob
+  return "$r"
+}
+
+# ---- IS THE QUESTION OPEN HERE? One answer for every hook that offers it ------------------------------------------
+# guard-bash.sh offers it in a refusal; agent-outcome.sh offers it when crew-commit-agent is called in `auto`, so the
+# click is on offer before any commit is tried (B-2, a real session: with the refusal as the only way to it, a session
+# that asked for /crew-approve first never showed it). The text the user is asked stays _CREW_Q_JSON, here only.
+_CREW_Q_HERE="${BASH_SOURCE[0]%/*}"; [ "$_CREW_Q_HERE" = "${BASH_SOURCE[0]}" ] && _CREW_Q_HERE=.
+_crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (guard-question.sh, then this file)
+  local f t d="${CLAUDE_PROJECT_DIR:-.}"
+  d="${d//\\//}"; d="${d%/}"
+  for f in "${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT//\\//}/hooks/hooks.json}" "$d/.claude/settings.json" "$d/.claude/settings.local.json" "${HOME:+${HOME//\\//}/.claude/settings.json}"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    t=""; IFS= read -r -d '' t < "$f" || true
+    case "$t" in *'"PreToolUse"'*AskUserQuestion*guard-question.sh*'"PostToolUse"'*AskUserQuestion*prompt-approval.sh*) return 0 ;; esac
+  done
+  return 1
+}
+_crew_q_open(){  # $1 = permission mode -> 0 when the click may be offered: auto, both halves wired and beside this file, no PermissionRequest hook
+  [ "$1" = auto ] && [ -f "$_CREW_Q_HERE/guard-question.sh" ] && _crew_q_wired && ! _crew_prh_scan
+}
+# What the session is told to do, the same words wherever it is offered.
+_CREW_Q_ASK='ASK THE USER WITH ONE CLICK (stage first: the approval covers what is staged at that moment): show the commit message whole, in ONE code block, then call AskUserQuestion with exactly this input, nothing added or changed:'
+
+# ---- the approval question's context, and its PreToolUse half -----------------------------------------------
+# Shared by prompt-approval.sh (PostToolUse: it records the answer) and guard-question.sh (PreToolUse: it asks). The
+# PreToolUse half is a GATE and lives in a gate's file, so an error of its own refuses the call (CREW-FAILCLOSED)
+# instead of letting the question through with no `ask`; this file also answers UserPromptSubmit, where a refusal
+# would erase the user's message.
+_crew_q_dir(){  # $1 = cwd -> _QAD (the state folder), ASKED (the call PreToolUse let through), TRIED (asked since the user's last message)
+  _QAD="${CLAUDE_PROJECT_DIR:-$1}"; _QAD="${_QAD//\\//}"; _QAD="${_QAD%/}/.claude/state"
+  ASKED="$_QAD/crew-approval-asked"; TRIED="$_QAD/crew-approval-tried"
+}
+_crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no decision) when the call is not the approval question
+  _json_keycount "$INPUT" hook_event_name; [ "$_KC" = 1 ] || exit 0
+  _json_keycount "$INPUT" tool_name; [ "$_KC" = 1 ] || exit 0
+  _json_slice "$INPUT" tool_name >/dev/null; [ "$_JS" = AskUserQuestion ] || exit 0
+  case "$INPUT" in *'Crewforth approval'*) ;; *) exit 0 ;; esac
+  _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null; CWD="$_JU"
+  [ -n "$CWD" ] || CWD="${CLAUDE_PROJECT_DIR:-.}"
+  CWD="${CWD//\\//}"
+  _crew_appr_path "$CWD"; REC="$_AP"
+  _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
+  _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
+  _json_slice "$INPUT" tool_use_id >/dev/null; _QTU="$_JS"
+  _crew_q_dir "$CWD"
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _QNOW '%(%s)T' -1; else _QNOW="$(date +%s)"; fi
+}
+_crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that says why
+  _crew_q_ctx
+  # Asked at all, whatever the decision below: a question refused here, or dismissed by the user, leaves the typed
+  # way as the one that is left, and the Stop half (_pa_stop) must not send the session back to ask it again.
+  [ -n "$SID" ] && [ -d "$_QAD" ] && { printf 'sid=%s\n' "$SID" > "$TRIED"; } 2>/dev/null
+  qno(){  # $1 = why, for the model. The call does not run; where it applies, the typed approval is named as the way left.
+    echo "GUARD (§4.4): the approval question was not asked: $1" >&2
+    [ "${2:-}" = nohint ] || echo "The way that always works is the user's own: the user can type /crew-approve (or /crew-approve commit, push, commit+push) as their whole message." >&2
+    exit 2
+  }
+  # The answers are the person's to give. The model's own are ignored by Claude Code (measured), and a call that
+  # carries some is not the plain question this hook asks.
+  _json_keycount "$INPUT" answers; [ "$_KC" = 0 ] || qno "the call carries answers; ask it with none."
+  _json_keycount "$INPUT" questions; [ "$_KC" = 1 ] || qno "the call carries more than one list of questions."
+  case "$INPUT" in *'"questions":['"$_CREW_Q_JSON"']'*) ;;
+    *) qno "it is not the fixed question. Ask exactly this AskUserQuestion input, nothing added or changed: {\"questions\":[$_CREW_Q_JSON]}" ;;
+  esac
+  case "$PM" in
+    auto) ;;
+    dontAsk) qno "in dontAsk Claude Code refuses a question that needs a person, so it would never reach the user." ;;
+    default|acceptEdits) _crew_prh_scan || qno "in $PM the commit or push itself asks the user: run the git command and the gate's own prompt appears." nohint
+                         qno "in $PM, with a PermissionRequest hook that may be wired ($_PRH), only the typed approval counts." ;;
+    *) qno "in ${PM:-an unknown mode} this approval is not open (bypassPermissions and plan fail closed)." ;;
+  esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) qno "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "$SID$_QTU" in *[!A-Za-z0-9._-]*) qno "the call carries no session or tool id this hook can bind the answer to." ;; esac
+  { [ -n "$SID" ] && [ -n "$_QTU" ]; } || qno "the call carries no session or tool id this hook can bind the answer to."
+  _crew_prh_scan && qno "a PermissionRequest hook may be wired ($_PRH). Such a hook can answer the question before the user does, and the answer cannot be told from a click."
+  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\n' "$SID" "$_QTU" "$_QNOW" > "$ASKED"; } 2>/dev/null \
+    || qno "the state folder could not be written, so the answer could not be bound to this question."
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
+    "Crewforth §4.4: only the person in front of this session answers the approval question."
+  exit 0
+}
+
 [ "$_PA_LIB" = 1 ] && return 0
+
+# Whatever records an approval says why when it does not - to the user and to the model - instead of leaving a
+# commit to fail later with no explanation. EVN is the event this hook answers, SRC what the user gave.
+EVN=UserPromptSubmit; SRC="message"; SRC_BY="in their own message"
+say(){  # $1 = for the user, $2 = for the model. Both are built from fixed text and values checked below.
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$1" "$EVN" "$2"
+  exit 0
+}
+no(){ say "Crewforth: approval NOT recorded - $1" "The user's $SRC is an approval for $OP, but Crewforth could not record it: $1 Tell the user exactly that; the commit/push gate stays closed until they approve again."; }
+
+# ---- THE RECORD: what was approved, measured from git now, never taken from the message or the answer ---------
+# Every route ends here (the typed approval, the bare /crew-approve, the approval question); each one has already
+# checked the permission mode it records in, and sets OP, CWD, REC and SRC_BY.
+_pa_record(){
+  [ -n "$REC" ] || no "this directory is not inside a git repository."
+
+  # A PERSON, IN A SESSION THAT HAS SHOWN THEM SOMETHING. A session can start another one and hand it the approval as
+  # its prompt: `claude -p "/crew-approve commit"`, or an interactive one driven through a pseudo-terminal. That
+  # session's only message is the approval, this hook would record it, and the session would then commit: the first
+  # session has approved for the user. Measured on Claude Code 2.1.294 (macOS), from a hook that printed what it saw:
+  #   started how                                CLAUDE_CODE_SESSION_ATTENDED   the transcript file when this hook runs
+  #   claude -p, from a session's Bash           0 (set to 1 by the caller: still 0)   not there (first message)
+  #   claude -p, from an emptied environment     0                               not there (first message)
+  #   interactive, in a pty, from a session      1                               not there, and never written: a
+  #                                                                              session started inside another keeps none
+  #   interactive, in a pty, emptied environment 1                               not there at the first message; there after
+  #   the desktop app, a conversation under way  1                               there
+  # Nothing else told them apart: the payload has the same fields, CLAUDECODE and CLAUDE_CODE_CHILD_SESSION are 1 in
+  # all of them, CLAUDE_CODE_ENTRYPOINT is inherited from the outer session, and no hook has a terminal on stdin.
+  # So two things are asked. Neither is a documented contract, and both fail towards NOT recording:
+  #   1. the session is not a headless one;
+  #   2. the session's transcript is already on disk when the approval arrives, so the approval is not the session's
+  #      first message and the session is not one that keeps no transcript.
+  # HONEST SCOPE: a session started with an emptied environment and driven through a pseudo-terminal for a second
+  # message passes both. guard-bash.sh refuses the forms of that it can read; a program that types is past it.
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in
+    0) no "this session has nobody in front of it (it was started with -p, or by a program), and an approval is what a person types into their own session." ;;
+  esac
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+  { [ -n "$TP" ] && [ -s "$TP" ]; } || no "this is the first message of this session, or the session keeps no transcript (one started from inside another session keeps none). An approval answers a commit message the session has shown: have it shown, then approve."
+
+  # The session the user is writing in. guard-bash.sh accepts the record only from that one: a session started by a
+  # command can be handed any prompt.
+  _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
+  case "$SID" in ''|*[!A-Za-z0-9._-]*) no "this prompt carries no session id to bind the approval to." ;; esac
+
+  HEAD_NOW="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
+  case "$HEAD_NOW" in NONE) ;; *[!0-9a-f]*|'') no "git could not name HEAD here." ;; esac
+  TREE=""; BR=""; RM=""; URL=""
+  case "$OP" in commit*)
+    # THE TREE THE INDEX WRITES, not the text of the staged diff: what `git diff` prints is configurable
+    # (`diff.external`, a textconv filter), and with it two different staged changes can print the same text.
+    TREE="$(git -C "$CWD" write-tree 2>/dev/null)"
+    case "$TREE" in *[!0-9a-f]*|'') no "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
+    if [ "$HEAD_NOW" = NONE ]; then _ht=4b825dc642cb6eb9a060e54bf8d69288fbee4904      # the empty tree
+    else _ht="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
+    [ "$TREE" != "$_ht" ] || no "nothing is staged, so there is nothing to approve. Stage the change with git add, show the commit message, then ask again." ;;
+  esac
+  case "$OP" in *push)
+    [ "$OP" = push ] && [ "$HEAD_NOW" = NONE ] && no "there is no commit to push yet."
+    BR="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null || true)"
+    [ -n "$BR" ] || no "HEAD is detached, so there is no branch to bind the push to."
+    RM="$(git -C "$CWD" config --get "branch.$BR.pushRemote" 2>/dev/null)" \
+      || RM="$(git -C "$CWD" config --get remote.pushDefault 2>/dev/null)" \
+      || RM="$(git -C "$CWD" config --get "branch.$BR.remote" 2>/dev/null)" || RM=""
+    case "$RM" in ''|.)
+      RM="$(git -C "$CWD" remote 2>/dev/null)"
+      case "$RM" in ''|*$'\n'*) no "this branch has no upstream and the repository does not have exactly one remote, so the push target is not known. Set the upstream, or approve the commit alone." ;; esac ;;
+    esac
+    # Both values go into JSON and into a line-per-field record, so anything outside this set is refused, not escaped.
+    case "$BR$RM" in *[!A-Za-z0-9._/@+-]*) no "the branch or remote name has a character this record does not carry." ;; esac
+    # Where that remote pushes TO, with pushurl and pushInsteadOf applied. The name alone can be pointed elsewhere
+    # after the approval (`git config remote.origin.pushurl …`), so the address is part of what was approved.
+    URL="$(git -C "$CWD" remote get-url --push "$RM" 2>/dev/null)"
+    case "$URL" in ''|*$'\n'*) no "the remote $RM does not push to exactly one address." ;; esac ;;
+  esac
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    printf -v TS '%(%s)T' -1
+  else TS="$(date +%s)"; fi
+  case "$TS" in ''|*[!0-9]*) no "the clock could not be read." ;; esac
+
+  { printf 'v=1\nop=%s\ntree=%s\nhead=%s\nbranch=%s\nremote=%s\nurl=%s\nsid=%s\nts=%s\n' "$OP" "$TREE" "$HEAD_NOW" "$BR" "$RM" "$URL" "$SID" "$TS" > "$REC"; } 2>/dev/null \
+    || no "the record could not be written in the git directory."
+  # What was waiting has been approved: it is not approved a second time. Only here, after every proof and the record
+  # itself: a bare command that recorded nothing (a headless session, a first message) leaves it for the user.
+  [ "$BARE" = 1 ] && { : > "$_bp"; } 2>/dev/null
+
+  _h="${HEAD_NOW:0:7}"; _d="${TREE:0:7}"
+  # THE ADDRESS IS SHOWN TO THE USER, not only compared: a rewrite set BEFORE the approval (`url.<x>.insteadOf`) is
+  # already in what git reports, so the record and the push agree and only the person can tell that "origin" is not
+  # where they think (review). Shown to the user alone, with any `user:secret@` taken out, and never put in front of
+  # the model.
+  _u="$URL"
+  case "$_u" in *://*@*) _ua="${_u#*://}"; case "${_ua%%/*}" in *@*) _u="${_u%%://*}://${_ua#*@}" ;; esac ;; esac
+  case "$_u" in *[\"\\]*|*[![:print:]]*) _u="an address this line cannot print; check it with: git remote get-url --push $RM" ;; esac
+  case "$OP" in
+    commit)      WHAT="commit of what is staged now (tree $_d) on HEAD $_h"
+                 HOW="Run git commit -m with the message, alone in its call: no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained. Single-quote the message, or read it from a here-document with a quoted delimiter. The review record of §4.6 is still required." ;;
+    push)        WHAT="push of $BR at $_h to $RM"
+                 HOW="Run exactly: git push $RM $BR (alone in its call: the remote and the branch written out, no cd, no pipe, nothing chained). A tag on that commit goes the same way: git push $RM <tag>." ;;
+    commit+push) WHAT="commit of what is staged now (tree $_d) on HEAD $_h, then push of that commit on $BR to $RM"
+                 HOW="Run git commit -m with the message, alone in its call (no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained; single-quote the message; §4.6 still applies), then in a separate call exactly: git push $RM $BR (a tag on the new commit: git push $RM <tag>)" ;;
+  esac
+  [ -n "$_u" ] && _u=" ($RM pushes to $_u)"
+  _bw=""; [ "$BARE" = 1 ] && _bw="approved: $OP (what this session was refused). "
+  say "Crewforth: ${_bw}approval recorded - $WHAT$_u. Valid for 30 minutes; your next message ends it." \
+      "The user approved this $SRC_BY and Crewforth recorded it: $WHAT. $HOW The approval covers what was staged and where HEAD was at that moment, in this session: if either changes it no longer applies and the user approves again. It ends in 30 minutes or at the user's next message. Force-push and the rest of §4.5 are not opened by it."
+}
+
+# ---- THE APPROVAL QUESTION (PreToolUse and PostToolUse of AskUserQuestion) -----------------------------------
+# Only the fixed question is this hook's business: any other question gets no decision from it, here or later.
+_pa_question(){
+  local _as="" _at="" _au="" _al _an
+  _crew_q_ctx
+  # PostToolUse: the user has answered. Recorded only if THIS call was asked by the half above.
+  SRC="answer to the approval question"; SRC_BY="by answering the approval question"; OP="a commit or a push"
+  [ -n "$SID" ] && [ -n "$_QTU" ] || no "the answer carries no session or tool id."
+  if [ -f "$ASKED" ]; then
+    while IFS= read -r _al || [ -n "$_al" ]; do
+      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; esac
+    done < "$ASKED"
+  fi
+  { [ "$_as" = "$SID" ] && [ "$_au" = "$_QTU" ]; } || no "Crewforth did not ask this question (guard-question.sh, its PreToolUse half, is not wired or did not pass it), so the answer cannot be shown to have come from the user."
+  : > "$ASKED" 2>/dev/null                                 # one question, one answer
+  case "$_at$_QNOW" in *[!0-9]*|'') no "the time of the question could not be read." ;; esac
+  [ $((_QNOW - _at)) -ge 0 ] && [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."
+  _crew_q_is "$INPUT" || no "the question answered is not the fixed one."
+  [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
+  _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
+  _json_keycount "$INPUT" "$_CREW_Q_TEXT"; _an=$_KC
+  case "$_an" in 1|2) ;; *) no "the answer could not be read." ;; esac
+  _json_slice "$INPUT" "$_CREW_Q_TEXT" >/dev/null
+  _crew_q_op "$_JS"
+  case "$OP" in
+    '') OP="a commit or a push"; no "the answer was none of the four the question offers." ;;
+    no) [ -n "$REC" ] && { : > "$REC"; } 2>/dev/null
+        say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
+  esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) no "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+  { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
+  BARE=0
+  _pa_record
+}
+# ---- THE CLICK BEFORE THE TYPED WAY (Stop) -------------------------------------------------------------------
+# The click reached the user only from a refused commit or a call to crew-commit-agent, and a session that wrote the
+# message itself asked the user to type /crew-approve without trying either: 9 of 18 typed asks in two real `auto`
+# sessions on rc.4 (2026-10-18) came in a turn where no commit was tried, most right after crew-review-agent. So the
+# turn's end is where it is caught: the reply names /crew-approve, the question is open, and it was not asked since
+# the user's last message. Then the session is told, once, to ask the click; it never blocks, and stop_hook_active
+# lets the turn end the next time whatever was said.
+_pa_stop(){
+  case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0 ;; esac
+  _json_slice "$INPUT" permission_mode >/dev/null; [ "$_JS" = auto ] || exit 0
+  _json_slice "$INPUT" last_assistant_message >/dev/null
+  case "$_JS" in *'/crew-approve'*) ;; *) exit 0 ;; esac
+  _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"; [ -n "$SID" ] || exit 0
+  _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null; _crew_q_dir "${_JU:-.}"
+  _crew_q_open auto || exit 0
+  _al=""; [ -f "$TRIED" ] && { IFS= read -r _al < "$TRIED"; } 2>/dev/null
+  [ "$_al" = "sid=$SID" ] && exit 0
+  _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
+  _ao="${_ao//\\/\\\\}"; _ao="${_ao//\"/\\\"}"     # fixed ASCII text on one line: a backslash and a quote are all it holds
+  printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$_ao"
+  exit 0
+}
+_json_keycount "$INPUT" hook_event_name
+if [ "$_KC" = 1 ]; then _json_slice "$INPUT" hook_event_name >/dev/null; [ "$_JS" = Stop ] && _pa_stop; fi
+case "$INPUT" in *'"hook_event_name"'*'"Stop"'*) exit 0 ;; esac   # a Stop is never a prompt: it must not end an approval below
+
+case "$INPUT" in *'"AskUserQuestion"'*)
+  _json_slice "$INPUT" hook_event_name >/dev/null
+  case "$_JS" in PostToolUse) EVN="$_JS"; _pa_question ;; esac ;;
+esac
 
 # A second "prompt" key cannot come from the text of a prompt (inside a JSON string every quote is escaped), so
 # more than one means the payload is not the shape this hook knows, and nothing is read from it.
@@ -434,6 +812,8 @@ _crew_appr_path "$CWD"; REC="$_AP"
 # THE USER'S NEXT MESSAGE ENDS THE APPROVAL, whatever it says. Emptied with a redirection, which is a builtin:
 # `rm` would be a process on a hook that runs on every prompt.
 if [ -n "$REC" ] && [ -s "$REC" ]; then : > "$REC" 2>/dev/null || true; fi
+# ...and starts a new turn for the Stop half: the question has not been asked since this message.
+_crew_q_dir "$CWD"; [ -s "$TRIED" ] && { : > "$TRIED"; } 2>/dev/null
 
 # ---- is this message an approval? ------------------------------------------------------------------------
 [ "$_n_prompt" = 1 ] || exit 0
@@ -443,12 +823,7 @@ _crew_appr_op "$_JU"
 [ -n "$OP" ] || exit 0
 
 # From here on the message IS an approval, so every way of not recording it says why - to the user and to the
-# model - instead of leaving a commit to fail later with no explanation.
-say(){  # $1 = for the user, $2 = for the model. Both are built from fixed text and values checked below.
-  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$1" "$2"
-  exit 0
-}
-no(){ say "Crewforth: approval NOT recorded - $1" "The user's message is an approval for $OP, but Crewforth could not record it: $1 Tell the user exactly that; the commit/push gate stays closed until they approve again."; }
+# model - instead of leaving a commit to fail later with no explanation (say / no, above).
 
 # ---- /crew-loosen: a floor model routing raised is lowered by the user, and by nobody else ----------------------
 # hooks/agent-outcome.sh raises a class's floor when its first try fails too often, and nothing lowers it again but
@@ -498,7 +873,7 @@ BARE=0
 if [ "$OP" = pending ]; then
   BARE=1
   _json_slice "$INPUT" permission_mode >/dev/null
-  case "$_JS" in auto|dontAsk) ;; *) exit 0 ;; esac          # elsewhere the gate asks the user itself; nothing waits here
+  case "$_JS" in auto|dontAsk) ;; default|acceptEdits) _crew_prh_scan || exit 0 ;; *) exit 0 ;; esac   # elsewhere the gate asks the user itself, unless a PermissionRequest hook may answer it
   _json_slice "$INPUT" session_id >/dev/null; _bsid="$_JS"
   _bp="${CLAUDE_PROJECT_DIR:-$CWD}"; _bp="${_bp//\\//}"; _bp="${_bp%/}/.claude/state/crew-approval-pending"
   _bs=""; _bo=""; _bt=""
@@ -519,100 +894,11 @@ fi
 _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
 case "$PM" in
   auto|dontAsk) ;;
-  # Where a prompt reaches the user the gate asks them itself; in plan and bypassPermissions this route is not
-  # open (a decision, 3.1.0). Nothing is recorded and nothing is said: guard-bash.sh explains when it refuses.
+  # Where a prompt reaches the user the gate asks them itself, and nothing is recorded or said here. Except where a
+  # PermissionRequest hook may be wired (3.2.0): it can answer that prompt before the person does, so guard-bash.sh
+  # does not raise it and the typed approval is the one way left, in these modes too. In plan and bypassPermissions
+  # this route is not open (a decision, 3.1.0): guard-bash.sh explains when it refuses.
+  default|acceptEdits) _crew_prh_scan || exit 0 ;;
   *) exit 0 ;;
 esac
-[ -n "$REC" ] || no "this directory is not inside a git repository."
-
-# A PERSON, IN A SESSION THAT HAS SHOWN THEM SOMETHING. A session can start another one and hand it the approval as
-# its prompt: `claude -p "/crew-approve commit"`, or an interactive one driven through a pseudo-terminal. That
-# session's only message is the approval, this hook would record it, and the session would then commit: the first
-# session has approved for the user. Measured on Claude Code 2.1.294 (macOS), from a hook that printed what it saw:
-#   started how                                CLAUDE_CODE_SESSION_ATTENDED   the transcript file when this hook runs
-#   claude -p, from a session's Bash           0 (set to 1 by the caller: still 0)   not there (first message)
-#   claude -p, from an emptied environment     0                               not there (first message)
-#   interactive, in a pty, from a session      1                               not there, and never written: a
-#                                                                              session started inside another keeps none
-#   interactive, in a pty, emptied environment 1                               not there at the first message; there after
-#   the desktop app, a conversation under way  1                               there
-# Nothing else told them apart: the payload has the same fields, CLAUDECODE and CLAUDE_CODE_CHILD_SESSION are 1 in
-# all of them, CLAUDE_CODE_ENTRYPOINT is inherited from the outer session, and no hook has a terminal on stdin.
-# So two things are asked. Neither is a documented contract, and both fail towards NOT recording:
-#   1. the session is not a headless one;
-#   2. the session's transcript is already on disk when the approval arrives, so the approval is not the session's
-#      first message and the session is not one that keeps no transcript.
-# HONEST SCOPE: a session started with an emptied environment and driven through a pseudo-terminal for a second
-# message passes both. guard-bash.sh refuses the forms of that it can read; a program that types is past it.
-case "${CLAUDE_CODE_SESSION_ATTENDED-}" in
-  0) no "this session has nobody in front of it (it was started with -p, or by a program), and an approval is what a person types into their own session." ;;
-esac
-_json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
-{ [ -n "$TP" ] && [ -s "$TP" ]; } || no "this is the first message of this session, or the session keeps no transcript (one started from inside another session keeps none). An approval answers a commit message the session has shown: have it shown, then approve."
-
-# The session the user is writing in. guard-bash.sh accepts the record only from that one: a session started by a
-# command can be handed any prompt.
-_json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
-case "$SID" in ''|*[!A-Za-z0-9._-]*) no "this prompt carries no session id to bind the approval to." ;; esac
-
-HEAD_NOW="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
-case "$HEAD_NOW" in NONE) ;; *[!0-9a-f]*|'') no "git could not name HEAD here." ;; esac
-TREE=""; BR=""; RM=""; URL=""
-case "$OP" in commit*)
-  # THE TREE THE INDEX WRITES, not the text of the staged diff: what `git diff` prints is configurable
-  # (`diff.external`, a textconv filter), and with it two different staged changes can print the same text.
-  TREE="$(git -C "$CWD" write-tree 2>/dev/null)"
-  case "$TREE" in *[!0-9a-f]*|'') no "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
-  if [ "$HEAD_NOW" = NONE ]; then _ht=4b825dc642cb6eb9a060e54bf8d69288fbee4904      # the empty tree
-  else _ht="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
-  [ "$TREE" != "$_ht" ] || no "nothing is staged, so there is nothing to approve. Stage the change with git add, show the commit message, then ask again." ;;
-esac
-case "$OP" in *push)
-  [ "$OP" = push ] && [ "$HEAD_NOW" = NONE ] && no "there is no commit to push yet."
-  BR="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null || true)"
-  [ -n "$BR" ] || no "HEAD is detached, so there is no branch to bind the push to."
-  RM="$(git -C "$CWD" config --get "branch.$BR.pushRemote" 2>/dev/null)" \
-    || RM="$(git -C "$CWD" config --get remote.pushDefault 2>/dev/null)" \
-    || RM="$(git -C "$CWD" config --get "branch.$BR.remote" 2>/dev/null)" || RM=""
-  case "$RM" in ''|.)
-    RM="$(git -C "$CWD" remote 2>/dev/null)"
-    case "$RM" in ''|*$'\n'*) no "this branch has no upstream and the repository does not have exactly one remote, so the push target is not known. Set the upstream, or approve the commit alone." ;; esac ;;
-  esac
-  # Both values go into JSON and into a line-per-field record, so anything outside this set is refused, not escaped.
-  case "$BR$RM" in *[!A-Za-z0-9._/@+-]*) no "the branch or remote name has a character this record does not carry." ;; esac
-  # Where that remote pushes TO, with pushurl and pushInsteadOf applied. The name alone can be pointed elsewhere
-  # after the approval (`git config remote.origin.pushurl …`), so the address is part of what was approved.
-  URL="$(git -C "$CWD" remote get-url --push "$RM" 2>/dev/null)"
-  case "$URL" in ''|*$'\n'*) no "the remote $RM does not push to exactly one address." ;; esac ;;
-esac
-if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
-  printf -v TS '%(%s)T' -1
-else TS="$(date +%s)"; fi
-case "$TS" in ''|*[!0-9]*) no "the clock could not be read." ;; esac
-
-{ printf 'v=1\nop=%s\ntree=%s\nhead=%s\nbranch=%s\nremote=%s\nurl=%s\nsid=%s\nts=%s\n' "$OP" "$TREE" "$HEAD_NOW" "$BR" "$RM" "$URL" "$SID" "$TS" > "$REC"; } 2>/dev/null \
-  || no "the record could not be written in the git directory."
-# What was waiting has been approved: it is not approved a second time. Only here, after every proof and the record
-# itself: a bare command that recorded nothing (a headless session, a first message) leaves it for the user.
-[ "$BARE" = 1 ] && { : > "$_bp"; } 2>/dev/null
-
-_h="${HEAD_NOW:0:7}"; _d="${TREE:0:7}"
-# THE ADDRESS IS SHOWN TO THE USER, not only compared: a rewrite set BEFORE the approval (`url.<x>.insteadOf`) is
-# already in what git reports, so the record and the push agree and only the person can tell that "origin" is not
-# where they think (review). Shown to the user alone, with any `user:secret@` taken out, and never put in front of
-# the model.
-_u="$URL"
-case "$_u" in *://*@*) _ua="${_u#*://}"; case "${_ua%%/*}" in *@*) _u="${_u%%://*}://${_ua#*@}" ;; esac ;; esac
-case "$_u" in *[\"\\]*|*[![:print:]]*) _u="an address this line cannot print; check it with: git remote get-url --push $RM" ;; esac
-case "$OP" in
-  commit)      WHAT="commit of what is staged now (tree $_d) on HEAD $_h"
-               HOW="Run git commit -m with the message, alone in its call: no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained. Single-quote the message, or read it from a here-document with a quoted delimiter. The review record of §4.6 is still required." ;;
-  push)        WHAT="push of $BR at $_h to $RM"
-               HOW="Run exactly: git push $RM $BR (alone in its call: the remote and the branch written out, no cd, no pipe, nothing chained)." ;;
-  commit+push) WHAT="commit of what is staged now (tree $_d) on HEAD $_h, then push of that commit on $BR to $RM"
-               HOW="Run git commit -m with the message, alone in its call (no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained; single-quote the message; §4.6 still applies), then in a separate call exactly: git push $RM $BR" ;;
-esac
-[ -n "$_u" ] && _u=" ($RM pushes to $_u)"
-_bw=""; [ "$BARE" = 1 ] && _bw="approved: $OP (what this session was refused). "
-say "Crewforth: ${_bw}approval recorded - $WHAT$_u. Valid for 30 minutes; your next message ends it." \
-    "The user approved this in their own message and Crewforth recorded it: $WHAT. $HOW The approval covers what was staged and where HEAD was at that moment, in this session: if either changes it no longer applies and the user approves again. It ends in 30 minutes or at the user's next message. Force-push and the rest of §4.5 are not opened by it."
+_pa_record

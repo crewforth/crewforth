@@ -34,12 +34,13 @@ recommend, with the rationale.**
 code — RISK decides, not size: behaviour changes and a subagent's diff review go to the owner.
 
 **Classify before the first tool call:** name the DOMAIN in your own words, then read its owner from
-`.claude/agents/`. Classify *intent*, never wording — the request arrives in any language.
+`.claude/agents/`. Classify *intent*, not wording, in any language.
 What the user sees → **crew-frontend-expert** · server behaviour → **crew-backend-expert** · stored data →
 **crew-database-expert** · run/deploy/CI → **crew-devops-expert** · **crew-security-expert** ·
-**crew-privacy-agent** (personal data) · **crew-test-expert** · **crew-performance-expert** · what to build →
+**crew-privacy-agent** (personal data) · **crew-test-expert** · **crew-performance-expert** · docs/legal/store
+text → **crew-docs-agent** · what to build →
 **crew-planner** · unknown cause → **general-purpose** + `systematic-debugging`. Two domains → delegate in
-sequence. Every agent above is installed; "no owner" is an `ls`, not a default.
+sequence. All are installed: "no owner" is an `ls`.
 
 1. **Diagnose, then plan** — unknown cause → `systematic-debugging` first; unclear scope → **crew-planner** (`/crew-plan`).
 2. **Produce** — the domain owner above.
@@ -49,21 +50,21 @@ sequence. Every agent above is installed; "no owner" is an `ls`, not a default.
    A finding or a red test goes back to the owner that wrote the code, and after the fix **all of them run
    again**: the diff they cleared no longer exists.
 4. **Close — only once 3 is clean.** DoD → **crew-review-agent** (LAST, never first) clean → **crew-commit-agent**
-   proposes, waits for approval (`/crew-ship`); held items close here.
-5. **Hand off** — phase boundary or full context → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
+   writes the message, not you; waits for approval (`/crew-ship`); held items close here.
+5. **Hand off** — phase boundary or 🔋 ≥ medium → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
 
 **Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
 `files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
-· `verify:` the command that proves it, or `none`. **crew-planner** writes the card; with no plan, you do.
+· `verify:` the command that proves it, or `none`. **crew-planner** writes the card, or you do.
 
-| `model` | the card |
+| `model` (`guard-agent-model.sh`: floor = default; `above: <why>` for more) | the card |
 |---|---|
-| `haiku` | text, test-run, mechanical work — only with a `verify:` command |
-| `sonnet` | feature, fix-known, refactor, test-write, audit, review; anything with `verify: none` |
-| `opus` | **critical**: migration, security, architecture, fix-unknown, or a file on a critical path (auth, payments, migrations…) — its test-write, audit and review too |
+| `haiku` | text, commit agent; test-run, mechanical work with `verify:` |
+| `sonnet` | feature, fix-known, refactor, test-write, audit, review; other `verify: none`; critical-path prose |
+| `opus` | **critical**: migration, security, architecture, fix-unknown, or a critical-path file (auth, payments, legal…), and its referees |
 
 The referee follows the RISK, not the author's model. Verify fails → the agent fixes once; again → re-run ONCE one
-model up; again → AskUserQuestion. The same for a report that ends `confidence: low`. `guard-agent-model.sh` holds it.
+model up; again → AskUserQuestion. The same for a report that ends `confidence: low`.
 
 **Naming an agent in prose is a hope; `@agent-<name>` is a guarantee** — measured here: 0/3 vs 3/3. Use that form
 whenever an agent must run, and tell the user they can too.
@@ -126,9 +127,9 @@ more tokens, because each one re-pays for its own context — plan for that.
 > **Honest boundary.** Measuring fill **is a gate** (`context-usage.sh` + `session-guard.sh`). The four bullets above
 > are **model discipline** — no exit code can judge a delegate-or-not call, so they rest on your reasoning.
 
-## Session management (crew-session-manager)
-Last line of a reply, after the next step: `🔋 Session: [low/medium/high fill] · Recommendation: [continue / handoff+clear / new session]`
-— **only when you have a reading**; with none there is nothing to report, so omit the line.
+## Session status line
+Last line of a reply, after the next step: `🔋 Session %NN → [low/medium/high] fill · Recommendation: [continue / handoff+clear / new session]`
+— **only with a reading** (%NN is its measured figure); with none, omit the line.
 
 **Never guess the fill.** You cannot run `/context`; the `UserPromptSubmit` hook injects the measured line
 `🔋 Session %NN.N → level` every turn (`input + cache_read + cache_creation` = the `/context` figure). Use it. Exact

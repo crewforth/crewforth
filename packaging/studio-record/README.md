@@ -7,10 +7,11 @@ Re-records the Studio pictures after a change to the panel:
 | `assets/studio-panels.gif` | the Studio page | the panel in use: the graph and an agent's inspector, the Timeline, the List, the Models view, a request answered in the approval dock, the New session panel |
 | `assets/studio-graph.png` | the Studio page | the Graph view of the finished session |
 | `assets/studio-models.png` | the Studio page | the Models view of the session's project, with the task card of one agent in the inspector |
+| `assets/studio-map.png` | the Studio page | the Map view of the session's project, drawn from what Crewforth's scanner wrote for it |
 | `site/media/crewforth-hero.mp4` | the front page, and the README by its own copy | two scenes of the overview video: the Studio scene (40.4 s – 47.8 s), and the version and skill count the install scene prints (8.8 s – 12.2 s). Every other frame and the sound are left as they were |
 
 ```bash
-bash packaging/studio-record/record.sh                    # the three pictures, and the take the video uses
+bash packaging/studio-record/record.sh                    # the four pictures, and the take the video uses
 python3 packaging/studio-record/scene.py --video OLD.mp4 --film <take> --out NEW.mp4   # the scene in the video
 node packaging/studio-record/install-render.mjs --out <dir> --was "3.0.0,39" --now "3.1.0,40"
 python3 packaging/studio-record/install_scene.py --video OLD.mp4 --drawn <dir> --out NEW.mp4   # the numbers the install scene prints
@@ -51,7 +52,7 @@ record another one.
 
 The overview video's source page is not in the repository, so the scene is not rendered again: the new take is put
 inside the Studio card of the existing video, frame by frame, with the card's own fade and push-in, and the result
-is encoded once with the sound copied. Before writing anything it measures the old video's fade against its model
+is encoded once with the sound copied. The push-in comes out of a margin of the panel's own ground around the take, so it never cuts the panel: at its end the card holds the whole panel, edge to edge. Before writing anything it measures the old video's fade against its model
 of the scene and stops if they disagree, which is also how the frame offset of a copy with leading frames is found
 (`--offset`). `--check` runs that measurement alone.
 
