@@ -233,6 +233,9 @@ versioning follows [SemVer](https://semver.org/).
 - **`change: review` is read as `audit`.** The model table of the working rules names review with audit, and
   `crew-review-agent` cards that said `change: review` were refused. It now takes the audit floor, on a critical path
   too; a kind that is not on the list is still refused.
+- **A one-line task card may open with `Kart`.** Sessions that write in Turkish lead the card with `Kart —` as
+  others write `Card —`, and the call was refused as having no card. The Turkish word is read like the English one;
+  the fields after it are held to the same rules.
 - **`above:` is read anywhere among a task card's three lines.** A card with `above: <why>` between `change:` and
   `verify:` was refused ("line 3 of the task is not one of files:, change:, verify:") and the call was sent again
   with the line moved down. It is now read in any position and keeps the model as it does after the three; the three

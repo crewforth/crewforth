@@ -442,11 +442,12 @@ _am_trim(){  # $1 -> _AMT: no white space around it, and no separator or full st
 }
 # THE CARD ON ONE LINE. Sessions write it as `files: … · change: … · verify: …` (measured on this machine's transcripts,
 # 2026-10-18: 17 of the 39 calls refused for their card, in 6 projects; the next call was the same card on three lines).
-# It is read by its labels, in that order, after an optional `Card:` / `Card —`; `above: <why>` may close the line. The
-# fields are then held to exactly the rules of the three-line card below, so nothing passes here that would not there.
+# It is read by its labels, in that order, after an optional `Card:` / `Card —` (or `Kart`, the Turkish word: 2 refused
+# calls, 2026-10-21); `above: <why>` may close the line. The fields are then held to exactly the rules of the
+# three-line card below, so nothing passes here that would not there.
 _am_card_line(){  # $1 = the first line of the task -> 0 and CARD_* set (unchecked); 1 when it is not a one-line card
   local l="$1" r f c v a=""
-  case "$l" in [Cc]ard*) l="${l#[Cc]ard}"; l="${l#\*\*}"
+  case "$l" in [Cc]ard*|[Kk]art*) l="${l#[Cc]ard}"; l="${l#[Kk]art}"; l="${l#\*\*}"
     while :; do case "$l" in [$' \t:*']*|'—'*|'–'*|-*) case "$l" in '—'*) l="${l#'—'}" ;; '–'*) l="${l#'–'}" ;; *) l="${l:1}" ;; esac ;; *) break ;; esac; done ;;
   esac
   case "$l" in files:*) ;; *) return 1 ;; esac
