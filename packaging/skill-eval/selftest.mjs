@@ -84,6 +84,20 @@ skill('gamma', 'A new skill no row reaches.');
 r = run();
 check('a new skill with no routing row fails, and says what to add', r.rc === 1 && /gamma: no routing row measures it/.test(r.out), r.out.trim().split('\n')[1] ?? '');
 
+// A push has no PR base: the commit it moved from is read from the run's event, so a release merge to main is
+// judged against main as it was, not skipped because origin/next is gone. An all-zero `before` (a new branch) is no base.
+const ev = path.join(root, 'event.json');
+const runEvent = (before) => {
+  fs.writeFileSync(ev, JSON.stringify({ before }));
+  const e = { ...env, GITHUB_EVENT_NAME: 'push', GITHUB_EVENT_PATH: ev };
+  const x = spawnSync(process.execPath, [path.join(HERE, 'check.mjs')], { env: e, encoding: 'utf8' });
+  return { rc: x.status, out: x.stdout + x.stderr };
+};
+const beforeSha = spawnSync('git', ['-C', root, 'rev-parse', 'base'], { encoding: 'utf8' }).stdout.trim();
+r = runEvent(beforeSha);
+check('a push is judged against the commit it moved from', r.rc === 1 && /gamma: no routing row measures it/.test(r.out), r.out.trim().split('\n')[0] ?? '');
+r = runEvent('0'.repeat(40));
+check('a new branch (all-zero before) has no base and says so', r.rc === 3 && /not a pass/.test(r.out), r.out.trim());
 r = run('--base', 'no-such-ref');
 check('a base that cannot be read judges nothing and says so (rc 3, not a pass)', r.rc === 3 && /not a pass/.test(r.out), r.out.trim());
 
