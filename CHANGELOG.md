@@ -233,6 +233,11 @@ versioning follows [SemVer](https://semver.org/).
 - **`change: review` is read as `audit`.** The model table of the working rules names review with audit, and
   `crew-review-agent` cards that said `change: review` were refused. It now takes the audit floor, on a critical path
   too; a kind that is not on the list is still refused.
+- **An install or an update never loosens the trace gate by itself.** The installer suggested exempting
+  the co-author trailer whenever the last 80 commits carried one, and with no terminal to ask in it took its own
+  suggestion: an update wrote the line into `.trace-allowlist.txt` and staged it, undoing a removal the team had
+  committed. The suggestion is now always to keep the gate, and the exemption is written only when you type
+  `loosen` in the interactive review.
 - **A commit refusal names a trace in the message even when the staged content also fails.** The content gate
   scanned the `-m` message only when the staged change was clean, so a refusal for a silenced lint check said nothing about
   the session-link trailer in the same message, and the session showed the user the traced message again. Both are
