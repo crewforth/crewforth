@@ -1451,8 +1451,12 @@ check('prose without a notice yields nothing', none.size === 0);
       p12.rows.length === 1 && p12.dropped === 0 && p12.rows[0].riskWhy === null && mp.workSteps(p12.rows[0]).risk === 'critical' && mp.workSteps(p12.rows[0]).riskWhy === null,
       JSON.stringify(p12.why));
   }
-  check('an agent that is not crew-* is said to be outside model routing (the gate leaves it alone); a crew agent or an unknown type is not',
+  // The gate does act on these (_am_outside: opus/fable or an inherited model is held at sonnet), so the sentence must
+  // say so and must not claim the call ran on what it asked for.
+  check('an agent that is not crew-* is said to be outside model routing, held at sonnet unless its task says above:; a crew agent or an unknown type is not',
     /^Outside model routing: not a crew agent/.test(mp.outsideRouting('general-purpose') ?? '') && mp.outsideRouting('Explore') === mp.outsideRouting('general-purpose')
+    && /held at sonnet/.test(mp.outsideRouting('general-purpose')) && /above: <why>/.test(mp.outsideRouting('general-purpose'))
+    && !/chose nothing|ran on the model its call asked for/.test(mp.outsideRouting('general-purpose'))
     && mp.outsideRouting('crew-docs-agent') === null && mp.outsideRouting(undefined) === null && mp.outsideRouting('') === null,
     String(mp.outsideRouting('general-purpose')));
   {

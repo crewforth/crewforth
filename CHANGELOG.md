@@ -9,6 +9,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Studio says what the model gate does to an agent that is not crew-\*.** Its inspector said the gate chose nothing
+  for such an agent and that it ran on the model its call asked for, while the same panel showed it had asked for opus
+  and run on sonnet. The gate does hold the expensive end there: a call that asks for opus or fable, or names no model
+  and would take the session's, runs on sonnet unless its task carries an `above: <why>` line. The inspector and the
+  Studio page now say that.
 - **Critical work sent to an agent that is not crew-\* is no longer moved to a cheaper model.** Outside the crew the
   model gate holds the expensive end: opus or fable, or a session model the call would inherit, runs on sonnet unless
   the task carries `above: <why>`. It did that even when the task opened with a card naming critical work (`change:
