@@ -19,7 +19,7 @@ versioning follows [SemVer](https://semver.org/).
   the task carries `above: <why>`. It did that even when the task opened with a card naming critical work (`change:
   fix-unknown`, `security`, `migration`, `architecture`, or a file on a critical path), which a crew agent would run on
   opus at least, so going round the crew was the cheaper way. Such a call now keeps the model it asked for; nothing is
-  raised. An `above:` at the end of a one-line card is now read there too.
+  raised. An `above:` at the end of a one-line card is now read there too, and Studio's inspector and page say so.
 
 ## [3.2.0] — 2026-10-21
 

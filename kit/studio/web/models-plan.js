@@ -65,12 +65,12 @@ export function workSteps(row) {
 }
 
 /**
- * What is said about an agent that is not crew-*: it has no card and no line in the record, but the model gate still
- * holds its expensive end (_am_outside in hooks/guard-agent-model.sh). Null for a crew agent or an unknown type.
+ * What is said about an agent that is not crew-*: it has no floor and no line in the record, but the model gate still
+ * holds its expensive end, except for a card naming critical work (_am_outside in hooks/guard-agent-model.sh). Null for a crew agent or an unknown type.
  */
 export function outsideRouting(agentType) {
   if (typeof agentType !== 'string' || !agentType || agentType.startsWith('crew-')) return null;
-  return 'Outside model routing: not a crew agent, so it has no task card and Crewforth keeps no outcome line for it. The gate only holds the expensive end: a call that asks for opus or fable, or names no model and would take the session\u2019s, is held at sonnet unless its task carries an above: <why> line. An agent whose own definition names a model keeps it.';
+  return 'Outside model routing: not a crew agent, so it has no floor and Crewforth keeps no outcome line for it. The gate only holds the expensive end: a call that asks for opus or fable, or names no model and would take the session\u2019s, is held at sonnet unless its task carries an above: <why> line or opens with a card naming critical work. An agent whose own definition names a model keeps it.';
 }
 
 /**

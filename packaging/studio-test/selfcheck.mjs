@@ -1456,6 +1456,7 @@ check('prose without a notice yields nothing', none.size === 0);
   check('an agent that is not crew-* is said to be outside model routing, held at sonnet unless its task says above:; a crew agent or an unknown type is not',
     /^Outside model routing: not a crew agent/.test(mp.outsideRouting('general-purpose') ?? '') && mp.outsideRouting('Explore') === mp.outsideRouting('general-purpose')
     && /held at sonnet/.test(mp.outsideRouting('general-purpose')) && /above: <why>/.test(mp.outsideRouting('general-purpose'))
+    && /card naming critical work/.test(mp.outsideRouting('general-purpose'))
     && !/chose nothing|ran on the model its call asked for/.test(mp.outsideRouting('general-purpose'))
     && mp.outsideRouting('crew-docs-agent') === null && mp.outsideRouting(undefined) === null && mp.outsideRouting('') === null,
     String(mp.outsideRouting('general-purpose')));
