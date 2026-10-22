@@ -14,6 +14,12 @@ versioning follows [SemVer](https://semver.org/).
   and run on sonnet. The gate does hold the expensive end there: a call that asks for opus or fable, or names no model
   and would take the session's, runs on sonnet unless its task carries an `above: <why>` line. The inspector and the
   Studio page now say that.
+- **Critical work sent to an agent that is not crew-\* is no longer moved to a cheaper model.** Outside the crew the
+  model gate holds the expensive end: opus or fable, or a session model the call would inherit, runs on sonnet unless
+  the task carries `above: <why>`. It did that even when the task opened with a card naming critical work (`change:
+  fix-unknown`, `security`, `migration`, `architecture`, or a file on a critical path), which a crew agent would run on
+  opus at least, so going round the crew was the cheaper way. Such a call now keeps the model it asked for; nothing is
+  raised. An `above:` at the end of a one-line card is now read there too, and Studio's inspector and page say so.
 
 ## [3.2.0] — 2026-10-21
 

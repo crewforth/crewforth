@@ -8568,7 +8568,25 @@ case "$(_v2ot general-purpose "$_v2/tr-opus.jsonl")" in *'"updatedInput":'*'"mod
 [ -z "$(_v2ot general-purpose "$_v2/tr-haiku.jsonl")" ] || _v2b="$_v2b [a haiku session's general-purpose was raised to sonnet]"
 [ -z "$(_v2ot Explore "$_v2/tr-opus.jsonl")$(_v2ot cheap "$_v2/tr-opus.jsonl")" ] || _v2b="$_v2b [an agent with a model of its own was given one]"
 case "$(_v2ot mine "$_v2/tr-opus.jsonl")" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [a project agent with no model line was not given sonnet]" ;; esac
-[ -z "$_v2b" ] && pass "above the floor runs on the floor: opus for a sonnet card is rewritten to sonnet with every other field kept and recorded as lowered; 'above: <why>' keeps opus; a call on its floor is untouched; checkable text work goes to haiku; an agent outside the crew asking for opus, or inheriting an opus session's model, runs on sonnet unless its task says why; a haiku session and an agent with its own model are left alone" \
+# A task that opens with a card naming critical work is not lowered outside the crew either: a crew agent would have
+# had an opus floor for it. Seen on a real session: a one-line card with change: fix-unknown to general-purpose on opus
+# ran on sonnet. Nothing is raised, and a normal card, or a card that is not one, is lowered as before.
+_v2oc(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","transcript_path":"%s","tool_input":{"description":"d","prompt":"%s\\n\\nFind X.","subagent_type":"general-purpose"%s},"tool_use_id":"tu%s"}' "$_v2/tr-opus.jsonl" "$1" "${2:-}" "$RANDOM" | ( cd "$_v2p" && _v2e bash "$_V2G" 2>/dev/null ) | tr -d ' '; }
+_v2kept=0
+for _c in 'files: none in repo (scratch scripts only)\nchange: fix-unknown\nverify: none' \
+          'Card — files: none in repo (scratch scripts only) · change: fix-unknown · verify: none' \
+          'files: db/migrations/001.sql\nchange: feature\nverify: none' \
+          'files: src/payments/p.ts\nchange: feature\nverify: none' \
+          'files: src/ui/a.ts · change: feature · verify: none · above: a design question'; do
+  [ -z "$(_v2oc "$_c" ',"model":"opus"')" ] && _v2kept=$((_v2kept+1)) || _v2b="$_v2b [kept on opus: ${_c:0:50}]"
+done
+[ -z "$(_v2oc 'files: x\nchange: security\nverify: none')" ] && _v2kept=$((_v2kept+1)) || _v2b="$_v2b [critical card naming no model was lowered]"
+[ -z "$(_v2oc 'files: x\nchange: security\nverify: none' ',"model":"sonnet"')" ] && _v2kept=$((_v2kept+1)) || _v2b="$_v2b [critical card on sonnet was raised]"
+for _c in 'files: src/ui/a.ts\nchange: feature\nverify: none' 'files: src/ui/a.ts\nchange: fix-unknown' 'change: fix-unknown is what this is'; do
+  case "$(_v2oc "$_c" ',"model":"opus"')" in *'"updatedInput":'*'"model":"sonnet"'*) _v2kept=$((_v2kept+1)) ;; *) _v2b="$_v2b [not lowered: ${_c:0:50}]" ;; esac
+done
+[ "$_v2kept" = 10 ] || _v2b="$_v2b [critical-card cases: $_v2kept of 10]"
+[ -z "$_v2b" ] && pass "above the floor runs on the floor: opus for a sonnet card is rewritten to sonnet with every other field kept and recorded as lowered; 'above: <why>' keeps opus; a call on its floor is untouched; checkable text work goes to haiku; an agent outside the crew asking for opus, or inheriting an opus session's model, runs on sonnet unless its task says why; a haiku session and an agent with its own model are left alone; a task whose card names critical work (fix-unknown, a migration, a payments file, on one line or three, or naming no model) is not lowered and not raised, while a normal card, a broken card and an inline above: behave as before (10 cases)" \
                || fail "model on the floor:$_v2b"
 # The refusal names the way forward that exists (the field was sent, so it can be sent as false), and a call that
 # left the field out and was launched in the background is told so when the launch comes back.
