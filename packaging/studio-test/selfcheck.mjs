@@ -20,6 +20,7 @@ import { palette, _internals as paletteInternals } from '../../kit/studio/server
 import { renderMarkdown } from '../../kit/studio/web/md.js';
 import { ALLOWED_MODES } from '../../kit/studio/server/lib/session.js';
 import { parsePeers } from '../../kit/studio/server/lib/peers.js';
+import { parseAdvisory, judgeNode, nodeAdvisoryNote } from '../../kit/studio/server/lib/node-advisory.js';
 import { writeAllowed, signature, handle as studioHandle, _internals as serverInternals } from '../../kit/studio/server/index.js';
 import { addViewer, revokeViewer, noteRequest, viewerMay, viewerByToken, listViewers, MAX_VIEWERS, _reset as resetViewers,
   VIEWER_TTL_MS, _setClock, onViewersChange, remoteLog, sweep as sweepViewers, noteRefusal } from '../../kit/studio/server/lib/remote.js';
@@ -1453,6 +1454,18 @@ check('prose without a notice yields nothing', none.size === 0);
   }
   // The gate does act on these (_am_outside: opus/fable or an inherited model is held at sonnet), so the sentence must
   // say so and must not claim the call ran on what it asked for.
+  {
+    // The Node advisory table is the file doctor reads; the server says the same sentence at start.
+    const adv = parseAdvisory(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../kit/eval/lib/node-advisory.tsv'), 'utf8'));
+    const j = (v) => judgeNode(v, adv) ?? '';
+    check('the Node advisory: below its line (minor as a number) or on a line with no fixes is warned; on or above it, a newer line, a broken table say nothing; the installed path finds the table',
+      adv && adv.lines.size === 3 && /^https:\/\/nodejs\.org\//.test(adv.url)
+      && /^Node 24\.21\.0 is below 24\.22\.1/.test(j('24.21.0')) && /^Node 22\.9\.10 is below 22\.23\.4/.test(j('22.9.10'))
+      && /no longer gets security fixes/.test(j('20.19.0')) && j('24.22.1') === '' && j('24.23.0') === '' && j('26.12.1') === ''
+      && j('28.0.0') === '' && judgeNode('24.21.0', parseAdvisory('# nothing\n')) === null && judgeNode('nope', adv) === null
+      && /^Node 24\.21\.0 is below/.test(nodeAdvisoryNote('24.21.0') ?? '') && nodeAdvisoryNote('26.12.1') === null,
+      JSON.stringify([j('24.21.0'), j('20.19.0'), j('24.22.1'), nodeAdvisoryNote('24.21.0')]));
+  }
   check('an agent that is not crew-* is said to be outside model routing, held at sonnet unless its task says above:; a crew agent or an unknown type is not',
     /^Outside model routing: not a crew agent/.test(mp.outsideRouting('general-purpose') ?? '') && mp.outsideRouting('Explore') === mp.outsideRouting('general-purpose')
     && /held at sonnet/.test(mp.outsideRouting('general-purpose')) && /above: <why>/.test(mp.outsideRouting('general-purpose'))
