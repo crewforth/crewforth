@@ -5,6 +5,17 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Critical work sent to an agent that is not crew-\* is no longer moved to a cheaper model.** Outside the crew the
+  model gate holds the expensive end: opus or fable, or a session model the call would inherit, runs on sonnet unless
+  the task carries `above: <why>`. It did that even when the task opened with a card naming critical work (`change:
+  fix-unknown`, `security`, `migration`, `architecture`, or a file on a critical path), which a crew agent would run on
+  opus at least, so going round the crew was the cheaper way. Such a call now keeps the model it asked for; nothing is
+  raised. An `above:` at the end of a one-line card is now read there too.
+
 ## [3.2.0] — 2026-10-21
 
 ### Added
