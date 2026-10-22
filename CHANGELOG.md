@@ -7,7 +7,7 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [3.2.1] — 2026-10-22
 
-### Fixed
+### Added
 
 - **Doctor and Studio say when Node is missing a published security fix.** Node's October 2026 security releases fix,
   among others, a Brotli decoder write that a crafted HTTP response can reach: Studio's `fetch` decodes a `br`
@@ -16,6 +16,9 @@ versioning follows [SemVer](https://semver.org/).
   of fixed releases (22.23.4, 24.22.1, 26.12.1) and warn below them, or on a line that gets no fixes (20.x); neither
   refuses anything. `ensure-node.sh`'s fallback, used only when nodejs.org cannot be asked for the current LTS, moves
   from 24.21.0 to 24.22.1.
+
+### Fixed
+
 - **Studio says what the model gate does to an agent that is not crew-\*.** Its inspector said the gate chose nothing
   for such an agent and that it ran on the model its call asked for, while the same panel showed it had asked for opus
   and run on sonnet. The gate does hold the expensive end there: a call that asks for opus or fable, or names no model
