@@ -43,6 +43,7 @@ import { addViewer, listViewers, viewerByToken, revokeViewer, noteRequest, noteR
 import { redact, transcriptOnly } from './lib/redact.js';
 import { lanListener } from './lib/lan.js';
 import { randomUUID } from 'node:crypto';
+import { nodeAdvisoryNote } from './lib/node-advisory.js';
 import { spawn } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1104,6 +1105,8 @@ async function main() {
     process.stdout.write(TOKEN_GENERATED
       ? '            (loopback only; token generated for this run)\n'
       : '            (loopback only; token from CREW_STUDIO_TOKEN)\n');
+    const nodeNote = nodeAdvisoryNote();
+    if (nodeNote) process.stdout.write(`            warning: ${nodeNote}\n`);
 
     // Recorded only after listen() succeeds, so the file never claims a port this process did not get. Failure
     // to write is not fatal: the panel works, the next session simply cannot find it, which is where we started.

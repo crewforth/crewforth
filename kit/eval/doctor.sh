@@ -154,6 +154,9 @@ _mt() {
       'CLAUDE.md does not import .claude/DISCIPLINE.md — the discipline is on disk but never loaded') s="CLAUDE.md .claude/DISCIPLINE.md'yi içe aktarmıyor — disiplin diskte duruyor ama hiç yüklenmiyor" ;;
       'add this as its own line at the top of CLAUDE.md: @.claude/DISCIPLINE.md') s="CLAUDE.md'nin en üstüne şunu ayrı bir satır olarak ekleyin: @.claude/DISCIPLINE.md" ;;
       ' · panel needs Node 18+ — .claude/studio/ensure-node.sh --plan fetches one') s=' · panel Node 18+ ister — .claude/studio/ensure-node.sh --plan bir tane indirir' ;;
+      'Node %s is on a line that no longer gets security fixes (%s fixes %s) — update Node') s="Node %s artık güvenlik düzeltmesi almayan bir hatta (%s şunları düzeltiyor: %s) — Node'u güncelleyin" ;;
+      'Node %s is below %s, the release of its line with the fixes of %s — update Node') s="Node %s, %s altında; o hattın %s düzeltmelerini taşıyan sürümü bu — Node'u güncelleyin" ;;
+      'Node %s carries the security fixes on record') s='Node %s kayıttaki güvenlik düzeltmelerini taşıyor' ;;
       '%s is set — its 3.0 name is CREW_%s (the old name works until 4.0)') s="%s ayarlı — 3.0'daki adı CREW_%s (eski ad 4.0'a kadar çalışır)" ;;
       '%s is set but no longer read — set CREW_%s instead') s='%s ayarlı ama artık okunmuyor — yerine CREW_%s ayarlayın' ;;
       'DOCTOR: healthy ✅%s') s='DOCTOR: sağlıklı ✅%s' ;;
@@ -661,6 +664,30 @@ for _v in $(compgen -e); do
     esac ;;
   esac
 done
+# A Node missing a published security fix (eval/lib/node-advisory.tsv, the table the Studio server reads too).
+# Warned, never counted: the gates are bash, Node runs the panel and the map, and the user updates it.
+_na="$(dirname "$0")/lib/node-advisory.tsv"; [ -f "$_na" ] || _na=".claude/eval/lib/node-advisory.tsv"
+if [ -f "$_na" ] && _nv="$(node -p 'process.versions.node' 2>/dev/null)"; then
+  _nu=""; _nfix=""; _nall=""; _ntop=0; _nmaj="${_nv%%.*}"
+  while IFS=$'\t' read -r _k _f || [ -n "$_k" ]; do
+    _f="${_f%$'\r'}"
+    case "$_k" in advisory) _nu="$_f" ;; *[!0-9]*|'') ;;
+      *) _nall="${_nall:+$_nall, }$_f"; [ "$_k" -gt "$_ntop" ] && _ntop="$_k"; [ "$_k" = "$_nmaj" ] && _nfix="$_f" ;; esac
+  done < "$_na"
+  case "$_nv" in
+    [0-9]*.[0-9]*.[0-9]*)
+      if [ "$_ntop" -gt 0 ] && [ "$_nmaj" -le "$_ntop" ]; then
+        if [ -z "$_nfix" ]; then
+          warn "Node %s is on a line that no longer gets security fixes (%s fixes %s) — update Node" "$_nv" "$_nu" "$_nall"
+        else
+          IFS=. read -r _a1 _a2 _a3 <<< "$_nv"; IFS=. read -r _b1 _b2 _b3 <<< "$_nfix"; _a3="${_a3%%[!0-9]*}"
+          if [ "$_a2" -lt "$_b2" ] || { [ "$_a2" = "$_b2" ] && [ "${_a3:-0}" -lt "$_b3" ]; }; then
+            warn "Node %s is below %s, the release of its line with the fixes of %s — update Node" "$_nv" "$_nfix" "$_nu"
+          else ok "Node %s carries the security fixes on record" "$_nv"; fi
+        fi
+      fi ;;
+  esac
+fi
 if [ "$FAIL" -eq 0 ]; then _mt "DOCTOR: healthy ✅%s" "$PANEL_NOTE"; echo "$_M"
   # Healthy verdict: the star line, once per kit version under doctor's own marker (the installers keep theirs).
   # /crew-update runs this with CREW_NO_STAR=1, so an update shows it once, not twice. Text/URL/silence: lib/star.sh.
