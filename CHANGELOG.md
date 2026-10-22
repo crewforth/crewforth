@@ -5,6 +5,16 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Studio says what the model gate does to an agent that is not crew-\*.** Its inspector said the gate chose nothing
+  for such an agent and that it ran on the model its call asked for, while the same panel showed it had asked for opus
+  and run on sonnet. The gate does hold the expensive end there: a call that asks for opus or fable, or names no model
+  and would take the session's, runs on sonnet unless its task carries an `above: <why>` line. The inspector and the
+  Studio page now say that.
+
 ## [3.2.0] — 2026-10-21
 
 ### Added
