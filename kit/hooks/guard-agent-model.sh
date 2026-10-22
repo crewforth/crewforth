@@ -533,6 +533,9 @@ _am_digest(){  # after _am_card -> CARD_ID: 12 hex of what the card says, so "th
 # A call to an agent that is not Crewforth's (general-purpose, a project's own): no card and no floor, so only the
 # expensive end is held, the same rewrite as a crew call above its floor.
 #   * It names opus or fable, and its task has no `above: <why>` line: it runs on sonnet.
+#   * Either way, a task that opens with a card naming critical work (the same reading as a crew call: change:
+#     fix-unknown, security, migration, architecture, or a file on a critical path) is not lowered: a crew agent
+#     would have had an opus floor for it, so the way round the crew must not be the cheaper one. Nothing is raised.
 #   * It names no model, and the agent takes the session's (general-purpose, or a project or user agent whose
 #     definition has no model of its own): it runs on sonnet, unless the session itself is on haiku, read from the
 #     end of its transcript. An agent whose definition names a model (Explore, claude-code-guide) is left to it:
@@ -571,6 +574,11 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
     [ "$_KC" = 1 ] || return 0
     _json_slice "$1" model >/dev/null; _json_unescape "$_JS" >/dev/null; _am_tier "$_JU"; m="$_AMT"
     case "$m" in opus|fable) ;; *) return 0 ;; esac
+  fi
+  if _am_card "$pr"; then
+    [ -z "$CARD_ABOVE" ] || return 0
+    _am_risk
+    if [ "$CARD_RISK" = critical ]; then _am_log "note: $name (not a crew agent) kept $m: its card names critical work ($CARD_RISKWHY)"; return 0; fi
   fi
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || return 0
   case "$ui" in '{'*'}') ;; *) return 0 ;; esac

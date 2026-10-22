@@ -29,7 +29,7 @@ _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 FLOOR=18
 DIST=https://nodejs.org/dist
 # Used only when nodejs.org cannot be reached to ask which release is current.
-FALLBACK_VERSION=v24.21.0
+FALLBACK_VERSION=v24.22.1   # carries the fixes of eval/lib/node-advisory.tsv; raise it with that table
 
 # Windows caps a full file path at 260 characters and PowerShell's Expand-Archive enforces it.
 # Measured: a 141-character target failed with PathTooLongException at __generated__\google\api\…

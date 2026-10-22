@@ -4760,6 +4760,28 @@ case "$_d9o" in *"needs the Anthropic API"*) ;; *) _d9b="$_d9b bedrock-not-seen"
 rm -rf "$_d9"
 [ -z "$_d9b" ] && pass "doctor 9c: both editions on is named, one is ok, no CLI is not measured; the advisor off, on, below the critical tier, env-disabled and on Bedrock each read right; none changes the verdict" \
                || fail "doctor 9c:$_d9b"
+# A Node missing a published security fix is warned about, never counted (eval/lib/node-advisory.tsv, read by the
+# Studio server too). Driven through a stub `node` per version; the minor is compared as a number (22.9 < 22.23),
+# a line older than the table's newest that it does not list gets no fixes, a newer line is not judged, and a node
+# that cannot run says nothing. No case changes the verdict.
+_dn="$(mktemp -d)"; _dnb=""; _dnn=0
+_dnrun(){ printf '#!/bin/sh\ncase "$*" in *split*) echo "%s" | cut -d. -f1 ;; *) echo "%s" ;; esac\n' "$1" "$1" > "$_dn/node"; chmod +x "$_dn/node"
+  _dno="$( cd "$DOC" && CREW_LANG="${2:-en}" PATH="$_dn:$PATH" bash "$ROOT/eval/doctor.sh" 2>&1 )"; _dnrc=$?; _dnn=$((_dnn+1))
+  [ "$_dnrc" = 0 ] || _dnb="$_dnb [$1 changed the verdict: rc $_dnrc]"; }
+_dnrun 24.21.0; case "$_dno" in *"Node 24.21.0 is below 24.22.1, the release of its line with the fixes of https://nodejs.org/"*) ;; *) _dnb="$_dnb [24.21.0 not warned]" ;; esac
+_dnrun 22.9.10; case "$_dno" in *"Node 22.9.10 is below 22.23.4"*) ;; *) _dnb="$_dnb [22.9.10 not warned: minor compared as text?]" ;; esac
+_dnrun 26.12.0; case "$_dno" in *"Node 26.12.0 is below 26.12.1"*) ;; *) _dnb="$_dnb [26.12.0 not warned]" ;; esac
+_dnrun 20.19.0; case "$_dno" in *"Node 20.19.0 is on a line that no longer gets security fixes"*"22.23.4, 24.22.1, 26.12.1"*) ;; *) _dnb="$_dnb [20.x not warned]" ;; esac
+for _v in 24.22.1 24.23.0 26.12.1; do _dnrun "$_v"; case "$_dno" in *"Node $_v carries the security fixes on record"*) ;; *) _dnb="$_dnb [$_v not ok]" ;; esac
+  case "$_dno" in *"is below"*|*"no longer gets"*) _dnb="$_dnb [$_v warned]" ;; esac; done
+_dnrun 28.0.0; case "$_dno" in *"Node 28.0.0"*) _dnb="$_dnb [a newer line was judged]" ;; esac
+_dnrun 24.21.0 tr; case "$_dno" in *"Node 24.21.0, 24.22.1 altında"*) ;; *) _dnb="$_dnb [no Turkish line]" ;; esac
+printf '#!/bin/sh\nexit 127\n' > "$_dn/node"; _dno="$( cd "$DOC" && CREW_LANG=en PATH="$_dn:$PATH" bash "$ROOT/eval/doctor.sh" 2>&1 )"; _dnn=$((_dnn+1))
+case "$_dno" in *"Node "*"security fixes"*|*"is below"*) _dnb="$_dnb [a node that cannot run was judged]" ;; esac
+rm -rf "$_dn"
+if [ "$_dnn" != 10 ]; then fail "FIXTURE: the Node advisory block ran $_dnn doctor runs, not 10"
+elif [ -z "$_dnb" ]; then pass "doctor warns about a Node missing a published security fix: below its line's release (24.21.0, 26.12.0, 22.9.10 with the minor compared as a number), on a line that gets none (20.x); says ok on or above it; judges no newer line and no node that cannot run; Turkish too; never changes the verdict (10 runs)"
+else fail "doctor Node advisory:$_dnb"; fi
 # THE MANIFEST'S LINE ENDINGS MUST NOT CHANGE WHO OWNS A SKILL. Measured before the fix: the same install with
 # one project skill counted 1 on an LF manifest and 2 on a CRLF one, because `grep -qxF` wants a whole line and
 # `skills/handoff\r` is not `skills/handoff` — so every KIT skill read as project-owned. A Windows checkout with
@@ -8568,7 +8590,25 @@ case "$(_v2ot general-purpose "$_v2/tr-opus.jsonl")" in *'"updatedInput":'*'"mod
 [ -z "$(_v2ot general-purpose "$_v2/tr-haiku.jsonl")" ] || _v2b="$_v2b [a haiku session's general-purpose was raised to sonnet]"
 [ -z "$(_v2ot Explore "$_v2/tr-opus.jsonl")$(_v2ot cheap "$_v2/tr-opus.jsonl")" ] || _v2b="$_v2b [an agent with a model of its own was given one]"
 case "$(_v2ot mine "$_v2/tr-opus.jsonl")" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [a project agent with no model line was not given sonnet]" ;; esac
-[ -z "$_v2b" ] && pass "above the floor runs on the floor: opus for a sonnet card is rewritten to sonnet with every other field kept and recorded as lowered; 'above: <why>' keeps opus; a call on its floor is untouched; checkable text work goes to haiku; an agent outside the crew asking for opus, or inheriting an opus session's model, runs on sonnet unless its task says why; a haiku session and an agent with its own model are left alone" \
+# A task that opens with a card naming critical work is not lowered outside the crew either: a crew agent would have
+# had an opus floor for it. Seen on a real session: a one-line card with change: fix-unknown to general-purpose on opus
+# ran on sonnet. Nothing is raised, and a normal card, or a card that is not one, is lowered as before.
+_v2oc(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","transcript_path":"%s","tool_input":{"description":"d","prompt":"%s\\n\\nFind X.","subagent_type":"general-purpose"%s},"tool_use_id":"tu%s"}' "$_v2/tr-opus.jsonl" "$1" "${2:-}" "$RANDOM" | ( cd "$_v2p" && _v2e bash "$_V2G" 2>/dev/null ) | tr -d ' '; }
+_v2kept=0
+for _c in 'files: none in repo (scratch scripts only)\nchange: fix-unknown\nverify: none' \
+          'Card — files: none in repo (scratch scripts only) · change: fix-unknown · verify: none' \
+          'files: db/migrations/001.sql\nchange: feature\nverify: none' \
+          'files: src/payments/p.ts\nchange: feature\nverify: none' \
+          'files: src/ui/a.ts · change: feature · verify: none · above: a design question'; do
+  [ -z "$(_v2oc "$_c" ',"model":"opus"')" ] && _v2kept=$((_v2kept+1)) || _v2b="$_v2b [kept on opus: ${_c:0:50}]"
+done
+[ -z "$(_v2oc 'files: x\nchange: security\nverify: none')" ] && _v2kept=$((_v2kept+1)) || _v2b="$_v2b [critical card naming no model was lowered]"
+[ -z "$(_v2oc 'files: x\nchange: security\nverify: none' ',"model":"sonnet"')" ] && _v2kept=$((_v2kept+1)) || _v2b="$_v2b [critical card on sonnet was raised]"
+for _c in 'files: src/ui/a.ts\nchange: feature\nverify: none' 'files: src/ui/a.ts\nchange: fix-unknown' 'change: fix-unknown is what this is'; do
+  case "$(_v2oc "$_c" ',"model":"opus"')" in *'"updatedInput":'*'"model":"sonnet"'*) _v2kept=$((_v2kept+1)) ;; *) _v2b="$_v2b [not lowered: ${_c:0:50}]" ;; esac
+done
+[ "$_v2kept" = 10 ] || _v2b="$_v2b [critical-card cases: $_v2kept of 10]"
+[ -z "$_v2b" ] && pass "above the floor runs on the floor: opus for a sonnet card is rewritten to sonnet with every other field kept and recorded as lowered; 'above: <why>' keeps opus; a call on its floor is untouched; checkable text work goes to haiku; an agent outside the crew asking for opus, or inheriting an opus session's model, runs on sonnet unless its task says why; a haiku session and an agent with its own model are left alone; a task whose card names critical work (fix-unknown, a migration, a payments file, on one line or three, or naming no model) is not lowered and not raised, while a normal card, a broken card and an inline above: behave as before (10 cases)" \
                || fail "model on the floor:$_v2b"
 # The refusal names the way forward that exists (the field was sent, so it can be sent as false), and a call that
 # left the field out and was launched in the background is told so when the launch comes back.

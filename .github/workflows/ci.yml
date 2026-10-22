@@ -285,7 +285,9 @@ jobs:
           - { os: macos-latest, shard: '' }
     name: verify-cross-e2e (${{ matrix.os }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
+    # macOS runs the whole e2e in one job, ~14 min on a normal runner. On 2026-10-21 a slow runner (every block 1.5-2.5x
+    # its usual time, GitHub reporting macOS capacity constraints) reached the last block at 20 min, twice in a row.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 30 }}
     defaults:
       run:
         shell: bash

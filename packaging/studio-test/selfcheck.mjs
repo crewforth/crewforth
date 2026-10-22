@@ -20,6 +20,7 @@ import { palette, _internals as paletteInternals } from '../../kit/studio/server
 import { renderMarkdown } from '../../kit/studio/web/md.js';
 import { ALLOWED_MODES } from '../../kit/studio/server/lib/session.js';
 import { parsePeers } from '../../kit/studio/server/lib/peers.js';
+import { parseAdvisory, judgeNode, nodeAdvisoryNote } from '../../kit/studio/server/lib/node-advisory.js';
 import { writeAllowed, signature, handle as studioHandle, _internals as serverInternals } from '../../kit/studio/server/index.js';
 import { addViewer, revokeViewer, noteRequest, viewerMay, viewerByToken, listViewers, MAX_VIEWERS, _reset as resetViewers,
   VIEWER_TTL_MS, _setClock, onViewersChange, remoteLog, sweep as sweepViewers, noteRefusal } from '../../kit/studio/server/lib/remote.js';
@@ -1451,8 +1452,25 @@ check('prose without a notice yields nothing', none.size === 0);
       p12.rows.length === 1 && p12.dropped === 0 && p12.rows[0].riskWhy === null && mp.workSteps(p12.rows[0]).risk === 'critical' && mp.workSteps(p12.rows[0]).riskWhy === null,
       JSON.stringify(p12.why));
   }
-  check('an agent that is not crew-* is said to be outside model routing (the gate leaves it alone); a crew agent or an unknown type is not',
+  // The gate does act on these (_am_outside: opus/fable or an inherited model is held at sonnet), so the sentence must
+  // say so and must not claim the call ran on what it asked for.
+  {
+    // The Node advisory table is the file doctor reads; the server says the same sentence at start.
+    const adv = parseAdvisory(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../kit/eval/lib/node-advisory.tsv'), 'utf8'));
+    const j = (v) => judgeNode(v, adv) ?? '';
+    check('the Node advisory: below its line (minor as a number) or on a line with no fixes is warned; on or above it, a newer line, a broken table say nothing; the installed path finds the table',
+      adv && adv.lines.size === 3 && /^https:\/\/nodejs\.org\//.test(adv.url)
+      && /^Node 24\.21\.0 is below 24\.22\.1/.test(j('24.21.0')) && /^Node 22\.9\.10 is below 22\.23\.4/.test(j('22.9.10'))
+      && /no longer gets security fixes/.test(j('20.19.0')) && j('24.22.1') === '' && j('24.23.0') === '' && j('26.12.1') === ''
+      && j('28.0.0') === '' && judgeNode('24.21.0', parseAdvisory('# nothing\n')) === null && judgeNode('nope', adv) === null
+      && /^Node 24\.21\.0 is below/.test(nodeAdvisoryNote('24.21.0') ?? '') && nodeAdvisoryNote('26.12.1') === null,
+      JSON.stringify([j('24.21.0'), j('20.19.0'), j('24.22.1'), nodeAdvisoryNote('24.21.0')]));
+  }
+  check('an agent that is not crew-* is said to be outside model routing, held at sonnet unless its task says above:; a crew agent or an unknown type is not',
     /^Outside model routing: not a crew agent/.test(mp.outsideRouting('general-purpose') ?? '') && mp.outsideRouting('Explore') === mp.outsideRouting('general-purpose')
+    && /held at sonnet/.test(mp.outsideRouting('general-purpose')) && /above: <why>/.test(mp.outsideRouting('general-purpose'))
+    && /card naming critical work/.test(mp.outsideRouting('general-purpose'))
+    && !/chose nothing|ran on the model its call asked for/.test(mp.outsideRouting('general-purpose'))
     && mp.outsideRouting('crew-docs-agent') === null && mp.outsideRouting(undefined) === null && mp.outsideRouting('') === null,
     String(mp.outsideRouting('general-purpose')));
   {
@@ -2735,18 +2753,44 @@ if (gate) {
     session_id: probeId, tool_name: 'Bash', tool_use_id: 'toolu_probe',
     tool_input: { command: 'echo probe' },
   });
-  const runHook = (env = {}) => {
+  // Every run of the hook has a ceiling. Twice on GitHub's Windows runners (2026-10-21) one never returned, and with no
+  // limit here the step waited out the job's 45 minutes and left nothing to read; 3800 runs on a real Windows machine
+  // did not reproduce it. A run that reaches the ceiling is refused by the check that called it (-2 is no exit code
+  // the gate has) and prints what a diagnosis needs: the spool, the cached pause mode, the bash and what is running.
+  const HOOK_CEILING_MS = 30_000;
+  const gateRun = (input, env, ceiling = HOOK_CEILING_MS) => {
     try {
-      execFileSync('bash', [HOOK, gate.spool], {
-        input: payload,
-        env: { ...process.env, CREW_GATE_WAIT: '1', ...env },
-        stdio: ['pipe', 'pipe', 'pipe'],
+      const out = execFileSync('bash', [HOOK, gate.spool], {
+        input, env: { ...process.env, CREW_GATE_WAIT: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: ceiling, killSignal: 'SIGKILL',
       });
-      return 0;
+      return { status: 0, stdout: String(out).trim() };
     } catch (e) {
-      return e.status ?? -1;
+      if (e.code === 'ETIMEDOUT' || e.signal === 'SIGKILL') {
+        const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', timeout: 10_000 }).trim(); } catch (x) { return `(${cmd} failed: ${x.code ?? x.status})`; } };
+        const list = (d) => { try { return fs.readdirSync(d, { recursive: true }).join(' '); } catch { return '(unreadable)'; } };
+        let mode = '(none)'; try { mode = fs.readFileSync(path.join(gate.spool, '.pause-mode'), 'utf8').trim(); } catch { /* not cached yet */ }
+        console.log(`HOOK CEILING: studio-gate.sh did not return within ${ceiling / 1000} s (mode ${env.CREW_GATE_MODE ?? 'unset'})`);
+        console.log(`  spool: ${list(gate.spool)}`);
+        console.log(`  .pause-mode: ${mode}`);
+        console.log(`  bash: ${sh('bash', ['--version']).split('\n')[0]}`);
+        console.log(`  processes:\n${sh('ps', process.platform === 'win32' ? ['-W'] : ['-ax']).split('\n').filter((l) => /bash|sleep|studio|cat/.test(l)).slice(0, 25).join('\n')}`);
+        return { status: -2, stdout: '' };
+      }
+      return { status: e.status ?? -1, stdout: String(e.stdout ?? '').trim() };
     }
   };
+  const runHook = (env = {}) => gateRun(payload, env).status;
+  // The ceiling itself, measured: a hook told to wait 20 s for an answer that never comes is ended at 3 s, and the
+  // call returns. Without this a ceiling that does not fire (a child holding the pipe open) would look the same as one
+  // that was never needed.
+  {
+    const t0 = Date.now();
+    const r = gateRun(payload, { CREW_GATE_WAIT: '20' }, 3_000);
+    check('a hook run that does not return is ended at its ceiling, and the call comes back', r.status === -2 && Date.now() - t0 < 15_000,
+      `status ${r.status} after ${Date.now() - t0} ms`);
+    fs.rmSync(path.join(gate.spool, 'req', 'toolu_probe.json'), { force: true });
+  }
 
   check('silence is a denial, not an opening', runHook() === 2);
 
@@ -2780,17 +2824,7 @@ if (gate) {
   // runs its own permission flow, and a headless session has nobody to ask. Measured in real sessions: Edit,
   // Write and a writing Bash were refused after being allowed in the dock. So outside plan mode the hook says
   // "allow" in the documented JSON — and in plan mode, or with no mode, it must say nothing at all.
-  const runHookOut = (env = {}, extra = {}) => {
-    const input = JSON.stringify({ ...JSON.parse(payload), ...extra });
-    try {
-      const out = execFileSync('bash', [HOOK, gate.spool], {
-        input, env: { ...process.env, CREW_GATE_WAIT: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return { status: 0, stdout: String(out).trim() };
-    } catch (e) {
-      return { status: e.status ?? -1, stdout: String(e.stdout ?? '').trim() };
-    }
-  };
+  const runHookOut = (env = {}, extra = {}) => gateRun(JSON.stringify({ ...JSON.parse(payload), ...extra }), env);
   const answered = (verdict, env, extra) => {
     fs.writeFileSync(path.join(gate.spool, 'ans', 'toolu_probe'), `${verdict}\n`);
     return runHookOut(env, extra);

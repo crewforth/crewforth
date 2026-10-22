@@ -7,17 +7,27 @@
 //       rc 3 = the base could not be read, so nothing was judged (not a pass)
 //
 // Only a PR that changes a description is held (K10): the descriptions are compared with REF (default: the PR's
-// base when GITHUB_BASE_REF says it, else origin/next). A command (`metadata.kind: command`) is called by name and
+// base when GITHUB_BASE_REF says it; on a push, the commit the branch was on before it, from the run's own event;
+// else origin/next). A push has no PR base, and origin/next is not there when that branch was deleted on merge: the
+// 3.2.0 merge to main was refused for exactly that (2026-10-21). A command (`metadata.kind: command`) is called by name and
 // is not held. For every other changed skill, each of its cases needs a line in results.tsv that measured THIS
 // description (its hash), with at least MIN_RUNS runs, and a score at or above the case's floor in baseline.tsv.
 // The measurement itself is run.mjs, by hand: it spends tokens, and this file never does.
+import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { ROOT, skillsAt, changedSince, casesFor, commandSkills, hashOf, readResults, readBaseline } from './lib.mjs';
 
 const MIN_RUNS = 3;
 const args = process.argv.slice(2);
 const i = args.indexOf('--base');
-const base = i >= 0 ? args[i + 1] : process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'origin/next';
+function pushBase() {  // the `before` of a push event: 40 hex, not the all-zero id of a new branch
+  if (process.env.GITHUB_EVENT_NAME !== 'push' || !process.env.GITHUB_EVENT_PATH) return null;
+  try {
+    const b = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).before;
+    return /^[0-9a-f]{40}$/.test(b ?? '') && !/^0+$/.test(b) ? b : null;
+  } catch { return null; }
+}
+const base = i >= 0 ? args[i + 1] : process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : pushBase() ?? 'origin/next';
 
 try { execFileSync('git', ['-C', ROOT, 'rev-parse', '--verify', '--quiet', `${base}^{commit}`], { stdio: 'ignore' }); } catch {
   console.log(`skill-eval: the base ${base} could not be read here, so no description was compared (not a pass)`);

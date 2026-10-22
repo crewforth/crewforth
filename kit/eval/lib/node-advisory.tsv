@@ -1,0 +1,9 @@
+# Node release lines and the first release of each that carries the fixes of Node's latest security advisory.
+# Read by eval/doctor.sh and the Studio server (studio/server/lib/node-advisory.js); one table, two readers.
+# A Node below its line's release, or on a line older than the newest listed that is not listed (it gets no fixes),
+# is warned about, never refused: the gates are bash, Node runs the panel and the map, and the user updates it.
+# A line newer than every listed one is not judged. Update this file when Node publishes a new advisory.
+advisory	https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+22	22.23.4
+24	24.22.1
+26	26.12.1

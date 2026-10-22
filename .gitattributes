@@ -82,4 +82,7 @@ packaging/skill-summaries.tr.tsv text eol=lf
 # core.autocrlf=true it came out with 207 CRs and the smoke gate read it as stale (measured in review).
 kit/legacy-blobs.tsv text eol=lf
 kit/owned-blobs.tsv text eol=lf
+# The Node advisory table is read by doctor (bash) and the Studio server; both tolerate a CR, the pin keeps the bytes.
+kit/eval/lib/node-advisory.tsv text eol=lf
+plugin/eval/lib/node-advisory.tsv text eol=lf
 .github/workflows/*.yml text eol=lf

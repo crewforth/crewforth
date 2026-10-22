@@ -5,6 +5,32 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.2.1] — 2026-10-22
+
+### Added
+
+- **Doctor and Studio say when Node is missing a published security fix.** Node's October 2026 security releases fix,
+  among others, a Brotli decoder write that a crafted HTTP response can reach: Studio's `fetch` decodes a `br`
+  response even though it does not ask for one (measured), so a Studio with `--peer` over plain HTTP on a network
+  someone else can answer on was exposed on an unpatched Node. `/crew-doctor` and Studio's start now read one table
+  of fixed releases (22.23.4, 24.22.1, 26.12.1) and warn below them, or on a line that gets no fixes (20.x); neither
+  refuses anything. `ensure-node.sh`'s fallback, used only when nodejs.org cannot be asked for the current LTS, moves
+  from 24.21.0 to 24.22.1.
+
+### Fixed
+
+- **Studio says what the model gate does to an agent that is not crew-\*.** Its inspector said the gate chose nothing
+  for such an agent and that it ran on the model its call asked for, while the same panel showed it had asked for opus
+  and run on sonnet. The gate does hold the expensive end there: a call that asks for opus or fable, or names no model
+  and would take the session's, runs on sonnet unless its task carries an `above: <why>` line. The inspector and the
+  Studio page now say that.
+- **Critical work sent to an agent that is not crew-\* is no longer moved to a cheaper model.** Outside the crew the
+  model gate holds the expensive end: opus or fable, or a session model the call would inherit, runs on sonnet unless
+  the task carries `above: <why>`. It did that even when the task opened with a card naming critical work (`change:
+  fix-unknown`, `security`, `migration`, `architecture`, or a file on a critical path), which a crew agent would run on
+  opus at least, so going round the crew was the cheaper way. Such a call now keeps the model it asked for; nothing is
+  raised. An `above:` at the end of a one-line card is now read there too, and Studio's inspector and page say so.
+
 ## [3.2.0] — 2026-10-21
 
 ### Added
