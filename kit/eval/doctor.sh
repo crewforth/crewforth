@@ -82,13 +82,19 @@ _mt() {
       "core.hooksPath -> %s (not Crewforth's hooks)") s="core.hooksPath -> %s (Crewforth'un hook'ları değil)" ;;
       "core.hooksPath -> %s (Crewforth's hooks run first, then the project's own — commit-time gates active)") s="core.hooksPath -> %s (önce Crewforth'un hook'ları, sonra projenin kendi hook'ları çalışır — commit anındaki kapılar devrede)" ;;
       "core.hooksPath -> %s, but the shim there does not run Crewforth's hook:%s") s="core.hooksPath -> %s, ama oradaki shim Crewforth'un hook'unu çalıştırmıyor:%s" ;;
+      "core.hooksPath -> %s, which does not exist (the repository was moved?) — no commit gate runs") s="core.hooksPath -> %s, ama bu dizin yok (depo taşındı mı?) — hiçbir commit kapısı koşmuyor" ;;
+      "update Crewforth (npx crewforth update), which writes the path again") s="Crewforth'u güncelleyin (npx crewforth update); yolu yeniden yazar" ;;
+      "core.hooksPath -> %s is relative and .claude/ is not tracked, so a linked worktree (one Claude Code opens included) runs no commit gate; update Crewforth (npx crewforth update), which writes the absolute path") s="core.hooksPath -> %s göreli ve .claude/ izlenmiyor, bu yüzden bağlı bir worktree'de (Claude Code'un açtıkları dahil) hiçbir commit kapısı koşmuyor; Crewforth'u güncelleyin (npx crewforth update), mutlak yolu yazar" ;;
+      "core.hooksPath -> %s: the shim runs Crewforth's hook at the root but not in a linked worktree:%s; update Crewforth (npx crewforth update), which writes the shim again") s="core.hooksPath -> %s: shim Crewforth'un hook'unu kökte çalıştırıyor ama bağlı bir worktree'de çalıştırmıyor:%s; Crewforth'u güncelleyin (npx crewforth update), shim'i yeniden yazar" ;;
+      "update Crewforth (npx crewforth update), which arms it with the absolute path") s="Crewforth'u güncelleyin (npx crewforth update); mutlak yolla bağlar" ;;
+      "docs/ is not gitignored here, and these working files Crewforth writes under it are not either:%s — the next git add -A stages them (§4.3); add them to .gitignore") s="docs/ burada gitignore'da değil, Crewforth'un altına yazdığı şu çalışma dosyaları da değil:%s — bir sonraki git add -A onları stage eder (§4.3); .gitignore'a ekleyin" ;;
       'update Crewforth (npx crewforth update), which writes the shim again') s="Crewforth'u güncelleyin (npx crewforth update); güncelleme shim'i yeniden yazar" ;;
       "update Crewforth (npx crewforth update): this project has hooks of its own, and the update runs Crewforth's before them instead of replacing them") s="Crewforth'u güncelleyin (npx crewforth update): bu projenin kendi hook'ları var; güncelleme Crewforth'unkileri onların yerine koymaz, önlerinde çalıştırır" ;;
       "update Crewforth (npx crewforth update): it keeps that chain and runs Crewforth's hooks before it (.claude/git-shim)") s="Crewforth'u güncelleyin (npx crewforth update): o zinciri korur ve Crewforth'un hook'larını önünde çalıştırır (.claude/git-shim)" ;;
       "trace-blocklist.txt: the placeholder %s is active as it shipped — §4.2 looks for those characters and for no template name; write the template's name in its place, or put the # back") s="trace-blocklist.txt: %s yer tutucusu gönderildiği hâliyle etkin — §4.2 o karakterleri arıyor, bir şablon adını değil; yerine şablonun adını yazın ya da başına # koyun" ;;
       "§4.2 names no vendor template: .claude/hooks/trace-blocklist.txt holds only its placeholder, so that rule looks for nothing — if this project came from a template, write its name there") s="§4.2 hiçbir üçüncü taraf şablon adı içermiyor: .claude/hooks/trace-blocklist.txt'te yalnız yer tutucu var, yani o kural hiçbir şey aramıyor — proje bir şablondan geldiyse adını oraya yazın" ;;
       '§4.2 names %s vendor template pattern(s) in trace-blocklist.txt') s="§4.2, trace-blocklist.txt'te %s üçüncü taraf şablon deseni içeriyor" ;;
-      'not a git repo — commit gates need: git init && git config core.hooksPath .claude/hooks') s='git deposu değil — commit kapıları için: git init && git config core.hooksPath .claude/hooks' ;;
+      'not a git repo — commit gates need: %s') s='git deposu değil — commit kapıları için: %s' ;;
       "Crewforth's JSON reader is missing (%s) — settings.json cannot be checked") s="Crewforth'un JSON okuyucusu yok (%s) — settings.json denetlenemiyor" ;;
       'update Crewforth') s="Crewforth'u güncelleyin" ;;
       'settings.json is valid JSON') s='settings.json geçerli JSON' ;;
@@ -336,24 +342,54 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   HP="$(git config --get core.hooksPath 2>/dev/null || true)"
   # A hook chain of the project's own that an unset or foreign core.hooksPath would be running today.
   _own=0; { [ -d .husky ] || [ -x .git/hooks/pre-commit ] || [ -x .git/hooks/commit-msg ]; } && _own=1
+  # WHERE IT RESOLVES IN A LINKED WORKTREE. A relative value is read from the work tree a commit runs in, and a
+  # worktree has no .claude/ when .claude/ is not tracked: measured, a commit the trace scan blocked at the root went
+  # through in a worktree with no hook run. The installers now write the absolute path; this tells an older install.
+  # An absolute one that is not there (the repository was moved) runs no hook anywhere.
+  _hpw=0
   case "$HP" in
-    */.claude/hooks|.claude/hooks) ok "core.hooksPath -> %s (commit-time gates active)" "$HP" ;;
+    .claude/hooks|.claude/git-shim) git ls-files --error-unmatch .claude/hooks/pre-commit >/dev/null 2>&1 || _hpw=1 ;;
+    */.claude/hooks|*/.claude/git-shim)
+      [ -d "$HP" ] || bad "core.hooksPath -> %s, which does not exist (the repository was moved?) — no commit gate runs" "update Crewforth (npx crewforth update), which writes the path again" "$HP" ;;
+  esac
+  [ "$_hpw" = 1 ] && warn "core.hooksPath -> %s is relative and .claude/ is not tracked, so a linked worktree (one Claude Code opens included) runs no commit gate; update Crewforth (npx crewforth update), which writes the absolute path" "$HP"
+  case "$HP" in
+    */.claude/hooks|.claude/hooks) [ -d "$HP" ] && ok "core.hooksPath -> %s (commit-time gates active)" "$HP" ;;
     */.claude/git-shim|.claude/git-shim)
-      _shb=""
+      [ -d "$HP" ] || HP=""
+      _shb=""; _shw=""
       for h in pre-commit commit-msg; do
-        { [ -x "$HP/$h" ] && grep -q '\.claude/hooks/' "$HP/$h" 2>/dev/null; } || _shb="$_shb $h"
+        [ -n "$HP" ] || break
+        # The shim of 3.2.2 finds the hook beside itself; one written before looked under the toplevel, which in a
+        # linked worktree is the worktree's own, so it ran the project's chain and not Crewforth's there.
+        if [ -x "$HP/$h" ] && grep -qF 'K="${0%/*}/../hooks/$H"' "$HP/$h" 2>/dev/null; then :
+        elif [ -x "$HP/$h" ] && grep -q '\.claude/hooks/' "$HP/$h" 2>/dev/null; then _shw="$_shw $h"
+        else _shb="$_shb $h"; fi
       done
-      if [ -z "$_shb" ]; then ok "core.hooksPath -> %s (Crewforth's hooks run first, then the project's own — commit-time gates active)" "$HP"
-      else bad "core.hooksPath -> %s, but the shim there does not run Crewforth's hook:%s" "update Crewforth (npx crewforth update), which writes the shim again" "$HP" "$_shb"; fi ;;
+      if [ -z "$HP" ]; then :
+      elif [ -n "$_shb" ]; then bad "core.hooksPath -> %s, but the shim there does not run Crewforth's hook:%s" "update Crewforth (npx crewforth update), which writes the shim again" "$HP" "$_shb"
+      elif [ -n "$_shw" ]; then warn "core.hooksPath -> %s: the shim runs Crewforth's hook at the root but not in a linked worktree:%s; update Crewforth (npx crewforth update), which writes the shim again" "$HP" "$_shw"
+      else ok "core.hooksPath -> %s (Crewforth's hooks run first, then the project's own — commit-time gates active)" "$HP"; fi ;;
     "") if [ "$_own" = 1 ]; then
           bad "core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE" "update Crewforth (npx crewforth update): this project has hooks of its own, and the update runs Crewforth's before them instead of replacing them"
         else
-          bad "core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE" "git config core.hooksPath .claude/hooks"
+          bad "core.hooksPath is unset — commit trace/secret/bloat gates are INACTIVE" "update Crewforth (npx crewforth update), which arms it with the absolute path"
         fi ;;
     *)  bad "core.hooksPath -> %s (not Crewforth's hooks)" "update Crewforth (npx crewforth update): it keeps that chain and runs Crewforth's hooks before it (.claude/git-shim)" "$HP" ;;
   esac
 else
-  warn "not a git repo — commit gates need: git init && git config core.hooksPath .claude/hooks"
+  warn "not a git repo — commit gates need: %s" "git init && git config core.hooksPath \"\$PWD/.claude/hooks\""
+fi
+# 3b) §4.3 WHERE docs/ IS TRACKED. The promise that working documents stay private rests on .gitignore: no commit gate
+#     stops a staged docs/ file. An install ignores docs/ whole; a project whose docs/ is a published site lists its
+#     private files one by one, and a working file Crewforth writes that is not on that list is staged by the next
+#     `git add -A` (field report, 3.2.1: four of the eight below). Asked of git, file by file; nothing is changed.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! git check-ignore -q --no-index docs/x.md 2>/dev/null; then
+  _dl=""
+  for _df in SESSION_STATE.md PLAN.md HANDOVER.md THREAT_MODEL.md DISCOVERY.md SECURITY_FINDINGS.md EVAL.md adr/NNNN.md; do
+    git check-ignore -q --no-index "docs/$_df" 2>/dev/null || _dl="$_dl docs/${_df%NNNN.md}"
+  done
+  [ -n "$_dl" ] && warn "docs/ is not gitignored here, and these working files Crewforth writes under it are not either:%s — the next git add -A stages them (§4.3); add them to .gitignore" "$_dl"
 fi
 
 # 4) settings.json wires the tool-level gates, and each event maps to a NON-EMPTY hook array (an empty [] wires

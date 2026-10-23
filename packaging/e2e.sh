@@ -82,6 +82,12 @@ of_want(){  # $1 = name -> the file holding this version's content, in $WORK/of-
 
 sh_commit(){  # $1 = project, $2 = file to add -> rc of the commit; the project's hook appends a line to own.log
   ( cd "$1" && git add "$2" && git commit -qm "feat: $2" ) >/dev/null 2>&1; }
+# THE KIT'S DIRECTORY, ABSOLUTE (3.2.2): asked of the file system, not of the spelling. A relative value resolves against
+# the work tree a commit runs in, and a linked worktree has no .claude/ when it is gitignored, so it ran no hook.
+hp_is(){  # $1 = project, $2 = .claude/hooks | .claude/git-shim -> 0 when git points there by an absolute path
+  local v; v="$( cd "$1" && git config --get core.hooksPath )"
+  case "$v" in /*|[A-Za-z]:[/\\]*) ;; *) return 1 ;; esac
+  [ -d "$v" ] && [ -d "$1/$2" ] && [ "$v" -ef "$1/$2" ]; }
 
 # The old installer is not in this tree, so the shape is produced by THIS tree's start.sh and then turned into
 # what 2.13's start.sh --dotnet left behind. (A first version copied the payload into .claude/ by hand; that left
@@ -403,7 +409,7 @@ for _shc in myhooks .husky/_; do
   : > "$SH/own.log"
   for _shn in 1 2 3; do
     cp adopt.sh "$SH/"; cp -R kit "$SH/"; run_adopt "$SH" --yes --here
-    [ "$(cd "$SH" && git config --get core.hooksPath)" = .claude/git-shim ] || die "run $_shn: core.hooksPath is '$(cd "$SH" && git config --get core.hooksPath)', not the shim — the project's chain ($_shc) was dropped" shim-kept "$SH"
+    hp_is "$SH" .claude/git-shim || die "run $_shn: core.hooksPath is '$(cd "$SH" && git config --get core.hooksPath)', not the shim — the project's chain ($_shc) was dropped" shim-kept "$SH"
     grep -qF "P=\"\$ROOT/$_shc/\$H\"" "$SH/.claude/git-shim/pre-commit" || die "run $_shn: the shim does not name the project's chain $_shc any more" shim-kept "$SH"
     _shb="$(grep -c ran "$SH/own.log" || true)"; echo "$_shn" > "$SH/f$_shn.txt"; sh_commit "$SH" "f$_shn.txt" || die "run $_shn: an ordinary commit was refused" shim-kept "$SH"
     [ "$(grep -c ran "$SH/own.log")" = $((_shb+1)) ] || die "run $_shn: the project's own pre-commit ($_shc) did not run on a commit" shim-kept "$SH"
@@ -413,7 +419,7 @@ for _shc in myhooks .husky/_; do
   # Read from a capture, not through `| grep -q`: under pipefail a grep that leaves early kills the writer and the
   # pipeline answers 141 (this case failed that way when it was written).
   _shd="$( cd "$SH" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null || true )"
-  case "$_shd" in *"✅ core.hooksPath -> .claude/git-shim (Crewforth's hooks run first"*) ;; *) die "doctor does not report the shim as Crewforth's" shim-kept "$SH" ;; esac
+  case "$_shd" in *"✅ core.hooksPath -> "*"/.claude/git-shim (Crewforth's hooks run first"*) ;; *) die "doctor does not report the shim as Crewforth's" shim-kept "$SH" ;; esac
 done
 echo "[shim-kept] core.hooksPath=myhooks and =.husky/_: three runs each, git stays on .claude/git-shim, the shim keeps naming that chain, the project's pre-commit runs on every commit, a staged key is stopped by Crewforth's, doctor reports the shim ✅"
 
@@ -458,12 +464,12 @@ sp_clean(){ local f; for f in "$1"/.claude/git-shim/pre-commit "$1"/.claude/git-
     grep -qF -e "$1" -e "$HOME" "$f" && return 1
   done; return 0; }
 SP="$WORK/shim-spell"; sp_new "$SP"; run_adopt "$SP" --yes --here
-[ "$(sp_hp "$SP")" = .claude/hooks ] || die "FIXTURE: a first install did not point git at .claude/hooks" shim-spell "$SP"
+hp_is "$SP" .claude/hooks || die "FIXTURE: a first install did not point git at .claude/hooks" shim-spell "$SP"
 SPR="$(cd -P "$SP" && pwd)"
 # 1) the kit's own hooks directory, spelled five ways: none is a chain, no shim is written, git ends on .claude/hooks
 for _spv in "$SPR/.claude/hooks" "$SPR/.claude/hooks/" "./.claude/hooks" ".claude/hooks/" "$SP/.claude/hooks"; do
   ( cd "$SP" && git config core.hooksPath "$_spv" ); sp_again "$SP"
-  [ "$(sp_hp "$SP")" = .claude/hooks ] || die "core.hooksPath=$_spv (the kit's own directory) ended as '$(sp_hp "$SP")'" shim-spell "$SP"
+  hp_is "$SP" .claude/hooks || die "core.hooksPath=$_spv (the kit's own directory) ended as '$(sp_hp "$SP")'" shim-spell "$SP"
   [ ! -e "$SP/.claude/git-shim" ] || die "core.hooksPath=$_spv (the kit's own directory) was shimmed as a chain of the project's" shim-spell "$SP"
 done
 # 2) the shim an earlier version wrote for that case is found, understood and removed: it names no chain
@@ -475,7 +481,7 @@ done
 grep -qF "P=\"\$ROOT/$SPR/.claude/hooks/\$H\"" "$SP/.claude/git-shim/pre-commit" || die "FIXTURE: the old shim does not hold the line the defect wrote" shim-spell "$SP"
 sp_clean "$SP" && die "FIXTURE: the check for a machine path does not see the line the defect wrote" shim-spell "$SP"
 ( cd "$SP" && git config core.hooksPath .claude/git-shim ); sp_again "$SP"
-[ "$(sp_hp "$SP")" = .claude/hooks ] || die "an old shim that chained the kit to itself: git ended on '$(sp_hp "$SP")'" shim-spell "$SP"
+hp_is "$SP" .claude/hooks || die "an old shim that chained the kit to itself: git ended on '$(sp_hp "$SP")'" shim-spell "$SP"
 [ ! -e "$SP/.claude/git-shim" ] || die "an old shim that holds this machine's path was left in place" shim-spell "$SP"
 # ...and a file in that directory that is not Crewforth's stays
 mkdir -p "$SP/.claude/git-shim"; echo mine > "$SP/.claude/git-shim/notes.txt"; sp_again "$SP"
@@ -487,7 +493,7 @@ printf '#!/bin/sh\necho ran >> "$(git rev-parse --show-toplevel)/own.log"\n' > "
 SPIR="$(cd -P "$SPI" && pwd)"; ( cd "$SPI" && git add -A && git commit -qm hooks && git config core.hooksPath "$SPIR/myhooks" ) >/dev/null 2>&1
 for _spn in 1 2; do
   sp_again "$SPI"
-  [ "$(sp_hp "$SPI")" = .claude/git-shim ] || die "run $_spn: an absolute in-repository chain ended as '$(sp_hp "$SPI")'" shim-spell "$SPI"
+  hp_is "$SPI" .claude/git-shim || die "run $_spn: an absolute in-repository chain ended as '$(sp_hp "$SPI")'" shim-spell "$SPI"
   grep -qF 'P="$ROOT/myhooks/$H"' "$SPI/.claude/git-shim/pre-commit" || die "run $_spn: the shim does not name the chain from the root: $(grep -m1 '^P=' "$SPI/.claude/git-shim/pre-commit")" shim-spell "$SPI"
   sp_clean "$SPI" || die "run $_spn: a generated shim holds a path of this machine" shim-spell "$SPI"
   : > "$SPI/own.log"; echo "$_spn" > "$SPI/f$_spn.txt"; sh_commit "$SPI" "f$_spn.txt" || die "run $_spn: an ordinary commit was refused" shim-spell "$SPI"
@@ -499,7 +505,7 @@ printf '#!/bin/sh\necho ran >> "%s/out.log"\n' "$SPX" > "$SPX/pre-commit"; chmod
 ( cd "$SPO" && git config core.hooksPath "$SPX" )
 for _spn in 1 2 3; do
   sp_again "$SPO"
-  [ "$(sp_hp "$SPO")" = .claude/git-shim ] || die "run $_spn: a chain outside the repository ended as '$(sp_hp "$SPO")'" shim-spell "$SPO"
+  hp_is "$SPO" .claude/git-shim || die "run $_spn: a chain outside the repository ended as '$(sp_hp "$SPO")'" shim-spell "$SPO"
   [ "$(cd "$SPO" && git config --get crewforth.hookschain)" -ef "$SPX" ] || die "run $_spn: the outside chain is not in git config: '$(cd "$SPO" && git config --get crewforth.hookschain)'" shim-spell "$SPO"
   ! grep -qF -e "$SPX" -e "$(cd "$SPO" && git config --get crewforth.hookschain)" "$SPO"/.claude/git-shim/* || die "run $_spn: the shim holds the outside chain's path" shim-spell "$SPO"
   grep -qxF 'P=""' "$SPO/.claude/git-shim/pre-commit" || die "run $_spn: the shim of an outside chain names a path of its own" shim-spell "$SPO"
@@ -509,7 +515,29 @@ for _spn in 1 2 3; do
 done
 printf 'aws_key = "%s%s"\n' AKIA IOSFODNN7EXAMPLQ > "$SPO/k.py"
 sh_commit "$SPO" k.py && die "with an outside chain a staged key was committed — Crewforth's pre-commit is not running" shim-spell "$SPO"
-echo "[shim-spell] the kit's own hooks directory spelled 5 ways (absolute as resolved and as the shell names it, each also with a trailing slash or ./) is never a chain; an old shim that chained the kit to itself is removed and a stranger's file beside it stays; an absolute in-repository chain is named from the root and runs once; a chain outside the repository lives in git config, runs once through 3 updates, and no generated shim holds a path of this machine"
+# 5) A LINKED WORKTREE runs the same gate (field report, 3.2.1: a commit there went out with a session trailer). In a
+# private install .claude/ is gitignored, so a worktree has none of its own and a relative core.hooksPath ran no hook
+# there at all; measured before the fix: the root refused a staged key, the worktree committed it. Each fixture makes
+# that install itself (untracked, ignored, committed), for the kit's hooks directly and for the shim with the
+# project's own chain, whose pre-commit must run in the worktree too.
+SW="$WORK/wt-hooks"; sp_new "$SW"; run_adopt "$SW" --yes --here
+SWI="$WORK/wt-shim"; sp_new "$SWI"; mkdir -p "$SWI/myhooks"
+printf '#!/bin/sh\necho ran >> "$(git rev-parse --show-toplevel)/own.log"\n' > "$SWI/myhooks/pre-commit"; chmod +x "$SWI/myhooks/pre-commit"
+( cd "$SWI" && git add -A && git commit -qm hooks && git config core.hooksPath myhooks ) >/dev/null 2>&1; run_adopt "$SWI" --yes --here
+for _wp in "$SW" "$SWI"; do
+  ( cd "$_wp" && git rm -r -q --cached .claude 2>/dev/null; printf '.claude/\nown.log\n' >> .gitignore; git add -A && git -c core.hooksPath=/dev/null commit -qm private ) >/dev/null 2>&1   # fixture setup, not the product
+  _wt="$_wp-wt"; rm -rf "$_wt"; ( cd "$_wp" && git worktree add -q "$_wt" -b wt-check ) >/dev/null 2>&1 || die "FIXTURE: git worktree add failed" worktree-gate "$_wp"
+  # The condition itself, asked of the worktree: no .claude/ of its own. With one, a relative path would resolve
+  # there and the case would prove nothing.
+  [ ! -e "$_wt/.claude" ] || die "FIXTURE: the worktree has a .claude/ of its own, so it proves nothing" worktree-gate "$_wt"
+  printf 'aws_key = "%s%s"\n' AKIA IOSFODNN7EXAMPLQ > "$_wt/k.py"
+  sh_commit "$_wt" k.py && die "in a linked worktree a staged key was committed — Crewforth's pre-commit does not run there" worktree-gate "$_wt"
+  ( cd "$_wt" && git reset -q && rm -f k.py )
+  echo w > "$_wt/w.txt"; sh_commit "$_wt" w.txt || die "in a linked worktree an ordinary commit was refused" worktree-gate "$_wt"
+  [ "$_wp" = "$SWI" ] && { [ "$(grep -c ran "$_wt/own.log" 2>/dev/null)" = 1 ] || die "in a linked worktree the project's own pre-commit did not run through the shim" worktree-gate "$_wt"; }
+  ( cd "$_wp" && git worktree remove --force "$_wt" ) >/dev/null 2>&1
+done
+echo "[shim-spell] the kit's own hooks directory spelled 5 ways (absolute as resolved and as the shell names it, each also with a trailing slash or ./) is never a chain; an old shim that chained the kit to itself is removed and a stranger's file beside it stays; an absolute in-repository chain is named from the root and runs once; a chain outside the repository lives in git config, runs once through 3 updates, and no generated shim holds a path of this machine; in a linked worktree a staged key is refused and the project's own pre-commit runs, with the hooks and with the shim"
 
 # CSK_CORRECT_STACK used to flip a recorded 'generic' to 'dotnet'. 3.0 has one shape, so the variable does
 # nothing — and says so, rather than being silently ignored by an automation that still sets it.
