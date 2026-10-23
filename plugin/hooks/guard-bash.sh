@@ -1996,7 +1996,10 @@ _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
     [ "$unglob" = 1 ] && set +f
   fi
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
-_mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it)" "4.5" tamper
+# Reading one is open through the Read tool, which no gate here matches: the rule is about a command, which cannot be
+# told reading from writing by its text. Said in the refusal, since a session that did not know it told the user it
+# could not even show them the file (field report, 3.2.1).
+_mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it; to show it to the user, read it with the Read tool)" "4.5" tamper
 # The refuter ledger (hooks/refuter-ledger.sh) by its file name: the agent's name alone is not refused, so a command
 # that greps for crew-refuter still runs. The same honest scope as the rule above.
 _rf_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
@@ -2436,6 +2439,29 @@ _p44_scan(){  # $1 = the collapsed `git push …` -> 0 when it is `git push [-u]
   [ "$npos" = 2 ] || { _P44_WHY="the remote and the branch are not both written out"; return 1; }
   return 0
 }
+# A PUSH NO APPROVAL CAN COVER: one that deletes or mirrors a remote ref (`--delete`, `-d`, `--mirror`, `--prune`,
+# `--all`, `:<ref>`). An approval records one form, `git push <remote> <branch>`, and the form was checked only after
+# the record was read, so with no record the refusal offered the approval question and /crew-approve for it; in the
+# field (3.2.1) the user approved twice and typed the command once, and each time it was refused again. Asked before
+# the record, so the refusal can say at once that this one is the user's to run.
+_p44_never(){  # 0 = this call is a push no approval covers; _P44N names the token that makes it so
+  # Read from the text with its quotes taken out (CMD_UQ), after the word push: `git -C . push origin :x` and
+  # `git push origin "":old` are deleting pushes too, and a reading that gave up on a form it could not collapse let
+  # them fall through to the approval offer (found in review).
+  local tok unglob=0 after=0
+  _P44N=""
+  git_has "$CMD_SEEN" 'push' || return 1
+  git_has "$CMD_SEEN" 'commit' && return 1
+  case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+  set -- ${CMD_UQ//[;&|]/ ; }
+  [ "$unglob" = 1 ] && set +f
+  for tok in "$@"; do
+    case "$tok" in \;) after=0; continue ;; push) after=1; continue ;; esac
+    [ "$after" = 1 ] || continue
+    case "$tok" in -d|--delete|--mirror|--prune|--all|:*|+:*) _P44N="$tok"; return 0 ;; esac
+  done
+  return 1
+}
 _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise _APW says why not, for the message.
   local k v op="" tr="" h="" b="" r="" u="" sid="" ts="" now age dir="${_CWD:-.}" hc=1 hp=1 cur tool tag _h2
   _APW="no approval from the user is on record"
@@ -2565,6 +2591,13 @@ allow_approved(){
 _gate_written(){
   # No prompt reaches a person here, but their own message does: see _approval_ok above.
   _approval_ok && allow_approved
+  if _p44_never; then
+    gatelog BLOCK 4.4 "a push form no approval covers"
+    echo "GUARD (§4.4): this push ($_P44N) deletes or mirrors a remote ref, and no approval given in a session covers it: an approval records one form, git push <remote> <branch>." >&2
+    echo "Do not ask the user to approve it in this session, by question or by a typed command: they would approve and this command would be refused again." >&2
+    echo "Tell the user, in their language, that this one is theirs to run: in their own terminal, or on GitHub (a merged pull request's branch has a Delete branch button there)." >&2
+    exit 2
+  fi
   [ -n "${_PRF:-}" ] || { _PRF=0; _gb_prh && _PRF=1; }   # the default branch has already asked
   gatelog BLOCK 4.4 "commit/push with no matching approval from the user"
   case "$PERM_MODE" in
@@ -2765,13 +2798,14 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
   _C47_VARS=" "
   _C47_SHRE='(^|[^A-Za-z0-9_-])git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit([[:space:]]|$)'
   _C47_N=0; _C47_WT=""; _C47_NV=""; _C47_AM=""; _C47_UNK=""; _C47_EXP=""; _C47_ENV=""; _C47_SH=""; _C47_CFG=""; _C47_UNR=""; _C47_SUB=""; _C47_ARGS=""; _C47_CD=0; _C47_CDT=""
+  _C47_MK=""; _mk_sub=""
   _c47_read "$1"; m="$_C47_M"
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
   set -- $_C47_T
   [ "$unglob" = 1 ] && set +f
   while [ $# -gt 0 ]; do
     raw="$1"; shift
-    [ "$raw" = ";" ] && { ph=cmd; wrapped=0; vc=0; continue; }
+    [ "$raw" = ";" ] && { [ "$ph" = mk ] && _c47_mk_close; ph=cmd; wrapped=0; vc=0; continue; }
     _WAT=0
     case "$raw" in "$m"*|*"$m"*) _c47_w "$raw" ;; *) _W="$raw"; _WQ=0; case "$raw" in *[\$\*\?\[\{]*) _WX=1 ;; *) _WX=0 ;; esac ;; esac
     tok="$_W"
@@ -2878,7 +2912,22 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
                     _C47_SUB="${tok:0:40}"; ph=skip ;;
           commit) ph=commit; _C47_N=$((_C47_N+1))
                   if [ "$rcd" != 0 ] && [ "$_C47_CD" = 0 ]; then _C47_CD=$rcd; _C47_CDT="$rcdt"; fi ;;
+          merge|cherry-pick|revert|am|commit-tree|pull) ph=mk; _mk_sub="$tok"; _mk_nc=0; _mk_sq=0; _mk_ffo=0; _mk_ffs=0; _mk_rb=0; _mk_ctl=0 ;;
           *) ph=skip ;;
+        esac ;;
+      mk)  # §4.4: a git command that makes a commit (see _c47_mk_close). The value of an option that takes one is
+           # skipped, so `-m --squash` is a message and not a flag; of two opposite flags git takes the last, and so
+           # does this (`--no-commit --commit` commits).
+        case "$tok" in
+          -m|-F|-s|-X|-o|-j|--message|--file|--strategy|--strategy-option|--into-name|--cleanup|--mainline|--server-option|--depth|--deepen|--shallow-since|--shallow-exclude|--upload-pack|--jobs|--whitespace|--directory|--exclude|--include|--resolvemsg)
+            case "${1:-}" in ''|\;) ;; *) shift ;; esac ;;
+          --no-commit) _mk_nc=1 ;;  --commit) _mk_nc=0 ;;
+          -n) case "$_mk_sub" in cherry-pick|revert) _mk_nc=1 ;; esac ;;
+          --squash) _mk_sq=1 ;;     --no-squash) _mk_sq=0 ;;
+          --ff-only) _mk_ffo=1; _mk_ffs=1 ;;  --ff|--no-ff) _mk_ffo=0; _mk_ffs=1 ;;
+          -r|--rebase|--rebase=*) _mk_rb=1 ;;  --no-rebase) _mk_rb=0 ;;
+          --abort|--quit|--skip|--show-current-patch|--show-current-patch=*) _mk_ctl=1 ;;
+          --continue) _mk_ctl=0 ;;
         esac ;;
       commit)
         case "$raw" in
@@ -2928,8 +2977,28 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
         esac ;;
     esac
   done
+  [ "$ph" = mk ] && _c47_mk_close
   [ "$envf" = 1 ] && [ "$_C47_N" != 0 ] && _C47_ENV="a variable that changes what git reads"
   return 0
+}
+# The end of one `git merge|cherry-pick|revert|am|commit-tree|pull`: does it make a commit? The forms that make none
+# stay free. pull.ff=only frees a plain pull only when the command line overrides neither it nor pull.rebase.
+_c47_mk_close(){
+  local free=0
+  case "$_mk_sub" in
+    merge) { [ "$_mk_ctl" = 1 ] || [ "$_mk_nc" = 1 ] || [ "$_mk_sq" = 1 ] || [ "$_mk_ffo" = 1 ]; } && free=1 ;;
+    cherry-pick|revert) { [ "$_mk_ctl" = 1 ] || [ "$_mk_nc" = 1 ]; } && free=1 ;;
+    am) [ "$_mk_ctl" = 1 ] && free=1 ;;
+    pull)
+      if [ "$_mk_rb" = 0 ]; then
+        { [ "$_mk_nc" = 1 ] || [ "$_mk_sq" = 1 ] || [ "$_mk_ffo" = 1 ]; } && free=1
+        if [ "$free" = 0 ] && [ "$_mk_ffs" = 0 ] && [ "$(git -C "${_CWD:-.}" config --get pull.ff 2>/dev/null)" = only ]; then
+          case "$(git -C "${_CWD:-.}" config --get pull.rebase 2>/dev/null)" in ''|false) free=1 ;; esac
+        fi
+      fi ;;
+  esac
+  [ "$free" = 1 ] || _C47_MK="${_C47_MK:-git $_mk_sub}"
+  _mk_sub=""
 }
 
 # The §4.5 half of what that reading finds is judged HERE, before the pre-authorised branch below: with CLAUDE_GIT_OK
@@ -3100,6 +3169,48 @@ if git_has "$CMD_SEEN" 'add|commit|push|checkout|switch'; then
   case "${CLAUDE_GIT_OK:-}" in
     1|yes|true|on|YES|TRUE|ON) allow_preauthorised ;;   # pre-authorised session (headless/CI)
   esac
+fi
+# §4.4 — A COMMIT MADE BY ANOTHER COMMAND. `git merge`, `cherry-pick`, `revert`, `am`, `commit-tree` and `pull` make a
+# commit as surely as `git commit`, and none of them reached this gate: measured in auto mode, each ran with rc 0, and
+# in the field (3.2.1) a merge commit landed with nobody asked. The forms that make none stay free (_c47_mk_close). The
+# approval a session records is for a staged tree under `git commit`, which these do not commit, so where no prompt
+# reaches a person the call is refused and the user runs it; in default and acceptEdits the user is asked.
+# READ BY THE COMMIT GATE'S OWN READER (_c47_scan), not by a second one: the first version split the text itself, and
+# review found `'git' merge`, `(git merge …)`, `$(git merge …)`, `git -C "a b" merge` and `git merge -m --squash` all
+# passing. The reader pairs quotes as the shell does and skips an option's value. Run only when the text, with quotes
+# and backslashes taken out, holds git and one of the words: builtins up to there, so an ordinary call pays nothing.
+_mk_try=0
+# A quote or a backslash can split the word git itself (`g\it merge`, `"g"it merge`: found in review), so a call that
+# holds one is taken out of its quoting before either word is looked for. Builtins only.
+case "$CMD_SEEN" in *[Gg][Ii][Tt]*|*[\\\"\']*)
+  _gsub "$CMD_SEEN" '\\'$'\n' '' bs; _unquoted "$_GS"; _t="$_GS"
+  case "$_t" in *[Gg][Ii][Tt]*) ;; *) _t="" ;; esac
+  case "$_t" in *[Mm][Ee][Rr][Gg][Ee]*|*[Cc][Hh][Ee][Rr][Rr][Yy]-[Pp][Ii][Cc][Kk]*|*[Rr][Ee][Vv][Ee][Rr][Tt]*|*[Cc][Oo][Mm][Mm][Ii][Tt]-[Tt][Rr][Ee][Ee]*|*[Pp][Uu][Ll][Ll]*|*[[:space:]][Aa][Mm][[:space:]]*|*[[:space:]][Aa][Mm]|*[Aa][Ll][Ii][Aa][Ss].*) _mk_try=1 ;; esac ;;
+esac
+if [ "$_mk_try" = 1 ]; then
+  # The reader resets what the commit rules read from it; this call holds the same text, so they are put back as read.
+  _mk_s1="${_C47_N:-0}" _mk_s2="${_C47_WT:-}" _mk_s3="${_C47_CD:-0}" _mk_s4="${_C47_CDT:-}" _mk_s5="${_C47_CFG:-}"
+  _c47_scan "$CMD"
+  _MKC="$_C47_MK"
+  # An alias given for this one call can stand for any of them: `git -c alias.mg=merge mg` (found in review).
+  case "$_C47_CFG" in *[Aa][Ll][Ii][Aa][Ss].*) [ -z "$_MKC" ] && _MKC="a git alias given in the command ($_C47_CFG)" ;; esac
+  _C47_N="$_mk_s1"; _C47_WT="$_mk_s2"; _C47_CD="$_mk_s3"; _C47_CDT="$_mk_s4"; _C47_CFG="$_mk_s5"
+  if [ -n "$_MKC" ]; then
+    case "${CLAUDE_GIT_OK:-}" in 1|yes|true|on|YES|TRUE|ON) allow_preauthorised ;; esac
+    _mkp=0; case "$PERM_MODE" in default|acceptEdits) _gb_prh || _mkp=1 ;; esac
+    if [ "$_mkp" = 1 ]; then
+      SHORT="$CMD"; [ "${#SHORT}" -gt 300 ] && { _utf8_cut "$SHORT" 300; SHORT="$_UC…"; }
+      ask_user "§4.4 commit approval gate. Claude wants to run a command that makes a commit ($_MKC):
+
+$SHORT
+
+Approve only if you want that commit made. Approving lets Claude run the command itself."
+    fi
+    gatelog BLOCK 4.4 "a commit made by another git command with no approval"
+    echo "GUARD (§4.4): '$_MKC' makes a commit, and in '${PERM_MODE:-unknown}' no prompt reaches a person. The approval a session records is for a staged tree under git commit, and does not cover a commit this command makes." >&2
+    echo "Tell the user, in their language, that this one is theirs to run: in their own terminal, or after Shift+Tab to default mode, where this gate asks them. A form that makes no commit needs no approval (merge --ff-only, pull --ff-only, --no-commit, --squash)." >&2
+    exit 2
+  fi
 fi
 if git_has "$CMD_SEEN" 'commit|push'; then
   # §4.6 — A COMMIT NEEDS A CLEAN REVIEW OF THIS DIFF.
@@ -3297,6 +3408,16 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     # git queries move too, not just the path: a staged diff read in the wrong worktree is the same defect
     # wearing different clothes. `_CWD` is "" when the payload carried none, and `-C .` is then a no-op.
     _RPD="${_CWD:-.}"
+    # ...and at the TOP of that work tree: a cwd that moved into a sub-folder (a subagent's run leaves the Bash tool
+    # in packages/api) looked for packages/api/.claude/review-pass.json and refused a commit whose record sat at the
+    # root (field report, 3.2.1). The top is the nearest folder above that holds `.git` (a directory, or a linked
+    # worktree's file), walked with builtins: a `git rev-parse` here cost the refusal path two processes over the
+    # gate's ceiling (smoke's cost table). Only when the record is not where the cwd is.
+    if [ ! -f "$_RPD/.claude/review-pass.json" ]; then
+      _RPT="$_RPD"
+      while [ ! -e "$_RPT/.git" ]; do case "$_RPT" in */*) _RPT="${_RPT%/*}" ;; *) _RPT=""; break ;; esac; done
+      [ -n "$_RPT" ] && _RPD="$_RPT"   # found or not, the record belongs there, and the refusal names that path
+    fi
     RP="$_RPD/.claude/review-pass.json"
     if [ ! -f "$RP" ]; then
       gatelog BLOCK 4.6 "no review-pass record"
