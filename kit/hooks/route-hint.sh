@@ -133,7 +133,24 @@ function norm(s) {
   sub(/^ +/,"",s); sub(/ +$/,"",s)
   return s
 }
-BEGIN { np = " " norm(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; nameA=""; nameS="" }
+# A request to READ is not work for an owner. "read the notes at the end of the README" named crew-docs-agent, an
+# agent that writes docs, because the scorer saw `README` and never the verb (field report, 3.2.1). Such a prompt
+# is left to the main thread, and only when the read verb is the REQUEST: the first word of an English prompt
+# (after please / can you / could you), the last word of a Turkish one (before mısın / musun / lütfen), since
+# Turkish puts the verb last. Anywhere else it is a bug report or part of a larger task — "the button does not
+# show the spinner" routed to the frontend expert before this, and must still (found in review). A second clause
+# (and, then, ve, sonra) or one action word anywhere and the hint is scored as before. `show` and `göster` are not
+# on the list: "show the avatar in the navbar" asks for UI work, and routed to the frontend expert (found in review).
+function hasw(re) { return np ~ ("(^| )(" re ")( |$)") }
+function readonly(   w, n, f, l) {
+  n = split(np, w, " "); if (n == 0) return 0
+  f = 1; while (f < n && w[f] ~ /^(please|pls|can|could|would|you)$/) f++
+  l = n; while (l > 1 && w[l] ~ /^(misin|musun|misiniz|musunuz|lutfen|bakalim)$/) l--
+  if (w[f] !~ /^(read|explain|summari[sz]e|describe)$/ &&
+      w[l] !~ /^(oku|okur|okuyun|okuyabilir|anlat|anlatir|anlatin|acikla|aciklar|aciklayin|ozetle|ozetler|ozetleyin)$/) return 0
+  return !hasw("and|then|ve|sonra|(fix|add|updat|writ|wrote|chang|implement|creat|remov|delet|refactor|build|buil|mak|renam|edit|migrat|mov|deploy|ship|instal|upgrad|review|audit|check|test|debug|investigat|optimi[sz]|improv|translat|draft|generat|setup|set|harden|resolv|run|merg|publish|configur|propos|analy[sz])[a-z]?[a-z]?[a-z]?[a-z]?|why|bug|bugs|crash[a-z]*|fail[a-z]*|error[a-z]*|broken|duzelt[a-z]*|ekle[a-z]*|guncelle[a-z]*|yaz[a-z]*|degistir[a-z]*|olustur[a-z]*|sil[a-z]*|kaldir[a-z]*|yap[a-z]*|kur[a-z]*|tasi[a-z]*|incele[a-z]*|denetle[a-z]*|cevir[a-z]*|duzenle[a-z]*|iyilestir[a-z]*|yayinla[a-z]*|cikar[a-z]*|hizlandir[a-z]*|uygula[a-z]*|coz[a-z]*|gelistir[a-z]*|sadelestir[a-z]*|analiz[a-z]*|neden|hata[a-z]*|cokuyor|bozuk[a-z]*")
+}
+BEGIN { np = " " norm(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; nameA=""; nameS=""; if (readonly()) exit }
 seen[FILENAME] { next }                                    # one Trigger-phrases line per component, the first
 {
   if (tolower($0) !~ /trigger phrases:/) next
