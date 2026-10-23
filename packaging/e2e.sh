@@ -901,6 +901,15 @@ dstar(){ ( cd "$SP" && env -u CI -u CREW_NO_STAR -u CSK_NO_STAR CREW_LANG=en ${1
          case "$(cat "$WORK/star-doctor.txt")" in *"DOCTOR: healthy"*) ;; *) echo "FAIL: FIXTURE — doctor is not healthy here, so its star checks prove nothing" >&2; echo UNHEALTHY; return ;; esac
          starn "$WORK/star-doctor.txt"; }
 D1="$(dstar)"                                              # same version as the install: doctor's own once, shown
+# Where the lines sit, in the run that showed the star: the star LAST (crew-doctor passes it on as the last line), and
+# the verdict after the auto-mode check, the last one that can fail, and before readiness. Both used to be printed
+# before that check, so a dropped-built-ins run read "healthy", then ❌, and exited 1.
+_dl(){ grep -n "$1" "$WORK/star-doctor.txt" | head -1 | cut -d: -f1; }
+_dv="$(_dl 'DOCTOR: ')"; _da="$(_dl 'auto-mode')"; _dr="$(_dl 'Readiness (advisory')"
+[ "$D1" = 1 ] && tail -1 "$WORK/star-doctor.txt" | grep -q '⭐' \
+  || { echo "FAIL: doctor's star line is not its last line (shown: $D1; last line: $(tail -1 "$WORK/star-doctor.txt"))"; exit 1; }
+[ -n "$_dv" ] && [ -n "$_da" ] && [ -n "$_dr" ] && [ "$_da" -lt "$_dv" ] && [ "$_dv" -lt "$_dr" ] \
+  || { echo "FAIL: doctor's verdict is not between its last check and readiness (auto-mode line ${_da:-none}, verdict ${_dv:-none}, readiness ${_dr:-none})"; exit 1; }
 restage(){ cp adopt.sh "$SP/"; cp -R kit "$SP/"; printf '%s\n' "$1" > "$SP/VERSION"; }
 restage "$(head -1 VERSION)"
 _slog; ( cd "$SP" && env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash adopt.sh --here --yes </dev/null ) >"$_L" 2>&1 || _evidence "adopt.sh same-version update in $SP" "$_L" $?

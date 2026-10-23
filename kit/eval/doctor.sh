@@ -109,7 +109,8 @@ _mt() {
       "status line: Crewforth's (from %s)") s="durum satırı: Crewforth'unki (%s içinden)" ;;
       "status line: your own (from %s); Crewforth's is not used") s="durum satırı: seninki (%s içinden); Crewforth'unki kullanılmıyor" ;;
       "organisation preset: %s") s="kurum preset'i: %s" ;;
-      "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını .claude/crew-model-rules dosyasına ekle: %s" ;;
+      "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules:") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını .claude/crew-model-rules dosyasına ekle:" ;;
+      "verify lines that are not a command, %s time(s): no rule can make the hook run them (a sentence, or a tool not on this machine's PATH); write a card's verify: as one command, or none:") s="komut olmayan doğrulama satırları, %s kez: hiçbir kural hook'a bunları koşturamaz (bir cümle ya da bu makinenin PATH'inde olmayan bir araç); kartın verify: satırını tek bir komut ya da none olarak yaz:" ;;
       "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)") s="durum satırı: yok; Crewforth'unki: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
       "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
       'advisorModel is %s in %s, but CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 turns the advisor off') s="advisorModel %s (%s içinde), ama CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 advisor'ı kapatıyor" ;;
@@ -183,7 +184,8 @@ _mt() {
       'fill in Project / Stack / Project skills — agents read the stack from there') s='Project / Stack / Project skills bölümlerini doldurun — ajanlar yığını oradan okur' ;;
       'CLAUDE.md project section is filled in') s='CLAUDE.md proje bölümü doldurulmuş' ;;
       "%s project-specific skill(s) alongside Crewforth's") s="Crewforth'unkilerin yanında %s projeye özel skill" ;;
-      "no project-specific skill — only Crewforth's generic ones are installed") s="projeye özel skill yok — yalnız Crewforth'un genel skill'leri kurulu" ;;
+      "no project-specific skill — every skill installed here ships with Crewforth") s="projeye özel skill yok — burada kurulu her skill Crewforth ile geliyor" ;;
+      "no project-specific skill — %s, which CLAUDE.md lists under Project skills, ships with Crewforth") s="projeye özel skill yok — CLAUDE.md'nin Project skills altında saydığı %s Crewforth ile geliyor" ;;
       "put the domain 'how's in .claude/skills/ (format: .claude/AGENT_TEMPLATE.md)") s="alanınıza özgü 'nasıl'ları .claude/skills/ altına koyun (biçim: .claude/AGENT_TEMPLATE.md)" ;;
       'project-skill signal skipped (no .claude/kit-manifest.txt — install predates it; run the updater)') s="proje skill'i sinyali atlandı (.claude/kit-manifest.txt yok — kurulum ondan eski; güncelleyiciyi çalıştırın)" ;;
       'devcontainer present (agentic execution is sandboxed)') s='devcontainer var (ajan komutları yalıtılmış ortamda çalışır)' ;;
@@ -194,7 +196,7 @@ _mt() {
       'add .mcp.json when a tool/data source would help (the mcp-builder skill covers writing one)') s="bir araç ya da veri kaynağı işe yarayacaksa .mcp.json ekleyin (nasıl yazılacağını mcp-builder skill'i anlatır)" ;;
       'CLAUDE.md is current (%s commit(s) of drift since it was last touched)') s="CLAUDE.md güncel (son dokunulduğundan beri %s commit'lik kayma)" ;;
       'CLAUDE.md is stale — %s commits changed the project since it was last touched (limit %s)') s='CLAUDE.md bayat — son dokunulduğundan beri %s commit projeyi değiştirdi (sınır %s)' ;;
-      're-read it against the code and update Stack / Project skills (the claude-md-improver flow)') s='kodla karşılaştırarak yeniden okuyun ve Stack / Project skills bölümlerini güncelleyin (claude-md-improver akışı)' ;;
+      're-read it against the code and update Stack / Project skills; keep the @.claude/DISCIPLINE.md line and your own rule sections as they are') s='kodla karşılaştırarak yeniden okuyun ve Stack / Project skills bölümlerini güncelleyin; @.claude/DISCIPLINE.md satırını ve kendi kural bölümlerinizi olduğu gibi bırakın' ;;
       'freshness signal skipped (cannot read CLAUDE.md mtime on this platform)') s="güncellik sinyali atlandı (bu platformda CLAUDE.md'nin değişme zamanı okunamıyor)" ;;
       '  → readiness %s/%s') s='  → hazırlık %s/%s' ;;
       'npx crewforth adopt') ;;   # identifier, printed as is
@@ -688,12 +690,6 @@ if [ -f "$_na" ] && _nv="$(node -p 'process.versions.node' 2>/dev/null)"; then
       fi ;;
   esac
 fi
-if [ "$FAIL" -eq 0 ]; then _mt "DOCTOR: healthy ✅%s" "$PANEL_NOTE"; echo "$_M"
-  # Healthy verdict: the star line, once per kit version under doctor's own marker (the installers keep theirs).
-  # /crew-update runs this with CREW_NO_STAR=1, so an update shows it once, not twice. Text/URL/silence: lib/star.sh.
-  [ -f "$(dirname "$0")/lib/star.sh" ] && bash "$(dirname "$0")/lib/star.sh" --once . doctor
-else _mt "DOCTOR: %s issue(s) ❌ — apply the fixes above%s" "$FAIL" "$PANEL_NOTE"; echo "$_M"; fi
-
 # 9) The auto-mode classifier. Since 2026-08-14 auto mode is the default permission mode on Pro/Max/Team, so a
 #     classifier answers permission prompts the user used to answer. Two things can be wrong and neither shows
 #     up in a session. Only ONE of them is a real gate finding: a custom autoMode block that dropped the
@@ -806,7 +802,15 @@ esac
 #     cheaper work: the ones refused for that reason are listed with the line that allows them (measured on one
 #     project: 23 of 71 refusals).
 [ -f .claude/eval/lib/verify-cmd.sh ] && . .claude/eval/lib/verify-cmd.sh   # the rule names the command a cd prefix leads to
-_vbn=0; _vbl=""
+# Two lists, one line each: a command no rule allows yet (offered as the rule that allows it), and a verify line that
+# is not a command at all, which no rule can make the hook run. Counting the second in the first told a user to add
+# `verify measured numbers` to their rules (measured on two projects: 70 and 33 refusals, sentences among them).
+_vbn=0; _vbl=""; _vpn=0; _vpl=""; _vnl='
+'
+# Every entry whole, one per line, at most eight: the single 300-character line this replaced cut the last one mid-word.
+_vlist(){ local _i _n=0; while IFS= read -r _i; do [ -n "$_i" ] || continue; _n=$((_n+1))
+            [ "$_n" -le 8 ] && echo "     ↳ $2$_i"; done <<< "$1"
+          [ "$_n" -gt 8 ] && echo "     ↳ … (+$((_n-8)))"; return 0; }
 for _f in .claude/state/crew-model/results/*; do
   [ -f "$_f" ] || continue
   _vb=0; _vw=""; _vc=""
@@ -820,14 +824,29 @@ for _f in .claude/state/crew-model/results/*; do
   # A rule names the command alone: `cd sub && ./check.sh` is allowed by `verify ./check.sh` (measured on Windows:
   # the line with the cd in it did not allow it).
   declare -F crew_verify_split >/dev/null && { crew_verify_split "$_vc" .; _vc="$_AMVC"; }
-  _vc="${_vc:0:80}"; [ -n "$_vc" ] || continue
-  _vbn=$((_vbn+1))
-  case "$_vc" in *'('*|*' + '*) continue ;; esac     # a sentence, not a command: counted, not offered as a rule
-  case "$_vbl" in *"| verify $_vc |"*) ;; *) _vbl="$_vbl| verify $_vc |" ;; esac
+  # Whole: a rule cut at 80 characters (`verify PYTHONPATH=…/Use`) is a line the user would paste and that allows
+  # nothing. Only a sentence is shortened, below, and at a word.
+  [ -n "$_vc" ] || continue
+  # A sentence: a parenthesis or a ' + ' ("actionlint (if installed)"), or a first word that is no path, no
+  # assignment and nothing this machine runs ("measured numbers", "O13-2, O13-3 …"). The hook runs on this machine
+  # too, so a tool missing from its PATH is past any rule as well; the line says both.
+  _v1="${_vc%% *}"; _vs=0
+  case "$_vc" in *'('*|*' + '*) _vs=1 ;; esac
+  case "$_v1" in */*|*=*) ;; *) command -v -- "$_v1" >/dev/null 2>&1 || _vs=1 ;; esac
+  if [ "$_vs" = 1 ]; then
+    [ "${#_vc}" -gt 80 ] && { _vc="${_vc:0:80}"; _vc="${_vc% *} …"; }
+    _vpn=$((_vpn+1)); case "$_vnl$_vpl" in *"$_vnl$_vc$_vnl"*) ;; *) _vpl="$_vpl$_vc$_vnl" ;; esac
+  else
+    _vbn=$((_vbn+1)); case "$_vnl$_vbl" in *"$_vnl$_vc$_vnl"*) ;; *) _vbl="$_vbl$_vc$_vnl" ;; esac
+  fi
 done
 if [ "$_vbn" -gt 0 ]; then
-  _vsep=' || '; _vdot=' · '; _vbs="${_vbl//"$_vsep"/$_vdot}"; _vbs="${_vbs#| }"; _vbs="${_vbs% |}"; _vbs="${_vbs:0:300}"
-  warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules: %s" "$_vbn" "$_vbs"
+  warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules:" "$_vbn"
+  _vlist "$_vbl" "verify "
+fi
+if [ "$_vpn" -gt 0 ]; then
+  warn "verify lines that are not a command, %s time(s): no rule can make the hook run them (a sentence, or a tool not on this machine's PATH); write a card's verify: as one command, or none:" "$_vpn"
+  _vlist "$_vpl" ""
 fi
 # The organisation preset in force: the block preset.sh wrote at the top of crew-model-rules, asked of preset.sh itself.
 _pre=""; [ -n "$_DOC_LIB" ] && [ -f "$_DOC_LIB/preset.sh" ] && _pre="$(bash "$_DOC_LIB/preset.sh" --show 2>/dev/null)"
@@ -851,6 +870,10 @@ if [ -f .claude/eval/gate-report.sh ]; then
     *) skip "gate activity unreadable (see /crew-gates)" ;;
   esac
 fi
+# The verdict, after the LAST check that can fail. It used to sit before §9, which can fail (the auto-mode built-ins):
+# such a run printed "healthy", then a ❌, and exited 1.
+if [ "$FAIL" -eq 0 ]; then _mt "DOCTOR: healthy ✅%s" "$PANEL_NOTE"; echo "$_M"
+else _mt "DOCTOR: %s issue(s) ❌ — apply the fixes above%s" "$FAIL" "$PANEL_NOTE"; echo "$_M"; fi
 # --- Agentic readiness (ADVISORY) -------------------------------------------------------------------------
 # Everything above answers "are Crewforth's gates live?". This answers a different question the gates cannot see:
 # "is this PROJECT set up so an agent can actually work well in it?" A flawless install still starves its
@@ -897,14 +920,35 @@ if [ -f "$MAN" ]; then
   # per skill was 82 spawns for the shipped set — the bulk of doctor's cost on Git Bash.
   NL='
 '
+  # CLAUDE.md's own `## Project skills` section: a skill it lists that Crewforth ships (a stack skill such as
+  # frontend-flutter) is still Crewforth's, and the line says so by name rather than calling every skill generic.
+  # Listed means a list item that OPENS with the name (`- \`frontend-flutter\` — …`): the shipped template's own
+  # prose in that section names `backend-architecture`, and an untouched install must not read as having listed it.
+  PSEC=""; _in=0
+  if [ -f CLAUDE.md ]; then
+    while IFS= read -r _l || [ -n "$_l" ]; do
+      case "$_l" in '## Project skills'*) _in=1; continue ;; '## '*) _in=0 ;; esac
+      [ "$_in" = 1 ] || continue
+      case "$_l" in '- `'*|'* `'*) _l="${_l#??\`}"; PSEC="$PSEC \`${_l%%\`*}\`" ;; esac
+    done < CLAUDE.md
+  fi
+  NAMED=""
   for d in .claude/skills/*/; do
     [ -d "$d" ] || continue
     s="${d%/}"; s="${s##*/}"
-    case "$NL$MANTXT$NL" in *"${NL}skills/$s$NL"*) ;; *) OWN=$((OWN+1)) ;; esac
+    case "$NL$MANTXT$NL" in
+      *"${NL}skills/$s$NL"*) case "$PSEC" in *"\`$s\`"*) NAMED="${NAMED:+$NAMED, }$s" ;; esac ;;
+      *) OWN=$((OWN+1)) ;;
+    esac
   done
-  [ "$OWN" -gt 0 ] && rdy "%s project-specific skill(s) alongside Crewforth's" "$OWN" \
-                   || gap "no project-specific skill — only Crewforth's generic ones are installed" \
-                          "put the domain 'how's in .claude/skills/ (format: .claude/AGENT_TEMPLATE.md)"
+  if [ "$OWN" -gt 0 ]; then rdy "%s project-specific skill(s) alongside Crewforth's" "$OWN"
+  elif [ -n "$NAMED" ]; then
+    gap "no project-specific skill — %s, which CLAUDE.md lists under Project skills, ships with Crewforth" \
+        "put the domain 'how's in .claude/skills/ (format: .claude/AGENT_TEMPLATE.md)" "$NAMED"
+  else
+    gap "no project-specific skill — every skill installed here ships with Crewforth" \
+        "put the domain 'how's in .claude/skills/ (format: .claude/AGENT_TEMPLATE.md)"
+  fi
 else
   skip "project-skill signal skipped (no .claude/kit-manifest.txt — install predates it; run the updater)"
 fi
@@ -935,9 +979,13 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -f CLAUDE.md ]; then
     CH="${CH:-0}"
     [ "$CH" -le "$MAXC" ] && rdy "CLAUDE.md is current (%s commit(s) of drift since it was last touched)" "$CH" \
                           || gap "CLAUDE.md is stale — %s commits changed the project since it was last touched (limit %s)" \
-                                 "re-read it against the code and update Stack / Project skills (the claude-md-improver flow)" "$CH" "$MAXC"
+                                 "re-read it against the code and update Stack / Project skills; keep the @.claude/DISCIPLINE.md line and your own rule sections as they are" "$CH" "$MAXC"
   else skip "freshness signal skipped (cannot read CLAUDE.md mtime on this platform)"; fi
 fi
 
 [ "$RTOT" -gt 0 ] && { _mt "  → readiness %s/%s" "$RDY" "$RTOT"; echo "$_M"; }
+# Healthy verdict: the star line, LAST (crew-doctor passes it on as the last line), once per kit version under doctor's
+# own marker (the installers keep theirs). /crew-update runs this with CREW_NO_STAR=1, so an update shows it once,
+# not twice. Text/URL/silence: lib/star.sh.
+[ "$FAIL" -eq 0 ] && [ -f "$(dirname "$0")/lib/star.sh" ] && bash "$(dirname "$0")/lib/star.sh" --once . doctor
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

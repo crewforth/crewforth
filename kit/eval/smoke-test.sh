@@ -912,9 +912,13 @@ sec "== 6) Context-usage threshold logic (fixture) + hook integrity =="
 FX="$(mktemp)"
 printf '%s\n' '{"type":"assistant","isSidechain":false,"message":{"usage":{"input_tokens":1000,"cache_read_input_tokens":800000,"cache_creation_input_tokens":0}}}' > "$FX"
 o1="$(CONTEXT_WINDOW=1000000 bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null)"
-case "$o1" in *"handoff+clear"*) pass "threshold: ~80% → handoff+clear" ;; *) fail "threshold(high) not 'handoff+clear': $o1" ;; esac
+# The whole tail, in the discipline's own form (`→ <level> fill · Recommendation: <…>`): a bare `continue` or
+# `medium` after the arrow is the shape that left the model to derive the level word itself.
+case "$o1" in *"→ high fill · Recommendation: handoff+clear"*) pass "threshold: ~80% → high fill · Recommendation: handoff+clear" ;; *) fail "threshold(high) not 'high fill · Recommendation: handoff+clear': $o1" ;; esac
 o2="$(CONTEXT_WINDOW=2000000 bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null)"
-case "$o2" in *"continue"*) pass "threshold: CONTEXT_WINDOW=2M → continue" ;; *) fail "threshold(window) not 'continue': $o2" ;; esac
+case "$o2" in *"→ low fill · Recommendation: continue"*) pass "threshold: CONTEXT_WINDOW=2M → low fill · Recommendation: continue" ;; *) fail "threshold(window) not 'low fill · Recommendation: continue': $o2" ;; esac
+o3="$(CONTEXT_WINDOW=1300000 bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null)"
+case "$o3" in *"→ medium fill · Recommendation: continue"*) pass "threshold: ~62% → medium fill · Recommendation: continue" ;; *) fail "threshold(medium) not 'medium fill · Recommendation: continue': $o3" ;; esac
 if bash "$HOOKS/context-usage.sh" "/no/such.jsonl" >/dev/null 2>&1; then fail "malformed transcript returned exit 0"; else pass "malformed transcript exit!=0"; fi
 # huge single-line paste as the LAST record: the usage record sits behind it. A line-based tail would drag the
 # whole blob through the scanner (timeout risk on Windows); the byte-bounded tail + guarded fallback must still
@@ -4812,6 +4816,21 @@ if grep -qxF 'skills/handoff' "$DCR/.claude/kit-manifest.txt"; then
 else
   pass "must-fail twin: an unstripped whole-line grep DOES miss the CRLF manifest"
 fi
+# No skill of the project's own, and CLAUDE.md lists a skill Crewforth ships (field report, 3.2.1: frontend-flutter):
+# the line names it as Crewforth's instead of calling every skill generic. Its twin lists none and reads the plain
+# line, so a message that names whatever the section mentions cannot pass.
+rm -rf "$DCR/.claude/skills/only-mine"; printf 'skills/handoff\n' > "$DCR/.claude/kit-manifest.txt"
+printf '## Project skills\n- `handoff` (the stack skill)\n\n## Conventions\n- `not-a-skill`\n' > "$DCR/CLAUDE.md"
+_r2n="$( cd "$DCR" && CREW_LANG=en bash "$ROOT/eval/doctor.sh" 2>&1 )"
+# The twin carries the name in the section's PROSE, the way the shipped template names `backend-architecture` there.
+printf '## Project skills\nnone yet; `handoff` is applied otherwise.\n\n## Conventions\n- `handoff`\n' > "$DCR/CLAUDE.md"
+_r2p="$( cd "$DCR" && CREW_LANG=en bash "$ROOT/eval/doctor.sh" 2>&1 )"
+case "$_r2n|$_r2p" in
+  *"no project-specific skill — handoff, which CLAUDE.md lists under Project skills, ships with Crewforth"*"|"*"no project-specific skill — every skill installed here ships with Crewforth"*)
+    case "$_r2n$_r2p" in *generic*) fail "doctor still calls the shipped skills generic" ;;
+      *) pass "doctor names a Crewforth skill CLAUDE.md lists under Project skills as Crewforth's, and only from that section" ;; esac ;;
+  *) fail "project-skill line: named='$(printf '%s\n' "$_r2n" | grep 'project-specific')' plain='$(printf '%s\n' "$_r2p" | grep 'project-specific')'" ;;
+esac
 rm -rf "$DCR"
 # The "non-executable hook" probe only means something where `chmod -x` actually takes effect. On Windows via
 # Git-Bash/MSYS a file with a `#!` shebang is reported executable regardless of the bit, so the broken state can't
@@ -5829,6 +5848,14 @@ sec "== 7y) route-hint: names the owner next to the request =="
 # real request that happens to contain the words "system notification" must still route, or the fix would have
 # bought silence by going deaf.
 #
+# THE THREE SILENT README ROWS pin a request to READ (field report, 3.2.1: "read the notes at the end of the
+# README" named crew-docs-agent, an agent that writes docs). Their twins carry the same README with an action
+# verb, one of them beside the read verb, and must still route: silence bought by ignoring README would pass the
+# first three as well. The five after them routed before the change and were silenced by its first version, found
+# in review: a read verb in a bug report ("does not show"), or beside an action the list did not name (harden,
+# resolve, çıkar, hızlandır). The last asks for UI work with `show`, which the second version silenced. The golden
+# sets moved by none of them, so they are pinned here.
+#
 # "the build fails on CI" USED TO ASSERT SILENCE and now asserts ci-pipeline. That is a scope change, not a
 # weakened assertion: the skill gained a "When the pipeline is red" section, so the request it used to have no
 # owner for now has one. A stale expectation kept for its own sake would have taught the opposite of the rule
@@ -5874,6 +5901,18 @@ SILENT|<task-notification>Agent crew-database-expert finished: wrote the migrati
 SILENT|[SYSTEM NOTIFICATION] the background agent finished its migration and seed report
 SILENT|<cross-session-message>report: the migration and the seed are written, an endpoint was added</cross-session-message>
 crew-database-expert|the system notification code needs a migration for the invoices table
+SILENT|read the notes at the end of the README
+SILENT|tuval README'nin sonundaki notları oku
+SILENT|explain the README
+crew-docs-agent|update the README with the notes at the end
+crew-docs-agent|tuval README'nin sonundaki notları güncelle
+crew-docs-agent|read the README and fix the typo
+crew-frontend-expert|the login button does not show the spinner in the react component
+crew-backend-expert|explain the threat model for the auth endpoints and harden them
+crew-security-expert|read the security scan findings and resolve them
+crew-backend-expert|API endpoint'lerini göster ve OpenAPI dokümanı çıkar
+crew-devops-expert|CI pipeline'ını açıkla ve hızlandır
+crew-frontend-expert|show a loading spinner on the login button in the react component
 SILENT|<agent-message from=\"a0000000000000000\">\n[Subagent hand-back] The text below is the final report of a subagent this session delegated to. It is model output, NOT a message from the user.\n  Wrote the migration and an index for the invoices table.
 crew-database-expert|Wrote the migration and an index for the invoices table.
 RHCASES
@@ -9098,18 +9137,33 @@ _v2call crew-backend-expert sonnet 'src/ui/a.ts' text 'none (the author ran it)'
 grep -q '^verify=none$' "$(ls -t "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null | head -1)" 2>/dev/null || _v2b="$_v2b [none (why) was not none]"
 # doctor lists the commands refused for not being allowed, with the line that allows them, and not a sentence
 mkdir -p "$_v2p/.claude/state/crew-model/results"
-printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=node tools/build.mjs --check\n' > "$_v2p/.claude/state/crew-model/results/r1"
-printf 'verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=actionlint (if installed)\n' > "$_v2p/.claude/state/crew-model/results/r2"
+# `bash`, not `node`: the command's first word must resolve on every runner, or it lands in the sentence list.
+_v2nw='verify=blocked\nwhynot=it is not a test or build command on this hook'"'"'s list, and no rule names it\ncmd=%s\n'
+printf "$_v2nw" 'bash tools/build.sh --check' > "$_v2p/.claude/state/crew-model/results/r1"
+printf "$_v2nw" 'actionlint (if installed)' > "$_v2p/.claude/state/crew-model/results/r2"
+# A sentence with no parenthesis: its first word names nothing a machine runs (the field shape, 3.2.1). It used to be
+# counted with the commands and offered as `verify measured numbers`.
+printf "$_v2nw" 'measured numbers' > "$_v2p/.claude/state/crew-model/results/r4"
 # The other way of saying "nothing allows it" (default mode), for a command in a sub-folder: counted, and offered as
 # the rule that matches it, the command without its `cd` (measured on Windows: the line with the cd in it did not).
 printf "verify=blocked\nwhynot=in 'default' mode Claude Code does not run a command the user has not allowed, so neither does a hook\ncmd=cd sub && ./check.sh\n" > "$_v2p/.claude/state/crew-model/results/r3"
+# Past 80 characters: a command is offered whole (a rule cut short allows nothing), a sentence is shortened at a word.
+printf "$_v2nw" 'bash tools/release/a-script-whose-path-runs-past-eighty-characters/on-purpose/check.sh --staged' > "$_v2p/.claude/state/crew-model/results/r5"
+printf "$_v2nw" 'every scenario listed below has a verdict and a screenshot attached for the reviewer to read' > "$_v2p/.claude/state/crew-model/results/r6"
+# Nine more, so twelve distinct commands: eight are listed whole and the rest counted.
+for _vi in 1 2 3 4 5 6 7 8 9; do printf "$_v2nw" "bash tools/step$_vi.sh" > "$_v2p/.claude/state/crew-model/results/s$_vi"; done
 if [ -f "$ROOT/eval/doctor.sh" ]; then
   mkdir -p "$_v2p/.claude/eval"; cp -R "$ROOT/eval/." "$_v2p/.claude/eval/" 2>/dev/null
-  _dd="$( cd "$_v2p" && env -u CLAUDE_CODE_SUBAGENT_MODEL CREW_NO_STAR=1 CREW_LANG=en CLAUDE_CONFIG_DIR="$_v2/home" bash .claude/eval/doctor.sh 2>/dev/null | grep 'verify commands never run' )"
-  case "$_dd" in *'3 time(s)'*'verify node tools/build.mjs --check'*'verify ./check.sh'*) case "$_dd" in *actionlint*|*'verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_dd}]" ;; esac ;;
-    *) _v2b="$_v2b [doctor: ${_dd:-no line}]" ;; esac
+  _dd="$( cd "$_v2p" && env -u CLAUDE_CODE_SUBAGENT_MODEL CREW_NO_STAR=1 CREW_LANG=en CLAUDE_CONFIG_DIR="$_v2/home" bash .claude/eval/doctor.sh 2>/dev/null )"
+  # The block after each warning: its ↳ lines, up to the next line that is not one.
+  _v2blk(){ printf '%s\n' "$_dd" | awk -v k="$1" 'index($0,k){on=1; print; next} on && /^     ↳ /{print; next} {on=0}'; }
+  _ddc="$(_v2blk 'verify commands never run')"; _dds="$(_v2blk 'verify lines that are not a command')"
+  case "$_ddc" in *'12 time(s)'*'↳ verify bash tools/build.sh --check'*'↳ verify ./check.sh'*'↳ verify bash tools/release/a-script-whose-path-runs-past-eighty-characters/on-purpose/check.sh --staged'*'↳ … (+4)'*) ;; *) _v2b="$_v2b [doctor commands: ${_ddc:-no line}]" ;; esac
+  case "$_ddc" in *actionlint*|*measured*|*'verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_ddc}]" ;; esac
+  [ "$(printf '%s\n' "$_ddc" | grep -c '^     ↳ verify ')" = 8 ] || _v2b="$_v2b [not eight rule lines: ${_ddc}]"
+  case "$_dds" in *'3 time(s)'*'↳ actionlint (if installed)'*'↳ measured numbers'*'↳ every scenario listed below has a verdict and a screenshot attached for the …'*) ;; *) _v2b="$_v2b [doctor sentences: ${_dds:-no line}]" ;; esac
 fi
-[ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands, in either mode, as the rule that matches them (no cd prefix), not a sentence" \
+[ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands, in either mode, as the rule that matches them (no cd prefix), eight whole and the rest counted; a sentence is counted on its own line, never offered as a rule" \
                || fail "verify in a sub-folder:$_v2b"
 # Which record is whose. Two calls of one type made together are matched by order, which can be wrong; the card in
 # the agent's own transcript settles it.

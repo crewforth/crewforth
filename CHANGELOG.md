@@ -5,6 +5,32 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Doctor no longer offers a sentence as a verify rule.** Its "verify commands never run" warning counted every
+  refused `verify:` line, and offered each as the `.claude/crew-model-rules` line that would allow it, including
+  lines that are not a command (`measured numbers`, `every scenario … has a verdict`). Those now get a line of their
+  own that says no rule can run them. Commands are listed one per line, whole, eight at most with a count of the
+  rest; the single line they used to share was cut at 300 characters, mid-word, and each rule at 80, so a long
+  command was offered as a rule that allowed nothing.
+- **Doctor prints its verdict after its last check, and the star line last.** The verdict came before the auto-mode
+  check, which can fail, so a run could read "healthy", then ❌, and exit 1. The star line came out in the middle,
+  while `/crew-doctor` passes it on as the last line.
+- **Doctor names a Crewforth skill your CLAUDE.md lists under Project skills.** With no skill of the project's own,
+  it said only Crewforth's "generic" skills were installed, even when CLAUDE.md listed a stack skill such as
+  `frontend-flutter`. It now says that skill ships with Crewforth. The stale-CLAUDE.md advice no longer points to a
+  flow Crewforth does not ship, and says to keep the `@.claude/DISCIPLINE.md` line and your own rule sections.
+- **The session line names the fill level.** The hook wrote `→ continue`, `→ medium` or `→ handoff+clear`: the
+  recommendation for two bands and the level for the third. It now writes the discipline's own form, for example
+  `→ low fill · Recommendation: continue`.
+- **A request to read is no longer routed to an agent.** "Read the notes at the end of the README" was routed to
+  crew-docs-agent, which writes docs, because the route hint scored `README` and not the verb. A request whose verb
+  is read, explain or summarise (the first word in English, the last in Turkish) now gets no hint. A second
+  clause or one action word (fix, update, resolve, güncelle, düzelt…) and it routes as before, and so does a bug
+  report that only contains the verb ("the button does not show the spinner").
+
 ## [3.2.1] — 2026-10-22
 
 ### Added
