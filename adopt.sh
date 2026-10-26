@@ -1749,8 +1749,11 @@ elif [ -x .git/hooks/pre-commit ] || [ -x .git/hooks/commit-msg ]; then ORIG_HOO
 # never shim the kit onto its OWN hooks (re-adopt) — the shim would exec itself and recurse on every commit
 case "$ORIG_HOOKS" in .claude/hooks|.claude/git-shim) ORIG_HOOKS="" ;; esac
 
+# ABSOLUTE (git's own toplevel): a relative core.hooksPath resolves against the work tree a commit runs in, and a
+# linked worktree has no .claude/ when it is gitignored, so it ran no commit gate at all (measured, field report 3.2.1).
+_HTOP="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 if [ -z "$ORIG_HOOKS" ]; then
-  git config core.hooksPath .claude/hooks
+  git config core.hooksPath "$_HTOP/.claude/hooks"
   git config --unset-all crewforth.hookschain 2>/dev/null || true
   # A shim of an earlier run has no chain to run any more. It is Crewforth's own generated file (its second line
   # says so), and one written before the fix above can hold a path of this machine: it goes, and nothing else does.
@@ -1777,10 +1780,11 @@ P=""
     cat > ".claude/git-shim/$hk" <<SHIM
 #!/usr/bin/env bash
 # kit git-shim: runs the kit hook + the existing project chain IN ORDER (if one fails git stops).
+# The kit hook is found beside this shim, not under the toplevel: in a linked worktree the toplevel is the worktree's.
 set -e
 H="\$(basename "\$0")"
 ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-K="\$ROOT/.claude/hooks/\$H"; [ -x "\$K" ] && "\$K" "\$@"
+K="\${0%/*}/../hooks/\$H"; [ -x "\$K" ] && "\$K" "\$@"
 $_shp
 if   [ -x "\$P" ]; then "\$P" "\$@"
 elif [ -f "\$P" ]; then bash "\$P" "\$@"; fi
@@ -1788,7 +1792,7 @@ exit 0
 SHIM
     chmod +x ".claude/git-shim/$hk"
   done
-  git config core.hooksPath .claude/git-shim
+  git config core.hooksPath "$_HTOP/.claude/git-shim"
   say 'SHIM installed -> core.hooksPath=.claude/git-shim (Crewforth + %s run together)' "$ORIG_HOOKS"
 fi
 [ "$GITKIND" = "worktree/submodule (.git file)" ] && warnm 'worktree/submodule: core.hooksPath may also affect the main checkout (git design).'

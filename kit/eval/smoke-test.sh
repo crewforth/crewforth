@@ -3332,6 +3332,13 @@ r46rec "$R46_OID" "$R46_HEAD"
 o="$( cd / && gj46cwd "$R46" default 'git commit -m x' | bash "$HOOKS/guard-bash.sh" 2>/dev/null )"
 [ "$(gdec "$o")" = "ask" ] && pass "§4.6: the record is found via the payload's cwd from an unrelated process cwd" \
   || fail "§4.6: a valid record was invisible from another process cwd — bare relative path (out=$o)"
+# ...at the top of the work tree, not in a sub-folder the cwd moved into (field report, 3.2.1: a subagent's run left
+# the Bash tool in packages/api, and a commit with a valid record at the root was refused as unreviewed).
+mkdir -p "$R46/packages/api"
+o="$( cd / && gj46cwd "$R46/packages/api" default 'git commit -m x' | bash "$HOOKS/guard-bash.sh" 2>/dev/null )"
+[ "$(gdec "$o")" = "ask" ] && pass "§4.6: from a sub-folder of the work tree the record is found at its top" \
+  || fail "§4.6: a valid record at the top of the work tree was invisible from a sub-folder (out=$o)"
+rmdir "$R46/packages/api" "$R46/packages" 2>/dev/null
 o="$( cd "$R46" && gj default 'git commit -m x' | bash "$HOOKS/guard-bash.sh" 2>/dev/null )"
 [ "$(gdec "$o")" = "ask" ] && pass "§4.6: with no cwd in the payload, the process cwd still resolves the record" \
   || fail "§4.6: the no-cwd payload path regressed (out=$o)"
@@ -4520,7 +4527,7 @@ _got="$(_rk "$_o1")/$(_rk "$_o2")/$(_rk "$_o3")/$(_rk "$_o4")/$(_rk "$_o5")/$(_r
 # commit typed in a terminal is then scanned by nothing. Crewforth does not change git's configuration by itself:
 # the session is told at its start. Seven states, each read from what the hook printed: no hooks installed · not a
 # repository · unset · another directory · .claude/hooks · .claude/git-shim · an absolute path that ends in .claude/hooks.
-_rg(){ case "$1" in *"git hooks are not connected"*"core.hooksPath is not set"*) printf 'U' ;; *"git hooks are not connected"*"points at another hook directory"*) printf 'O' ;; *"git hooks"*) printf '?' ;; *) printf -- '-' ;; esac; }
+_rg(){ case "$1" in *"git hooks are not connected"*"core.hooksPath is not set"*) printf 'U' ;; *"git hooks are not connected"*"points at another hook directory"*) printf 'O' ;; *"git hooks are not connected"*"a directory that does not exist"*) printf 'G' ;; *"git hooks"*) printf '?' ;; *) printf -- '-' ;; esac; }
 RHG="$(mktemp -d)"; RHG="$(cd -P "$RHG" && pwd)"; _rgj=1
 _rhg(){ local o; o="$(printf '{"hook_event_name":"SessionStart","cwd":"%s","source":"startup"}' "$RHG" | CLAUDE_PROJECT_DIR= bash "$HOOKS/session-rehydrate.sh" 2>/dev/null)"
   if [ -n "$o" ] && [ -n "$JSONQ" ]; then printf '%s' "$o" | json_ok || _rgj=0; fi; _rg "$o"; }
@@ -4532,9 +4539,10 @@ _g3="$(_rhg)"                                                                   
 ( cd "$RHG" && git config core.hooksPath .claude/hooks ); _g5="$(_rhg)"
 ( cd "$RHG" && git config core.hooksPath .claude/git-shim ); _g6="$(_rhg)"
 ( cd "$RHG" && git config core.hooksPath "$RHG/.claude/hooks" ); _g7="$(_rhg)"
-_got="$_g1$_g2$_g3$_g4$_g5$_g6$_g7"
-if [ "$_got" = "--UO---" ] && [ "$_rgj" = 1 ]; then pass "SessionStart says when Crewforth's git hooks are not connected: core.hooksPath unset, or pointing at another directory, each with its own line and valid JSON; silent with no hooks installed, outside a repository, and when it points at .claude/hooks, at .claude/git-shim or at an absolute path to the hooks (7 states)"
-else fail "session-rehydrate git-hooks states read '$_got' (want '--UO---': no hooks · no repository · unset · another directory · .claude/hooks · .claude/git-shim · absolute), valid JSON: $_rgj"; fi
+( cd "$RHG" && git config core.hooksPath "$RHG/moved/.claude/hooks" ); _g8="$(_rhg)"            # absolute, and gone
+_got="$_g1$_g2$_g3$_g4$_g5$_g6$_g7$_g8"
+if [ "$_got" = "--UO---G" ] && [ "$_rgj" = 1 ]; then pass "SessionStart says when Crewforth's git hooks are not connected: core.hooksPath unset, pointing at another directory, or at an absolute path that is gone, each with its own line and valid JSON; silent with no hooks installed, outside a repository, and when it points at .claude/hooks, at .claude/git-shim or at an absolute path to the hooks (8 states)"
+else fail "session-rehydrate git-hooks states read '$_got' (want '--UO---G': no hooks · no repository · unset · another directory · .claude/hooks · .claude/git-shim · absolute · absolute and gone), valid JSON: $_rgj"; fi
 rm -rf "$RHG"
 _rj=0; for _o in "$_o1" "$_o2" "$_o4" "$_o6"; do printf '%s' "$_o" > "$RHD/o.json"; awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$RHD/o.json" 2>/dev/null || _rj=$((_rj+1)); done
 [ "$_rj" = 0 ] && pass "each language/handover output is valid JSON (Crewforth's reader, 4 of 4)" || fail "$_rj session-rehydrate output(s) are not valid JSON"
@@ -6464,7 +6472,7 @@ GBCP
   ( cd "$HPT" && git init -q ) >/dev/null 2>&1
   hpdoc(){ ( cd "$HPT" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null ) | grep -A1 -E 'core\.hooksPath' | tr '\n' ' '; }
   _hpb=""
-  _o="$(hpdoc)"; case "$_o" in *"core.hooksPath is unset"*"fix: git config core.hooksPath .claude/hooks"*) ;; *) _hpb="$_hpb [unset, no chain of its own: $_o]" ;; esac
+  _o="$(hpdoc)"; case "$_o" in *"core.hooksPath is unset"*"fix: update Crewforth (npx crewforth update), which arms it with the absolute path"*) ;; *) _hpb="$_hpb [unset, no chain of its own: $_o]" ;; esac
   mkdir -p "$HPT/.husky"; _o="$(hpdoc)"
   case "$_o" in *"core.hooksPath is unset"*"npx crewforth update"*"hooks of its own"*) case "$_o" in *"fix: git config core.hooksPath"*) _hpb="$_hpb [unset with .husky: advised the command that drops the project's hooks]" ;; esac ;;
     *) _hpb="$_hpb [unset with .husky: $_o]" ;; esac
@@ -6472,15 +6480,39 @@ GBCP
   case "$_o" in *"core.hooksPath -> .husky/_ (not Crewforth's hooks)"*"npx crewforth update"*"keeps that chain"*) case "$_o" in *"fix: git config core.hooksPath"*) _hpb="$_hpb [another directory: advised the command that drops it]" ;; esac ;;
     *) _hpb="$_hpb [another directory: $_o]" ;; esac
   mkdir -p "$HPT/.claude/git-shim"
-  for _h in pre-commit commit-msg; do printf '#!/usr/bin/env bash\nH="$(basename "$0")"\nROOT="$(git rev-parse --show-toplevel)"\nK="$ROOT/.claude/hooks/$H"; [ -x "$K" ] && "$K" "$@"\nP="$ROOT/.husky/_/$H"\n[ -x "$P" ] && "$P" "$@"\nexit 0\n' > "$HPT/.claude/git-shim/$_h"; chmod +x "$HPT/.claude/git-shim/$_h"; done
-  ( cd "$HPT" && git config core.hooksPath .claude/git-shim ); _o="$(hpdoc)"
-  case "$_o" in *"✅ core.hooksPath -> .claude/git-shim (Crewforth's hooks run first, then the project's own"*) ;; *) _hpb="$_hpb [the shim: $_o]" ;; esac
+  # The shim as the updater writes it: Crewforth's hook found beside the shim (3.2.2). The one written before looked under
+  # the toplevel, which in a linked worktree is the worktree's own: the root is covered, a worktree is not (a warning).
+  _hpshim(){ for _h in pre-commit commit-msg; do printf '#!/usr/bin/env bash\nH="$(basename "$0")"\nROOT="$(git rev-parse --show-toplevel)"\n%s; [ -x "$K" ] && "$K" "$@"\nP="$ROOT/.husky/_/$H"\n[ -x "$P" ] && "$P" "$@"\nexit 0\n' "$1" > "$HPT/.claude/git-shim/$_h"; chmod +x "$HPT/.claude/git-shim/$_h"; done; }
+  # The path is matched by its END: doctor prints it as git spells it, which on Windows is C:/Users/… where this
+  # script's $HPT reads /tmp/… (measured on windows-latest: the healthy rows read red on the spelling alone).
+  _hpshim 'K="${0%/*}/../hooks/$H"'
+  ( cd "$HPT" && git config core.hooksPath "$HPT/.claude/git-shim" ); _o="$(hpdoc)"
+  case "$_o" in *"✅ core.hooksPath -> "*"/.claude/git-shim (Crewforth's hooks run first, then the project's own"*) case "$_o" in *"⚠️  core.hooksPath"*) _hpb="$_hpb [the shim, absolute: a warning: $_o]" ;; esac ;; *) _hpb="$_hpb [the shim: $_o]" ;; esac
+  _hpshim 'K="$ROOT/.claude/hooks/$H"'; _o="$(hpdoc)"
+  case "$_o" in *"⚠️  core.hooksPath -> "*"/.claude/git-shim: the shim runs Crewforth's hook at the root but not in a linked worktree: pre-commit commit-msg"*) ;; *) _hpb="$_hpb [a shim of before 3.2.2: $_o]" ;; esac
   printf '#!/usr/bin/env bash\nexit 0\n' > "$HPT/.claude/git-shim/commit-msg"; _o="$(hpdoc)"
-  case "$_o" in *"❌ core.hooksPath -> .claude/git-shim, but the shim there does not run Crewforth's hook: commit-msg"*"writes the shim again"*) ;; *) _hpb="$_hpb [a shim without Crewforth's line: $_o]" ;; esac
+  case "$_o" in *"❌ core.hooksPath -> "*"/.claude/git-shim, but the shim there does not run Crewforth's hook: commit-msg"*"writes the shim again"*) ;; *) _hpb="$_hpb [a shim without Crewforth's line: $_o]" ;; esac
+  # .claude/hooks: absolute is healthy; relative with .claude/ untracked is healthy at the root and a warning for a
+  # linked worktree; absolute and gone (a moved repository) is a failure.
+  ( cd "$HPT" && git config core.hooksPath "$HPT/.claude/hooks" ); _o="$(hpdoc)"
+  case "$_o" in *"✅ core.hooksPath -> "*"/.claude/hooks (commit-time gates active)"*) case "$_o" in *"⚠️  core.hooksPath"*|*"❌ core.hooksPath"*) _hpb="$_hpb [.claude/hooks, absolute, not clean: $_o]" ;; esac ;; *) _hpb="$_hpb [.claude/hooks, absolute: $_o]" ;; esac
   ( cd "$HPT" && git config core.hooksPath .claude/hooks ); _o="$(hpdoc)"
-  case "$_o" in *"✅ core.hooksPath -> .claude/hooks (commit-time gates active)"*) ;; *) _hpb="$_hpb [.claude/hooks: $_o]" ;; esac
-  [ -z "$_hpb" ] && pass "doctor knows what git is pointed at: .claude/hooks and a .claude/git-shim that runs Crewforth's hook are healthy; a shim that does not is a failure; unset is a failure with 'git config core.hooksPath .claude/hooks' only when the project has no hooks of its own; unset beside .husky, and another directory, are failures whose fix is the update, which keeps the project's chain (6 states)" \
+  case "$_o" in *"⚠️  core.hooksPath -> .claude/hooks is relative and .claude/ is not tracked, so a linked worktree"*"✅ core.hooksPath -> .claude/hooks (commit-time gates active)"*) ;; *) _hpb="$_hpb [.claude/hooks, relative: $_o]" ;; esac
+  ( cd "$HPT" && git config core.hooksPath "$HPT/moved/.claude/hooks" ); _o="$(hpdoc)"
+  case "$_o" in *"❌ core.hooksPath -> "*"/moved/.claude/hooks, which does not exist"*) case "$_o" in *"✅ core.hooksPath"*) _hpb="$_hpb [a path that is gone also read as active: $_o]" ;; esac ;; *) _hpb="$_hpb [a path that is gone: $_o]" ;; esac
+  [ -z "$_hpb" ] && pass "doctor knows what git is pointed at: an absolute .claude/hooks and a .claude/git-shim that finds Crewforth's hook beside it are healthy; a shim of before 3.2.2, and a relative .claude/hooks with .claude/ untracked, are warnings for a linked worktree; a shim that does not run Crewforth's hook and a path that is gone are failures; unset is a failure whose fix is the update; unset beside .husky, and another directory, are failures whose fix is the update, which keeps the project's chain (9 states)" \
                  || fail "doctor and core.hooksPath:$_hpb"
+  # §4.3 where docs/ is tracked (field report, 3.2.1): the working files Crewforth writes that .gitignore does not
+  # cover are named, the ones it covers are not, and with docs/ ignored whole the line is not printed at all.
+  _d43(){ ( cd "$HPT" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null ) | grep 'docs/ is not gitignored'; }
+  _d43b=""; printf 'docs/SESSION_STATE.md\ndocs/PLAN.md\n' > "$HPT/.gitignore"; _o="$(_d43)"
+  case "$_o" in *': docs/HANDOVER.md docs/THREAT_MODEL.md docs/DISCOVERY.md docs/SECURITY_FINDINGS.md docs/EVAL.md docs/adr/ — the next git add -A'*)
+      case "$_o" in *SESSION_STATE*|*PLAN.md*) _d43b="$_d43b [named an ignored file: $_o]" ;; esac ;;
+    *) _d43b="$_d43b [a list of two: ${_o:-no line}]" ;; esac
+  printf 'docs/\n' > "$HPT/.gitignore"; _o="$(_d43)"; [ -z "$_o" ] || _d43b="$_d43b [docs/ ignored whole, still warned: $_o]"
+  rm -f "$HPT/.gitignore"
+  [ -z "$_d43b" ] && pass "doctor names the working files under a tracked docs/ that .gitignore does not cover, and says nothing when docs/ is ignored (§4.3)" \
+                  || fail "doctor and a tracked docs/:$_d43b"
   # §4.2's list: the placeholder as shipped (information, not counted) · made active as it shipped (a warning) · a name.
   _tbd(){ ( cd "$HPT" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null ) | grep -E '4\.2 names|placeholder' | tr '\n' ' '; }
   _hpb=""; _tbf="$HPT/.claude/hooks/trace-blocklist.txt"
@@ -7562,6 +7594,11 @@ _pabad=""
 ( cd "$_paw" && git reset -q ) >/dev/null 2>&1                                   # nothing staged
 : > "$_pa_rec"; _po="$(_pa_say auto 'approve: commit')"
 { [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - nothing is staged"*) true ;; *) false ;; esac; } || _pabad="$_pabad nothing-staged"
+# commit+push with nothing staged (field report, 3.2.1: picked twice for a push alone): still nothing recorded, and the
+# line names Push only; the plain commit above does not, so a line that always says it cannot pass.
+: > "$_pa_rec"; _po="$(_pa_say auto 'approve: commit+push')"
+{ [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - nothing is staged"*"the answer is Push only"*) true ;; *) false ;; esac; } || _pabad="$_pabad nothing-staged-commit+push"
+_po="$(_pa_say auto 'approve: commit')"; case "$_po" in *'Push only'*) _pabad="$_pabad [a commit with nothing staged was told Push only]" ;; esac
 ( cd "$_paw" && git add a.txt && git checkout -q --detach ) >/dev/null 2>&1      # detached HEAD
 : > "$_pa_rec"; _po="$(_pa_say auto 'approve: push')"
 { [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - HEAD is detached"*) true ;; *) false ;; esac; } || _pabad="$_pabad detached"
@@ -7783,6 +7820,91 @@ _pa_run auto 'git push origin after'; [ "$_par" = 0 ] || _pabad="$_pabad [commit
 _pa_run auto 'git push origin before'; { [ "$_par" = 2 ] && grep -q 'the tag before is on' "$_PA/err"; } || _pabad="$_pabad [commit+push: a tag on the old commit → $_par]"
 [ -z "$_pabad" ] && pass "a push approval covers a tag on the approved commit (lightweight or annotated; after commit+push, on the new commit): a tag on another commit, a name that is also a branch, a full ref, a refspec, another remote or a commit-only approval is refused" \
                  || fail "tag push:$_pabad"
+
+# ---- a push no approval covers is not offered an approval ----------------------------------------------------
+# Field report (3.2.1): `git push origin --delete <branch>` was refused, offered the approval question, approved twice
+# and by /crew-approve once, and refused again each time, because the form was checked only after the record. Each
+# deleting or mirroring form is refused now with no approval way offered, and nothing is left waiting for /crew-approve.
+# The twin, an ordinary push, keeps the approval way: a refusal that never offered it would pass the rows too.
+_pa_new; _pnb=""
+for _pc in 'git push origin --delete feat/old' 'git push origin -d feat/old' 'git push origin :feat/old' 'git push --mirror origin' 'git push --prune origin feat/x' 'git -C . push origin :old' 'git -c push.default=x push origin :old' 'git push origin \"\":old'; do
+  rm -f "$_pa_pend"; _pa_run auto "$_pc"
+  { [ "$_par" = 2 ] && grep -q 'no approval given in a session covers it' "$_PA/err" && ! grep -q 'crew-approve' "$_PA/err" \
+    && ! grep -q '"questions"' "$_PA/err" && [ ! -s "$_pa_pend" ]; } || _pnb="$_pnb [$_pc: rc=$_par $(head -c 120 "$_PA/err")]"
+done
+_pa_run auto 'git push origin feat/x'; { [ "$_par" = 2 ] && grep -q 'crew-approve' "$_PA/err" && ! grep -q 'no approval given in a session covers it' "$_PA/err"; } \
+  || _pnb="$_pnb [an ordinary push lost the approval way: rc=$_par]"
+[ -z "$_pnb" ] && pass "a push that deletes or mirrors a remote ref (--delete, -d, :ref, --mirror, --prune) is refused with the user's own way to run it, and no approval question, /crew-approve or waiting record; an ordinary push keeps the approval way" \
+               || fail "a push no approval covers:$_pnb"
+
+# ---- a commit made by another command (§4.4) ------------------------------------------------------------------
+# Field report (3.2.1): a merge commit landed with nobody asked. Measured before the fix, in auto: merge, cherry-pick,
+# revert, pull, am and commit-tree each ran with rc 0. Each now asks in default, is refused in auto, and the forms that
+# make no commit stay free; pull.ff=only frees a plain pull, and its twin without it is refused.
+_pa_new; _mkb=""
+while IFS='|' read -r _mw _mm _mc; do
+  [ -n "$_mw" ] || continue
+  _pa_run "$_mm" "$_mc"
+  case "$_mw" in
+    block) { [ "$_par" = 2 ] && grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [$_mm '$_mc' not refused: rc=$_par]" ;;
+    ask)   { [ "$_par" = 0 ] && [ "$(gdec "$_pao")" = ask ]; } || _mkb="$_mkb [$_mm '$_mc' not asked: rc=$_par $(gdec "$_pao")]" ;;
+    free)  { [ "$_par" = 0 ] && [ -z "$(gdec "$_pao")" ] && ! grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [$_mm '$_mc' not free: rc=$_par $(gdec "$_pao")]" ;;
+  esac
+done <<'MKC'
+block|auto|git merge feat/y
+block|auto|git merge --no-ff feat/y
+block|auto|git merge --continue
+block|auto|git cherry-pick abc123
+block|auto|git revert HEAD
+block|auto|git pull
+block|auto|git am x.patch
+block|auto|git commit-tree x -m y
+block|auto|git -C . merge feat/y
+block|auto|git fetch && git merge origin/main
+block|auto|git pull origin main
+block|auto|\"git\" merge feat/y
+block|auto|git \"merge\" feat/y
+block|auto|(git merge feat/y)
+block|auto|x=$(git merge feat/y)
+block|auto|git -c alias.mg=merge mg feat/y
+block|auto|git -C \"my dir\" merge x
+block|auto|git merge -m \"--no-commit\" feat/y
+block|auto|git merge -m --squash feat/y
+block|auto|git merge --no-commit --commit feat/y
+block|auto|git merge --ff-only --no-ff feat/y
+block|auto|env git merge feat/y
+block|auto|g\\it merge feat/y
+block|auto|\"g\"it merge feat/y
+block|auto|git pull --rebase
+block|dontAsk|git merge feat/y
+ask|default|git merge feat/y
+ask|acceptEdits|git cherry-pick abc123
+free|auto|git merge --ff-only feat/y
+free|auto|git merge --squash feat/y
+free|auto|git merge --abort
+free|auto|git cherry-pick -n abc123
+free|auto|git revert --no-commit HEAD
+free|auto|git pull --ff-only
+free|auto|git am --abort
+free|auto|git log --grep=merge
+free|auto|git merge --no-ff --no-commit feat/y
+free|auto|git log --merges
+free|auto|git branch --merged
+free|auto|git remote prune origin
+free|auto|grep -rn \"git merge\" docs
+free|auto|echo \"git merge x\"
+MKC
+( cd "$_paw" && git config pull.ff only ); _pa_run auto 'git pull'
+{ [ "$_par" = 0 ] && ! grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [pull with pull.ff=only refused: rc=$_par]"
+# ...but not one whose command line overrides it, nor a pull.rebase that does (found in review: --no-ff merged).
+for _mc in 'git pull --no-ff origin main' 'git pull --rebase' 'git pull --ff'; do
+  _pa_run auto "$_mc"; { [ "$_par" = 2 ] && grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [pull.ff=only freed '$_mc': rc=$_par]"
+done
+( cd "$_paw" && git config pull.rebase true ); _pa_run auto 'git pull'
+{ [ "$_par" = 2 ] && grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [pull.ff=only freed a pull with pull.rebase=true: rc=$_par]"
+( cd "$_paw" && git config --unset pull.ff; git config --unset pull.rebase )
+[ -z "$_mkb" ] && pass "a commit made by merge, cherry-pick, revert, pull, am or commit-tree is asked in default and acceptEdits and refused where no prompt reaches a person; the forms that make none (--ff-only, --squash, --no-commit, -n, --abort, pull.ff=only) are free; quoted, nested and aliased spellings, an option's value and the last of two flags are read as the shell and git read them (42 rows, and pull.ff=only with 4 overrides)" \
+               || fail "a commit made by another command:$_mkb"
 
 # ---- commit+push: the push is for the commit the approved diff became -----------------------------------------
 _pa_new; _pabad=""
@@ -8330,6 +8452,24 @@ sec "== 12h2) the model of a crew agent call: named on every call, and not below
 # crew-* call names a model, and five agents have a floor. It refuses with the model that is needed and never
 # rewrites the call. Measured on Claude Code 2.1.294 before it was written: a call refused this way was repeated by
 # the session with the model named, and model "haiku" ran the agent on Haiku.
+# THE FLOORS ARE IN THE TABLE THE SESSION READS. The discipline's table said `audit` → sonnet and nothing about the
+# agents' own floors, so a security audit sent as written was refused every time (field report, 3.2.1). Each agent
+# named in the gate's floor lines must be named in its model's row of the table (`crew-x` in full, or `-x` after the
+# first); the count read from the gate is printed, so lines that stopped matching read as "0 read", not as agreement.
+if [ -f "$HOOKS/guard-agent-model.sh" ] && [ -f "$ROUTE_DOC" ]; then
+  _flo="$(grep -m1 '^| `opus` |' "$ROUTE_DOC")"; _fls="$(grep -m1 '^| `sonnet` |' "$ROUTE_DOC")"; _fln=0; _flb=""
+  while IFS= read -r _fll; do
+    case "$_fll" in *'floor=3'*) _flr="$_flo"; _flm=opus ;; *'floor=2'*) _flr="$_fls"; _flm=sonnet ;; *) continue ;; esac
+    _fla="${_fll%%)*}"; _fla="${_fla#"${_fla%%[! ]*}"}"
+    for _fa in ${_fla//|/ }; do
+      _fln=$((_fln+1))
+      case "$_flr" in *" $_fa"[,\ ]*|*" -${_fa#crew-}"[,\ ]*) ;; *) _flb="$_flb $_fa($_flm)" ;; esac
+    done
+  done < <(grep -E '^  crew-[a-z|-]+\) floor=[23];' "$HOOKS/guard-agent-model.sh")
+  if [ "$_fln" = 0 ]; then fail "agent floors: no floor line read from guard-agent-model.sh — the check is broken, not the table"
+  elif [ -z "$_flb" ]; then pass "every agent floor in the gate ($_fln read) is in its model's row of the discipline's table"
+  else fail "the discipline's model table does not name the gate's floor for:$_flb"; fi
+fi
 # Left: the exit status wanted. Then the environment (- = none), the tool, and the fields of tool_input as JSON text.
 _AMG="$HOOKS/guard-agent-model.sh"; _amd="$(mktemp -d)"; _amd="$(cd -P "$_amd" && pwd)"; mkdir -p "$_amd/proj/.claude"; _ambad=""; _amn=0
 if [ "$UNITS" != 1 ]; then skip scope "agent model gate: the unit cases run in the source checkout (scope=install)" 2
