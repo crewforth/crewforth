@@ -6483,21 +6483,23 @@ GBCP
   # The shim as the updater writes it: Crewforth's hook found beside the shim (3.2.2). The one written before looked under
   # the toplevel, which in a linked worktree is the worktree's own: the root is covered, a worktree is not (a warning).
   _hpshim(){ for _h in pre-commit commit-msg; do printf '#!/usr/bin/env bash\nH="$(basename "$0")"\nROOT="$(git rev-parse --show-toplevel)"\n%s; [ -x "$K" ] && "$K" "$@"\nP="$ROOT/.husky/_/$H"\n[ -x "$P" ] && "$P" "$@"\nexit 0\n' "$1" > "$HPT/.claude/git-shim/$_h"; chmod +x "$HPT/.claude/git-shim/$_h"; done; }
+  # The path is matched by its END: doctor prints it as git spells it, which on Windows is C:/Users/… where this
+  # script's $HPT reads /tmp/… (measured on windows-latest: the healthy rows read red on the spelling alone).
   _hpshim 'K="${0%/*}/../hooks/$H"'
   ( cd "$HPT" && git config core.hooksPath "$HPT/.claude/git-shim" ); _o="$(hpdoc)"
-  case "$_o" in *"✅ core.hooksPath -> $HPT/.claude/git-shim (Crewforth's hooks run first, then the project's own"*) case "$_o" in *"⚠️  core.hooksPath"*) _hpb="$_hpb [the shim, absolute: a warning: $_o]" ;; esac ;; *) _hpb="$_hpb [the shim: $_o]" ;; esac
+  case "$_o" in *"✅ core.hooksPath -> "*"/.claude/git-shim (Crewforth's hooks run first, then the project's own"*) case "$_o" in *"⚠️  core.hooksPath"*) _hpb="$_hpb [the shim, absolute: a warning: $_o]" ;; esac ;; *) _hpb="$_hpb [the shim: $_o]" ;; esac
   _hpshim 'K="$ROOT/.claude/hooks/$H"'; _o="$(hpdoc)"
-  case "$_o" in *"⚠️  core.hooksPath -> $HPT/.claude/git-shim: the shim runs Crewforth's hook at the root but not in a linked worktree: pre-commit commit-msg"*) ;; *) _hpb="$_hpb [a shim of before 3.2.2: $_o]" ;; esac
+  case "$_o" in *"⚠️  core.hooksPath -> "*"/.claude/git-shim: the shim runs Crewforth's hook at the root but not in a linked worktree: pre-commit commit-msg"*) ;; *) _hpb="$_hpb [a shim of before 3.2.2: $_o]" ;; esac
   printf '#!/usr/bin/env bash\nexit 0\n' > "$HPT/.claude/git-shim/commit-msg"; _o="$(hpdoc)"
-  case "$_o" in *"❌ core.hooksPath -> $HPT/.claude/git-shim, but the shim there does not run Crewforth's hook: commit-msg"*"writes the shim again"*) ;; *) _hpb="$_hpb [a shim without Crewforth's line: $_o]" ;; esac
+  case "$_o" in *"❌ core.hooksPath -> "*"/.claude/git-shim, but the shim there does not run Crewforth's hook: commit-msg"*"writes the shim again"*) ;; *) _hpb="$_hpb [a shim without Crewforth's line: $_o]" ;; esac
   # .claude/hooks: absolute is healthy; relative with .claude/ untracked is healthy at the root and a warning for a
   # linked worktree; absolute and gone (a moved repository) is a failure.
   ( cd "$HPT" && git config core.hooksPath "$HPT/.claude/hooks" ); _o="$(hpdoc)"
-  case "$_o" in *"✅ core.hooksPath -> $HPT/.claude/hooks (commit-time gates active)"*) case "$_o" in *"⚠️  core.hooksPath"*|*"❌ core.hooksPath"*) _hpb="$_hpb [.claude/hooks, absolute, not clean: $_o]" ;; esac ;; *) _hpb="$_hpb [.claude/hooks, absolute: $_o]" ;; esac
+  case "$_o" in *"✅ core.hooksPath -> "*"/.claude/hooks (commit-time gates active)"*) case "$_o" in *"⚠️  core.hooksPath"*|*"❌ core.hooksPath"*) _hpb="$_hpb [.claude/hooks, absolute, not clean: $_o]" ;; esac ;; *) _hpb="$_hpb [.claude/hooks, absolute: $_o]" ;; esac
   ( cd "$HPT" && git config core.hooksPath .claude/hooks ); _o="$(hpdoc)"
   case "$_o" in *"⚠️  core.hooksPath -> .claude/hooks is relative and .claude/ is not tracked, so a linked worktree"*"✅ core.hooksPath -> .claude/hooks (commit-time gates active)"*) ;; *) _hpb="$_hpb [.claude/hooks, relative: $_o]" ;; esac
   ( cd "$HPT" && git config core.hooksPath "$HPT/moved/.claude/hooks" ); _o="$(hpdoc)"
-  case "$_o" in *"❌ core.hooksPath -> $HPT/moved/.claude/hooks, which does not exist"*) case "$_o" in *"✅ core.hooksPath"*) _hpb="$_hpb [a path that is gone also read as active: $_o]" ;; esac ;; *) _hpb="$_hpb [a path that is gone: $_o]" ;; esac
+  case "$_o" in *"❌ core.hooksPath -> "*"/moved/.claude/hooks, which does not exist"*) case "$_o" in *"✅ core.hooksPath"*) _hpb="$_hpb [a path that is gone also read as active: $_o]" ;; esac ;; *) _hpb="$_hpb [a path that is gone: $_o]" ;; esac
   [ -z "$_hpb" ] && pass "doctor knows what git is pointed at: an absolute .claude/hooks and a .claude/git-shim that finds Crewforth's hook beside it are healthy; a shim of before 3.2.2, and a relative .claude/hooks with .claude/ untracked, are warnings for a linked worktree; a shim that does not run Crewforth's hook and a path that is gone are failures; unset is a failure whose fix is the update; unset beside .husky, and another directory, are failures whose fix is the update, which keeps the project's chain (9 states)" \
                  || fail "doctor and core.hooksPath:$_hpb"
   # §4.3 where docs/ is tracked (field report, 3.2.1): the working files Crewforth writes that .gitignore does not
