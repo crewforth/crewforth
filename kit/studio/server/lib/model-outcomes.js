@@ -145,8 +145,11 @@ const firstTry = (r) => r.verify === 'pass' && r.fixes === 0;
  */
 export function floorOfRow(r, ruleFloors = [], floors = []) {
   let f = rankOf(AGENT_FLOORS[r.agent]);
-  if (r.verify === 'none') f = Math.max(f, 2);
+  const commitAgent = r.agent === 'crew-commit-agent';
+  if (r.verify === 'none' && r.change !== 'text' && !commitAgent) f = Math.max(f, 2);
   if (r.change === 'test-write' || r.change === 'audit') f = Math.max(f, 2);
+  // The table's sonnet row, as the gate holds it: feature, fix-known and refactor, except for the commit agent.
+  if (!commitAgent && (r.change === 'feature' || r.change === 'fix-known' || r.change === 'refactor')) f = Math.max(f, 2);
   if (r.risk === 'critical' && r.change !== 'test-run') f = Math.max(f, 3);
   const any = (want, v) => want === '*' || want === v;
   for (const x of ruleFloors) if (any(x.agent, r.agent) && any(x.change, r.change) && any(x.risk, r.risk)) f = Math.max(f, rankOf(x.model));
@@ -250,6 +253,9 @@ export function suggestionsOf(rows, floors = [], loosened = [], need = LOOSEN_AF
     const k = keyOf(f);
     // Once for each raise: a floor whose lowering stands is not offered again (the same rule the gate reads it by).
     if (loweringOf(f, loosened)) continue;
+    // Not below the class's own floor: /crew-loosen refuses that, since the gate would refuse the lowered model anyway
+    // (a feature class raised to sonnet by the record of haiku runs from before its own floor was sonnet).
+    if (rankOf(TIERS[tier - 1]) < floorOfRow({ agent: f.agent, change: f.change, risk: f.risk, verify: 'pass' })) continue;
     const passed = passedLatest(rows, k, f.model, Date.parse(f.when ?? '') || 0, need);
     if (!passed) continue;
     out.push({ key: k, agent: f.agent, change: f.change, risk: f.risk, from: f.model, to: TIERS[tier - 1], passed, heldSince: f.when ?? null });
