@@ -9,6 +9,35 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **The commit gates run in a linked worktree.** `core.hooksPath` was written as `.claude/hooks`, a path git reads
+  from the work tree a commit runs in; with `.claude/` gitignored a worktree (one Claude Code opens included) has no
+  `.claude/`, so no commit hook ran there at all: a staged key and an AI trailer that the root refused went through.
+  The installers now write the absolute path, the shim finds Crewforth's hook beside itself, and doctor warns on a
+  relative path with `.claude/` untracked, on an old shim, and fails on an absolute path that is gone; the session-start
+  notice names a gone path too. Run
+  `npx crewforth update` to rewrite it.
+- **A commit made by another command needs approval.** `git merge`, `cherry-pick`, `revert`, `pull`, `am` and
+  `commit-tree` make a commit and passed the §4.4 gate untouched, so a merge commit could land with nobody asked.
+  They are asked in default and acceptEdits and refused where no prompt reaches a person; the forms that make no
+  commit (`--ff-only`, `--squash`, `--no-commit`, `-n`, `--abort`, a repository with `pull.ff=only` that the command
+  line does not override) stay free. The call is read by the commit gate's own reader, so a quoted, nested or aliased
+  spelling, and a flag that is only an option's value (`-m --squash`), are read as the shell and git read them.
+- **A push no approval can cover says so at once.** `git push --delete`, `-d`, `:<branch>`, `--mirror` and `--prune`
+  (however `push` is reached: `git -C . push origin :x`) were refused with the approval question and `/crew-approve`
+  offered, approved, and refused again. The refusal now
+  says the user runs it, in their terminal or on GitHub, and offers no approval. "Commit + push" with nothing staged
+  now names "Push only" as the answer for a push alone.
+- **The discipline's model table names the agents' floors.** It said a security audit runs on sonnet; the gate keeps
+  crew-security-expert on opus whatever the card, so the call as written was refused every time. The table now names
+  the floors, and smoke checks it against the gate.
+- **Doctor names the working files a tracked `docs/` would publish.** Where `docs/` is a published site and private
+  files are ignored one by one, it lists the files Crewforth writes there that `.gitignore` does not cover. The
+  discipline no longer says the commit scan enforces that half of §4.3: `.gitignore` does.
+- **A commit from a sub-folder finds its review.** §4.6 looked for `.claude/review-pass.json` in the cwd, so a commit
+  run from a sub-folder (a subagent's run can leave the Bash tool there) was refused as unreviewed while a valid
+  record sat at the root. The record is read at the top of the work tree.
+- **The refusal for a model routing record says how to show it.** A session told the user it could not even read
+  `.claude/crew-model-rules`; the Read tool can, and the refusal now says so.
 - **feature, fix-known and refactor run on sonnet, as the model table says.** The gate gave them no floor, and since a
   call runs on its floor unless its card says `above: <why>`, a call that asked for sonnet or opus by the table ran on
   haiku: a fix-known on a file holding personal data, asked for opus, ran 106 turns on haiku and came back

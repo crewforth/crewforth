@@ -664,7 +664,13 @@ _pa_record(){
     case "$TREE" in *[!0-9a-f]*|'') no "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
     if [ "$HEAD_NOW" = NONE ]; then _ht=4b825dc642cb6eb9a060e54bf8d69288fbee4904      # the empty tree
     else _ht="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
-    [ "$TREE" != "$_ht" ] || no "nothing is staged, so there is nothing to approve. Stage the change with git add, show the commit message, then ask again." ;;
+    # A commit+push with nothing staged is most often a push alone, answered with the option people pick first (field
+    # report, 3.2.1: twice in a row). It is not turned into a push approval, which the user did not give; the line
+    # names the one they can.
+    if [ "$TREE" = "$_ht" ]; then
+      [ "$OP" = commit+push ] && no "nothing is staged, so there is no commit to approve. For a push of the branch as it is, the answer is Push only (or the user can type /crew-approve push); for a commit, stage it with git add, show the commit message, then ask again."
+      no "nothing is staged, so there is nothing to approve. Stage the change with git add, show the commit message, then ask again."
+    fi ;;
   esac
   case "$OP" in *push)
     [ "$OP" = push ] && [ "$HEAD_NOW" = NONE ] && no "there is no commit to push yet."
