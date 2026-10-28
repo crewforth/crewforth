@@ -55,9 +55,11 @@ and crew-session-manager applies the thresholds.
 
 ## Open board claim at a handover
 A handover recommendation while a `teamboard` item is claimed is incomplete: `docs/SESSION_STATE.md` is
-gitignored, so the team still sees the item as actively held by someone who has stopped. Name the open claim in
-the recommendation — the note belongs on the item too (`/crew-board`), and an item being abandoned rather than
-paused should be released with its handover note.
+gitignored, so the team still sees the item as actively held by someone who has stopped. Read it, do not guess:
+`bash "${CLAUDE_PLUGIN_ROOT}/hooks/board.sh" status` (Bash tool, not PowerShell). "No board in this repo yet" or no row marked
+`<- you` → the handover says **nothing** about the board, not a reminder to check it. A row marked `<- you` →
+name that claim in the recommendation — the note belongs on the item too (`/crew-board`), and an item being
+abandoned rather than paused should be released with its handover note.
 
 ## Constraints
 - Writes no code, changes no files (read-only).

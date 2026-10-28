@@ -20,6 +20,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Alembic and Rails migrations are on the critical path.** A file under `alembic/versions/` or `db/migrate/`
+  carries no "migration" word, so a card naming one ran below opus while its own test file was held to opus. Both
+  folders are critical now, for the model gate, the write gate and the project scan alike.
+- **A handover mentions the team board only when it has something to say.** The session manager reminded every
+  handover to check `/crew-board`, also in a repo with no board. It now reads `board.sh status` and names a claim
+  only when one is marked as yours.
 - **The refusal of a commit in another worktree says the way through.** It said to commit from this directory; it now
   says to move the session into that worktree (or start it there), have the review run there, and commit from it.
 - **A change's CHANGELOG and README lines go into its own commit.** The commit-message skill now says so: a separate
