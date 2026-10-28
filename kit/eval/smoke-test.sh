@@ -9666,9 +9666,15 @@ _o="$(_v2say '/crewforth:crew-allow-verify npm test')"; case "$_o" in *'verify c
 _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash'; _v2start av3; _v2stop av3 >/dev/null
 _o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'/crew-allow-verify bash'*) _v2b="$_v2b [the listing offered an open-ended rule: ${_o:0:120}]" ;; esac
 # A rules file that is a symbolic link is not written through.
-mv "$_v2p/.claude/crew-model-rules" "$_v2/rules-elsewhere"; ln -s "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules"
-_o="$(_v2say '/crew-allow-verify make test')"; case "$_o" in *'NOT allowed'*'symbolic link'*) ;; *) _v2b="$_v2b [through a symlink: ${_o:0:120}]" ;; esac
-grep -q 'make test' "$_v2/rules-elsewhere" && _v2b="$_v2b a-line-was-written-through-a-symlink"
+# Git Bash without the symlink privilege makes `ln -s` a COPY (measured on windows-latest: the case read a copy and
+# the command was rightly allowed), so the case runs only where the fixture is a link.
+mv "$_v2p/.claude/crew-model-rules" "$_v2/rules-elsewhere"; ln -s "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules" 2>/dev/null
+if [ -L "$_v2p/.claude/crew-model-rules" ]; then
+  _o="$(_v2say '/crew-allow-verify make test')"; case "$_o" in *'NOT allowed'*'symbolic link'*) ;; *) _v2b="$_v2b [through a symlink: ${_o:0:120}]" ;; esac
+  grep -q 'make test' "$_v2/rules-elsewhere" && _v2b="$_v2b a-line-was-written-through-a-symlink"
+else
+  skip platform "/crew-allow-verify refusing a symlinked rules file (ln -s made no link here)"
+fi
 rm -f "$_v2p/.claude/crew-model-rules"; mv "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules"
 printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/crew-allow-verify pytest"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>"$_v2/err" ); { [ "$?" = 2 ] && grep -q 'the user can type /crew-allow-verify' "$_v2/err"; } || _v2b="$_v2b a-scheduled-crew-allow-verify-passed"
 # ...and its twin: a scheduled prompt that is not the command passes.
