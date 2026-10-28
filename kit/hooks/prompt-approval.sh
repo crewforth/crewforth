@@ -854,6 +854,14 @@ if [ "$OP" = loosen ]; then
   [ "$_AMF_LOOSE" = 0 ] || nol "that floor was already lowered once ($_AMF_TIER to $_AMF_TO, $_AMF_LTS). It is lowered once for each time it is raised."
   _am_rank "$_AMF_TIER"; [ "$_AMR" -ge 2 ] || nol "the floor on record is $_AMF_TIER, and there is no model below it."
   _am_name $((_AMR-1)); LTO="$_AMN"
+  # Not below the class's own floor (the agent's, then the card's change): a lowering there would be written, read
+  # back as in force, and refused by the gate all the same (found in review: feature, raised to sonnet by the record
+  # of the haiku runs before its own floor was sonnet, was "lowered to haiku" and still refused on haiku).
+  if declare -F _am_change_floor >/dev/null 2>&1; then
+    floor=0; why=""; _am_agent_floor "$LO_AGENT"; _am_change_floor "$LO_CHANGE" "$LO_AGENT"
+    _am_rank "$LTO"
+    if [ "$_AMR" -lt "$floor" ]; then _am_name "$floor"; nol "the class's own floor is $_AMN ($why), which nothing lowers, so a lowering of the raise on record to $LTO would not be in force."; fi
+  fi
   LTS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; case "$LTS" in [0-9][0-9][0-9][0-9]-*Z) ;; *) nol "the clock could not be read." ;; esac
   LF="$_AMS/crew-model-loosened.tsv"
   mkdir -p "$_AMS" 2>/dev/null || nol "the state folder could not be made."

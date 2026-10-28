@@ -38,7 +38,12 @@ versioning follows [SemVer](https://semver.org/).
   record sat at the root. The record is read at the top of the work tree.
 - **The refusal for a model routing record says how to show it.** A session told the user it could not even read
   `.claude/crew-model-rules`; the Read tool can, and the refusal now says so.
-
+- **feature, fix-known and refactor run on sonnet, as the model table says.** The gate gave them no floor, and since a
+  call runs on its floor unless its card says `above: <why>`, a call that asked for sonnet or opus by the table ran on
+  haiku: a fix-known on a file holding personal data, asked for opus, ran 106 turns on haiku and came back
+  `confidence: low`. Their floor is now sonnet, haiku is refused for them, and haiku stays the floor of text, test-run
+  and the commit agent. `/crew-loosen` and Studio's suggestion no longer offer a lowering below a class's own floor,
+  which the gate would refuse all the same; Studio's Models view reads the same floors.
 - **Doctor no longer offers a sentence as a verify rule.** Its "verify commands never run" warning counted every
   refused `verify:` line, and offered each as the `.claude/crew-model-rules` line that would allow it, including
   lines that are not a command (`measured numbers`, `every scenario … has a verdict`). Those now get a line of their

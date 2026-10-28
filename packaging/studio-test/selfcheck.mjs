@@ -1572,6 +1572,11 @@ check('prose without a notice yields nothing', none.size === 0);
       && mo.suggestionsOf(passes.map((r) => ({ ...r, at: Date.parse('2026-01-07T00:00:00Z') + r.line })), [{ ...floor, when: '2026-01-06T00:00:00Z' }], [low('2026-01-05T10:00:00Z')]).length === 1
       // Calls from before the raise are not what the offer counts.
       && mo.suggestionsOf(passes, [{ ...floor, when: '2026-01-03T00:00:00Z' }], []).length === 0);
+    // The twin of the first offer: the same ten clean passes in a class whose own floor is sonnet (the table's sonnet
+    // row) offer no lowering to haiku, which the gate would refuse and /crew-loosen does not write.
+    const feat = (r) => ({ ...r, agent: 'crew-backend-expert', change: 'feature' });
+    check('a raise is not offered for lowering below the class\'s own floor (feature: sonnet)',
+      mo.suggestionsOf(passes.map(feat), [feat(floor)], []).length === 0 && mo.suggestionsOf(passes, [floor], []).length === 1);
   }
 
   /* What the hook really writes. The file beside this one was written by kit/hooks/agent-outcome.sh (see

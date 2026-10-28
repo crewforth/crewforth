@@ -59,6 +59,7 @@ Otherwise `normal`.
 | any work | by the table in `CLAUDE.md` | `opus` |
 | `test-run` | `haiku` | `haiku` (running the tests is objective) |
 | `test-write`, `audit` | `sonnet` or above | `opus` |
+| `feature`, `fix-known`, `refactor` (not the commit agent) | `sonnet` or above | `opus` |
 | `crew-review-agent`, `crew-privacy-agent`, `crew-planner`, `crew-database-expert` | `sonnet` or above | `opus` |
 | `crew-security-expert` | `opus` | `opus` |
 | `verify: none` | `sonnet` or above | `opus` |
