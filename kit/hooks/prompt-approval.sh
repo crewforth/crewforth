@@ -376,15 +376,24 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 
 # ---- WHICH TEXT IS AN APPROVAL: one function, asked here of the user's prompt and by guard-schedule.sh of a
 # prompt a tool is about to schedule ---------------------------------------------------------------------------
-_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen, or "" when the text is none
+_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen | allowverify, or "" when the text is none
   # `loosen` is the other thing only the user's own message does: `/crew-loosen <agent> <change> <risk>` lowers a
   # floor that model routing raised (3.1.0). It is matched HERE so that everything that refuses to hand a session
   # an approval (a scheduled prompt, a `claude -p` call) refuses to hand it this as well: one question, one answer.
   local P="$1" _k _v _vr LC_ALL=C
-  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""
+  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""; AV_CMD=""
   P="${P//$'\r'/}"
   while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
   while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
+  # `/crew-allow-verify [<command>]` (3.2.2): the user allows a verify command by name, the third thing only their own
+  # message does. Read before the length limit below: a command can be longer than an approval.
+  _k="${P%%[$' \t']*}"
+  case "$_k" in /*) case "${_k##*[/:]}" in crew-allow-verify)
+    case "$P" in *$'\n'*) return 0 ;; esac
+    [ "${#P}" -le 400 ] || return 0
+    AV_CMD="${P:${#_k}}"; while :; do case "$AV_CMD" in [$' \t']*) AV_CMD="${AV_CMD:1}" ;; *) break ;; esac; done
+    OP=allowverify; return 0 ;; esac ;;
+  esac
   [ "${#P}" -le 90 ] || return 0
   _vr=""
   case "$P" in
@@ -874,6 +883,49 @@ if [ "$OP" = loosen ]; then
   { [ "$_AMF_LOOSE" = 1 ] && [ "$_AMF_EFF" = "$LTO" ]; } || nol "the line was written but the floor read back is still ${_AMF_EFF:-$LFROM}, so it is not in force (is the clock behind the time the floor was raised, $_AMF_WHEN?)."
   say "Crewforth: floor lowered - $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO. Its outcomes are counted afresh from now." \
       "The user lowered the calibration floor of $LO_AGENT / $LO_CHANGE / $LO_RISK from $LFROM to $LTO with their own command. The card's own rules still hold (critical work on opus, no verify command on sonnet or above, the agent's floor). If the class fails its first try too often again, the floor rises again."
+fi
+
+# ---- /crew-allow-verify: a verify command the hook may run, allowed by the user and by nobody else --------------
+# .claude/crew-model-rules is closed to the session (guard-write.sh, guard-bash.sh), so doctor's advice "add its line"
+# left the user to find and edit the file by hand (field report, 3.2.1). With nothing after it the command lists the
+# verify commands refused for want of a rule (the reading doctor uses, eval/lib/verify-cmd.sh); with a command after
+# it, that command gets its `verify <command>` line. Only a plain one: one command in letters, digits and . _ / = : , @
+# + % - and spaces, so it can neither chain another (the gate would refuse a chain anyway) nor need escaping here.
+if [ "$OP" = allowverify ]; then
+  noa(){ say "Crewforth: verify command NOT allowed - $1" "The user sent the command only the user can type /crew-allow-verify, and Crewforth added no rule: $1 Tell the user exactly that."; }
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) noa "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+  { [ -n "$TP" ] && [ -s "$TP" ]; } || noa "this is the first message of this session, or the session keeps no transcript."
+  _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
+  [ -f "$_lh/../eval/lib/verify-cmd.sh" ] || noa "Crewforth's verify reading is not installed beside this hook (eval/lib/verify-cmd.sh)."
+  . "$_lh/../eval/lib/verify-cmd.sh"
+  _avr="${CLAUDE_PROJECT_DIR:-$CWD}"; _avr="${_avr//\\//}"; _avr="${_avr%/}"
+  _avok(){ case "$1" in ''|*[!A-Za-z0-9\ ._/=:,@+%-]*|-*) return 1 ;; esac; return 0; }
+  if [ -z "$AV_CMD" ]; then
+    crew_verify_blocked "$_avr"
+    _avl=""; _avn=0; _avx=0; _avk='/crew-allow-verify'; _avwho='each is the whole message that allows it, and only the user can type it'
+    while IFS= read -r _avc; do [ -n "$_avc" ] || continue
+      if _avok "$_avc"; then _avn=$((_avn+1)); _avl="$_avl $_avk $_avc ·"; else _avx=$((_avx+1)); fi
+    done <<< "$_VB_CMDS"
+    _avl="${_avl% ·}"
+    [ "$_avn$_avx" = 00 ] && say "Crewforth: no verify command on record was refused for want of a rule." "The user sent the command only the user can type, /crew-allow-verify, with nothing after it, and no verify command on record was refused for want of a rule: tell them so, in one line."
+    _avm=""; [ "$_avx" -gt 0 ] && _avm=" $_avx more hold a character this command does not write; those lines go into .claude/crew-model-rules by hand, as verify <command>."
+    say "Crewforth: verify commands refused for want of a rule:${_avl:- none in a form this command writes}.$_avm" "The user sent the command only the user can type, /crew-allow-verify, with nothing after it. Show them, in their language, the lines in Crewforth's message, one per line, as they stand: $_avwho. Do not type one for them."
+  fi
+  case "$AV_CMD" in *[\;\&\|\<\>\`]*|*'$('*) noa "this is more than one command (a ; & | < > or a substitution): the hook runs a verify command alone, so no rule makes it run a chain. Give the card a single command, or a script that holds the chain." ;; esac
+  _avok "$AV_CMD" || noa "'${AV_CMD//[!A-Za-z0-9 ._\/=:,@+%-]/?}' is not one plain command (letters, digits, . _ / = : , @ + % - and spaces only, not starting with -). Write such a line into .claude/crew-model-rules by hand, as verify <command>."
+  case " $AV_CMD " in *" git commit "*|*" git push "*) noa "a git commit or push is never a verify command: the hook does not commit or push." ;; esac
+  _avf="$_avr/.claude/crew-model-rules"
+  if [ -f "$_avf" ]; then
+    while IFS= read -r _avl || [ -n "$_avl" ]; do [ "${_avl%$'\r'}" = "verify $AV_CMD" ] && say "Crewforth: verify $AV_CMD is already allowed." "The user sent the command only the user can type, /crew-allow-verify $AV_CMD, and .claude/crew-model-rules already holds that line: tell them so, in one line."; done < "$_avf"
+  fi
+  mkdir -p "$_avr/.claude" 2>/dev/null || noa "the .claude folder could not be made."
+  if [ -s "$_avf" ] && [ "$(tail -c 1 "$_avf" | od -An -tx1 | tr -d ' \n')" != 0a ]; then printf '\n' >> "$_avf" || noa "the rules file could not be written."; fi
+  { printf 'verify %s\n' "$AV_CMD" >> "$_avf"; } 2>/dev/null || noa "the rules file could not be written."
+  # Said only when it is TRUE: the line is read back from the file.
+  _avh=0; while IFS= read -r _avl || [ -n "$_avl" ]; do [ "${_avl%$'\r'}" = "verify $AV_CMD" ] && _avh=1; done < "$_avf"
+  [ "$_avh" = 1 ] || noa "the line was written but is not read back from .claude/crew-model-rules."
+  say "Crewforth: verify command allowed - the hook may now run: $AV_CMD (the line is in .claude/crew-model-rules)." "The user allowed the verify command $AV_CMD with their own command; Crewforth added the line verify $AV_CMD to .claude/crew-model-rules. From the next agent call, the hook runs it when a card names it, and judges the result. Tell the user that in one line. A deny rule of the settings still stops it, and it is still run alone, with no chain."
 fi
 
 # ---- `/crew-approve` with nothing after it: what this session was last refused ---------------------------------

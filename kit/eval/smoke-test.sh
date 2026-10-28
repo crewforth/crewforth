@@ -9305,9 +9305,9 @@ if [ -f "$ROOT/eval/doctor.sh" ]; then
   # The block after each warning: its ↳ lines, up to the next line that is not one.
   _v2blk(){ printf '%s\n' "$_dd" | awk -v k="$1" 'index($0,k){on=1; print; next} on && /^     ↳ /{print; next} {on=0}'; }
   _ddc="$(_v2blk 'verify commands never run')"; _dds="$(_v2blk 'verify lines that are not a command')"
-  case "$_ddc" in *'12 time(s)'*'↳ verify bash tools/build.sh --check'*'↳ verify ./check.sh'*'↳ verify bash tools/release/a-script-whose-path-runs-past-eighty-characters/on-purpose/check.sh --staged'*'↳ … (+4)'*) ;; *) _v2b="$_v2b [doctor commands: ${_ddc:-no line}]" ;; esac
-  case "$_ddc" in *actionlint*|*measured*|*'verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_ddc}]" ;; esac
-  [ "$(printf '%s\n' "$_ddc" | grep -c '^     ↳ verify ')" = 8 ] || _v2b="$_v2b [not eight rule lines: ${_ddc}]"
+  case "$_ddc" in *'12 time(s)'*'↳ /crew-allow-verify bash tools/build.sh --check'*'↳ /crew-allow-verify ./check.sh'*'↳ /crew-allow-verify bash tools/release/a-script-whose-path-runs-past-eighty-characters/on-purpose/check.sh --staged'*'↳ … (+4)'*) ;; *) _v2b="$_v2b [doctor commands: ${_ddc:-no line}]" ;; esac
+  case "$_ddc" in *actionlint*|*measured*|*'/crew-allow-verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_ddc}]" ;; esac
+  [ "$(printf '%s\n' "$_ddc" | grep -c '^     ↳ /crew-allow-verify ')" = 8 ] || _v2b="$_v2b [not eight rule lines: ${_ddc}]"
   case "$_dds" in *'3 time(s)'*'↳ actionlint (if installed)'*'↳ measured numbers'*'↳ every scenario listed below has a verdict and a screenshot attached for the …'*) ;; *) _v2b="$_v2b [doctor sentences: ${_dds:-no line}]" ;; esac
 fi
 [ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands, in either mode, as the rule that matches them (no cd prefix), eight whole and the rest counted; a sentence is counted on its own line, never offered as a rule" \
@@ -9600,6 +9600,35 @@ printf '{"session_id":"s","cwd":"%s","permission_mode":"auto","tool_name":"Bash"
 grep -q '^disable-model-invocation:[[:space:]]*true' "$SKILLS/crew-loosen/SKILL.md" 2>/dev/null || _v2b="$_v2b the-skill-is-not-user-only"
 [ -z "$_v2b" ] && pass "a session cannot lower a floor for the user: Edit, Write, MultiEdit and NotebookEdit (by either key) refuse crew-model-loosened.tsv, to the session and to an agent; 17 shell commands that write, move, copy or remove it or the floors (by name, by a glob, after a cd, or by the folder) are refused and 3 that read the outcomes are not; a scheduled /crew-loosen and a claude -p handed one are refused; the skill is one the model cannot start" \
                || fail "/crew-loosen cannot be done by the session:$_v2b"
+# ---- /crew-allow-verify: the user allows a refused verify command, and only the user (3.2.2) ------------------
+# Field report (3.2.1): doctor said "add its line to .claude/crew-model-rules", a file closed to the session, and the
+# user was left with that and nothing else. End to end: a card's verify command is refused for want of a rule, the
+# bare command lists it, the command with it adds the line, the same card then RUNS its verify and passes, and the
+# list no longer offers it. Then what is refused: a chain, a git commit, a headless session, a first message, the
+# command inside a sentence, a scheduled one.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"; printf '#!/bin/sh\nexit 0\n' > "$_v2p/check.sh"
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash check.sh'; _v2start av1; _v2stop av1 >/dev/null
+[ "$(_v2row av1 | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [FIXTURE: the verify command was not refused before it was allowed: $(_v2row av1)]"
+_o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'refused for want of a rule: /crew-allow-verify bash check.sh'*) ;; *) _v2b="$_v2b [the bare command did not list it: ${_o:0:160}]" ;; esac
+[ ! -e "$_v2p/.claude/crew-model-rules" ] || _v2b="$_v2b the-bare-command-wrote-a-rule"
+_o="$(_v2say '/crew-allow-verify bash check.sh')"; case "$_o" in *'verify command allowed'*'bash check.sh'*) ;; *) _v2b="$_v2b [not allowed: ${_o:0:160}]" ;; esac
+grep -qx 'verify bash check.sh' "$_v2p/.claude/crew-model-rules" 2>/dev/null || _v2b="$_v2b the-line-is-not-in-the-rules"
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash check.sh'; _v2start av2; _v2stop av2 >/dev/null
+[ "$(_v2row av2 | cut -d/ -f2)" = pass ] || _v2b="$_v2b [the allowed verify command did not run: $(_v2row av2)]"
+_o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'/crew-allow-verify bash check.sh'*) _v2b="$_v2b an-allowed-command-is-still-offered" ;; esac
+_o="$(_v2say '/crew-allow-verify bash check.sh')"; case "$_o" in *'already allowed'*) ;; *) _v2b="$_v2b [a second allow: ${_o:0:120}]" ;; esac
+_avn="$(grep -c . "$_v2p/.claude/crew-model-rules")"
+for _ac in 'npm test; rm -rf x' 'git commit -m x' 'a\"b' '-x tool'; do
+  _o="$(_v2say "/crew-allow-verify $_ac")"; case "$_o" in *'verify command NOT allowed'*) ;; *) _v2b="$_v2b [allowed: $_ac]" ;; esac
+done
+_o="$(_V2SAYENV="CLAUDE_CODE_SESSION_ATTENDED=0" _v2say '/crew-allow-verify pytest')"; case "$_o" in *'NOT allowed'*'nobody in front'*) ;; *) _v2b="$_v2b headless-allowed" ;; esac
+_o="$(_v2say '/crew-allow-verify pytest' "$_v2/no-transcript.jsonl")"; case "$_o" in *'NOT allowed'*'first message'*) ;; *) _v2b="$_v2b first-message-allowed" ;; esac
+_v2say 'please /crew-allow-verify pytest' >/dev/null
+[ "$(grep -c . "$_v2p/.claude/crew-model-rules")" = "$_avn" ] || _v2b="$_v2b [a refused or non-command message wrote a rule: $(tr '\n' '|' < "$_v2p/.claude/crew-model-rules")]"
+printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/crew-allow-verify pytest"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>&1 ); [ "$?" = 2 ] || _v2b="$_v2b a-scheduled-crew-allow-verify-passed"
+grep -q '^disable-model-invocation:[[:space:]]*true' "$SKILLS/crew-allow-verify/SKILL.md" 2>/dev/null || _v2b="$_v2b the-skill-is-not-user-only"
+[ -z "$_v2b" ] && pass "/crew-allow-verify: a refused verify command is listed, allowed by the user's own command, then run and passed, and no longer offered; a chain, a git commit, a quote, an option-first word, a headless session, a first message and the command inside a sentence write nothing; a scheduled one is refused; the skill is one the model cannot start" \
+               || fail "/crew-allow-verify:$_v2b"
 
 # ---- 7. CREW_MODEL_ROUTING=off: as before 3.1.0 ---------------------------------------------------------------
 _v2new; _v2b=""; _V2ENV="CREW_MODEL_ROUTING=off"

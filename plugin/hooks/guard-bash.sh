@@ -3385,6 +3385,10 @@ if git_has "$CMD_SEEN" 'commit|push'; then
         echo "GUARD (§4.6): this call changes directory before it commits, and the commit would not run in the repository" >&2
         echo "this session is in — or the target cannot be read (a variable, 'cd -', more than one). The review record" >&2
         echo "describes what is staged HERE. Run the commit from this directory, or run it yourself in your terminal." >&2
+        # The way through, said (field report, 3.2.1: a session in the root tried `cd <worktree> && git commit` and stopped
+        # there). The gate stays closed to the cd; the session moves into the worktree instead.
+        echo "For another worktree: move the session into it first (EnterWorktree, or start the session there), have the" >&2
+        echo "review run there, and commit from it; or the user commits there in their own terminal." >&2
         exit 2
       fi
     fi
