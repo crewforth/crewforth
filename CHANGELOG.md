@@ -7,8 +7,21 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`/crew-allow-verify` lets a refused verify command run.** A card's verify command runs only when a `verify
+  <command>` line of `.claude/crew-model-rules` allows it, and that file is closed to the session, so doctor's advice
+  to add the line left you to find and edit it by hand. With nothing after it the command lists the verify commands
+  refused for want of a rule, each as the message that allows it; with a command after it, it adds that line. Only
+  you can type it: a scheduled one, a headless session and a first message are refused, and so are a chain, a git
+  commit or push, and a command with a character the line does not carry. `/crew-doctor` now offers these lines.
+
 ### Fixed
 
+- **The refusal of a commit in another worktree says the way through.** It said to commit from this directory; it now
+  says to move the session into that worktree (or start it there), have the review run there, and commit from it.
+- **A change's CHANGELOG and README lines go into its own commit.** The commit-message skill now says so: a separate
+  docs commit after the code is a second commit, and so a second approval.
 - **The commit gates run in a linked worktree.** `core.hooksPath` was written as `.claude/hooks`, a path git reads
   from the work tree a commit runs in; with `.claude/` gitignored a worktree (one Claude Code opens included) has no
   `.claude/`, so no commit hook ran there at all: a staged key and an AI trailer that the root refused went through.

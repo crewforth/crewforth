@@ -15,7 +15,7 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain,<br>
-40 skills that hold the method, 13 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 14 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -59,7 +59,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost. Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
 
-**13 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
+**14 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`.
 
 ## The agents
 

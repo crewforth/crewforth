@@ -14,3 +14,4 @@ crew-studio	Crewforth Studio'yu açar: ajanların ne yaptığını, ne harcadı�
 crew-approve	Gösterilen commit ya da push için onay verir (auto ve dontAsk modunda): commit, push ya da commit+push.
 crew-loosen	Crewforth'un bir iş sınıfı için yükselttiği model tabanını bir kademe indirir (sınıf başına bir kez).
 crew-map	Projenin haritasını çıkarır (modüller, dokundukları ve aralarındaki boşluklar) ve her modülü taramanın gösterdiği satırlardan tarif eder.
+crew-allow-verify	Hook'un koşturmadığı bir verify komutuna izin verir ya da reddedilenleri listeler (yalnız kullanıcı yazar).

@@ -115,7 +115,7 @@ _mt() {
       "status line: Crewforth's (from %s)") s="durum satırı: Crewforth'unki (%s içinden)" ;;
       "status line: your own (from %s); Crewforth's is not used") s="durum satırı: seninki (%s içinden); Crewforth'unki kullanılmıyor" ;;
       "organisation preset: %s") s="kurum preset'i: %s" ;;
-      "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules:") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını .claude/crew-model-rules dosyasına ekle:" ;;
+      "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, send its line (only you can type it):") s="doğrulama komutları %s kez hiç koşmadı, çünkü hiçbir şey izin vermiyor; hook'un koşturması için satırını gönderin (bunu yalnız siz yazabilirsiniz):" ;;
       "verify lines that are not a command, %s time(s): no rule can make the hook run them (a sentence, or a tool not on this machine's PATH); write a card's verify: as one command, or none:") s="komut olmayan doğrulama satırları, %s kez: hiçbir kural hook'a bunları koşturamaz (bir cümle ya da bu makinenin PATH'inde olmayan bir araç); kartın verify: satırını tek bir komut ya da none olarak yaz:" ;;
       "status line: none; Crewforth's: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)") s="durum satırı: yok; Crewforth'unki: bash .claude/eval/lib/statusline.sh --install (Bash tool, not PowerShell)" ;;
       "advisor: off (no advisorModel set; Crewforth never turns it on)") s='advisor: kapalı (advisorModel ayarlı değil; Crewforth onu hiç açmaz)' ;;
@@ -837,52 +837,22 @@ esac
 # 9e) What model routing costs. Advisory. A verify command the hook was never allowed to run cannot vouch for
 #     cheaper work: the ones refused for that reason are listed with the line that allows them (measured on one
 #     project: 23 of 71 refusals).
-[ -f .claude/eval/lib/verify-cmd.sh ] && . .claude/eval/lib/verify-cmd.sh   # the rule names the command a cd prefix leads to
-# Two lists, one line each: a command no rule allows yet (offered as the rule that allows it), and a verify line that
-# is not a command at all, which no rule can make the hook run. Counting the second in the first told a user to add
-# `verify measured numbers` to their rules (measured on two projects: 70 and 33 refusals, sentences among them).
-_vbn=0; _vbl=""; _vpn=0; _vpl=""; _vnl='
-'
+[ -f .claude/eval/lib/verify-cmd.sh ] && . .claude/eval/lib/verify-cmd.sh   # the reading is crew_verify_blocked's (one definition)
 # Every entry whole, one per line, at most eight: the single 300-character line this replaced cut the last one mid-word.
 _vlist(){ local _i _n=0; while IFS= read -r _i; do [ -n "$_i" ] || continue; _n=$((_n+1))
             [ "$_n" -le 8 ] && echo "     ↳ $2$_i"; done <<< "$1"
           [ "$_n" -gt 8 ] && echo "     ↳ … (+$((_n-8)))"; return 0; }
-for _f in .claude/state/crew-model/results/*; do
-  [ -f "$_f" ] || continue
-  _vb=0; _vw=""; _vc=""
-  while IFS= read -r _l || [ -n "$_l" ]; do
-    case "$_l" in verify=blocked) _vb=1 ;; whynot=*) _vw="${_l#whynot=}" ;; cmd=*) _vc="${_l#cmd=}" ;; esac
-  done < "$_f"
-  [ "$_vb" = 1 ] || continue
-  # Both ways of saying "nothing allows it": in auto/bypassPermissions (not on the runner list) and in the other
-  # modes (Claude Code itself would not run it unallowed). Measured on Windows: the second was not listed at all.
-  case "$_vw" in *"not a test or build command on this hook's list"*|*"does not run a command the user has not allowed"*) ;; *) continue ;; esac
-  # A rule names the command alone: `cd sub && ./check.sh` is allowed by `verify ./check.sh` (measured on Windows:
-  # the line with the cd in it did not allow it).
-  declare -F crew_verify_split >/dev/null && { crew_verify_split "$_vc" .; _vc="$_AMVC"; }
-  # Whole: a rule cut at 80 characters (`verify PYTHONPATH=…/Use`) is a line the user would paste and that allows
-  # nothing. Only a sentence is shortened, below, and at a word.
-  [ -n "$_vc" ] || continue
-  # A sentence: a parenthesis or a ' + ' ("actionlint (if installed)"), or a first word that is no path, no
-  # assignment and nothing this machine runs ("measured numbers", "O13-2, O13-3 …"). The hook runs on this machine
-  # too, so a tool missing from its PATH is past any rule as well; the line says both.
-  _v1="${_vc%% *}"; _vs=0
-  case "$_vc" in *'('*|*' + '*) _vs=1 ;; esac
-  case "$_v1" in */*|*=*) ;; *) command -v -- "$_v1" >/dev/null 2>&1 || _vs=1 ;; esac
-  if [ "$_vs" = 1 ]; then
-    [ "${#_vc}" -gt 80 ] && { _vc="${_vc:0:80}"; _vc="${_vc% *} …"; }
-    _vpn=$((_vpn+1)); case "$_vnl$_vpl" in *"$_vnl$_vc$_vnl"*) ;; *) _vpl="$_vpl$_vc$_vnl" ;; esac
-  else
-    _vbn=$((_vbn+1)); case "$_vnl$_vbl" in *"$_vnl$_vc$_vnl"*) ;; *) _vbl="$_vbl$_vc$_vnl" ;; esac
-  fi
-done
-if [ "$_vbn" -gt 0 ]; then
-  warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, add its line to .claude/crew-model-rules:" "$_vbn"
-  _vlist "$_vbl" "verify "
+_VB_N=0; _VB_PN=0; _VB_CMDS=""; _VB_SENT=""
+declare -F crew_verify_blocked >/dev/null && crew_verify_blocked .
+# The way to allow one is a command only the user types (the file is closed to the session): each line below is that
+# command, whole, to be sent as it stands.
+if [ "$_VB_N" -gt 0 ]; then
+  warn "verify commands never run, %s time(s), because nothing allows them; to let the hook run one, send its line (only you can type it):" "$_VB_N"
+  _vlist "$_VB_CMDS" "/crew-allow-verify "
 fi
-if [ "$_vpn" -gt 0 ]; then
-  warn "verify lines that are not a command, %s time(s): no rule can make the hook run them (a sentence, or a tool not on this machine's PATH); write a card's verify: as one command, or none:" "$_vpn"
-  _vlist "$_vpl" ""
+if [ "$_VB_PN" -gt 0 ]; then
+  warn "verify lines that are not a command, %s time(s): no rule can make the hook run them (a sentence, or a tool not on this machine's PATH); write a card's verify: as one command, or none:" "$_VB_PN"
+  _vlist "$_VB_SENT" ""
 fi
 # The organisation preset in force: the block preset.sh wrote at the top of crew-model-rules, asked of preset.sh itself.
 _pre=""; [ -n "$_DOC_LIB" ] && [ -f "$_DOC_LIB/preset.sh" ] && _pre="$(bash "$_DOC_LIB/preset.sh" --show 2>/dev/null)"
