@@ -14,7 +14,9 @@ versioning follows [SemVer](https://semver.org/).
   to add the line left you to find and edit it by hand. With nothing after it the command lists the verify commands
   refused for want of a rule, each as the message that allows it; with a command after it, it adds that line. Only
   you can type it: a scheduled one, a headless session and a first message are refused, and so are a chain, a git
-  commit or push, and a command with a character the line does not carry. `/crew-doctor` now offers these lines.
+  commit or push, a command with a character the line does not carry, and a rule that would let the hook run any
+  command (a rule allows its command with more words after it, so `bash`, `node -e` or `npm exec` alone would allow
+  anything); such a rule is not offered either. `/crew-doctor` now offers these lines.
 
 ### Fixed
 
@@ -22,6 +24,9 @@ versioning follows [SemVer](https://semver.org/).
   says to move the session into that worktree (or start it there), have the review run there, and commit from it.
 - **A change's CHANGELOG and README lines go into its own commit.** The commit-message skill now says so: a separate
   docs commit after the code is a second commit, and so a second approval.
+- **The private-term scan holds in a linked worktree.** `.private-terms.txt` is gitignored, so a worktree has no copy,
+  and a commit from one skipped every term the checkout refused. The scan now reads the checkout's list when the
+  worktree has none; the allowlists do not fall back, since a missing one only makes the gate stricter.
 - **The commit gates run in a linked worktree.** `core.hooksPath` was written as `.claude/hooks`, a path git reads
   from the work tree a commit runs in; with `.claude/` gitignored a worktree (one Claude Code opens included) has no
   `.claude/`, so no commit hook ran there at all: a staged key and an AI trailer that the root refused went through.

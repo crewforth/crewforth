@@ -386,11 +386,11 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
   while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
   while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
   # `/crew-allow-verify [<command>]` (3.2.2): the user allows a verify command by name, the third thing only their own
-  # message does. Read before the length limit below: a command can be longer than an approval.
+  # message does. The message is at most 120 bytes before it reaches this function (the limit every reader of an
+  # approval shares, guard-schedule.sh's included); a longer one is answered before that limit, not here.
   _k="${P%%[$' \t']*}"
   case "$_k" in /*) case "${_k##*[/:]}" in crew-allow-verify)
     case "$P" in *$'\n'*) return 0 ;; esac
-    [ "${#P}" -le 400 ] || return 0
     AV_CMD="${P:${#_k}}"; while :; do case "$AV_CMD" in [$' \t']*) AV_CMD="${AV_CMD:1}" ;; *) break ;; esac; done
     OP=allowverify; return 0 ;; esac ;;
   esac
@@ -832,6 +832,15 @@ _crew_q_dir "$CWD"; [ -s "$TRIED" ] && { : > "$TRIED"; } 2>/dev/null
 
 # ---- is this message an approval? ------------------------------------------------------------------------
 [ "$_n_prompt" = 1 ] || exit 0
+# A /crew-allow-verify longer than that is answered, not dropped in silence (found in review): it writes nothing, and
+# the limit stays the one guard-schedule.sh reads a scheduled prompt by, so a long one cannot be scheduled past it.
+if [ "${#RAW}" -gt 120 ]; then
+  _lk="${RAW%%[ \\]*}"
+  case "$_lk" in /*) case "${_lk##*[/:]}" in crew-allow-verify)
+    EVN=UserPromptSubmit
+    say "Crewforth: verify command NOT allowed - the message is longer than this command reads (120 characters). Write the line into .claude/crew-model-rules by hand, as verify <command>." "The user sent the command only the user can type, /crew-allow-verify, with a command longer than it reads, and Crewforth added no rule. Tell the user to write that line into .claude/crew-model-rules by hand, as verify <command>." ;; esac ;;
+  esac
+fi
 [ "${#RAW}" -le 120 ] || exit 0        # an approval is a few words; a pasted page is not decoded to find that out
 _json_unescape "$RAW" >/dev/null
 _crew_appr_op "$_JU"
@@ -915,7 +924,9 @@ if [ "$OP" = allowverify ]; then
   case "$AV_CMD" in *[\;\&\|\<\>\`]*|*'$('*) noa "this is more than one command (a ; & | < > or a substitution): the hook runs a verify command alone, so no rule makes it run a chain. Give the card a single command, or a script that holds the chain." ;; esac
   _avok "$AV_CMD" || noa "'${AV_CMD//[!A-Za-z0-9 ._\/=:,@+%-]/?}' is not one plain command (letters, digits, . _ / = : , @ + % - and spaces only, not starting with -). Write such a line into .claude/crew-model-rules by hand, as verify <command>."
   case " $AV_CMD " in *" git commit "*|*" git push "*) noa "a git commit or push is never a verify command: the hook does not commit or push." ;; esac
+  crew_verify_open_ended "$AV_CMD" && noa "a rule '$AV_CMD' would let the hook run any command that begins with it (an interpreter, a shell, a wrapper or a package runner, with nothing after it that names the file or the task). Name the script or the test: bash tools/check.sh, npm test, pytest tests/."
   _avf="$_avr/.claude/crew-model-rules"
+  { [ -L "$_avr/.claude" ] || [ -L "$_avf" ]; } && noa "the rules file, or the .claude folder, is a symbolic link: Crewforth writes the rules only into the project's own file."
   if [ -f "$_avf" ]; then
     while IFS= read -r _avl || [ -n "$_avl" ]; do [ "${_avl%$'\r'}" = "verify $AV_CMD" ] && say "Crewforth: verify $AV_CMD is already allowed." "The user sent the command only the user can type, /crew-allow-verify $AV_CMD, and .claude/crew-model-rules already holds that line: tell them so, in one line."; done < "$_avf"
   fi

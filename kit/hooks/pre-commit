@@ -471,6 +471,27 @@ fi
 #   escape     : .private-allowlist.txt, a term per full line, for the rare case a term is legitimately public.
 PRIV_F="$(mktemp)"; PTERM_F="$(mktemp)"
 PTF="";  [ -n "$GITROOT" ] && [ -f "$GITROOT/.private-terms.txt" ]     && PTF="$GITROOT/.private-terms.txt"
+# A linked worktree has no copy of a gitignored file, so its own root never holds the terms: committing from one
+# skipped them (measured: the same commit rc=1 in the checkout, rc=0 in its worktree). Read the checkout's list
+# then. Only this list falls back — it tightens; an allowlist missing there only makes the gate stricter.
+# Builtins only: `.git` is a file in a worktree ("gitdir: <dir>"), and <dir>/commondir names the shared .git.
+if [ -z "$PTF" ] && [ -n "$GITROOT" ] && [ -f "$GITROOT/.git" ]; then
+  _gd=""; IFS= read -r _gd < "$GITROOT/.git" || true; _gd="${_gd#gitdir: }"; _gd="${_gd%$'\r'}"
+  case "$_gd" in /*|[A-Za-z]:*) ;; *) _gd="$GITROOT/$_gd" ;; esac
+  _cd=""; [ -f "$_gd/commondir" ] && { IFS= read -r _cd < "$_gd/commondir" || true; _cd="${_cd%$'\r'}"; }
+  if [ -n "$_cd" ]; then
+    case "$_cd" in /*|[A-Za-z]:*) ;; *) _cd="$_gd/$_cd" ;; esac
+    # Only a shared dir named .git sits in its checkout; a bare or separate git dir's parent is not the checkout
+    # (found in review: it read whatever list happened to sit beside the git dir).
+    # A relative commondir reads <gitdir>/../..: drop each trailing "/<name>/.." before asking for the name.
+    _cd="${_cd%/}"; _up=0
+    while :; do case "$_cd" in */..) _cd="${_cd%/..}"; _up=$((_up+1)) ;; */.) _cd="${_cd%/.}" ;; *) break ;; esac; done
+    while [ "$_up" -gt 0 ]; do _cd="${_cd%/*}"; _up=$((_up-1)); done
+    case "$_cd" in */.git) [ -f "${_cd%/.git}/.private-terms.txt" ] && PTF="${_cd%/.git}/.private-terms.txt" ;; esac
+    unset _up
+  fi
+  unset _gd _cd
+fi
 PAL="";  [ -n "$GITROOT" ] && [ -f "$GITROOT/.private-allowlist.txt" ] && PAL="$GITROOT/.private-allowlist.txt"
 {
   # A home path shorter than this cannot be distinguishing (`/root`, `/`), and matching it would flag everything.

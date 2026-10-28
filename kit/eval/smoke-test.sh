@@ -2147,6 +2147,28 @@ if command -v git >/dev/null 2>&1 && ( cd "$PR" && git init -q && git config use
   printf 'AcmeCore\n' > "$PR/.private-allowlist.txt"
   pc && pass "private-path scan is overridable via .private-allowlist.txt" || { fail "no escape from a private-term false positive"; sed -n 1,2p "$PCLOG"; }
   rm -f "$PR/.private-terms.txt" "$PR/.private-allowlist.txt"
+  # A linked worktree has no copy of the (gitignored) terms file: the scan must read the checkout's. Measured
+  # before the fix: the same commit rc=1 in the checkout, rc=0 in its worktree. The twin, a clean file in the
+  # same worktree, keeps "blocked" from meaning "the worktree breaks the hook". Both spellings of the worktree's
+  # .git file are driven: an absolute gitdir, and worktree.useRelativePaths (gitdir ../…, commondir ../..).
+  pcreset; PRWD="$(mktemp -d)"; printf 'AcmeCore\n' > "$PR/.private-terms.txt"
+  pcw(){ ( cd "$PRW" && printf '%s\n' "$1" > src.js && git add src.js && bash "$HOOKS/pre-commit" ) >"$PCLOG" 2>&1; }
+  for _wm in absolute relative; do
+    PRW="$PRWD/wt-$_wm"
+    if [ "$_wm" = absolute ]; then _wc=; else _wc="-c worktree.useRelativePaths=true"; fi
+    # shellcheck disable=SC2086  # $_wc is zero or two words on purpose
+    if ! ( cd "$PR" && git $_wc worktree add -q "$PRW" -b "pt-$_wm" ) >/dev/null 2>&1 || [ ! -f "$PRW/.git" ]; then
+      fail "FIXTURE: git worktree add ($_wm) failed, the worktree case did not run"; continue
+    fi
+    if [ "$_wm" = relative ] && ! grep -q '^gitdir: \.\.' "$PRW/.git"; then
+      skip tool "the private-term scan from a worktree with relative paths (this git writes absolute ones)" 2; continue
+    fi
+    pcw 'fix the AcmeCore import' && fail "private-path scan skipped .private-terms.txt in a linked worktree ($_wm gitdir)" \
+      || pass "private-path scan reads the checkout's .private-terms.txt from a linked worktree ($_wm gitdir)"
+    pcw 'const a = 1;' && pass "a clean diff commits from a linked worktree ($_wm gitdir)" || { fail "linked worktree ($_wm gitdir) blocks a clean diff"; sed -n 1,2p "$PCLOG"; }
+  done
+  rm -f "$PR/.private-terms.txt"; ( cd "$PR" && git worktree remove --force "$PRWD/wt-absolute"; git worktree remove --force "$PRWD/wt-relative" ) >/dev/null 2>&1
+  rm -rf "$PRWD"
 
   # (D) repo-bloat gate — vendored/build path blocked; oversized blob blocked (binaries emit no '+' line, so this
   # must fire off the file list, not the added-text scan).
@@ -9618,16 +9640,47 @@ _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash check.sh'; _v2sta
 _o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'/crew-allow-verify bash check.sh'*) _v2b="$_v2b an-allowed-command-is-still-offered" ;; esac
 _o="$(_v2say '/crew-allow-verify bash check.sh')"; case "$_o" in *'already allowed'*) ;; *) _v2b="$_v2b [a second allow: ${_o:0:120}]" ;; esac
 _avn="$(grep -c . "$_v2p/.claude/crew-model-rules")"
-for _ac in 'npm test; rm -rf x' 'git commit -m x' 'a\"b' '-x tool'; do
-  _o="$(_v2say "/crew-allow-verify $_ac")"; case "$_o" in *'verify command NOT allowed'*) ;; *) _v2b="$_v2b [allowed: $_ac]" ;; esac
-done
+# Each refusal by its OWN reason, so a rule that stopped firing cannot hide behind another that still does.
+while IFS='|' read -r _ac _aw; do [ -n "$_ac" ] || continue
+  _o="$(_v2say "/crew-allow-verify $_ac")"; case "$_o" in *'verify command NOT allowed'*"$_aw"*) ;; *) _v2b="$_v2b [$_ac: ${_o:0:120}]" ;; esac
+done <<'AVR'
+npm test; rm -rf x|more than one command
+git commit -m x|never a verify command
+a\"b|not one plain command
+-x tool|not one plain command
+bash|would let the hook run any command
+node -e x|would let the hook run any command
+npm exec evil|would let the hook run any command
+env FOO=1 python3|would let the hook run any command
+AVR
+# The longest message this command reads is 120 characters; past it the answer says so, and nothing is written.
+_o="$(_v2say "/crew-allow-verify bash tools/$(printf 'a%.0s' $(seq 1 110)).sh")"; case "$_o" in *'NOT allowed'*'longer than this command reads'*) ;; *) _v2b="$_v2b [a long command: ${_o:0:120}]" ;; esac
 _o="$(_V2SAYENV="CLAUDE_CODE_SESSION_ATTENDED=0" _v2say '/crew-allow-verify pytest')"; case "$_o" in *'NOT allowed'*'nobody in front'*) ;; *) _v2b="$_v2b headless-allowed" ;; esac
 _o="$(_v2say '/crew-allow-verify pytest' "$_v2/no-transcript.jsonl")"; case "$_o" in *'NOT allowed'*'first message'*) ;; *) _v2b="$_v2b first-message-allowed" ;; esac
 _v2say 'please /crew-allow-verify pytest' >/dev/null
 [ "$(grep -c . "$_v2p/.claude/crew-model-rules")" = "$_avn" ] || _v2b="$_v2b [a refused or non-command message wrote a rule: $(tr '\n' '|' < "$_v2p/.claude/crew-model-rules")]"
-printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/crew-allow-verify pytest"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>&1 ); [ "$?" = 2 ] || _v2b="$_v2b a-scheduled-crew-allow-verify-passed"
+# Twins of the refusals that write: a module run by python, and the plugin's spelling of the command.
+_o="$(_v2say '/crew-allow-verify python3 -m pytest')"; case "$_o" in *'verify command allowed'*) ;; *) _v2b="$_v2b [python3 -m pytest refused: ${_o:0:120}]" ;; esac
+_o="$(_v2say '/crewforth:crew-allow-verify npm test')"; case "$_o" in *'verify command allowed'*) ;; *) _v2b="$_v2b [the plugin spelling: ${_o:0:120}]" ;; esac
+# A card whose verify is an open-ended rule is not offered by the listing.
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash'; _v2start av3; _v2stop av3 >/dev/null
+_o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'/crew-allow-verify bash'*) _v2b="$_v2b [the listing offered an open-ended rule: ${_o:0:120}]" ;; esac
+# A rules file that is a symbolic link is not written through.
+# Git Bash without the symlink privilege makes `ln -s` a COPY (measured on windows-latest: the case read a copy and
+# the command was rightly allowed), so the case runs only where the fixture is a link.
+mv "$_v2p/.claude/crew-model-rules" "$_v2/rules-elsewhere"; ln -s "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules" 2>/dev/null
+if [ -L "$_v2p/.claude/crew-model-rules" ]; then
+  _o="$(_v2say '/crew-allow-verify make test')"; case "$_o" in *'NOT allowed'*'symbolic link'*) ;; *) _v2b="$_v2b [through a symlink: ${_o:0:120}]" ;; esac
+  grep -q 'make test' "$_v2/rules-elsewhere" && _v2b="$_v2b a-line-was-written-through-a-symlink"
+else
+  skip platform "/crew-allow-verify refusing a symlinked rules file (ln -s made no link here)"
+fi
+rm -f "$_v2p/.claude/crew-model-rules"; mv "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules"
+printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/crew-allow-verify pytest"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>"$_v2/err" ); { [ "$?" = 2 ] && grep -q 'the user can type /crew-allow-verify' "$_v2/err"; } || _v2b="$_v2b a-scheduled-crew-allow-verify-passed"
+# ...and its twin: a scheduled prompt that is not the command passes.
+printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"run the nightly tests"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>&1 ); [ "$?" = 0 ] || _v2b="$_v2b an-ordinary-scheduled-prompt-was-refused"
 grep -q '^disable-model-invocation:[[:space:]]*true' "$SKILLS/crew-allow-verify/SKILL.md" 2>/dev/null || _v2b="$_v2b the-skill-is-not-user-only"
-[ -z "$_v2b" ] && pass "/crew-allow-verify: a refused verify command is listed, allowed by the user's own command, then run and passed, and no longer offered; a chain, a git commit, a quote, an option-first word, a headless session, a first message and the command inside a sentence write nothing; a scheduled one is refused; the skill is one the model cannot start" \
+[ -z "$_v2b" ] && pass "/crew-allow-verify: a refused verify command is listed, allowed by the user's own command, then run and passed, and no longer offered; a chain, a git commit, a quote, an option-first word, a rule that would run anything (bash, node -e, npm exec, env FOO=1 python3), a message past 120 characters, a symlinked rules file, a headless session, a first message and the command inside a sentence write nothing, each for its own reason; python3 -m pytest and the plugin spelling are allowed; an open-ended card is not offered; a scheduled one is refused and an ordinary scheduled prompt is not; the skill is one the model cannot start" \
                || fail "/crew-allow-verify:$_v2b"
 
 # ---- 7. CREW_MODEL_ROUTING=off: as before 3.1.0 ---------------------------------------------------------------
