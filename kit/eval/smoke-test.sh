@@ -2147,6 +2147,28 @@ if command -v git >/dev/null 2>&1 && ( cd "$PR" && git init -q && git config use
   printf 'AcmeCore\n' > "$PR/.private-allowlist.txt"
   pc && pass "private-path scan is overridable via .private-allowlist.txt" || { fail "no escape from a private-term false positive"; sed -n 1,2p "$PCLOG"; }
   rm -f "$PR/.private-terms.txt" "$PR/.private-allowlist.txt"
+  # A linked worktree has no copy of the (gitignored) terms file: the scan must read the checkout's. Measured
+  # before the fix: the same commit rc=1 in the checkout, rc=0 in its worktree. The twin, a clean file in the
+  # same worktree, keeps "blocked" from meaning "the worktree breaks the hook". Both spellings of the worktree's
+  # .git file are driven: an absolute gitdir, and worktree.useRelativePaths (gitdir ../…, commondir ../..).
+  pcreset; PRWD="$(mktemp -d)"; printf 'AcmeCore\n' > "$PR/.private-terms.txt"
+  pcw(){ ( cd "$PRW" && printf '%s\n' "$1" > src.js && git add src.js && bash "$HOOKS/pre-commit" ) >"$PCLOG" 2>&1; }
+  for _wm in absolute relative; do
+    PRW="$PRWD/wt-$_wm"
+    if [ "$_wm" = absolute ]; then _wc=; else _wc="-c worktree.useRelativePaths=true"; fi
+    # shellcheck disable=SC2086  # $_wc is zero or two words on purpose
+    if ! ( cd "$PR" && git $_wc worktree add -q "$PRW" -b "pt-$_wm" ) >/dev/null 2>&1 || [ ! -f "$PRW/.git" ]; then
+      fail "FIXTURE: git worktree add ($_wm) failed, the worktree case did not run"; continue
+    fi
+    if [ "$_wm" = relative ] && ! grep -q '^gitdir: \.\.' "$PRW/.git"; then
+      skip tool "the private-term scan from a worktree with relative paths (this git writes absolute ones)" 2; continue
+    fi
+    pcw 'fix the AcmeCore import' && fail "private-path scan skipped .private-terms.txt in a linked worktree ($_wm gitdir)" \
+      || pass "private-path scan reads the checkout's .private-terms.txt from a linked worktree ($_wm gitdir)"
+    pcw 'const a = 1;' && pass "a clean diff commits from a linked worktree ($_wm gitdir)" || { fail "linked worktree ($_wm gitdir) blocks a clean diff"; sed -n 1,2p "$PCLOG"; }
+  done
+  rm -f "$PR/.private-terms.txt"; ( cd "$PR" && git worktree remove --force "$PRWD/wt-absolute"; git worktree remove --force "$PRWD/wt-relative" ) >/dev/null 2>&1
+  rm -rf "$PRWD"
 
   # (D) repo-bloat gate — vendored/build path blocked; oversized blob blocked (binaries emit no '+' line, so this
   # must fire off the file list, not the added-text scan).
