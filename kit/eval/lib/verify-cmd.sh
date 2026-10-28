@@ -47,6 +47,8 @@ crew_verify_blocked(){  # $1 = project root -> _VB_N _VB_CMDS, _VB_PN _VB_SENT (
     v1="${vc%% *}"; vs=0
     case "$vc" in *'('*|*' + '*) vs=1 ;; esac
     case "$v1" in */*|*=*) ;; *) command -v -- "$v1" >/dev/null 2>&1 || vs=1 ;; esac
+    # A rule that would allow any command is not offered at all (see crew_verify_open_ended below).
+    [ "$vs" = 0 ] && declare -F crew_verify_open_ended >/dev/null && crew_verify_open_ended "$vc" && continue
     if [ "$vs" = 1 ]; then
       # Whole for a command (a rule cut short allows nothing); a sentence is shortened, at a word.
       [ "${#vc}" -gt 80 ] && { vc="${vc:0:80}"; vc="${vc% *} …"; }
@@ -56,4 +58,32 @@ crew_verify_blocked(){  # $1 = project root -> _VB_N _VB_CMDS, _VB_PN _VB_SENT (
     fi
   done
   return 0
+}
+
+# A rule that would let the hook run ANY command. A `verify` rule allows its command and the same command with more
+# words after it (guard-agent-model.sh `_am_starts`), so `verify bash` allows `bash evil.sh` and `verify node -e`
+# allows any script (found in review). Such a rule is neither offered nor written by /crew-allow-verify: an
+# interpreter, a shell, a wrapper that runs what follows it, or a package runner that fetches what it runs, when
+# nothing after it names the file or the task, or when what follows is an option (`bash -c`, `node -e`).
+crew_verify_open_ended(){  # $1 = command -> 0 when the rule would allow any command
+  local c="$1" w1 w2 w3 rest
+  # Leading assignments and `env` decide nothing about what runs: `env FOO=1 python3` is `python3` (found in review).
+  while :; do
+    w1="${c%% *}"
+    case "$w1" in env|*/env) [ "$c" = "$w1" ] && return 0; c="${c#"$w1" }" ;; [A-Za-z_]*=*) [ "$c" = "$w1" ] && return 0; c="${c#"$w1" }" ;; *) break ;; esac
+  done
+  rest="${c#"$w1"}"; rest="${rest# }"; w2="${rest%% *}"; rest="${rest#"$w2"}"; rest="${rest# }"; w3="${rest%% *}"
+  case "${w1##*/}" in
+    python|python2|python3)
+      [ -z "$w2" ] && return 0
+      # `python3 -m pytest` names the module it runs; `-c`, `-` or a bare `-m` do not.
+      case "$w2" in -m) [ -z "$w3" ] && return 0; case "$w3" in -*) return 0 ;; esac; return 1 ;; -*) return 0 ;; esac ;;
+    bash|sh|zsh|dash|ksh|fish|pwsh|powershell|cmd|xargs|sudo|doas|nice|nohup|timeout|command|exec|eval|time|watch|node|deno|bun|ruby|perl|php|lua|osascript|npx|pnpx|bunx|curl|wget|rm|git|make|ssh|docker|kubectl)
+      [ -z "$w2" ] && return 0
+      case "$w2" in -*) return 0 ;; esac ;;
+    npm|pnpm|yarn)
+      [ -z "$w2" ] && return 0
+      case "$w2" in -*|exec|x|dlx|install|i|add|ci|create|init) return 0 ;; esac ;;
+  esac
+  return 1
 }

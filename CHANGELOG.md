@@ -14,7 +14,9 @@ versioning follows [SemVer](https://semver.org/).
   to add the line left you to find and edit it by hand. With nothing after it the command lists the verify commands
   refused for want of a rule, each as the message that allows it; with a command after it, it adds that line. Only
   you can type it: a scheduled one, a headless session and a first message are refused, and so are a chain, a git
-  commit or push, and a command with a character the line does not carry. `/crew-doctor` now offers these lines.
+  commit or push, a command with a character the line does not carry, and a rule that would let the hook run any
+  command (a rule allows its command with more words after it, so `bash`, `node -e` or `npm exec` alone would allow
+  anything); such a rule is not offered either. `/crew-doctor` now offers these lines.
 
 ### Fixed
 

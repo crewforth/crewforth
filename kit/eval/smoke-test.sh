@@ -9618,16 +9618,41 @@ _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash check.sh'; _v2sta
 _o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'/crew-allow-verify bash check.sh'*) _v2b="$_v2b an-allowed-command-is-still-offered" ;; esac
 _o="$(_v2say '/crew-allow-verify bash check.sh')"; case "$_o" in *'already allowed'*) ;; *) _v2b="$_v2b [a second allow: ${_o:0:120}]" ;; esac
 _avn="$(grep -c . "$_v2p/.claude/crew-model-rules")"
-for _ac in 'npm test; rm -rf x' 'git commit -m x' 'a\"b' '-x tool'; do
-  _o="$(_v2say "/crew-allow-verify $_ac")"; case "$_o" in *'verify command NOT allowed'*) ;; *) _v2b="$_v2b [allowed: $_ac]" ;; esac
-done
+# Each refusal by its OWN reason, so a rule that stopped firing cannot hide behind another that still does.
+while IFS='|' read -r _ac _aw; do [ -n "$_ac" ] || continue
+  _o="$(_v2say "/crew-allow-verify $_ac")"; case "$_o" in *'verify command NOT allowed'*"$_aw"*) ;; *) _v2b="$_v2b [$_ac: ${_o:0:120}]" ;; esac
+done <<'AVR'
+npm test; rm -rf x|more than one command
+git commit -m x|never a verify command
+a\"b|not one plain command
+-x tool|not one plain command
+bash|would let the hook run any command
+node -e x|would let the hook run any command
+npm exec evil|would let the hook run any command
+env FOO=1 python3|would let the hook run any command
+AVR
+# The longest message this command reads is 120 characters; past it the answer says so, and nothing is written.
+_o="$(_v2say "/crew-allow-verify bash tools/$(printf 'a%.0s' $(seq 1 110)).sh")"; case "$_o" in *'NOT allowed'*'longer than this command reads'*) ;; *) _v2b="$_v2b [a long command: ${_o:0:120}]" ;; esac
 _o="$(_V2SAYENV="CLAUDE_CODE_SESSION_ATTENDED=0" _v2say '/crew-allow-verify pytest')"; case "$_o" in *'NOT allowed'*'nobody in front'*) ;; *) _v2b="$_v2b headless-allowed" ;; esac
 _o="$(_v2say '/crew-allow-verify pytest' "$_v2/no-transcript.jsonl")"; case "$_o" in *'NOT allowed'*'first message'*) ;; *) _v2b="$_v2b first-message-allowed" ;; esac
 _v2say 'please /crew-allow-verify pytest' >/dev/null
 [ "$(grep -c . "$_v2p/.claude/crew-model-rules")" = "$_avn" ] || _v2b="$_v2b [a refused or non-command message wrote a rule: $(tr '\n' '|' < "$_v2p/.claude/crew-model-rules")]"
-printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/crew-allow-verify pytest"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>&1 ); [ "$?" = 2 ] || _v2b="$_v2b a-scheduled-crew-allow-verify-passed"
+# Twins of the refusals that write: a module run by python, and the plugin's spelling of the command.
+_o="$(_v2say '/crew-allow-verify python3 -m pytest')"; case "$_o" in *'verify command allowed'*) ;; *) _v2b="$_v2b [python3 -m pytest refused: ${_o:0:120}]" ;; esac
+_o="$(_v2say '/crewforth:crew-allow-verify npm test')"; case "$_o" in *'verify command allowed'*) ;; *) _v2b="$_v2b [the plugin spelling: ${_o:0:120}]" ;; esac
+# A card whose verify is an open-ended rule is not offered by the listing.
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'bash'; _v2start av3; _v2stop av3 >/dev/null
+_o="$(_v2say '/crew-allow-verify')"; case "$_o" in *'/crew-allow-verify bash'*) _v2b="$_v2b [the listing offered an open-ended rule: ${_o:0:120}]" ;; esac
+# A rules file that is a symbolic link is not written through.
+mv "$_v2p/.claude/crew-model-rules" "$_v2/rules-elsewhere"; ln -s "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules"
+_o="$(_v2say '/crew-allow-verify make test')"; case "$_o" in *'NOT allowed'*'symbolic link'*) ;; *) _v2b="$_v2b [through a symlink: ${_o:0:120}]" ;; esac
+grep -q 'make test' "$_v2/rules-elsewhere" && _v2b="$_v2b a-line-was-written-through-a-symlink"
+rm -f "$_v2p/.claude/crew-model-rules"; mv "$_v2/rules-elsewhere" "$_v2p/.claude/crew-model-rules"
+printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"/crew-allow-verify pytest"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>"$_v2/err" ); { [ "$?" = 2 ] && grep -q 'the user can type /crew-allow-verify' "$_v2/err"; } || _v2b="$_v2b a-scheduled-crew-allow-verify-passed"
+# ...and its twin: a scheduled prompt that is not the command passes.
+printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"CronCreate","tool_input":{"cron":"* * * * *","prompt":"run the nightly tests"}}' | ( cd "$_v2p" && _v2e bash "$HOOKS/guard-schedule.sh" >/dev/null 2>&1 ); [ "$?" = 0 ] || _v2b="$_v2b an-ordinary-scheduled-prompt-was-refused"
 grep -q '^disable-model-invocation:[[:space:]]*true' "$SKILLS/crew-allow-verify/SKILL.md" 2>/dev/null || _v2b="$_v2b the-skill-is-not-user-only"
-[ -z "$_v2b" ] && pass "/crew-allow-verify: a refused verify command is listed, allowed by the user's own command, then run and passed, and no longer offered; a chain, a git commit, a quote, an option-first word, a headless session, a first message and the command inside a sentence write nothing; a scheduled one is refused; the skill is one the model cannot start" \
+[ -z "$_v2b" ] && pass "/crew-allow-verify: a refused verify command is listed, allowed by the user's own command, then run and passed, and no longer offered; a chain, a git commit, a quote, an option-first word, a rule that would run anything (bash, node -e, npm exec, env FOO=1 python3), a message past 120 characters, a symlinked rules file, a headless session, a first message and the command inside a sentence write nothing, each for its own reason; python3 -m pytest and the plugin spelling are allowed; an open-ended card is not offered; a scheduled one is refused and an ordinary scheduled prompt is not; the skill is one the model cannot start" \
                || fail "/crew-allow-verify:$_v2b"
 
 # ---- 7. CREW_MODEL_ROUTING=off: as before 3.1.0 ---------------------------------------------------------------

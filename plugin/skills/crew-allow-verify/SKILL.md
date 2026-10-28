@@ -21,7 +21,9 @@ Read the line Crewforth added to this turn and say what it says:
 - **"verify commands refused for want of a rule"**: show the lines it lists, one per line, as they stand. Each is a
   message only the user can send; do not send one for them.
 - **"verify command NOT allowed"**: tell the user the reason it gives (more than one command, a character it does not
-  write, a git commit or push, the first message of a session, a headless session).
+  write, a git commit or push, a rule that would let the hook run any command — `bash`, `node -e`, `npm exec` with
+  nothing that names the script or the test — a message too long, a rules file that is a link, the first message of
+  a session, a headless session).
 - **No such line**: the message was not the command alone. Say that it has to be the whole message.
 
 What this does not touch: a deny rule of the settings still stops the command, the hook still runs it alone with no
