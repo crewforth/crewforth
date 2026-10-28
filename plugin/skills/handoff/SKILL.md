@@ -43,8 +43,9 @@ that never landed and has to be written down explicitly this time. Missing scrip
 
 ## Holding a board item? The handover is not finished until the TEAM has it
 `docs/SESSION_STATE.md` is gitignored — it survives your `/clear`, and nobody else can read it. So when a
-`teamboard` claim is open, **the handover is not complete until it is on the board**. This is not an optional
-extra step:
+`teamboard` claim is open, **the handover is not complete until it is on the board**. Whether one is open is
+read from `bash "${CLAUDE_PLUGIN_ROOT}/hooks/board.sh" status` (Bash tool, not PowerShell; a row marked `<- you`), not guessed;
+no board or no such row → the handover says nothing about the board. This is not an optional extra step:
 - Still on it → `board.sh note <id> "<where it stands, and why the rejected path was rejected>"`.
 - Not coming back → `board.sh drop <id> "<same>"`, which puts it back in circulation with your context attached.
 - Anything settled here that changes how OTHER items must be done → `board.sh decide "<what>" "<why + what it

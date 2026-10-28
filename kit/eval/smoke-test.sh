@@ -8700,6 +8700,10 @@ done <<'V2'
 2|crew-frontend-expert|sonnet|lib/userAuth.dart, lib/home.dart|fix-known|none|
 2|crew-backend-expert|sonnet|Data/Migrations/Init.cs|refactor|none|
 2|crew-backend-expert|sonnet|prisma/schema.prisma|feature|none|
+2|crew-backend-expert|sonnet|packages/api/alembic/versions/022_scrub.py|feature|none|
+2|crew-backend-expert|sonnet|db/migrate/20240101_add_users.rb|feature|none|
+0|crew-backend-expert|sonnet|packages/api/alembic/env.py, docs/versions/notes.py|feature|none|
+0|crew-backend-expert|sonnet|lib/db/migrator_ui.rb|feature|none|
 2|crew-backend-expert|sonnet|config/SECRETS_local.env|text|none|
 0|crew-backend-expert|sonnet|docs/author.md, src/cryptography/hash.ts|feature|none|
 0|crew-backend-expert|sonnet|legal/terms-of-service.md|text|none|
@@ -8758,7 +8762,7 @@ done <<'V2'
 0|crew-backend-expert|haiku|src/ui/a.ts|test-run|true|
 0|crew-commit-agent|haiku|src/ui/a.ts|refactor|true|
 V2
-if [ "$_v2n" != 70 ]; then fail "FIXTURE: the card table has $_v2n rows, not 70"
+if [ "$_v2n" != 74 ]; then fail "FIXTURE: the card table has $_v2n rows, not 74"
 elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; a text change whose every file is prose (legal, privacy, terms, a store listing) passes on sonnet and is refused on haiku, and one card file that is not prose holds it to opus; verify none is refused on haiku, except for a text change and the commit agent; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) ($_v2n rows)"
 else fail "card table:$_v2b"; fi
 # The card's floor is also the default: a call above it runs ON it (the gate hands back the same input with `model`
