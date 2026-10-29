@@ -760,10 +760,14 @@ fi
 # `--show-prefix` is the question itself: empty at the work-tree root, `sub/dir/` below it, non-zero exit
 # outside a repo — and it carries no path spelling to disagree about. Verified here at a normal root, a
 # worktree root, a subdirectory and a non-repo.
-if PFX="$(git rev-parse --show-prefix 2>/dev/null)" && [ -z "$PFX" ] && git config core.hooksPath .claude/hooks 2>/dev/null; then
+# ABSOLUTE, from git's own answer for the toplevel. A relative value resolves against the work tree a commit runs
+# in, and a linked worktree (one Claude Code opens included) has no .claude/ when it is gitignored: measured, the
+# trace scan blocked a commit at the root and let the same commit through in a worktree, with no hook run at all.
+if PFX="$(git rev-parse --show-prefix 2>/dev/null)" && [ -z "$PFX" ] && TOP="$(git rev-parse --show-toplevel 2>/dev/null)" \
+   && [ -n "$TOP" ] && git config core.hooksPath "$TOP/.claude/hooks" 2>/dev/null; then
   { _mt 'trace scan: core.hooksPath -> .claude/hooks (§4.1/§4.2 commit gate active)'; echo "  ${_M}"; }
 else
-  { _mt 'NOTE: no git repository at this level; after %s run:  %s' "'git init'" 'git config core.hooksPath .claude/hooks'; echo "  ${_M}"; }
+  { _mt 'NOTE: no git repository at this level; after %s run:  %s' "'git init'" "git config core.hooksPath \"\$PWD/.claude/hooks\""; echo "  ${_M}"; }
 fi
 rm -rf "$SRC"
 echo

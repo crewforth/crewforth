@@ -262,9 +262,12 @@ PCT="$((PCT_T / 10)).$((PCT_T % 10))"
 # ago: the expression above rounds. A comment that describes a tool the code no longer calls is worse than
 # no comment, because the next reader trusts it instead of the line.
 PCTI="${PCT%%.*}"; case "$PCTI" in ''|*[!0-9]*) PCTI=0 ;; esac
-if   [ "$PCTI" -lt 50 ]; then LEVEL="continue"
-elif [ "$PCTI" -lt 75 ]; then LEVEL="medium"
-else                          LEVEL="handoff+clear"
+# The form the discipline's status line uses, word for word: `→ <low|medium|high> fill · Recommendation: <…>`.
+# It used to print the recommendation alone for two bands and the level for the third (`continue`, `medium`,
+# `handoff+clear`), which left the model to work the level word out of the thresholds itself.
+if   [ "$PCTI" -lt 50 ]; then LEVEL="low fill · Recommendation: continue"
+elif [ "$PCTI" -lt 75 ]; then LEVEL="medium fill · Recommendation: continue"
+else                          LEVEL="high fill · Recommendation: handoff+clear"
 fi
 # The '%<number>' shape is a contract: session-guard.sh reads the percentage back out of this line.
 if [ "$VERBOSE" = 1 ]; then

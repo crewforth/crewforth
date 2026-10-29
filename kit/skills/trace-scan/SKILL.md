@@ -31,10 +31,11 @@ git diff --cached --unified=0 | grep -E '^\+' | grep -Ev '^\+\+\+' \
 ```
 
 ## Hook setup (full install only — a plugin cannot set `core.hooksPath`)
-`start.sh` sets `git config core.hooksPath .claude/hooks` (if there is a git repo). The hooks live
-under `.claude` → they are in gitignore and stay local (§4.3). To do it later for a repo:
+`start.sh` sets `core.hooksPath` to the absolute path of `.claude/hooks` (if there is a git repo). The hooks live
+under `.claude` → they are in gitignore and stay local (§4.3), so a relative path would leave a linked worktree with
+no hook at all. To do it later for a repo, from its root:
 ```bash
-git config core.hooksPath .claude/hooks
+git config core.hooksPath "$(git rev-parse --show-toplevel)/.claude/hooks"
 chmod +x .claude/hooks/pre-commit .claude/hooks/commit-msg
 ```
 

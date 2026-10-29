@@ -63,6 +63,11 @@ git add <specific/file>
 ```
 Each commit focused on a single topic; "feat + fix + refactor" doesn't belong in one commit.
 
+**The lines that describe a change belong to its commit**: its CHANGELOG entry, its README line, its docs. They are
+part of the same logical change, not a second one, so stage them with it. A separate "docs: changelog" commit after
+the code is a second commit, and so a second approval (§4.4): the approval covers what is staged and HEAD at that
+moment, and a commit added later is not covered by it.
+
 ## Good / bad
 
 Worked good-vs-bad commit examples: **`references/examples.md`**.

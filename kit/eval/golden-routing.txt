@@ -234,3 +234,6 @@ write the release notes and the changelog entry for this version|crew-docs-agent
 rewrite the app store description for the new release|crew-docs-agent
 add an endpoint that returns the privacy settings|!crew-docs-agent
 fix the failing unit test in the payment module|!crew-docs-agent
+# Positive twins of the read-only prompts smoke-test pins silent (route-hint.sh): the same README, an action verb.
+update the README with the notes at the end|crew-docs-agent
+tuval README'nin sonundaki notları güncelle|crew-docs-agent

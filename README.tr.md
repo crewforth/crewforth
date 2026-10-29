@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Sürüm](https://img.shields.io/badge/version-3.2.1-6D28D9?style=flat-square)
+![Sürüm](https://img.shields.io/badge/version-3.3.0-6D28D9?style=flat-square)
 ![Lisans](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 [![GitHub'da yıldız ver](https://img.shields.io/badge/GitHub'da_yıldız_ver-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
@@ -15,7 +15,7 @@
 **Crewforth, Claude Code için mühendislik ekibinizdir.**
 
 Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 14 uzman ajan,<br>
-yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 13 komut ve önemli kuralları uygulayan hook'lar.
+yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 14 komut ve önemli kuralları uygulayan hook'lar.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -59,7 +59,7 @@ Hiçbir şey yazılmadan önce bir özeti onaylarsınız; `add` tam kurulum yapm
 
 Toplam Komut satırının altındaki durum satırı kapının son sözünü, hâlâ geçerli bir onayı, çalışan ajanları, ölçülmüş bağlam doluluğunu ve oturumun maliyetini gösterir. Bir sıkıştırmadan önce bir hook işin durumunu yazar (dal, commit'lenmemiş dosyalar, son ret, bulgular) ve aynı oturum sıkıştırmadan sonra onu geri alır.
 
-**13 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
+**14 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`.
 
 ## Ajanlar
 
@@ -89,7 +89,7 @@ Toplam Komut satırının altındaki durum satırı kapının son sözünü, hâ
 | Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay sizin yazdığınız bir komuttur: `/crew-approve`, az önce reddedilen commit ya da push'u onaylar (ya da açıkça yazın: `/crew-approve commit`, `push`, `commit+push`). `auto` modunda sabit bir soruyu tek tıkla cevaplayarak da onay verebilirsiniz. Bir istemi sizden önce cevaplayabilen bir `PermissionRequest` hook'u bağlı olabilirse soru da kapının kendi istemi de kapanır ve her modda yol `/crew-approve` olur. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
 | Bir commit, tam olarak kendi diff'i için temiz bir inceleme ister. İnceleme deterministik bir ön geçişle başlar (sırlar, debug çağrıları, shellcheck, manifest'i olmadan değişen lock dosyası), her bulgu ilgili satırları gösterir ve `crew-refuter` engelleyen bulguları çürütmeyi dener | `guard-bash.sh`, `review-prepass` ve `crew-review-agent`'ın yazdığı kayıt |
 | Yıkıcı komutlar (`reset --hard`, force push, `rm -rf`, `--no-verify`) reddedilir ve tek satırda neye dokunacakları söylenir: atılacak değişiklikler ve commit'ler, silinecek dosyalar, ezilecek uzak commit'ler | `guard-bash.sh` |
-| Bir `crew-*` ajanı bir iş kartıyla (dosyalar, değişiklik türü, verify komutu) ve kartın riskine uyan modelle çağrılır: kritik iş (auth, ödeme, migration, güvenlik…) `opus`'ta, hiçbir komutun doğrulayamadığı iş en az `sonnet`'te, `haiku` yalnız bir komutun denetlediği işte. `opus`'ta olmayan ajan kritik yola yazamaz. `CREW_MODEL_ROUTING=off` bunu kapatır | `guard-agent-model.sh`, `guard-write.sh` |
+| Bir `crew-*` ajanı bir iş kartıyla (dosyalar, değişiklik türü, verify komutu) ve kartın riskine uyan modelle çağrılır: kritik iş (auth, ödeme, migration, güvenlik…) `opus`'ta, özellik, düzeltme, refactor ve hiçbir komutun doğrulayamadığı iş en az `sonnet`'te, `haiku` metin, test koşusu ve commit mesajında. `opus`'ta olmayan ajan kritik yola yazamaz. `CREW_MODEL_ROUTING=off` bunu kapatır | `guard-agent-model.sh`, `guard-write.sh` |
 | Ajanın işi durduğunda doğrulanır: ilk kırmızıda ajan düzeltir; ikincide iş bir üst modelle tekrarlanır ve aynı model reddedilir; orada da kırmızıysa size sorulur | `agent-outcome.sh` ve `guard-agent-model.sh` |
 | Yapay zekâ imzası commit'e girmez | `pre-commit` ve `commit-msg` git hook'ları |
 | API anahtarı, token ya da özel anahtar commit'e girmez | `pre-commit` sır taraması |

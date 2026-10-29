@@ -9,7 +9,8 @@
 #     change: text | feature | fix-known | fix-unknown | refactor | migration | security | architecture |
 #             test-run | test-write | audit
 #     verify: the command that says the work is right, or `none`
-# and this gate reads the card. What it holds, all of it by refusing and never by rewriting a call:
+# and this gate reads the card. What it holds, by refusing a call below its floor (and running one above it ON the
+# floor, unless the card says `above: <why>`):
 #   * the call names a model, and carries a card;
 #   * RISK CLASS. `critical` when the change is migration, security, architecture or fix-unknown, or a file is on a
 #     critical path (auth, payments, billing, migrations, security, crypto, secrets, *.sql, schema.prisma;
@@ -20,6 +21,8 @@
 #     that wants opus there says so in .claude/crew-model-rules (floor * text critical opus).
 #   * the referee is as strong as the risk: test-write and audit on sonnet or above (opus when critical, by the rule
 #     above); review, privacy, planner and database agents on sonnet or above; the security agent on opus.
+#   * feature, fix-known and refactor run on sonnet or above, the table's sonnet row (not the commit agent, whose
+#     work is the message).
 #   * work with no verify command runs on sonnet or above: haiku goes only to work a command can check. Not for
 #     change: text, nor for the commit agent: a reader is all prose ever has, and a commit message is checked by
 #     the commit-msg hook (seen on a real project: a commit message proposed on sonnet for that reason alone).
@@ -359,7 +362,8 @@ _am_tier(){  # $1 = a model as a call or a transcript names it -> _AMT haiku|son
 # of every file of the project (the scan in agent-outcome.sh). A path is critical when one of its parts is one of
 # these WORDS, standing as a word: after a separator or at a capital (`auth/`, `user_auth.py`, `AuthController.cs`,
 # `userAuth.ts`, `AUTH_KEYS`) and not running on in lower case (`author.md`, `cryptography/` are not). And by name:
-# a .sql file, schema.prisma. The path is read from the project's root down, so the name of the folder the project
+# a .sql file, schema.prisma. And the migration folders whose names carry no such word: alembic/versions/,
+# Rails' db/migrate/. The path is read from the project's root down, so the name of the folder the project
 # sits in decides nothing. .claude/crew-model-rules, which only the user writes, adds (`+ glob`) and removes
 # (`- glob`); the last line that matches wins.
 # Legal and personal-data texts are critical too (crew-docs-agent's work): legal, privacy, consent in every form, and
@@ -404,6 +408,7 @@ _am_crit_path(){  # $1 = a path or a glob -> 0 critical (_AMW says by what), 1 n
   _am_rel "$1"; p="$_AMRP"; _AMW=""
   if [[ "$p" =~ $_AM_RE_L ]] || [[ "$p" =~ $_AM_RE_C ]] || [[ "$p" =~ $_AM_RE_U ]]; then hit=0; _AMW="${BASH_REMATCH[2]}"
   else case "$p" in *.sql|*.SQL) hit=0; _AMW="a .sql file" ;; schema.prisma|*/schema.prisma) hit=0; _AMW="schema.prisma" ;;
+    alembic/versions/*|*/alembic/versions/*|db/migrate/*|*/db/migrate/*) hit=0; _AMW="migrations" ;;
     store/*|*/store/*|store-listing/*|*/store-listing/*|fastlane/metadata/*|*/fastlane/metadata/*|metadata/android/*|*/metadata/android/*|metadata/ios/*|*/metadata/ios/*)
       case "$p" in *.txt|*.md|*.xml|*.yml|*.yaml) hit=0; _AMW="a store listing text" ;; esac ;;
   esac; fi
@@ -822,6 +827,26 @@ _am_write_check(){  # $1 = the payload, $2 = the file about to be written -> ret
   echo "GUARD (agent model): $_AMRP is on a critical path ($_AMW) and this agent runs on ${tier:-a model that could not be read}; only an agent on opus writes there. Do not reach the file another way. Stop, and end your report with the two lines: escalate: $_AMRP / confidence: low" >&2
   exit 2
 }
+# THE FLOOR OF A CLASS, before any card, record or rule: the agent's own, then the card's change. One definition, for
+# the gate and for /crew-loosen (prompt-approval.sh), which must not report a lowering below it: a raise on record for
+# a class whose own floor is the same model is not lowered by anything (field review, 3.2.1).
+_am_agent_floor(){  # $1 = agent -> floor (rank) and why. The agent's own floor, whatever the card says.
+floor=0; why=""
+case "$1" in
+  crew-security-expert) floor=3; why="the security audit" ;;
+  crew-privacy-agent|crew-review-agent|crew-planner|crew-database-expert) floor=2; why="this agent's floor" ;;
+esac
+return 0
+}
+_am_change_floor(){  # $1 = change, $2 = agent -> raises floor and why
+case "$1" in test-write|audit) if [ "$floor" -lt 2 ]; then floor=2; why="change: $1, the referee of the work"; fi ;; esac
+# The table's sonnet row: feature, fix-known and refactor run on sonnet with a verify command too. They had no floor
+# here, so with the rule that a call runs ON its floor, a call that asked for sonnet or opus by the table ran on haiku
+# (field report, 3.2.1: a fix-known on a PII file, asked for opus, ran 106 turns on haiku and came back
+# `confidence: low`). haiku stays the floor of text, test-run and the commit agent, whose work is the message.
+[ "$2" != crew-commit-agent ] && case "$1" in feature|fix-known|refactor) if [ "$floor" -lt 2 ]; then floor=2; why="change: $1, the table's sonnet row"; fi ;; esac
+return 0
+}
 [ "$_AM_LIB" = 1 ] && return 0
 # ---- CREW-FAILCLOSED ---------------------------------------------------------------------------------------
 # A gate that stops on an error of its own must refuse the call, not let it through. Claude Code blocks a tool call
@@ -863,11 +888,7 @@ _json_keycount "$ti" model
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names model more than once, so which model it asks for cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" model >/dev/null; _json_unescape "$_JS" >/dev/null; m="$_JU"
 if [ -z "$m" ]; then rank=0; else _am_tier "$m"; if [ -n "$_AMT" ]; then m="$_AMT"; _am_rank "$m"; rank="$_AMR"; else rank=-1; fi; fi
-# The agent's own floor, whatever the card says.
-case "$st" in
-  crew-security-expert) floor=3; why="the security audit" ;;
-  crew-privacy-agent|crew-review-agent|crew-planner|crew-database-expert) floor=2; why="this agent's floor" ;;
-esac
+_am_agent_floor "$st"
 _am_name "$floor"; fname="$_AMN"
 if [ "$rank" = 0 ]; then
   echo "GUARD (agent model): a call to $st has to name its model. Choose haiku, sonnet or opus by the table in CLAUDE.md (risk decides, not size) and repeat the same call with model set.${fname:+ $st runs on $fname or above.}" >&2
@@ -892,7 +913,7 @@ fi
 _am_state; _am_risk; _am_digest
 # ---- the floor of THIS card: the highest of what applies, and the reason that set it ----
 if [ "$CARD_VERIFY" = none ] && [ "$CARD_CHANGE" != text ] && [ "$st" != crew-commit-agent ] && [ "$floor" -lt 2 ]; then floor=2; why="no verify command, so nothing checks the work but a reader"; fi
-case "$CARD_CHANGE" in test-write|audit) if [ "$floor" -lt 2 ]; then floor=2; why="change: $CARD_CHANGE, the referee of the work"; fi ;; esac
+_am_change_floor "$CARD_CHANGE" "$st"
 if [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" = text ] && _am_all_prose; then
   if [ "$floor" -lt 2 ]; then floor=2; why="a text change on a critical path: $CARD_RISKWHY"; fi
 elif [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" != test-run ] && [ "$floor" -lt 3 ]; then floor=3; why="critical work: $CARD_RISKWHY"; fi

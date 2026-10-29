@@ -62,8 +62,12 @@ HOOKMSG=""
 if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   _hp="$(git -C "$ROOT" config --get core.hooksPath 2>/dev/null || true)"; _hp="${_hp%$'\r'}"; _hp="${_hp//\\//}"
   case "${_hp%/}" in
-    .claude/hooks|*/.claude/hooks|.claude/git-shim|*/.claude/git-shim) ;;
-    '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: git config core.hooksPath .claude/hooks, or the Crewforth update when the repository has hooks of its own. /crew-doctor shows the state." ;;
+    .claude/hooks|.claude/git-shim) ;;
+    # Absolute, as the installers now write it (a relative one runs no hook in a linked worktree): it has to be THERE.
+    # A repository that was moved keeps the old path, and git then runs no hook at all, with nothing said.
+    */.claude/hooks|*/.claude/git-shim)
+        [ -d "$_hp" ] || HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at a directory that does not exist (the repository was moved?), so no commit is scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update (npx crewforth update) writes the path again. /crew-doctor shows the state." ;;
+    '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update (npx crewforth update), which arms it and keeps any hooks the repository has of its own. /crew-doctor shows the state." ;;
     *)  HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at another hook directory, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update keeps that directory's hooks and runs Crewforth's before them. /crew-doctor shows the state." ;;
   esac
 fi

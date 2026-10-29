@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Version](https://img.shields.io/badge/version-3.2.1-6D28D9?style=flat-square)
+![Version](https://img.shields.io/badge/version-3.3.0-6D28D9?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 [![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
@@ -15,7 +15,7 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain,<br>
-40 skills that hold the method, 13 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 14 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -59,7 +59,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost. Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
 
-**13 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
+**14 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`.
 
 ## The agents
 
@@ -92,7 +92,7 @@ A status line under the prompt shows the gate's last word, an approval that stil
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |
 | No API key, token or private key reaches a commit | `pre-commit` secret scan |
 | A gate file cannot be edited or deleted, nor the git settings that point at the hooks (`core.hooksPath`, `crewforth.hookschain`) changed, to switch the gate off | `guard-write.sh`, `guard-bash.sh` |
-| A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, work nothing can verify on `sonnet` or above, `haiku` only where a command checks it. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
+| A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, features, fixes, refactors and work nothing can verify on `sonnet` or above, `haiku` for text, test runs and the commit message. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
 | An agent's work is verified when it stops: red once, the agent fixes it; red again, the task is repeated one model up and the same model is refused; red there too, you are asked | `agent-outcome.sh` and `guard-agent-model.sh` |
 
 Every hook and rule: [crewforth.com/gates](https://crewforth.com/gates). Gates stop accidents, not determined attempts; for a hard boundary, use a devcontainer or a VM.

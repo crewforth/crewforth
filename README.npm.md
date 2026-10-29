@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Crewforth/crewforth/main/assets/logo.svg" alt="Crewforth" width="420"></p>
 
-**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain, 40 skills that hold the method, 13 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain, 40 skills that hold the method, 14 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 ```bash
 npx crewforth init              # set up a new project
@@ -31,7 +31,7 @@ Then open Claude Code and run `/crew-doctor` to confirm the setup. Requires bash
 
 - **14 specialist agents**, from `crew-planner` to `crew-commit-agent`, each owning one domain.
 - **40 skills** holding the method: testing, migrations, API contracts, observability, accessibility, deployment.
-- **13 commands**, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-map`.
+- **14 commands**, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`.
 - In `auto` mode a commit or a push waits for you: type `/crew-approve` and what was just refused is approved, tied to what is staged.
 - A stopped destructive command says what it would have touched; a review starts from a deterministic pre-pass, and `crew-refuter` tries to refute each finding that blocks.
 - **Organisation presets.** `npx crewforth init --preset strict` (or `solo`, or your own JSON file) carries critical paths, model floors and verify commands to every project.

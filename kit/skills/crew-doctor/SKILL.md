@@ -22,7 +22,9 @@ Verify Crewforth is actually *active* in this project (not just present on disk)
    drifted behind the code. Report the gaps as suggestions, not as failures, and never "fix" them unasked — adding
    a devcontainer or an MCP server is the user's call.
 5. Summarise: **healthy**, or the precise fixes applied/needed, plus the readiness score. If it's not a git repo,
-   note that the commit-time gates need `git init` + `git config core.hooksPath .claude/hooks`.
+   note that the commit-time gates need `git init` + the update (`npx crewforth update`), which arms them.
+   Where it lists verify commands never run, each `/crew-allow-verify <command>` line is a message only the user can
+   send: show them as they stand, and do not send one.
    If the output contains a line starting with ⭐, pass it to the user verbatim as the LAST line of your summary —
    it prints once per Crewforth version here (the installer has its own once), and it is meant for the user, not for you.
 

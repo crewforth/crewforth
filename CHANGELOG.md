@@ -5,6 +5,91 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.3.0] — 2026-10-29
+
+### Added
+
+- **`/crew-allow-verify` lets a refused verify command run.** A card's verify command runs only when a `verify
+  <command>` line of `.claude/crew-model-rules` allows it, and that file is closed to the session, so doctor's advice
+  to add the line left you to find and edit it by hand. With nothing after it the command lists the verify commands
+  refused for want of a rule, each as the message that allows it; with a command after it, it adds that line. Only
+  you can type it: a scheduled one, a headless session and a first message are refused, and so are a chain, a git
+  commit or push, a command with a character the line does not carry, and a rule that would let the hook run any
+  command (a rule allows its command with more words after it, so `bash`, `node -e` or `npm exec` alone would allow
+  anything); such a rule is not offered either. `/crew-doctor` now offers these lines.
+
+### Fixed
+
+- **Alembic and Rails migrations are on the critical path.** A file under `alembic/versions/` or `db/migrate/`
+  carries no "migration" word, so a card naming one ran below opus while its own test file was held to opus. Both
+  folders are critical now, for the model gate, the write gate and the project scan alike.
+- **A handover mentions the team board only when it has something to say.** The session manager reminded every
+  handover to check `/crew-board`, also in a repo with no board. It now reads `board.sh status` and names a claim
+  only when one is marked as yours.
+- **The refusal of a commit in another worktree says the way through.** It said to commit from this directory; it now
+  says to move the session into that worktree (or start it there), have the review run there, and commit from it.
+- **A change's CHANGELOG and README lines go into its own commit.** The commit-message skill now says so: a separate
+  docs commit after the code is a second commit, and so a second approval.
+- **The private-term scan holds in a linked worktree.** `.private-terms.txt` is gitignored, so a worktree has no copy,
+  and a commit from one skipped every term the checkout refused. The scan now reads the checkout's list when the
+  worktree has none; the allowlists do not fall back, since a missing one only makes the gate stricter.
+- **The commit gates run in a linked worktree.** `core.hooksPath` was written as `.claude/hooks`, a path git reads
+  from the work tree a commit runs in; with `.claude/` gitignored a worktree (one Claude Code opens included) has no
+  `.claude/`, so no commit hook ran there at all: a staged key and an AI trailer that the root refused went through.
+  The installers now write the absolute path, the shim finds Crewforth's hook beside itself, and doctor warns on a
+  relative path with `.claude/` untracked, on an old shim, and fails on an absolute path that is gone; the session-start
+  notice names a gone path too. Run
+  `npx crewforth update` to rewrite it.
+- **A commit made by another command needs approval.** `git merge`, `cherry-pick`, `revert`, `pull`, `am` and
+  `commit-tree` make a commit and passed the §4.4 gate untouched, so a merge commit could land with nobody asked.
+  They are asked in default and acceptEdits and refused where no prompt reaches a person; the forms that make no
+  commit (`--ff-only`, `--squash`, `--no-commit`, `-n`, `--abort`, a repository with `pull.ff=only` that the command
+  line does not override) stay free. The call is read by the commit gate's own reader, so a quoted, nested or aliased
+  spelling, and a flag that is only an option's value (`-m --squash`), are read as the shell and git read them.
+- **A push no approval can cover says so at once.** `git push --delete`, `-d`, `:<branch>`, `--mirror` and `--prune`
+  (however `push` is reached: `git -C . push origin :x`) were refused with the approval question and `/crew-approve`
+  offered, approved, and refused again. The refusal now
+  says the user runs it, in their terminal or on GitHub, and offers no approval. "Commit + push" with nothing staged
+  now names "Push only" as the answer for a push alone.
+- **The discipline's model table names the agents' floors.** It said a security audit runs on sonnet; the gate keeps
+  crew-security-expert on opus whatever the card, so the call as written was refused every time. The table now names
+  the floors, and smoke checks it against the gate.
+- **Doctor names the working files a tracked `docs/` would publish.** Where `docs/` is a published site and private
+  files are ignored one by one, it lists the files Crewforth writes there that `.gitignore` does not cover. The
+  discipline no longer says the commit scan enforces that half of §4.3: `.gitignore` does.
+- **A commit from a sub-folder finds its review.** §4.6 looked for `.claude/review-pass.json` in the cwd, so a commit
+  run from a sub-folder (a subagent's run can leave the Bash tool there) was refused as unreviewed while a valid
+  record sat at the root. The record is read at the top of the work tree.
+- **The refusal for a model routing record says how to show it.** A session told the user it could not even read
+  `.claude/crew-model-rules`; the Read tool can, and the refusal now says so.
+- **feature, fix-known and refactor run on sonnet, as the model table says.** The gate gave them no floor, and since a
+  call runs on its floor unless its card says `above: <why>`, a call that asked for sonnet or opus by the table ran on
+  haiku: a fix-known on a file holding personal data, asked for opus, ran 106 turns on haiku and came back
+  `confidence: low`. Their floor is now sonnet, haiku is refused for them, and haiku stays the floor of text, test-run
+  and the commit agent. `/crew-loosen` and Studio's suggestion no longer offer a lowering below a class's own floor,
+  which the gate would refuse all the same; Studio's Models view reads the same floors.
+- **Doctor no longer offers a sentence as a verify rule.** Its "verify commands never run" warning counted every
+  refused `verify:` line, and offered each as the `.claude/crew-model-rules` line that would allow it, including
+  lines that are not a command (`measured numbers`, `every scenario … has a verdict`). Those now get a line of their
+  own that says no rule can run them. Commands are listed one per line, whole, eight at most with a count of the
+  rest; the single line they used to share was cut at 300 characters, mid-word, and each rule at 80, so a long
+  command was offered as a rule that allowed nothing.
+- **Doctor prints its verdict after its last check, and the star line last.** The verdict came before the auto-mode
+  check, which can fail, so a run could read "healthy", then ❌, and exit 1. The star line came out in the middle,
+  while `/crew-doctor` passes it on as the last line.
+- **Doctor names a Crewforth skill your CLAUDE.md lists under Project skills.** With no skill of the project's own,
+  it said only Crewforth's "generic" skills were installed, even when CLAUDE.md listed a stack skill such as
+  `frontend-flutter`. It now says that skill ships with Crewforth. The stale-CLAUDE.md advice no longer points to a
+  flow Crewforth does not ship, and says to keep the `@.claude/DISCIPLINE.md` line and your own rule sections.
+- **The session line names the fill level.** The hook wrote `→ continue`, `→ medium` or `→ handoff+clear`: the
+  recommendation for two bands and the level for the third. It now writes the discipline's own form, for example
+  `→ low fill · Recommendation: continue`.
+- **A request to read is no longer routed to an agent.** "Read the notes at the end of the README" was routed to
+  crew-docs-agent, which writes docs, because the route hint scored `README` and not the verb. A request whose verb
+  is read, explain or summarise (the first word in English, the last in Turkish) now gets no hint. A second
+  clause or one action word (fix, update, resolve, güncelle, düzelt…) and it routes as before, and so does a bug
+  report that only contains the verb ("the button does not show the spinner").
+
 ## [3.2.1] — 2026-10-22
 
 ### Added
