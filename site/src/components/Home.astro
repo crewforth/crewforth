@@ -7,6 +7,7 @@ const { d } = Astro.props;
 <div class="cf-home not-content">
   <section class="cf-open">
     <img src={d.mark} alt="" width="96" height="96" class="cf-mark" />
+    <a class="cf-version" href={d.version.href}>{d.version.text}</a>
     <h1 class="cf-title">{d.title.before}<span class="cf-accent">{d.title.accent}</span>{d.title.after}</h1>
     <p class="cf-lead">{d.lead}</p>
     <div class="cf-start">
@@ -136,6 +137,8 @@ const { d } = Astro.props;
   .cf-dim { color: var(--cf-ink-dim); }
   .cf-open { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px; padding-top: 32px; }
   .cf-mark { width: 96px; height: 96px; }
+  .cf-version { display: inline-flex; padding: 2px 12px; border-radius: var(--cf-radius-pill); border: 1px solid var(--cf-line); color: var(--cf-ink-dim); font-family: var(--cf-font-mono); font-size: 14px; text-decoration: none; }
+  .cf-version:hover { border-color: var(--cf-accent); color: var(--cf-accent); }
   .cf-title { font-size: 48px; line-height: 52px; font-weight: 800; margin: 0; color: var(--cf-ink); }
   .cf-accent { color: var(--cf-accent); }
   .cf-lead { max-width: 640px; color: var(--cf-ink-dim); font-size: 18px; line-height: 28px; margin: 0; }
