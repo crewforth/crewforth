@@ -153,6 +153,10 @@ export function generate(root = ROOT, site = SITE) {
   const cost = alwaysOn(root);
   const stageOf = stages(root);
   checkNetworkSvgs(root, ag.length, skills.length);
+  // The release the site describes, shown on the home page and next to the logo; read here so every release
+  // renames it without anyone editing a page.
+  const version = read(path.join(root, 'VERSION')).trim();
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) fail(`VERSION is not a version: '${version}'`);
 
   const tr = {
     agents: tsv(path.join(root, 'packaging/agent-summaries.tr.tsv')),
@@ -221,7 +225,7 @@ export function generate(root = ROOT, site = SITE) {
     const H = HOME[loc];
     const p = prefix(loc);
     const d = {
-      mark: '/assets/mark.svg', title: H.title, lead: H.lead, command: 'npx crewforth init',
+      mark: '/assets/mark.svg', version: { text: `v${version}`, href: `${p}/changelog/` }, title: H.title, lead: H.lead, command: 'npx crewforth init',
       copy: H.copy, copied: H.copied, docsLabel: H.docs, docsHref: `${p}/install/`, starLabel: H.star, starHref: REPO_URL, adopt: inline(H.adopt),
       video: { src: '/media/crewforth-hero.mp4', poster: '/media/crewforth-hero-poster.jpg', play: H.play, sound: H.sound, desc: H.videoDesc, note: H.videoNote ?? '' },
       crew: {
@@ -248,18 +252,19 @@ export function generate(root = ROOT, site = SITE) {
   // The home page's overview video and its poster: the site's own files, served from its own origin.
   fs.cpSync(path.join(site, 'media'), path.join(site, 'public/media'), { recursive: true });
   fs.mkdirSync(path.join(site, 'src/assets'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'src/assets/version.json'), JSON.stringify({ version }) + '\n');
   for (const f of ['logo.svg', 'logo-light.svg']) fs.copyFileSync(path.join(root, 'assets', f), path.join(site, 'src/assets', f));
   fs.copyFileSync(path.join(root, 'assets/icon.svg'), path.join(site, 'public/favicon.svg'));
   fs.copyFileSync(path.join(root, 'assets/social-preview.png'), path.join(site, 'public/social-preview.png'));
   fs.writeFileSync(path.join(site, 'public/robots.txt'), 'User-agent: *\nAllow: /\n\nSitemap: https://crewforth.com/sitemap-index.xml\n');
 
-  return { agents: ag.length, skills: skills.length, commands: commands.length, rules: rules.length, fill, cost };
+  return { version, agents: ag.length, skills: skills.length, commands: commands.length, rules: rules.length, fill, cost };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const r = generate();
-    console.log(`site: generated ${CONTENT.length + 5} pages × ${LOCALES.length} languages · ${r.agents} agents · ${r.skills} skills · ${r.commands} commands · ${r.rules} rules · fill ${r.fill.warn}/${r.fill.alert} · always-on ${r.cost.total} B (discipline ${r.cost.discipline}, agents ${r.cost.agents}, skills ${r.cost.skills})`);
+    console.log(`site: generated v${r.version} · ${CONTENT.length + 5} pages × ${LOCALES.length} languages · ${r.agents} agents · ${r.skills} skills · ${r.commands} commands · ${r.rules} rules · fill ${r.fill.warn}/${r.fill.alert} · always-on ${r.cost.total} B (discipline ${r.cost.discipline}, agents ${r.cost.agents}, skills ${r.cost.skills})`);
   } catch (e) {
     if (e instanceof BuildError) { console.error(`site: ${e.message}`); process.exit(1); }
     throw e;
