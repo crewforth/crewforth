@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Sürüm](https://img.shields.io/badge/version-3.2.1-6D28D9?style=flat-square)
+![Sürüm](https://img.shields.io/badge/version-3.3.0-6D28D9?style=flat-square)
 ![Lisans](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 [![GitHub'da yıldız ver](https://img.shields.io/badge/GitHub'da_yıldız_ver-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
