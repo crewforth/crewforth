@@ -13,7 +13,7 @@ import { BuildError } from './lib.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, '../..');
 const INPUTS = ['kit/agents', 'kit/skills', 'kit/hooks', 'kit/eval', 'kit/CLAUDE.md', 'packaging', 'site/content', 'assets',
-  'evals/README.md', 'CHANGELOG.md', 'README.md', 'README.tr.md'];
+  'evals/README.md', 'CHANGELOG.md', 'README.md', 'README.tr.md', 'VERSION'];
 
 function scratch() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-site-selftest-'));
@@ -93,6 +93,22 @@ function expectFail(name, s, pattern) {
   try {
     fs.rmSync(path.join(s.root, 'site/content/tr/studio.md'));
     expectFail('a page with no Turkish file fails the build', s, /site\/content\/tr\/studio\.md is missing/);
+  } finally { s.done(); }
+}
+// 4 · a release renames the version on the home page and next to the logo; a VERSION that is not one fails.
+{
+  const s = scratch();
+  try {
+    fs.writeFileSync(path.join(s.root, 'VERSION'), '9.8.7\n');
+    const r = generate(s.root, s.site);
+    const json = JSON.parse(fs.readFileSync(path.join(s.site, 'src/assets/version.json'), 'utf8'));
+    check('the version shown is the one in VERSION',
+      r.version === '9.8.7' && json.version === '9.8.7'
+        && page(s, 'index.mdx').includes('"version":{"text":"v9.8.7","href":"/changelog/"}')
+        && page(s, 'tr/index.mdx').includes('"version":{"text":"v9.8.7","href":"/tr/changelog/"}'),
+      `generated v${r.version}, version.json ${json.version}`);
+    fs.writeFileSync(path.join(s.root, 'VERSION'), 'next\n');
+    expectFail('a VERSION that is not a version fails the build', s, /VERSION is not a version: 'next'/);
   } finally { s.done(); }
 }
 

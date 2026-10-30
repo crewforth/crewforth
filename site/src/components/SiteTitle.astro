@@ -1,0 +1,18 @@
+---
+// The logo, and next to it the release the site describes, linked to that language's changelog. The number is
+// written by scripts/generate.mjs from VERSION, so a release renames it on every page.
+import Default from '@astrojs/starlight/components/SiteTitle.astro';
+import { version } from '../assets/version.json';
+const locale = Astro.locals.starlightRoute.locale;
+const href = `${locale ? `/${locale}` : ''}/changelog/`;
+---
+<div class="cf-site-title">
+  <Default />
+  <a class="cf-site-version" href={href}>v{version}</a>
+</div>
+
+<style>
+  .cf-site-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cf-site-version { flex: none; padding: 1px 8px; border-radius: var(--cf-radius-pill); border: 1px solid var(--cf-line); color: var(--cf-ink-dim); font-family: var(--cf-font-mono); font-size: 12px; line-height: 18px; text-decoration: none; white-space: nowrap; }
+  .cf-site-version:hover { border-color: var(--cf-accent); color: var(--cf-accent); }
+</style>

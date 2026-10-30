@@ -5,6 +5,36 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.4.0] — 2026-10-30
+
+### Added
+
+- **An anonymous install count.** After a successful `npx crewforth init`, Crewforth sends one request, once per
+  project: `GET https://ping.crewforth.com/install?v=<version>`, the version and nothing else, after printing a line that says so. No
+  ID, path, project, host or user name is sent, and `adopt`, `update`, `add`, `studio`, the hooks and the plugin send
+  nothing. `CREW_NO_TELEMETRY` or `DO_NOT_TRACK` set to anything but `0` turns it off, and nothing is sent where `CI`
+  is set. The request gets 1.5 seconds and a failure never changes the install. The endpoint is a Cloudflare Worker
+  whose source is in the repository and which keeps a count per day and version, nothing else. README → Telemetry.
+- **The site says which release it describes.** The home page shows the version above its heading, and every page
+  shows it next to the logo, each linked to the changelog in the page's language. The number is read from `VERSION`
+  when the site is built, so a release renames it without anyone editing a page, and a `VERSION` that is not a
+  version fails the build.
+- **A guessed fill figure is reported.** The 🔋 figure in a reply is meant to be copied from the hook's measured
+  line, and nothing checked that it was. When the measured line stopped arriving, a session went on printing a fill
+  that rose from 45% to 86% while its transcript measured about 30%, and the user handed the session off on that
+  number. The Stop hook now measures the fill itself, and when the reply's figure is more than 5 points away it
+  tells the user both numbers. `CREW_FILL_TOLERANCE` changes the margin.
+
+### Fixed
+
+- **A session resumed in a worktree keeps its gates.** `.claude/` is gitignored, so a worktree made with
+  `git worktree add ../x` has none. A session that entered one kept its hooks only until it was resumed; from then
+  on Claude Code read the worktree's settings, found none, and ran no Crewforth hook at all: no commit approval, no
+  write gate, no fill reading. A new hook copies this checkout's `.claude/` into such a worktree when a session
+  enters it, without `worktrees/`, `state/`, the review record and the gate log, and refuses the move when the copy
+  cannot be made. Worktrees Claude Code creates under `.claude/worktrees/` were not affected and are left alone. The
+  plugin edition does not need it: its hooks load in a repository's worktrees too.
+
 ## [3.3.0] — 2026-10-29
 
 ### Added

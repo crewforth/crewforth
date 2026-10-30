@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Sürüm](https://img.shields.io/badge/version-3.3.0-6D28D9?style=flat-square)
+![Sürüm](https://img.shields.io/badge/version-3.4.0-6D28D9?style=flat-square)
 ![Lisans](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 [![GitHub'da yıldız ver](https://img.shields.io/badge/GitHub'da_yıldız_ver-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
@@ -120,6 +120,17 @@ Studio, delegasyonu olurken çizen yerel bir panel; üç görünümü var: kimin
 ```
 
 Yeni bir sürüm yayımlandığında Claude, oturumun başında bir kez şimdi mi, sonra mı güncelleneceğini ya da o sürümün atlanıp atlanmayacağını sorar; kendiliğinden asla güncellemez. `/crew-update` güncellemeyi çalıştırır ve neyin değiştiğini söyler; `./CLAUDE.md` dosyanıza dokunulmaz. Eski bir sürümün kurduğu ve Crewforth'un artık dağıtmadığı bileşenler değişmemişse `.claude/.legacy-backup/` altına taşınır ve tek satırlık bir geri alma komutu basılır; değiştirdikleriniz yerinde kalır ve adıyla bildirilir. `.claude/` altında Crewforth'a ait üç dosya (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) her güncellemede yenilenir; düzenlediğiniz bir kopya önce `.claude/.legacy-backup/` altında saklanır ve adıyla bildirilir. Windows'ta Git Bash kullanın; kapılar yalnız Claude Code onu bulduğunda çalışır. Bulamadığında yazan ve komut çalıştıran araçlar durdurulur; mesaj ve `/crew-doctor` ayarlanacak yolu söyler. Bir kurum ayarlarını (kritik yollar, model tabanları, verify komutları, dil) `--preset strict`, `--preset solo` ya da kendi JSON dosyasıyla her projeye taşıyabilir: [crewforth.com/tr/extending](https://crewforth.com/tr/extending). Bütün seçenekler: [crewforth.com/tr/install](https://crewforth.com/tr/install).
+
+## Telemetri
+
+Başarılı bir `npx crewforth init` sonunda Crewforth proje başına bir kez anonim bir sayım gönderir ve göndermeden önce bunu söyleyen bir satır basar: `GET https://ping.crewforth.com/install?v=<sürüm>`, User-Agent `crewforth`, gövde yok.
+
+- **Gönderilen:** Crewforth sürümü, başka hiçbir şey.
+- **Gönderilmeyen:** hiçbir türden kimlik, yol, proje ya da depo adı, git bilgisi, makine ya da kullanıcı adı, dil, yığın, preset, işletim sistemi ve zaman.
+- **Ne zaman:** yalnız başarılı bir `init` sonunda. `adopt`, `update`, `add`, `studio`, hook'lar, oturumlarınız, plugin ve kendiniz çalıştırdığınız `start.sh` hiçbir şey göndermez. Aynı projede ikinci bir `init` de göndermez; ilkini git dizinindeki, hiç gönderilmeyen bir işaret kaydeder.
+- **Kapatma:** `CREW_NO_TELEMETRY` ya da `DO_NOT_TRACK` değişkenini `0` dışında bir değere ayarlayın. `CI` tanımlı olan yerde hiçbir şey gönderilmez. Kapalıyken hiçbir şey basılmaz, gönderilmez, yazılmaz.
+- **Maliyet:** isteğe 1,5 saniye verilir. Hata yok sayılır ve kurulumu hiçbir zaman değiştirmez.
+- **Nereye gider:** kaynağının tamamı [`packaging/install-ping-worker/`](https://github.com/Crewforth/crewforth/tree/main/packaging/install-ping-worker) altında duran bir Cloudflare Worker. Gün ve sürüm başına bir sayacı bir artırır, başka hiçbir şey saklamaz (IP yok, başlık yok); istek günlüğü kapalıdır. Gönderen kod [`bin/cli.js`](https://github.com/Crewforth/crewforth/blob/main/bin/cli.js) içindeki `countInstall`.
 
 ## Nasıl ölçüyoruz
 
