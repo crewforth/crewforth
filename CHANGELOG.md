@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **An anonymous install count.** After a successful `npx crewforth init`, Crewforth sends one request, once per
+  project: `GET <endpoint>/install?v=<version>`, the version and nothing else, after printing a line that says so. No
+  ID, path, project, host or user name is sent, and `adopt`, `update`, `add`, `studio`, the hooks and the plugin send
+  nothing. `CREW_NO_TELEMETRY` or `DO_NOT_TRACK` set to anything but `0` turns it off, and nothing is sent where `CI`
+  is set. The request gets 1.5 seconds and a failure never changes the install. The endpoint is a Cloudflare Worker
+  whose source is in the repository and which keeps a count per day and version, nothing else. README → Telemetry.
 - **The site says which release it describes.** The home page shows the version above its heading, and every page
   shows it next to the logo, each linked to the changelog in the page's language. The number is read from `VERSION`
   when the site is built, so a release renames it without anyone editing a page, and a `VERSION` that is not a

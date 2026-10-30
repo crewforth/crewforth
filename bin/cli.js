@@ -496,3 +496,58 @@ try {
 } finally {
   try { fs.rmSync(stage, { recursive: true, force: true }); } catch (_) { /* best effort */ }
 }
+
+// ================================ install count ================================
+// One anonymous "an install finished" count, so the project can tell how many installs actually happen (npm's
+// download figure also counts mirrors, CI and bots). The single definition of what is sent, when, and how it is
+// turned off; README → Telemetry describes it, and nothing else in the package sends anything.
+//   when:  a successful init (start.sh exit 0) only — never adopt/update/add/studio, a hook or a session;
+//          once per project: the marker lives in the git directory (or .claude/ outside git) and is never sent.
+//   what:  GET <endpoint>/install?v=<version>, User-Agent "crewforth", no body. No ID of any kind, no path, no
+//          project or user name, no host, no language, no OS, no time (the server keeps its own clock).
+//   off:   CREW_NO_TELEMETRY or DO_NOT_TRACK set to anything but 0, or CI defined at all. Off means nothing is
+//          printed, sent or written.
+//   cost:  the request is given 1.5 s and every failure is swallowed: it never changes the exit code or prints
+//          an error. The notice line is printed BEFORE the request.
+// The endpoint is a Cloudflare Worker whose source is packaging/install-ping-worker/; until it is deployed the
+// constant stays empty and nothing is sent or printed. CREW_TELEMETRY_URL replaces it for the tests only.
+const INSTALL_COUNT_URL = '';
+const INSTALL_COUNT_NOTICE = {
+  en: 'Crewforth sends one anonymous "install worked" count (version only, no IDs or paths). Turn off: CREW_NO_TELEMETRY=1 · details: README → Telemetry',
+  tr: 'Crewforth tek seferlik anonim bir "kurulum çalıştı" sayımı gönderir (yalnız sürüm; kimlik ve yol yok). Kapatmak için: CREW_NO_TELEMETRY=1 · ayrıntı: README → Telemetri',
+};
+function installCountOff(env) {
+  const set = (v) => v !== undefined && v !== '' && v !== '0';
+  return set(env.CREW_NO_TELEMETRY) || set(env.DO_NOT_TRACK) || env.CI !== undefined;
+}
+function countInstall() {
+  try {
+    const url = process.env.CREW_TELEMETRY_URL || INSTALL_COUNT_URL;
+    if (!url || installCountOff(process.env) || typeof fetch !== 'function') return;
+    let version = '';
+    try { version = fs.readFileSync(path.join(pkgDir, 'VERSION'), 'utf8').split(/\r?\n/)[0].trim(); } catch (_) { /* none */ }
+    if (!/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/.test(version)) return;
+    const project = process.cwd();
+    const gitEnv = { ...process.env }; delete gitEnv.GIT_DIR; delete gitEnv.GIT_WORK_TREE;
+    const g = spawnSync('git', ['rev-parse', '--git-path', 'crewforth-install-counted'], { cwd: project, env: gitEnv, encoding: 'utf8' });
+    const rel = g.status === 0 ? String(g.stdout).trim() : '';
+    const marker = rel ? path.resolve(project, rel) : path.join(project, '.claude', 'install-counted');
+    if (fs.existsSync(marker)) return;
+    let lang = /^(tr)/i.test(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '') ? 'tr' : 'en';
+    if (process.env.CREW_LANG === 'tr' || process.env.CREW_LANG === 'en') lang = process.env.CREW_LANG;
+    try {
+      const conf = fs.readFileSync(path.join(project, '.claude', 'kit.conf'), 'utf8');
+      const m = /^lang=(tr|en)\s*$/m.exec(conf); if (m) lang = m[1];
+    } catch (_) { /* no record of the install's language */ }
+    console.log(INSTALL_COUNT_NOTICE[lang]);
+    try { fs.writeFileSync(marker, version + '\n'); } catch (_) { return; }   // no marker, no request: it would repeat
+    fetch(`${url.replace(/\/+$/, '')}/install?v=${encodeURIComponent(version)}`, {
+      headers: { 'User-Agent': 'crewforth' }, signal: AbortSignal.timeout(1500),
+    }).then(
+      (r) => { if (r.body) r.body.cancel().catch((_) => { /* the answer is never read: nothing is lost */ }); },
+      (_) => { /* no answer within 1.5 s, refused or offline: the count is lost, never the install */ },
+    );
+  } catch (_) { /* a count is never worth a failed install */ }
+}
+// Called last: the constants above are declared by the time it reads them.
+if (script === 'start.sh' && process.exitCode === 0) countInstall();

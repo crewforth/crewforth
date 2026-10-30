@@ -102,3 +102,14 @@ Where the change lands is a choice. A first adopt opens a `kit-adopt-<timestamp>
 Inside a session, **`/crew-update`** does the version check, runs the updater, verifies with `/crew-doctor`, then prompts `/clear` so a new session loads the refreshed discipline. **`/crew-doctor`** checks a live install at any time — hooks executable, `core.hooksPath` set, gates wired, the discipline actually imported — and prints an advisory readiness score for the project itself.
 
 If a project's `CLAUDE.md` carries the discipline **inline** instead of importing it, updates cannot reach it. The updater detects this, shows the affected lines, and offers to replace them with the single `@.claude/DISCIPLINE.md` import — writing a backup first, on a branch you review. Decline and nothing is touched.
+
+## Telemetry
+
+After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project, and prints a line saying so before it does: `GET <endpoint>/install?v=<version>`, with the User-Agent `crewforth` and no body.
+
+- **Sent:** the Crewforth version, nothing else.
+- **Not sent:** no ID of any kind, no path, project or repository name, no git information, host or user name, language, stack, preset, operating system or time.
+- **When:** only after a successful `init`. `adopt`, `update`, `add`, `studio`, the hooks, your sessions, the plugin and a `start.sh` you run yourself send nothing. A second `init` in the same project sends nothing either; a marker in the git directory, which is never sent, records the first.
+- **Off:** set `CREW_NO_TELEMETRY` or `DO_NOT_TRACK` to anything but `0`. Nothing is sent where `CI` is set. When it is off, nothing is printed, sent or written.
+- **Cost:** the request gets 1.5 seconds. A failure is ignored and never changes the install.
+- **Where it goes:** a Cloudflare Worker whose whole source is in [`packaging/install-ping-worker/`](https://github.com/Crewforth/crewforth/tree/main/packaging/install-ping-worker). It adds one to a count per day and version and keeps nothing else, no IP and no header, with request logging off. The sending code is `countInstall` in [`bin/cli.js`](https://github.com/Crewforth/crewforth/blob/main/bin/cli.js).
