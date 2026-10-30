@@ -13,6 +13,8 @@ WORK="${RUNNER_TEMP:-$(mktemp -d)}"
 # Several assertions grep the installers' English output. A Turkish locale (or an exported CREW_LANG=tr) turns
 # those into false failures, so the run is pinned to English; case 18 passes --lang explicitly, which wins.
 export CREW_LANG=en
+# No block but install-count may send the install count; that block clears this per case.
+export CREW_NO_TELEMETRY=1
 # An update renames 2.x auto-mode rules in the USER's settings (CLAUDE_CONFIG_DIR, else ~/.claude). This run must
 # never reach the real one, so it gets its own; and a 2.x variable in the caller's shell must not leak into cases.
 export CLAUDE_CONFIG_DIR="$WORK/claude-config"; mkdir -p "$CLAUDE_CONFIG_DIR"
@@ -129,7 +131,7 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 # The map is checked against the blocks in this file on EVERY run, sharded or not: a block in no shard, or in two,
 # stops the run before anything is rehearsed. A skipped block is never a passed one.
 E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
-2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep
+2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep install-count
 3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename'
 E2E_SHARDS=3
 _e2e_blocks="$(grep -E '^if _e2e_mine [a-z0-9.-]+; then$' "${BASH_SOURCE[0]}" | awk '{print $3}' | tr -d ';' | LC_ALL=C sort)"
@@ -1300,6 +1302,131 @@ else
 fi
 
 fi
+# ---- the install count: what bin/cli.js sends after a successful init, and every case that sends nothing ----
+if _e2e_mine install-count; then
+# A local listener stands in for the endpoint (CREW_TELEMETRY_URL, the tests' override). Every case clears the
+# three opt-outs itself and sets only the one it tests: the runner exports CI, and this file exports
+# CREW_NO_TELEMETRY=1 for every other block, so inheriting either would turn every "sends" below into "silent".
+if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+  TC="$WORK/install-count"; rm -rf "${TC:?}"; mkdir -p "$TC"
+  cat > "$TC/listen.js" <<'TELJS'
+const http = require('http'), fs = require('fs');
+const [log, mode] = process.argv.slice(2);
+const srv = http.createServer((q, r) => {
+  fs.appendFileSync(log, JSON.stringify({ m: q.method, u: q.url, h: q.headers }) + '\n');
+  if (mode === 'hang') return;
+  r.statusCode = mode === '500' ? 500 : 204; r.end();
+});
+srv.listen(0, '127.0.0.1', () => fs.writeFileSync(log + '.port', String(srv.address().port)));
+TELJS
+  TLP=""
+  tl_start(){ : > "$TC/$1.log"; : > "$TC/$1.log.port"; node "$TC/listen.js" "$TC/$1.log" "${2:-ok}" & TLP=$!
+    local i=0; while [ ! -s "$TC/$1.log.port" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+    TPORT="$(cat "$TC/$1.log.port" 2>/dev/null)"
+    [ -n "$TPORT" ] || { echo "FAIL: FIXTURE — the local listener did not start, so no count below is measured"; exit 1; }; }
+  tl_stop(){ if [ -n "$TLP" ]; then kill "$TLP" 2>/dev/null || true; wait "$TLP" 2>/dev/null || true; fi; TLP=""; }
+  tproj(){ rm -rf "${TC:?}/${1:?}"; mkdir -p "$TC/$1" && git -C "$TC/$1" init -q; }
+  # tcli <cli.js> <project> [VAR=value ...] -- <args>: the CLI as npx runs it, every opt-out cleared first.
+  tcli(){ local c="$1" p="$2"; shift 2; local e=(); while [ "$#" -gt 0 ] && [ "$1" != -- ]; do e+=("$1"); shift; done; shift
+    ( cd "$TC/$p" && env -u CI -u CREW_NO_TELEMETRY -u DO_NOT_TRACK CREW_TELEMETRY_URL="http://127.0.0.1:$TPORT" ${e[@]+"${e[@]}"} node "$c" "$@" </dev/null ) >"$TC/$p.out" 2>"$TC/$p.err"; }
+  nreq(){ grep -c . "$TC/$1.log" 2>/dev/null || true; }
+  marker(){ local m; m="$(git -C "$TC/$1" rev-parse --git-path crewforth-install-counted)"; case "$m" in /*|?:*) ;; *) m="$TC/$1/$m" ;; esac; printf '%s' "$m"; }
+  noticed(){ grep -cE 'anonymous "install worked" count|tek seferlik anonim bir "kurulum çalıştı" sayımı' "$TC/$1.out" 2>/dev/null || true; }
+  V="$(head -1 VERSION | tr -d '\r')"
+  CLI="$ROOT/bin/cli.js"
+
+  tl_start a
+  # 1 · a successful init sends exactly one request, and it says nothing but the version.
+  PN=zz-telemetry-probe-project; tproj "$PN"
+  tcli "$CLI" "$PN" -- init --yes || { echo "FAIL: init through cli.js exited non-zero:"; tail -n 20 "$TC/$PN.err"; exit 1; }
+  [ "$(nreq a)" = 1 ] || { echo "FAIL: a successful init sent $(nreq a) requests, want 1"; exit 1; }
+  CHK="$(node -e '
+    const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8").split("\n")[0]);
+    const ok = new Set(["host","connection","user-agent","accept","accept-language","sec-fetch-mode","accept-encoding"]);
+    const extra = Object.keys(r.h).filter((k) => !ok.has(k));
+    const bad = [];
+    if (r.m !== "GET") bad.push("method " + r.m);
+    if (r.u !== "/install?v=" + process.argv[2]) bad.push("url " + r.u);
+    if (r.h["user-agent"] !== "crewforth") bad.push("user-agent " + r.h["user-agent"]);
+    if (extra.length) bad.push("headers " + extra.join(","));
+    process.stdout.write(bad.join("; "));' "$TC/a.log" "$V")"
+  [ -z "$CHK" ] || { echo "FAIL: the request carries more than the version: $CHK"; exit 1; }
+  # Nothing that names the machine, the user or the project, anywhere in the request (URL and headers). The same
+  # search is first run on a line that does hold them: a search that finds nothing there measures nothing here.
+  leaks(){ local t; for t in "$TC/$PN" "$PN" "$HOME" "$(id -un 2>/dev/null)" "$(hostname 2>/dev/null)"; do [ -n "$t" ] && grep -qF -- "$t" "$1" && printf '%s ' "$t"; done; return 0; }
+  printf 'x %s %s %s %s %s\n' "$TC/$PN" "$PN" "$HOME" "$(id -un 2>/dev/null)" "$(hostname 2>/dev/null)" > "$TC/leak-twin.txt"
+  [ -n "$(leaks "$TC/leak-twin.txt")" ] || { echo "FAIL: FIXTURE — the leak search found nothing in a line that holds every term"; exit 1; }
+  L="$(leaks "$TC/a.log")"; [ -z "$L" ] || { echo "FAIL: the request names the machine, the user or the project: $L"; exit 1; }
+  [ "$(noticed "$PN")" = 1 ] || { echo "FAIL: the init that sent the count did not say so (notice lines: $(noticed "$PN"))"; exit 1; }
+  [ -f "$(marker "$PN")" ] || { echo "FAIL: no marker in the git directory after the count"; exit 1; }
+  case "$(git -C "$TC/$PN" status --porcelain --ignored 2>/dev/null)" in *install-counted*) echo "FAIL: the marker shows in the work tree"; exit 1 ;; esac
+  # 2 · once per project: the same init again sends nothing and says nothing.
+  tcli "$CLI" "$PN" -- init --yes || { echo "FAIL: a second init exited non-zero"; exit 1; }
+  { [ "$(nreq a)" = 1 ] && [ "$(noticed "$PN")" = 0 ]; } || { echo "FAIL: a second init in the same project counted again ($(nreq a) requests)"; exit 1; }
+  # 3 · each opt-out alone: nothing sent, nothing printed, no marker. CI counts when it is defined at all.
+  for OPT in CREW_NO_TELEMETRY=1 DO_NOT_TRACK=1 CI=; do
+    P="off-${OPT%%=*}"; tproj "$P"; n0="$(nreq a)"
+    tcli "$CLI" "$P" "$OPT" -- init --yes || { echo "FAIL: init with $OPT exited non-zero"; exit 1; }
+    { [ "$(nreq a)" = "$n0" ] && [ "$(noticed "$P")" = 0 ] && [ ! -e "$(marker "$P")" ]; } \
+      || { echo "FAIL: $OPT did not turn the count off (requests $n0 -> $(nreq a), notice $(noticed "$P"))"; exit 1; }
+  done
+  # ... and 0 is not "off": each of the two still sends.
+  for OPT in CREW_NO_TELEMETRY=0 DO_NOT_TRACK=0; do
+    P="zero-${OPT%%=*}"; tproj "$P"; n0="$(nreq a)"
+    tcli "$CLI" "$P" "$OPT" -- init --yes || { echo "FAIL: init with $OPT exited non-zero"; exit 1; }
+    [ "$(nreq a)" = $((n0 + 1)) ] || { echo "FAIL: $OPT turned the count off; only a value other than 0 does"; exit 1; }
+  done
+  # 4 · the notice in Turkish, where the install was made in Turkish.
+  tproj tr; n0="$(nreq a)"; tcli "$CLI" tr CREW_LANG=tr -- init --yes --lang tr || { echo "FAIL: a Turkish init exited non-zero"; exit 1; }
+  { [ "$(nreq a)" = $((n0 + 1)) ] && grep -q 'kurulum çalıştı' "$TC/tr.out"; } || { echo "FAIL: the Turkish install did not print the Turkish notice"; exit 1; }
+  # 5 · nothing but a successful init counts: a failed init, add, adopt, update, studio.
+  n0="$(nreq a)"
+  tproj fail; tcli "$CLI" fail -- init --no-such-flag && { echo "FAIL: FIXTURE — init --no-such-flag succeeded, so the failed-init case proves nothing"; exit 1; }
+  tproj doors; ( cd "$TC/doors" && git config user.email t@example.test && git config user.name t && git commit -q --allow-empty -m b )
+  # Their own exit codes are not this block's question (each has its own rehearsal); only whether they sent.
+  tcli "$CLI" doors -- add security-expert || true
+  tcli "$CLI" doors -- adopt --here --yes || true
+  tcli "$CLI" doors -- update --here --yes || true
+  tcli "$CLI" doors -- studio --selftest || true
+  [ "$(nreq a)" = "$n0" ] || { echo "FAIL: something other than a successful init sent a count ($n0 -> $(nreq a))"; exit 1; }
+  tl_stop
+  # 6 · a count never costs the install: a server that never answers, and one that fails. Exit 0, nothing on stderr,
+  #     and the wait bounded (1.5 s in the code; 3 s allowed here, for a slow runner).
+  ms(){ node -e 'process.stdout.write(String(Date.now()))'; }
+  tproj base; t0=$(ms)
+  # The baseline sends nothing: with the real endpoint in cli.js, an unsilenced run here would count a test install.
+  ( cd "$TC/base" && env -u CI -u DO_NOT_TRACK CREW_NO_TELEMETRY=1 node "$CLI" init --yes </dev/null >/dev/null 2>&1 ) || { echo "FAIL: the baseline init exited non-zero"; exit 1; }; tb=$(( $(ms) - t0 ))
+  for MODE in hang 500; do
+    tl_start "$MODE" "$MODE"; P="srv-$MODE"; tproj "$P"; t0=$(ms)
+    r=0; tcli "$CLI" "$P" -- init --yes || r=$?; tm=$(( $(ms) - t0 )); tl_stop
+    [ "$r" = 0 ] || { echo "FAIL: a $MODE endpoint changed the install's exit code to $r"; exit 1; }
+    [ ! -s "$TC/$P.err" ] || { echo "FAIL: a $MODE endpoint printed to stderr:"; head -n 5 "$TC/$P.err"; exit 1; }
+    [ "$(nreq "$MODE")" = 1 ] || { echo "FAIL: FIXTURE — the $MODE endpoint saw $(nreq "$MODE") requests, so its cost is not measured"; exit 1; }
+    [ $((tm - tb)) -le 3000 ] || { echo "FAIL: a $MODE endpoint added $((tm - tb)) ms to the install (allowed 3000)"; exit 1; }
+    echo "[install-count] $MODE endpoint: +$((tm - tb)) ms over $tb ms, exit 0, stderr empty"
+  done
+  # 7 · twin: the same harness against a cli.js whose opt-out check is gone must see DO_NOT_TRACK=1 send.
+  #     Without it, case 3 could pass because nothing ever reached the listener.
+  TW="$TC/twin-pkg"; mkdir -p "$TW/bin"; cp -R start.sh VERSION kit "$TW/"
+  sed 's/return set(env.CREW_NO_TELEMETRY) || set(env.DO_NOT_TRACK) || env.CI !== undefined;/return false;/' "$CLI" > "$TW/bin/cli.js"
+  grep -q 'return false;' "$TW/bin/cli.js" || { echo "FAIL: FIXTURE — the twin's opt-out check was not removed (the line changed?)"; exit 1; }
+  tl_start t; tproj twin; tcli "$TW/bin/cli.js" twin DO_NOT_TRACK=1 -- init --yes || true; tl_stop
+  [ "$(nreq t)" = 1 ] || { echo "FAIL: FIXTURE — the twin without an opt-out did not send under DO_NOT_TRACK=1, so case 3 measures nothing"; exit 1; }
+  # 8 · the Worker's source stays out of the package.
+  if command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
+    PK="$(npm pack --dry-run --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const f=JSON.parse(s)[0].files.map(x=>x.path);process.stdout.write(f.length+" "+f.filter(p=>p.startsWith("packaging/")).length)})')"
+    set -- $PK
+    { [ "${1:-0}" -gt 0 ] && [ "${2:-1}" = 0 ]; } || { echo "FAIL: the npm package lists ${2:-?} file(s) under packaging/ (of ${1:-0})"; exit 1; }
+  else echo "[install-count] npm not here: the package listing is not checked"; fi
+  # 9 · the endpoint's own code: counts per day and version, refuses what is not a version, reads no header but
+  #     Authorization (on /count). Its twin, a Worker that stores the caller's IP, was run red when this was written.
+  node packaging/install-ping-worker/selftest.mjs >"$TC/worker.txt" 2>&1 || { echo "FAIL: the endpoint's selftest:"; grep -E 'FAIL|passed' "$TC/worker.txt"; exit 1; }
+  echo "[install-count] one request per project, version only; three opt-outs; failed init and the other doors send nothing; twin sends"
+else
+  echo "[install-count] SKIPPED (needs node and git)"
+fi
+fi
+
 # ---- the two no-install doors: `add` and `studio` (pure Node, no bash) ----
 if _e2e_mine no-install-doors; then
 # Driven through bin/cli.js exactly as `npx crewforth …` runs it. Every tree comparison is a hash over the files'

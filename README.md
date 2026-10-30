@@ -121,6 +121,17 @@ Studio is a local panel that draws a delegation as it happens, in three views: a
 
 When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. The three files Crewforth owns under `.claude/` (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) are refreshed on every update; a copy you edited is kept in `.claude/.legacy-backup/` first, and named. On Windows, use Git Bash; the gates run only when Claude Code finds it. When it does not, the tools that write or run commands are stopped, and the message and `/crew-doctor` name the path to set. An organisation can carry its settings (critical paths, model floors, verify commands, language) to every project with `--preset strict`, `--preset solo` or a JSON file of its own: [crewforth.com/extending](https://crewforth.com/extending). Every option: [crewforth.com/install](https://crewforth.com/install).
 
+## Telemetry
+
+After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project, and prints a line saying so before it does: `GET https://ping.crewforth.com/install?v=<version>`, with the User-Agent `crewforth` and no body.
+
+- **Sent:** the Crewforth version, nothing else.
+- **Not sent:** no ID of any kind, no path, project or repository name, no git information, host or user name, language, stack, preset, operating system or time.
+- **When:** only after a successful `init`. `adopt`, `update`, `add`, `studio`, the hooks, your sessions, the plugin and a `start.sh` you run yourself send nothing. A second `init` in the same project sends nothing either; a marker in the git directory, which is never sent, records the first.
+- **Off:** set `CREW_NO_TELEMETRY` or `DO_NOT_TRACK` to anything but `0`. Nothing is sent where `CI` is set. When it is off, nothing is printed, sent or written.
+- **Cost:** the request gets 1.5 seconds. A failure is ignored and never changes the install.
+- **Where it goes:** a Cloudflare Worker whose whole source is in [`packaging/install-ping-worker/`](https://github.com/Crewforth/crewforth/tree/main/packaging/install-ping-worker). It adds one to a count per day and version and keeps nothing else, no IP and no header, with request logging off. The sending code is `countInstall` in [`bin/cli.js`](https://github.com/Crewforth/crewforth/blob/main/bin/cli.js).
+
 ## How we measure
 
 We run the same prompt in a project with Crewforth and in a bare one, and grade each on what it left on disk. The rule a result must meet is written down before the run. Every result is published with its reasoning, including the ones where that rule did not hold: [`evals/README.md`](evals/README.md).

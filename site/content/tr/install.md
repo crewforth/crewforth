@@ -102,3 +102,14 @@ Değişikliğin nereye ineceği bir tercih. İlk devir `kit-adopt-<zaman damgas�
 Oturum içinde **`/crew-update`** sürüm kontrolünü yapar, güncelleyiciyi koşturur, `/crew-doctor` ile doğrular ve ardından `/clear` önerir; böylece tazelenen disiplin yeni bir oturumda yüklenir. **`/crew-doctor`** ise canlı bir kurulumu istediğiniz an denetler (hook'lar çalıştırılabilir mi, `core.hooksPath` ayarlı mı, kapılar bağlı mı, disiplin gerçekten import edilmiş mi) ve projenin kendisi için tavsiye niteliğinde bir hazırlık puanı basar.
 
 Bir projenin `CLAUDE.md` dosyası disiplini import etmek yerine **satır içinde** taşıyorsa güncellemeler oraya ulaşamaz. Güncelleyici bunu fark eder, etkilenen satırları gösterir ve onları tek bir `@.claude/DISCIPLINE.md` import'uyla değiştirmeyi önerir; önce yedek alır, işi de sizin inceleyeceğiniz bir dalda yapar. Reddederseniz hiçbir şeye dokunulmaz.
+
+## Telemetri
+
+Başarılı bir `npx crewforth init` sonunda Crewforth proje başına bir kez anonim bir sayım gönderir ve göndermeden önce bunu söyleyen bir satır basar: `GET https://ping.crewforth.com/install?v=<sürüm>`, User-Agent `crewforth`, gövde yok.
+
+- **Gönderilen:** Crewforth sürümü, başka hiçbir şey.
+- **Gönderilmeyen:** hiçbir türden kimlik, yol, proje ya da depo adı, git bilgisi, makine ya da kullanıcı adı, dil, yığın, preset, işletim sistemi ve zaman.
+- **Ne zaman:** yalnız başarılı bir `init` sonunda. `adopt`, `update`, `add`, `studio`, hook'lar, oturumlarınız, plugin ve kendiniz çalıştırdığınız `start.sh` hiçbir şey göndermez. Aynı projede ikinci bir `init` de göndermez; ilkini git dizinindeki, hiç gönderilmeyen bir işaret kaydeder.
+- **Kapatma:** `CREW_NO_TELEMETRY` ya da `DO_NOT_TRACK` değişkenini `0` dışında bir değere ayarlayın. `CI` tanımlı olan yerde hiçbir şey gönderilmez. Kapalıyken hiçbir şey basılmaz, gönderilmez, yazılmaz.
+- **Maliyet:** isteğe 1,5 saniye verilir. Hata yok sayılır ve kurulumu hiçbir zaman değiştirmez.
+- **Nereye gider:** kaynağının tamamı [`packaging/install-ping-worker/`](https://github.com/Crewforth/crewforth/tree/main/packaging/install-ping-worker) altında duran bir Cloudflare Worker. Gün ve sürüm başına bir sayacı bir artırır, başka hiçbir şey saklamaz (IP yok, başlık yok); istek günlüğü kapalıdır. Gönderen kod [`bin/cli.js`](https://github.com/Crewforth/crewforth/blob/main/bin/cli.js) içindeki `countInstall`.
