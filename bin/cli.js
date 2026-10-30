@@ -509,9 +509,9 @@ try {
 //          printed, sent or written.
 //   cost:  the request is given 1.5 s and every failure is swallowed: it never changes the exit code or prints
 //          an error. The notice line is printed BEFORE the request.
-// The endpoint is a Cloudflare Worker whose source is packaging/install-ping-worker/; until it is deployed the
-// constant stays empty and nothing is sent or printed. CREW_TELEMETRY_URL replaces it for the tests only.
-const INSTALL_COUNT_URL = '';
+// The endpoint is a Cloudflare Worker whose source is packaging/install-ping-worker/, served at ping.crewforth.com.
+// An empty constant sends and prints nothing. CREW_TELEMETRY_URL replaces it for the tests only.
+const INSTALL_COUNT_URL = 'https://ping.crewforth.com';
 const INSTALL_COUNT_NOTICE = {
   en: 'Crewforth sends one anonymous "install worked" count (version only, no IDs or paths). Turn off: CREW_NO_TELEMETRY=1 · details: README → Telemetry',
   tr: 'Crewforth tek seferlik anonim bir "kurulum çalıştı" sayımı gönderir (yalnız sürüm; kimlik ve yol yok). Kapatmak için: CREW_NO_TELEMETRY=1 · ayrıntı: README → Telemetri',

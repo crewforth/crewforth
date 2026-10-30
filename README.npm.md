@@ -43,7 +43,7 @@ When a new version is published, Claude asks once at the start of a session whet
 
 ## Telemetry
 
-After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project: `GET <endpoint>/install?v=<version>`, the version and nothing else, after printing a line that says so. No ID, path, project, host or user name is sent; `adopt`, `update`, `add` and `studio` send nothing. Turn it off with `CREW_NO_TELEMETRY=1` or `DO_NOT_TRACK=1`; nothing is sent where `CI` is set. Details: [README → Telemetry](https://github.com/Crewforth/crewforth#telemetry).
+After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project: `GET https://ping.crewforth.com/install?v=<version>`, the version and nothing else, after printing a line that says so. No ID, path, project, host or user name is sent; `adopt`, `update`, `add` and `studio` send nothing. Turn it off with `CREW_NO_TELEMETRY=1` or `DO_NOT_TRACK=1`; nothing is sent where `CI` is set. Details: [README → Telemetry](https://github.com/Crewforth/crewforth#telemetry).
 
 ## Links
 

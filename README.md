@@ -123,7 +123,7 @@ When a new version is published, Claude asks once, at the start of a session, wh
 
 ## Telemetry
 
-After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project, and prints a line saying so before it does: `GET <endpoint>/install?v=<version>`, with the User-Agent `crewforth` and no body.
+After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project, and prints a line saying so before it does: `GET https://ping.crewforth.com/install?v=<version>`, with the User-Agent `crewforth` and no body.
 
 - **Sent:** the Crewforth version, nothing else.
 - **Not sent:** no ID of any kind, no path, project or repository name, no git information, host or user name, language, stack, preset, operating system or time.

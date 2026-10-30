@@ -14,19 +14,20 @@ cd packaging/install-ping-worker
 npx wrangler login
 npx wrangler kv namespace create COUNTS          # put the printed id into wrangler.toml
 npx wrangler secret put READ_KEY                 # any long random string; it guards /count
-npx wrangler deploy                              # prints https://crewforth-install-count.<account>.workers.dev
+npx wrangler deploy                              # serves it at ping.crewforth.com (wrangler.toml `routes`)
 ```
 
-Then set `INSTALL_COUNT_URL` in `bin/cli.js` to the printed address. Until that constant is set, nothing is sent and no
-notice is printed.
+The Worker answers only at `https://ping.crewforth.com`: the `crewforth.com` zone is on Cloudflare, and the workers.dev
+address is off. `INSTALL_COUNT_URL` in `bin/cli.js` holds that address; with it empty, nothing is sent and no notice is
+printed.
 
 ## Read the counts
 
 ```bash
-curl -s -H "Authorization: Bearer $READ_KEY" https://crewforth-install-count.<account>.workers.dev/count
+curl -s -H "Authorization: Bearer $READ_KEY" https://ping.crewforth.com/count
 ```
 
 ## Limits
 
-KV has no atomic increment, so two installs in the same instant can be counted once. Anyone can call `/install`, so
+A new count shows in `/count` within about a minute (KV is eventually consistent). KV has no atomic increment, so two installs in the same instant can be counted once. Anyone can call `/install`, so
 the count can be inflated. Read it as a weekly trend and a lower bound, not as a number of users.

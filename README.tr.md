@@ -123,7 +123,7 @@ Yeni bir sürüm yayımlandığında Claude, oturumun başında bir kez şimdi m
 
 ## Telemetri
 
-Başarılı bir `npx crewforth init` sonunda Crewforth proje başına bir kez anonim bir sayım gönderir ve göndermeden önce bunu söyleyen bir satır basar: `GET <uç nokta>/install?v=<sürüm>`, User-Agent `crewforth`, gövde yok.
+Başarılı bir `npx crewforth init` sonunda Crewforth proje başına bir kez anonim bir sayım gönderir ve göndermeden önce bunu söyleyen bir satır basar: `GET https://ping.crewforth.com/install?v=<sürüm>`, User-Agent `crewforth`, gövde yok.
 
 - **Gönderilen:** Crewforth sürümü, başka hiçbir şey.
 - **Gönderilmeyen:** hiçbir türden kimlik, yol, proje ya da depo adı, git bilgisi, makine ya da kullanıcı adı, dil, yığın, preset, işletim sistemi ve zaman.

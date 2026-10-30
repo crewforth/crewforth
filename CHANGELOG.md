@@ -10,7 +10,7 @@ versioning follows [SemVer](https://semver.org/).
 ### Added
 
 - **An anonymous install count.** After a successful `npx crewforth init`, Crewforth sends one request, once per
-  project: `GET <endpoint>/install?v=<version>`, the version and nothing else, after printing a line that says so. No
+  project: `GET https://ping.crewforth.com/install?v=<version>`, the version and nothing else, after printing a line that says so. No
   ID, path, project, host or user name is sent, and `adopt`, `update`, `add`, `studio`, the hooks and the plugin send
   nothing. `CREW_NO_TELEMETRY` or `DO_NOT_TRACK` set to anything but `0` turns it off, and nothing is sent where `CI`
   is set. The request gets 1.5 seconds and a failure never changes the install. The endpoint is a Cloudflare Worker

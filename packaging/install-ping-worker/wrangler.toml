@@ -3,13 +3,16 @@
 name = "crewforth-install-count"
 main = "worker.js"
 compatibility_date = "2026-10-01"
-workers_dev = true
+# Served only at ping.crewforth.com (the crewforth.com zone is on Cloudflare); the workers.dev address is off.
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "ping.crewforth.com", custom_domain = true }]
 
 # No request logs: the Worker keeps nothing about a caller, and the platform's logs would.
 [observability]
 enabled = false
 
-# Create it once with `npx wrangler kv namespace create COUNTS` and put the id it prints here.
+# Created once with `npx wrangler kv namespace create COUNTS`; the id it printed is below.
 [[kv_namespaces]]
 binding = "COUNTS"
-id = "REPLACE_WITH_THE_COUNTS_NAMESPACE_ID"
+id = "caf7559499ad43818f3aa46e782f99e9"

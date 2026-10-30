@@ -1394,7 +1394,8 @@ TELJS
   #     and the wait bounded (1.5 s in the code; 3 s allowed here, for a slow runner).
   ms(){ node -e 'process.stdout.write(String(Date.now()))'; }
   tproj base; t0=$(ms)
-  ( cd "$TC/base" && env -u CI -u CREW_NO_TELEMETRY -u DO_NOT_TRACK node "$CLI" init --yes </dev/null >/dev/null 2>&1 ) || { echo "FAIL: the baseline init exited non-zero"; exit 1; }; tb=$(( $(ms) - t0 ))
+  # The baseline sends nothing: with the real endpoint in cli.js, an unsilenced run here would count a test install.
+  ( cd "$TC/base" && env -u CI -u DO_NOT_TRACK CREW_NO_TELEMETRY=1 node "$CLI" init --yes </dev/null >/dev/null 2>&1 ) || { echo "FAIL: the baseline init exited non-zero"; exit 1; }; tb=$(( $(ms) - t0 ))
   for MODE in hang 500; do
     tl_start "$MODE" "$MODE"; P="srv-$MODE"; tproj "$P"; t0=$(ms)
     r=0; tcli "$CLI" "$P" -- init --yes || r=$?; tm=$(( $(ms) - t0 )); tl_stop
