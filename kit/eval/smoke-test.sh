@@ -1083,6 +1083,33 @@ fillc 772000 manual 1
 sgerr="$(mkjson "${SGPFX}-l" "$SGFX" false | CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>&1 >/dev/null)"
 [ -z "$sgerr" ] && pass "stop-hook: writes nothing to stderr when a compaction IS present" \
                 || fail "stop-hook wrote to stderr with a compaction: $(printf '%s' "$sgerr" | tr '\n' ' ' | cut -c1-160)"
+# (13) THE REPLY'S 🔋 FIGURE IS HELD AGAINST THE MEASUREMENT. The discipline says it is copied from the hook's
+#      line, never guessed, and nothing checked it: a real session printed 45 … 86 for hours while its
+#      transcript measured 30.3, and the user handed it off on that number. The message escapes its newline as
+#      `\n`, as the payload does.
+mkjsonm(){ printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"%s"}' "$1" "$SGFX" "$2"; }
+sgm(){ mkjsonm "$1" "$2" | CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>/dev/null; }
+fill 303000
+o="$(sgm "${SGPFX}-m1" 'Stopped.\n\n🔋 Oturum %85 → yüksek doluluk · Öneri: yeni oturum')"
+case "$o" in *'"systemMessage"'*'says %85'*'%30.3'*) pass "stop-hook: a 🔋 figure far from the measurement is reported with the measured one" ;;
+  *) fail "stop-hook let a guessed 🔋 figure (85 against a measured 30.3) through: $o" ;; esac
+[ -z "$(sgm "${SGPFX}-m2" 'Done.\n\n🔋 Oturum %30,3 → düşük doluluk · Öneri: devam')" ] \
+  && pass "stop-hook: a 🔋 figure that matches the measurement is silent (a decimal comma included)" \
+  || fail "stop-hook reported a 🔋 figure that matches the measurement"
+[ -z "$(sgm "${SGPFX}-m3" 'Done.\n\n🔋 Session %34 → low fill')" ] \
+  && pass "stop-hook: a figure within the tolerance is silent (an end-of-turn reading runs ahead of the copied one)" \
+  || fail "stop-hook reported a figure inside the 5-point tolerance"
+[ -z "$(sgm "${SGPFX}-m4" 'The line reads: 🔋 Session %NN → level')$(sgm "${SGPFX}-m5" 'Done.')" ] \
+  && pass "stop-hook: no 🔋 figure (a quoted template, or no line at all) says nothing" \
+  || fail "stop-hook spoke about a reply with no 🔋 figure"
+fill 800000
+o="$(sgm "${SGPFX}-m6" 'Done.\n\n🔋 Session %40 → low fill')"
+case "$o" in *'says %40'*'>75%'*) pass "stop-hook: a wrong figure and a threshold alert share one systemMessage" ;;
+  *) fail "stop-hook dropped one of the two messages, or printed two objects: $o" ;; esac
+if [ -n "$JSONQ" ]; then
+  printf '%s' "$o" | json_get systemMessage >/dev/null 2>&1 && pass "stop-hook: the combined message is valid JSON (oracle: $JSONQ)" \
+    || fail "stop-hook's combined message is not valid JSON: $o"
+else skip tool "stop-hook combined-message JSON check skipped (no working JSON parser)"; fi
 rm -f "$SGFX"; rm -f "${TMPDIR:-/tmp}"/crew-session-guard.${SGPFX}-*.* 2>/dev/null
 
 # ---- CREW-NOJQ-PATH ---------------------------------------------------------------------------------------
