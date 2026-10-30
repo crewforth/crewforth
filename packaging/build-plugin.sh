@@ -37,6 +37,9 @@ chmod +x "$OUT/studio/ensure-node.sh" "$OUT/studio/server/hooks/"*.sh 2>/dev/nul
 # The Claude Code hooks that work standalone (self-locate via $0, read stdin).
 # skill-trust.sh is left out: it decides kit-owned vs project-owned from .claude/kit-manifest.txt, which only a
 # start.sh/adopt.sh install writes. Shipped here it could only ever exit silently — an idle component.
+# worktree-provision.sh is left out too: it copies an installed .claude/ into a worktree that lacks one, so a
+# session resumed there still loads its hooks. A plugin's hooks do not live in .claude/, and a plugin enabled for
+# the repository also loads in its worktrees, so the plugin edition has nothing to copy and nothing to fix.
 # session-update-check.sh IS shipped: it reads the plugin's own .claude-plugin/plugin.json and compares it against
 # the marketplace repo's copy, so a plugin user hears about a release on the channel that delivers it.
 # board.sh is not itself a hook: it is the engine board-sync.sh and commit-msg both call by path. It ships in the

@@ -7,10 +7,10 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 20 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 21 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 20 hook'un tamamı
+## 21 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
@@ -32,10 +32,11 @@
 | `skill-trust.sh` | Crewforth'un getirmediği ve sizin de kabul etmediğiniz her skill ya da ajanı adıyla bildirir |
 | `session-stats.sh` | Oturumun gerçekte ne yaptığını raporlar: patlayan araç döngüleri, tekrarlanan istekler, kesintiler. `reflect` ve `handoff` bunu okur, böylece geri dönüş hatırlamaya değil kayda dayanır |
 | `session-update-check.sh` | Yeni bir sürüm yayımlandığında, oturum açılırken bir kez güncellenip güncellenmeyeceğini sorar; her sürüm onu getirecek kanala göre karşılaştırılır. Sorgu ayrık koşar ve en fazla günde bir kez yapılır, dolayısıyla çevrimdışı ya da proxy arkasındaki bir makinede oturum açılışı hiçbir şey ödemez; `CREW_NO_UPDATE_CHECK=1` kapatır |
+| `worktree-provision.sh` | Oturum `.claude/worktrees/` dışında açılmış bir worktree'ye (`git worktree add ../x`) girdiğinde bu checkout'un `.claude/` dizinini oraya kopyalar; tek bir checkout'a ait parçalar (`worktrees/`, `state/`, review kaydı, kapı günlüğü) hariç. `.claude/` gitignore'da olduğu için böyle bir worktree'de hiç yoktur ve orada devam ettirilen bir oturum Crewforth'un hiçbir hook'unu yüklemez. Kopya yapılamazsa geçişi reddeder ve nedenini söyler |
 
 Diğer iki hook deneysel bir özelliğe hizmet eder ve bir depo onu açana kadar hiçbir şey yapmaz.
 
-İki git hook'u (`pre-commit` ve `commit-msg`) iz, sır, depo şişkinliği ve özel yol taramalarını koşturur. Sonuncusu şunun için var: yalnızca sizin makinenizde bulunan bir yol paylaşılan depoya yazılarak değil, yapıştırılarak sızar. Kendi `$HOME`'unuzu kendiliğinden engeller; yalnızca sizin tanıyabileceğiniz iç proje, müşteri ve sunucu adları ise gitignore'lanmış `.private-terms.txt` dosyasından gelir (`.private-allowlist.txt` kaçış kapısıdır). Her kapı eşleştirmeyi C yerel ayarında yapar; `i` ile `I`'nın birbirinin büyük/küçük hâli olmadığı Türkçe gibi bir sistem yerel ayarı yakalananı değiştirmez. Koşamayan bir tarama da commit'i geçirmez, durdurur. Plugin sürümü, `skill-trust.sh` dışında bunların hepsini getirir; o hook neyin Crewforth'a ait olduğunu bir kurulum script'inin yazdığı `kit-manifest.txt`'ten okur ve plugin böyle bir dosya oluşturmaz.
+İki git hook'u (`pre-commit` ve `commit-msg`) iz, sır, depo şişkinliği ve özel yol taramalarını koşturur. Sonuncusu şunun için var: yalnızca sizin makinenizde bulunan bir yol paylaşılan depoya yazılarak değil, yapıştırılarak sızar. Kendi `$HOME`'unuzu kendiliğinden engeller; yalnızca sizin tanıyabileceğiniz iç proje, müşteri ve sunucu adları ise gitignore'lanmış `.private-terms.txt` dosyasından gelir (`.private-allowlist.txt` kaçış kapısıdır). Her kapı eşleştirmeyi C yerel ayarında yapar; `i` ile `I`'nın birbirinin büyük/küçük hâli olmadığı Türkçe gibi bir sistem yerel ayarı yakalananı değiştirmez. Koşamayan bir tarama da commit'i geçirmez, durdurur. Plugin sürümü, `skill-trust.sh` ve `worktree-provision.sh` dışında bunların hepsini getirir. İlki neyin Crewforth'a ait olduğunu bir kurulum script'inin yazdığı `kit-manifest.txt`'ten okur ve plugin böyle bir dosya oluşturmaz. İkincisinin plugin'de işi yoktur: plugin'in hook'ları `.claude/` içinde durmaz ve bir depo için açılmış plugin o deponun worktree'lerinde de yüklenir.
 
 ## Kural → kapı
 

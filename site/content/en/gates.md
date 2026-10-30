@@ -7,10 +7,10 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | **Agents** | {{AGENT_COUNT}} | Thin triggers — *who* owns a domain and *when* they fire |
 | **Skills** | {{SKILL_COUNT}} | The method, written once, applied by whoever needs it |
 | **Commands** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hooks** | 20 | The gates, plus session measurement and routing |
+| **Hooks** | 21 | The gates, plus session measurement and routing |
 | **Discipline** | 1 | Principles, workflow, Definition of Done, prohibitions — imported by your `CLAUDE.md` |
 
-## All 20 hooks
+## All 21 hooks
 
 | Hook | Role |
 |:--|:--|
@@ -32,10 +32,11 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | `skill-trust.sh` | Names any skill or agent Crewforth never shipped and you never accepted |
 | `session-stats.sh` | Reports what the session actually did — failing tool loops, repeated prompts, interrupts. `reflect` and `handoff` read it, so a retrospective rests on the record rather than on recollection |
 | `session-update-check.sh` | Asks once, when a session opens, whether to update when a newer version is published — each edition compared against the channel that will deliver it. The lookup runs detached and at most daily, so an offline or proxied machine costs the session opening nothing; `CREW_NO_UPDATE_CHECK=1` turns it off |
+| `worktree-provision.sh` | When a session enters a worktree made outside `.claude/worktrees/` (`git worktree add ../x`), copies this checkout's `.claude/` into it, without the parts that belong to one checkout (`worktrees/`, `state/`, the review record, the gate log). `.claude/` is gitignored, so such a worktree has none, and a session resumed there would load no Crewforth hook at all. When the copy cannot be made it refuses the move and says why |
 
 The other two hooks serve an experimental feature and do nothing until a repository switches it on.
 
-Two git hooks — `pre-commit` and `commit-msg` — run the trace, secret, repo-bloat and private-path scans. The last one exists because a path that only lives on your machine reaches a shared repo by being pasted, not by being typed: it blocks your own `$HOME` automatically, and the internal project, client and host names only you can recognise come from a gitignored `.private-terms.txt` (`.private-allowlist.txt` is the escape). Every gate matches in the C locale, so a system locale such as Turkish, where `i` and `I` are not a pair, does not change what is caught; and a scan that cannot run stops the commit instead of passing it. The plugin edition ships all of these except `skill-trust.sh`, which decides what Crewforth owns from the `kit-manifest.txt` an installer writes and the plugin never creates.
+Two git hooks — `pre-commit` and `commit-msg` — run the trace, secret, repo-bloat and private-path scans. The last one exists because a path that only lives on your machine reaches a shared repo by being pasted, not by being typed: it blocks your own `$HOME` automatically, and the internal project, client and host names only you can recognise come from a gitignored `.private-terms.txt` (`.private-allowlist.txt` is the escape). Every gate matches in the C locale, so a system locale such as Turkish, where `i` and `I` are not a pair, does not change what is caught; and a scan that cannot run stops the commit instead of passing it. The plugin edition ships all of these except `skill-trust.sh`, which decides what Crewforth owns from the `kit-manifest.txt` an installer writes and the plugin never creates, and `worktree-provision.sh`: a plugin's hooks do not live in `.claude/`, and a plugin enabled for a repository also loads in its worktrees.
 
 ## Rule → gate
 

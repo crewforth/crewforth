@@ -1164,6 +1164,57 @@ crew_nojq_path(){   # $@ = the tools the code under test needs on PATH
 }
 # ---- /CREW-NOJQ-PATH --------------------------------------------------------------------------------------
 
+sec "== 6b2) a worktree the session enters carries .claude/ =="
+# .claude/ is gitignored, so `git worktree add ../x` makes a worktree with none, and a session resumed there loads no
+# hook at all (measured on Claude Code 2.1.309: a resumed session in such a worktree ran no project hook; the same
+# worktree with .claude/ copied in ran the Crewforth hooks). worktree-provision.sh copies it on EnterWorktree.
+if ! command -v git >/dev/null 2>&1; then skip tool "worktree provisioning not checked (no git)" 7
+else
+  _wp="$(mktemp -d)"; _wpm="$_wp/main"
+  mkdir -p "$_wpm/.claude/state" "$_wpm/.claude/worktrees" "$_wp/other"
+  ( cd "$_wpm" && git init -q && git config user.email p@example.test && git config user.name p && printf '.claude/\n' > .gitignore \
+      && git add .gitignore && git commit -qm init ) >/dev/null 2>&1
+  cp -R "$HOOKS" "$ROOT/eval" "$ROOT/settings.json" "$_wpm/.claude/" 2>/dev/null
+  echo s > "$_wpm/.claude/state/x"; echo '{}' > "$_wpm/.claude/review-pass.json"; echo g > "$_wpm/.claude/gate-log.tsv"
+  git -C "$_wp/other" init -q 2>/dev/null
+  for _w in ../wtA ../wtB ../wtC .claude/worktrees/inner; do git -C "$_wpm" worktree add -q "$_w" -b "b${RANDOM}" >/dev/null 2>&1; done
+  _wpH="$_wpm/.claude/hooks/worktree-provision.sh"
+  _wpcall(){ printf '{"hook_event_name":"%s","cwd":"%s","tool_name":"EnterWorktree","tool_input":{"path":"%s"},"tool_response":{"worktreePath":"%s"}}' "$1" "$_wpm" "$2" "$3" \
+    | ( cd "$_wpm" && bash "$_wpH" ) 2>"$_wp/err"; }
+  if [ ! -d "$_wp/wtA" ] || [ ! -d "$_wpm/.claude/worktrees/inner" ] || [ -e "$_wp/wtA/.claude" ]; then
+    fail "FIXTURE: the worktrees were not made, or wtA already had .claude/ — nothing below would be measured"
+  else
+    _wpcall PreToolUse "$_wp/wtA" ""; _r=$?
+    { [ "$_r" = 0 ] && [ -f "$_wp/wtA/.claude/settings.json" ] && [ -x "$_wp/wtA/.claude/hooks/guard-bash.sh" ] && [ -f "$_wp/wtA/.claude/eval/lib/settings-json.awk" ]; } \
+      && pass "worktree: entering a worktree made with git worktree add copies settings, hooks and eval into it (it had none)" \
+      || fail "worktree: entering ../wtA did not give it a working .claude/ (rc=$_r): $(head -c 200 "$_wp/err")"
+    { [ ! -e "$_wp/wtA/.claude/state" ] && [ ! -e "$_wp/wtA/.claude/worktrees" ] && [ ! -e "$_wp/wtA/.claude/review-pass.json" ] && [ ! -e "$_wp/wtA/.claude/gate-log.tsv" ]; } \
+      && pass "worktree: what belongs to one checkout (state/, worktrees/, the review record, the gate log) is not copied" \
+      || fail "worktree: the copy carried one checkout's own state into another"
+    _wpcall PostToolUse "" "$_wp/wtB"; _r=$?
+    { [ "$_r" = 0 ] && [ -f "$_wp/wtB/.claude/settings.json" ]; } \
+      && pass "worktree: after the move, the path the tool reports is provisioned too" \
+      || fail "worktree: PostToolUse did not provision the reported worktree (rc=$_r)"
+    _wpcall PreToolUse "$_wpm/.claude/worktrees/inner" ""; _r1=$?
+    _wpcall PreToolUse "$_wp/other" ""; _r2=$?
+    { [ "$_r1$_r2" = 00 ] && [ ! -e "$_wpm/.claude/worktrees/inner/.claude" ] && [ ! -e "$_wp/other/.claude" ]; } \
+      && pass "worktree: one Claude Code made under .claude/worktrees/ and another repository are left alone" \
+      || fail "worktree: wrote into a worktree it should leave alone (rc $_r1/$_r2)"
+    _wpcall PreToolUse "$_wp/wtA" ""; _r=$?
+    [ "$_r" = 0 ] && pass "worktree: a worktree that already carries .claude/ is passed through" || fail "worktree: re-entering a provisioned worktree answered $_r"
+    # The copy cannot be made: .claude is a FILE there, so mkdir fails whoever runs the suite (root included).
+    : > "$_wp/wtC/.claude"
+    _wpcall PreToolUse "$_wp/wtC" ""; _r=$?
+    { [ "$_r" = 2 ] && grep -q 'could not put its .claude/ into the worktree' "$_wp/err"; } \
+      && pass "worktree: when the copy cannot be made, entering is refused (exit 2) and the reason is said" \
+      || fail "worktree: a failed copy did not refuse the move (rc=$_r): $(head -c 200 "$_wp/err")"
+    _o="$(_wpcall PostToolUse "" "$_wp/wtC")"; _r=$?
+    case "$_r$_o" in 0*'"systemMessage"'*'could not put its .claude/'*'"additionalContext"'*) pass "worktree: a failed copy after the move tells the user and the model" ;;
+      *) fail "worktree: a failed copy after the move was silent (rc=$_r): $_o" ;; esac
+  fi
+  rm -rf "$_wp"
+fi
+
 sec "== 6c) no-jq fallback: sidechain-safe + full token sum =="
 BASHBIN="$(command -v bash 2>/dev/null || echo bash)"   # absolute -> a stripped PATH must not hide bash itself
 JXBIN="$(crew_nojq_path awk sed grep head tail cat ls tr)"
@@ -1973,16 +2024,16 @@ if [ "$IS_KIT" = 1 ]; then
     [ "${HC:-0}" -ge 2 ] && pass "$r states the real hook count ($TH) in both the summary table and the section header" \
       || fail "$r does not state $TH hooks in both places — the count drifted from hooks/ (found $HC of 2)"
   done
-  # The plugin channel wires a SUBSET on purpose (skill-trust.sh needs a manifest only an installer writes).
-  # Assert the subset is exactly that one, so a hook silently dropped from the plugin fails here.
+  # The plugin channel wires a SUBSET on purpose (skill-trust.sh needs a manifest only an installer writes;
+  # worktree-provision.sh copies an installed .claude/, which a plugin has not). Assert the subset is exactly those, so a hook silently dropped from the plugin fails here.
   if [ -f "$KR/plugin/hooks/hooks.json" ] && [ -f "$ROOT/settings.json" ]; then
     SET_H="$(grep -oE '[a-z-]+\.sh' "$ROOT/settings.json" | sort -u)"
     PLG_H="$(grep -oE '[a-z-]+\.sh' "$KR/plugin/hooks/hooks.json" | sort -u)"
     ONLY_SET="$(comm -23 <(printf '%s\n' "$SET_H") <(printf '%s\n' "$PLG_H") | tr '\n' ' ' | sed 's/ *$//')"
-    if [ "$ONLY_SET" = "skill-trust.sh" ]; then
-      pass "plugin wires every settings.json hook except skill-trust.sh (documented exclusion)"
+    if [ "$ONLY_SET" = "skill-trust.sh worktree-provision.sh" ]; then
+      pass "plugin wires every settings.json hook except skill-trust.sh and worktree-provision.sh (documented exclusions)"
     else
-      fail "plugin/settings hook sets diverged — only in settings: '${ONLY_SET:-none}' (expected exactly skill-trust.sh)"
+      fail "plugin/settings hook sets diverged — only in settings: '${ONLY_SET:-none}' (expected exactly skill-trust.sh worktree-provision.sh)"
     fi
     # The two editions must also agree on WHICH TOOLS they watch, not just which scripts they run. Matching
     # `Bash` alone leaves the PowerShell tool ungated, and on Windows without Git Bash that tool is the only
@@ -6956,9 +7007,9 @@ rm -rf "$_hsd"
 # A gate's timeout is not a comfort setting: a PreToolUse hook that reaches it does not block (Claude Code's hooks
 # reference: "doesn't block the tool call … don't count on a stalled hook to act as a gate"), and a field session on
 # 3.0.0 showed nine of them in one day — the commands ran with no gate. Crewforth had set 60 s where Claude Code's
-# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The eight PreToolUse
-# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh, guard-agent-model.sh and prompt-approval.sh on
-# the approval question, whose `ask` is what keeps a hook from answering it) carry 600 now; every other hook keeps 60 —
+# own default is 600, and the slowest machine measured needed 32-134 s for one guard-bash call. The nine PreToolUse
+# gates (the four bash gates, the no-bash gate of 12e, guard-schedule.sh, guard-agent-model.sh, worktree-provision.sh and
+# prompt-approval.sh on the approval question, whose `ask` is what keeps a hook from answering it) carry 600 now; every other hook keeps 60 —
 # when one of those times out, nothing is left unguarded.
 # Read per entry, in both editions; the twin lowers one gate back to 60 and must be seen.
 gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++; t = 0
@@ -6968,13 +7019,15 @@ gate_timeouts(){ json_hooks "$1" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" { n++
 _gtd="$(mktemp -d)"
 tr -d '\n' < "$ROOT/settings.json" | sed 's/guard-bash\.sh\([^}]*\)"timeout": 600/guard-bash.sh\1"timeout": 60/' > "$_gtd/twin.json"
 _gtw="$(gate_timeouts "$_gtd/twin.json")"
-if [ "$_gtw" != "8 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '8 1' — the pin sees nothing"
+if [ "$_gtw" != "9 1" ]; then fail "gate timeout pin: the twin with guard-bash.sh back at 60 s read '$_gtw', want '9 1' — the pin sees nothing"
 else for _gf in $_gpw_f; do
   [ -f "$_gf" ] || continue
   set -- $(gate_timeouts "$_gf")
-  if [ "${1:-0}" != 8 ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want 8 — the pin did not read the file as written"
-  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all 8 PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
-  else fail "${_gf##*/}: $2 of 8 PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
+  # The plugin edition has no worktree-provision.sh (build-plugin.sh says why), so it carries one gate fewer.
+  _gwant=9; case "$_gf" in */hooks.json) _gwant=8 ;; esac
+  if [ "${1:-0}" != "$_gwant" ]; then fail "${_gf##*/}: $1 PreToolUse gate hooks read, want $_gwant — the pin did not read the file as written"
+  elif [ "${2:-9}" = 0 ]; then pass "${_gf##*/}: all $_gwant PreToolUse gates have a 600 s timeout (a gate that times out does not block)"
+  else fail "${_gf##*/}: $2 of $_gwant PreToolUse gates time out before 600 s — a timed-out gate does not block"; fi
 done; fi
 rm -rf "$_gtd"
 
