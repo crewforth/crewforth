@@ -13,6 +13,11 @@ versioning follows [SemVer](https://semver.org/).
   shows it next to the logo, each linked to the changelog in the page's language. The number is read from `VERSION`
   when the site is built, so a release renames it without anyone editing a page, and a `VERSION` that is not a
   version fails the build.
+- **A guessed fill figure is reported.** The 🔋 figure in a reply is meant to be copied from the hook's measured
+  line, and nothing checked that it was. When the measured line stopped arriving, a session went on printing a fill
+  that rose from 45% to 86% while its transcript measured about 30%, and the user handed the session off on that
+  number. The Stop hook now measures the fill itself, and when the reply's figure is more than 5 points away it
+  tells the user both numbers. `CREW_FILL_TOLERANCE` changes the margin.
 
 ## [3.3.0] — 2026-10-29
 

@@ -117,6 +117,31 @@ if [ -z "$PCT" ]; then
   [ -n "$PCT" ] || exit 0
 fi
 
+# The reply's own 🔋 line, held against the reading. The discipline says that figure is copied from the hook's
+# line and never guessed, and nothing checked it: a session whose hook line had stopped arriving went on to print
+# 45, 51 … 86 while its transcript measured 30.3, and the user handed the session off on that number. A figure
+# more than CREW_FILL_TOLERANCE points (default 5) from the measurement is reported to the user, every turn it
+# happens. The tolerance covers the one honest gap: a slow-path reading is taken at the END of the turn, so it
+# includes output the model had not produced when it copied the start-of-turn line. No 🔋 line, or none with a
+# number after its '%' (a quoted template, `%NN`), says nothing. Pure expansion: no process.
+WRONG=""
+_said="${IN##*🔋}"
+if [ "$_said" != "$IN" ]; then
+  _said="${_said%%\\n*}"                           # that line only: the payload escapes a newline as \n
+  _num="${_said#*%}"
+  if [ "$_num" != "$_said" ]; then
+    _num="${_num%%[!0-9.,]*}"; _num="${_num/,/.}"  # a Turkish reply writes %30,3
+    _si="${_num%%.*}"; _sf="${_num#"$_si"}"; _sf="${_sf#.}"; _sf="${_sf:0:1}"
+    _mi="${PCT%%.*}"; _mf="${PCT#"$_mi"}"; _mf="${_mf#.}"; _mf="${_mf:0:1}"
+    case "$_si$_sf$_mi$_mf" in ''|*[!0-9]*) ;; *)
+      [ -n "$_si" ] && [ -n "$_mi" ] && {
+        _d=$(( (10#$_si * 10 + 10#${_sf:-0}) - (10#$_mi * 10 + 10#${_mf:-0}) )); [ "$_d" -lt 0 ] && _d=$(( -_d ))
+        [ "$_d" -gt $(( ${CREW_FILL_TOLERANCE:-5} * 10 )) ] && WRONG="%$_num"
+      } ;;
+    esac
+  fi
+fi
+
 # Highest threshold crossed. Compared under LC_ALL=C so '77.2' parses identically everywhere.
 # Compared on the integer part with shell arithmetic rather than two `awk` calls. Two spawns at the end of every
 # turn bought nothing here: the thresholds are whole numbers, so truncating is exactly equivalent — 89.9 is below
@@ -126,24 +151,26 @@ case "$INT" in ''|*[!0-9]*) exit 0 ;; esac
 TIER=""
 [ "$INT" -ge 90 ] && TIER=90
 [ -n "$TIER" ] || { [ "$INT" -ge 75 ] && TIER=75; }
-[ -n "$TIER" ] || exit 0
-
+MSG=""
 # Already warned at this tier this session? Stay silent — one alert per threshold, not one per turn.
-[ -e "$(marker "$TIER")" ] && exit 0
-# Stamp this tier AND every lower one: jumping 60 -> 92 in a single turn must not let the 75 warning fire
-# later (e.g. once /compact drops the fill back under 90).
-for t in 75 90; do
-  [ "$t" -le "$TIER" ] && { : > "$(marker "$t")" 2>/dev/null || true; }
-done
-
-if [ "$TIER" = 90 ]; then
-  MSG="CRITICAL >90% — hand off NOW: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Auto-compaction is close and it will cost you the handover."
-else
-  MSG=">75% threshold. Recommended: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Manual; your call."
+if [ -n "$TIER" ] && [ ! -e "$(marker "$TIER")" ]; then
+  # Stamp this tier AND every lower one: jumping 60 -> 92 in a single turn must not let the 75 warning fire
+  # later (e.g. once /compact drops the fill back under 90).
+  for t in 75 90; do
+    [ "$t" -le "$TIER" ] && { : > "$(marker "$t")" 2>/dev/null || true; }
+  done
+  if [ "$TIER" = 90 ]; then
+    MSG="CRITICAL >90% — hand off NOW: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Auto-compaction is close and it will cost you the handover."
+  else
+    MSG=">75% threshold. Recommended: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Manual; your call."
+  fi
 fi
+[ -n "$MSG$WRONG" ] || exit 0
 
 # JSON-escape backslash + double-quote in the measured line before embedding it.
 SAFE="$(printf '%s' "$LINE" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+OUT="${MSG:+$SAFE | $MSG}"
+[ -n "$WRONG" ] && OUT="⚠️ The 🔋 line in this reply says $WRONG, but the fill measured from the transcript is: $SAFE. The reply's figure is not a measurement — do not decide a handoff on it.${OUT:+ · $OUT}"
 # exit 0 + systemMessage: a neutral, user-facing warning (NOT a hook error, does NOT force an extra turn).
-printf '{"systemMessage":"%s | %s"}\n' "$SAFE" "$MSG"
+printf '{"systemMessage":"%s"}\n' "$OUT"
 exit 0
