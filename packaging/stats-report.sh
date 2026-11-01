@@ -90,6 +90,11 @@ jq -sr --argjson days "$DAYS" '
      else empty end)
   , "  npm         \($last.npm.total // 0 | pad(6))  downloads/week"
     + (if $prev then "   (w/w \(($last.npm.total // 0) - ($prev.npm.total // 0) | signed))" else "" end)
+  , (if $last.installs.last_week != null then
+       "  installs    \($last.installs.last_week | pad(6))  inits/week"
+       + (if $prev and ($prev.installs.last_week // null) != null then
+            "   (w/w \($last.installs.last_week - $prev.installs.last_week | signed))" else "" end)
+     else "  installs    not measured — \($last.installs.error // "row predates the install count")" end)
   , "  releases    \($last.github.releases // [] | length | pad(6))  tagged"
     + "   \([$last.github.releases // [] | .[].assets[]?.downloads] | add // 0 | pad(5))  asset downloads"
   , ""

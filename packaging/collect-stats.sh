@@ -17,6 +17,10 @@
 #   release assets     permanent, cumulative, and a real install signal (a tarball download is deliberate).
 #   traffic            EPHEMERAL — the whole reason this exists. Daily arrays are stored, not just the totals,
 #                      so the resolution survives even though the runs overlap.
+#   installs           the one count `npx crewforth init` sends per project (bin/cli.js → Telemetry), read from
+#                      the Worker's /count with its READ_KEY in INSTALL_COUNT_READ_KEY. The closest number to
+#                      "projects that installed it", still a lower bound. Versions `0.0.0-*` are the endpoint's
+#                      own deploy checks and are left out of `last_week`; the full map is kept as it came.
 #
 # Auth: the traffic endpoints require push access, and `administration` is NOT a permission the workflow's
 # automatic GITHUB_TOKEN can be granted — so traffic needs a fine-grained PAT (Administration: read) in
@@ -42,8 +46,13 @@ for tool in curl jq; do
 done
 
 # Token: STATS_TOKEN (traffic-capable) is preferred; GITHUB_TOKEN still gets releases; `gh` covers a local run.
+# TOKEN_SRC names the one in use, because an error that blames the wrong token sends the reader to the wrong fix:
+# for five weeks the row said "the automatic GITHUB_TOKEN cannot read traffic" while STATS_TOKEN, scoped to the
+# repository's old owner, was the token being refused, and releases were lost with it.
 TOKEN="${STATS_TOKEN:-${GITHUB_TOKEN:-}}"
-if [ -z "$TOKEN" ] && command -v gh >/dev/null 2>&1; then TOKEN="$(gh auth token 2>/dev/null || true)"; fi
+TOKEN_SRC="$([ -n "${STATS_TOKEN:-}" ] && echo STATS_TOKEN || { [ -n "${GITHUB_TOKEN:-}" ] && echo GITHUB_TOKEN; })"
+if [ -z "$TOKEN" ] && command -v gh >/dev/null 2>&1; then TOKEN="$(gh auth token 2>/dev/null || true)"; [ -n "$TOKEN" ] && TOKEN_SRC="gh auth token"; fi
+API="${STATS_API_URL:-https://api.github.com}"
 
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 VERSION="$(cat VERSION 2>/dev/null || echo unknown)"
@@ -56,14 +65,15 @@ VERSION="$(cat VERSION 2>/dev/null || echo unknown)"
 # than redefined, because one name for one thing is what keeps the two from drifting to different values.
 CURL_T="${CREW_NET_TIMEOUT:-15}"
 
-# gh_api <path> -> body on stdout, empty on failure (the caller decides whether that is fatal).
+# gh_api <path> [token] -> body on stdout, empty on failure (the caller decides whether that is fatal).
 gh_api() {
-  [ -n "$TOKEN" ] || return 1
+  local tok="${2:-$TOKEN}"
+  [ -n "$tok" ] || return 1
   curl -sf --connect-timeout 10 --max-time "$CURL_T" \
-          -H "Authorization: Bearer $TOKEN" \
+          -H "Authorization: Bearer $tok" \
           -H "Accept: application/vnd.github+json" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          "https://api.github.com/repos/$REPO/$1" 2>/dev/null
+          "$API/repos/$REPO/$1" 2>/dev/null
 }
 npm_api() { curl -sf --connect-timeout 10 --max-time "$CURL_T" "https://api.npmjs.org/$1" 2>/dev/null; }
 
@@ -81,6 +91,12 @@ NPM_VERS="$(json_or_null "$(npm_api "versions/$PKG_ENC/last-week")")"
 
 # --- release assets ----------------------------------------------------------------------------------------
 RELEASES="$(gh_api releases)"
+# Releases need no special permission, so a STATS_TOKEN that cannot see the repository (expired, or scoped to
+# another owner) must not take them down with traffic: retry with the workflow's own token.
+REL_FALLBACK=""
+if [ -z "$RELEASES" ] && [ "$TOKEN_SRC" = STATS_TOKEN ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+  RELEASES="$(gh_api releases "$GITHUB_TOKEN")"; [ -n "$RELEASES" ] && REL_FALLBACK=1
+fi
 if [ -n "$RELEASES" ] && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$RELEASES"; then
   RELEASES="$(jq -c '[.[] | {tag: .tag_name, published: .published_at,
                              assets: [.assets[] | {name, downloads: .download_count}]}]' <<<"$RELEASES")"
@@ -100,10 +116,27 @@ else
   if [ -z "$TOKEN" ]; then
     TRAFFIC_ERR='"no token: set STATS_TOKEN (fine-grained PAT, Administration: read)"'
   else
-    TRAFFIC_ERR='"token lacks push/Administration access — the automatic GITHUB_TOKEN cannot read traffic"'
+    case "$TOKEN_SRC:$REL_FALLBACK" in
+      STATS_TOKEN:1) TRAFFIC_ERR='"STATS_TOKEN was refused for this repository while GITHUB_TOKEN could read it: the PAT has expired or is scoped to another owner"' ;;
+      STATS_TOKEN:*) TRAFFIC_ERR='"STATS_TOKEN lacks Administration: read on this repository (or has expired)"' ;;
+      *)             TRAFFIC_ERR="\"$TOKEN_SRC cannot read traffic (it needs Administration: read): set STATS_TOKEN\"" ;;
+    esac
   fi
   echo "collect-stats: traffic unavailable — $(jq -r . <<<"$TRAFFIC_ERR")" >&2
 fi
+
+# --- installs (bin/cli.js's one count per project) ------------------------------------------------------------
+INSTALL_URL="${INSTALL_COUNT_URL:-https://ping.crewforth.com}"
+INSTALLS=null; INSTALLS_ERR=null
+if [ -n "${INSTALL_COUNT_READ_KEY:-}" ]; then
+  INSTALLS="$(json_or_null "$(curl -sf --connect-timeout 10 --max-time "$CURL_T" \
+                -H "Authorization: Bearer $INSTALL_COUNT_READ_KEY" "$INSTALL_URL/count" 2>/dev/null)")"
+  if [ "$INSTALLS" != null ]; then OK=1
+  else INSTALLS_ERR='"the count endpoint gave no JSON object (wrong key, or unreachable)"'; fi
+else
+  INSTALLS_ERR='"no key: set INSTALL_COUNT_READ_KEY (the Worker READ_KEY)"'
+fi
+[ "$INSTALLS_ERR" = null ] || echo "collect-stats: installs unavailable — $(jq -r . <<<"$INSTALLS_ERR")" >&2
 
 if [ "$OK" -eq 0 ]; then
   echo "collect-stats: every source failed — writing no row (an empty row is indistinguishable from zero reach)" >&2
@@ -115,6 +148,7 @@ jq -cn \
   --argjson point "$NPM_POINT" --argjson range "$NPM_RANGE" --argjson vers "$NPM_VERS" \
   --argjson releases "$RELEASES" --argjson clones "$CLONES" --argjson views "$VIEWS" \
   --argjson traffic_error "$TRAFFIC_ERR" \
+  --argjson installs "$INSTALLS" --argjson installs_error "$INSTALLS_ERR" \
   '{
      captured_at: $at,
      repo: $repo,
@@ -134,5 +168,14 @@ jq -cn \
                        views:  {count: $views.count,  uniques: $views.uniques,  daily: $views.views}}
                  else null end),
        traffic_error: $traffic_error
+     },
+     installs: {
+       by_day_version: $installs,
+       last_week: (if $installs then
+                     (($at | fromdateiso8601) - 7 * 86400 | strftime("%Y-%m-%d")) as $from
+                     | [$installs | to_entries[] | (.key | split("|")) as $k
+                        | select($k[0] >= $from and ($k[1] | startswith("0.0.0") | not)) | .value] | add // 0
+                   else null end),
+       error: $installs_error
      }
    }'

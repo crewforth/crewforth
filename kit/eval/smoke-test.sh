@@ -7102,7 +7102,7 @@ $_o"
   done < "$_BTT"
   # The independent count the markdown number must equal: a plain grep of the same files for the same command shape.
   _bte="$(while IFS= read -r _bf; do grep -hoE "$BT_CMD|$BT_PLG" "$_bf" 2>/dev/null; done < "$_BTT" \
-    | sed -E 's#^.*(\.claude|CLAUDE_PLUGIN_ROOT\})/##' | while IFS= read -r _r; do printf '%s\n' "$BT_SET" | grep -qxF "$_r" && echo x; done | wc -l | tr -d ' ')"
+    | sed -E 's#^.*(\.claude|CLAUDE_PLUGIN_ROOT\})/##' | while IFS= read -r _r; do grep -qxF "$_r" <<<"$BT_SET" && echo x; done | wc -l | tr -d ' ')"
   _bts=0; _btsf=0; _btr="$(cd "$ROOT/.." && pwd)"
   for _bf in $(cd "$ROOT" && find . -name '*.sh' -type f | LC_ALL=C sort | sed "s#^\./#$ROOT/#") "$_btr/adopt.sh" "$_btr/start.sh"; do
     [ -f "$_bf" ] || continue
@@ -11660,10 +11660,12 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
                     || fail "check-attribution.sh gave the wrong verdict:$_ca"
       _cy="$SGR/.github/workflows/ci.yml"
       _cstep="$(awk '/- name: No signature line/{f=1} f&&/^      - name:/&&!/No signature line/{f=0} f' "$_cy")"
-      if printf '%s\n' "$_cstep" | grep -q "if: github.event_name == 'pull_request'" \
-         && printf '%s\n' "$_cstep" | grep -q 'PR_BODY: \${{ github.event.pull_request.body }}' \
-         && printf '%s\n' "$_cstep" | grep -q 'bash packaging/check-attribution.sh' \
-         && ! printf '%s\n' "$_cstep" | grep -E 'run:|printf|bash' | grep -q '\${{'; then
+      # Here-strings, not `printf | grep -q`: under pipefail grep's early exit gave printf a broken pipe and the
+      # whole check read as "missing" (macOS runner, 2026-10-31).
+      if grep -q "if: github.event_name == 'pull_request'" <<<"$_cstep" \
+         && grep -q 'PR_BODY: \${{ github.event.pull_request.body }}' <<<"$_cstep" \
+         && grep -q 'bash packaging/check-attribution.sh' <<<"$_cstep" \
+         && ! grep -E 'run:|printf|bash' <<<"$_cstep" | grep -q '\${{'; then
         pass "ci.yml checks the PR title and body for a signature line, on pull_request, through env"
       else fail "ci.yml's signature-line step is missing or changed: pull_request only, title and body through env, no \${{ }} in the command"; fi
     fi
@@ -11729,7 +11731,7 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/evals/cases" ] &&
   BLIST="$(git -C "$SGR" ls-files --eol -- $BSPEC 2>/dev/null)"
   BN="$(printf '%s\n' "$BLIST" | grep -c .)"
   # An empty answer must mean "nothing unpinned", never "git listed nothing": files that must be in the set are asked for.
-  if ! printf '%s\n' "$BLIST" | grep -q '	evals/cases/[^/]*/case\.env$' || ! printf '%s\n' "$BLIST" | grep -q '	packaging/skill-summaries\.tr\.tsv$'; then
+  if ! grep -q '	evals/cases/[^/]*/case\.env$' <<<"$BLIST" || ! grep -q '	packaging/skill-summaries\.tr\.tsv$' <<<"$BLIST"; then
     fail "git did not list evals/cases/*/case.env or packaging/skill-summaries.tr.tsv, so the tooling eol check measured nothing ($BN files listed)"
   else
     BUNPIN="$(printf '%s\n' "$BLIST" | awk -F'\t' '{ split($1, f, " "); if (f[1] != "i/-text" && f[1] != "i/none" && f[1] != "i/" && $1 !~ /eol=lf/) print $2 }')"
