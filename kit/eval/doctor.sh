@@ -189,6 +189,9 @@ _mt() {
       'CLAUDE.md project section is still the template (placeholders left in)') s='CLAUDE.md proje bölümü hâlâ şablon (yer tutucular duruyor)' ;;
       'fill in Project / Stack / Project skills — agents read the stack from there') s='Project / Stack / Project skills bölümlerini doldurun — ajanlar yığını oradan okur' ;;
       'CLAUDE.md project section is filled in') s='CLAUDE.md proje bölümü doldurulmuş' ;;
+      'quality analysis recorded: %s') s='kalite analizi kayıtlı: %s' ;;
+      'CLAUDE.md names no quality analysis (## Stack → Quality analysis: %s) — the quality gate cannot tell a skipped analysis from a declined one') s='CLAUDE.md kalite analizi belirtmiyor (## Stack → Quality analysis: %s) — kalite kapısı atlanmış analizi reddedilmiş olandan ayıramıyor' ;;
+      'add "Quality analysis: sonarqube-local" (or sonarqube-server, or declined) under ## Stack; sonarqube-check stands a local server up') s='## Stack altına "Quality analysis: sonarqube-local" (ya da sonarqube-server, ya da declined) ekleyin; sonarqube-check yerel sunucuyu kurar' ;;
       "%s project-specific skill(s) alongside Crewforth's") s="Crewforth'unkilerin yanında %s projeye özel skill" ;;
       "no project-specific skill — every skill installed here ships with Crewforth") s="projeye özel skill yok — burada kurulu her skill Crewforth ile geliyor" ;;
       "no project-specific skill — %s, which CLAUDE.md lists under Project skills, ships with Crewforth") s="projeye özel skill yok — CLAUDE.md'nin Project skills altında saydığı %s Crewforth ile geliyor" ;;
@@ -906,6 +909,19 @@ if [ -f CLAUDE.md ]; then
     gap "CLAUDE.md project section is still the template (placeholders left in)" \
         "fill in Project / Stack / Project skills — agents read the stack from there"
   else rdy "CLAUDE.md project section is filled in"; fi
+  # R1b) Which quality analysis the DoD's quality gate runs. It was written six times as "(if SonarQube is in use)",
+  #      and on a project with no server that condition was simply false: one project measured 0 analyses in its
+  #      first 8 days. The answer is now a line in ## Stack; a missing or empty one is said here, by value.
+  QA="<missing>"
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "$_l" in 'Quality analysis:'*) _l="${_l#Quality analysis:}"; _l="${_l%$'\r'}"; _l="${_l# }"; QA="${_l:-<empty>}"; break ;; esac
+  done < CLAUDE.md
+  case "$QA" in '<missing>'|'<empty>') ;; '<'*) QA='<template>' ;; esac
+  case "$QA" in
+    sonarqube-local*|sonarqube-server*|declined*) rdy "quality analysis recorded: %s" "${QA%% *}" ;;
+    *) gap "CLAUDE.md names no quality analysis (## Stack → Quality analysis: %s) — the quality gate cannot tell a skipped analysis from a declined one" \
+           'add "Quality analysis: sonarqube-local" (or sonarqube-server, or declined) under ## Stack; sonarqube-check stands a local server up' "${QA%% *}" ;;
+  esac
 fi
 
 # R2) A project-specific skill — Crewforth ships the generic 'how's; the domain ones (payment-contract,

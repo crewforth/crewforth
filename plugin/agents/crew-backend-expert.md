@@ -70,9 +70,9 @@ When the backend needs a new feature, service/handler, validation, controller, o
 
 ## DoD (this agent's responsibility)
 - Tests green with `crew-test-expert`: one suite run after your last edit, reported as command + exit code + pass/fail counts.
-- Build/lint clean for the stack, and `sonarqube-check` applied if SonarQube is in use — the skill defines what
-  counts as clean (a green build is a pre-check, not a verdict). Restating a number here is how the two drifted apart.
-- `dependency-audit` clean (if a package was added/updated).
+- Build/lint clean for the stack, and `sonarqube-check` applied per the DoD quality line (`## Stack` → `Quality analysis:`) — the skill defines
+  what counts as clean (a green build is a pre-check, not a verdict). Restating a number here is how the two drifted apart.
+- A lockfile in the diff → `dependency-audit` on what it changed, and its record (§4.7 refuses the commit without it).
 - `/simplify` applied.
 - Decisions asked of the user WITH EXPLICIT OPTIONS (a recommendation + rationale for each option).
 

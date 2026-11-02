@@ -15,7 +15,11 @@ Run the change set through the review trio (read-only). **The audits go out in p
      **candidates** (reasoned) and **findings** (measured) separately; an unmeasured claim is never a verdict.
    - @agent-crew-privacy-agent (`privacy-compliance`) — **when the diff touches personal data**: legal basis,
      minimisation, retention, transfer.
-2. (if SonarQube is in use) **sonarqube-check** — 0/0/0/0 gate (language-agnostic).
+2. **Quality and dependencies**, beside the audits:
+   - **sonarqube-check** as `## Stack` → `Quality analysis:` says (the DoD's quality line): `sonarqube-*` → the
+     0/0/0/0 gate; `declined` → "no analysis ran — unverified" in the report; empty → ask once and write the answer.
+   - **A lockfile in the diff** → **dependency-audit** on what it changed, then its record (§4.7 refuses the
+     commit without one).
 3. **Last, once 1-2 leave no blocker:** @agent-crew-review-agent (crew-code-review) — it starts from the
    deterministic pre-pass (`.crewforth/review-prepass.json`) and writes `.crewforth/review.json`; "does it improve overall
    code health": the plan (what changed, the risks), then findings with a severity and a category. "Clean" means

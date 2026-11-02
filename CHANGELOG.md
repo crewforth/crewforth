@@ -5,6 +5,29 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
+  object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
+  (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is
+  never committed; code staged beside the lockfile keeps it valid, a new lockfile change needs a new audit. The hook
+  makes no network call. The lockfile list covers npm, Yarn, pnpm, Bun, Deno, uv, Poetry, Pipenv, PDM, Cargo, Go,
+  Bundler, Composer, Mix, pub, NuGet, Gradle, SwiftPM and CocoaPods.
+- **The route hint names `dependency-audit` beside the owner** when a request adds a package ("add a new dependency for
+  the date picker component", "pdf için bağımlılık ekle"), instead of losing to the agent that owns the request.
+
+### Changed
+
+- **The quality gate reads one line, `## Stack` → `Quality analysis:`** (`sonarqube-local`, `sonarqube-server` or
+  `declined`), in place of six "(if SonarQube is in use)" clauses that a project with no server read as false every
+  time. `declined` is reported as "no analysis ran — unverified". The doctor's readiness section says when the line
+  is missing or empty.
+- **`sonarqube-check` produces coverage before the scan** (the report and the scanner parameter per stack), writes
+  "not measured" instead of 0% when no report was passed, and reports the overall ratings when the new-code period is
+  empty, where every `new_*` condition reads `OK` with nothing to judge.
+
 ## [3.4.0] — 2026-10-30
 
 ### Added

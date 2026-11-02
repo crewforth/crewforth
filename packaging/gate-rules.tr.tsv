@@ -73,3 +73,8 @@ a model routing record named in a command (the user and Crewforth's hooks write 
 the refuter ledger named in a command (only Crewforth's hook writes it)	komutta adı geçen çürütücü defteri (onu yalnız Crewforth'un hook'u yazar)
 a commit made by another git command with no approval	başka bir git komutunun onaysız yaptığı commit
 a push form no approval covers	hiçbir onayın kapsamadığı bir push biçimi
+a command that stages and commits, with a lockfile changed	aynı çağrıda stage edip commit eden komut, lockfile değişmiş
+a staged lockfile with no audit record	denetim kaydı olmayan staged lockfile
+the audit record does not match the staged lockfiles	denetim kaydı staged lockfile'larla eşleşmiyor
+the audit record matches the staged lockfiles	denetim kaydı staged lockfile'larla eşleşiyor
+the lockfile list could not be loaded	lockfile listesi yüklenemedi
