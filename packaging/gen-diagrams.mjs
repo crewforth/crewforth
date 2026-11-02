@@ -290,7 +290,7 @@ function readSource() {
   for (const d of fs.readdirSync(path.join(ROOT, 'kit/skills')).sort()) {
     const p = path.join(ROOT, 'kit/skills', d, 'SKILL.md'); if (!fs.existsSync(p)) continue;
     const fm = frontmatter(p);
-    skills.push({ name: d, command: /\n {2}kind: command/.test(fm), experimental: /\n {2}experimental: true/.test(fm) });
+    skills.push({ name: d, command: /\n {2}kind: command/.test(fm), experimental: /\n {2}experimental: "?true"?/.test(fm) });
   }
   const shown = skills.filter((s) => !s.command && !s.experimental).map((s) => s.name);
   for (const a of agents) for (const s of a.skills) if (!skills.some((k) => k.name === s)) throw new Error(`${a.name}: metadata.skills names ${s}, which is not a skill`);

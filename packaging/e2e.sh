@@ -1470,7 +1470,7 @@ if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
   A5="$WORK/add-5"; rm -rf "$A5"; mkdir -p "$A5/.claude"; printf 'stack=generic\n' > "$A5/.claude/kit.conf"; H5="$(treehash "$A5")"
   ( cd "$A5" && node "$CLI" add testing >/dev/null 2>&1 ) && [ "$(treehash "$A5")" = "$H5" ] || { echo "FAIL: add wrote into a project with the full install"; exit 1; }
   # 6 · --list covers the catalogue exactly, less what is marked experimental (it installs by name, unlisted).
-  NX="$(grep -l '^  experimental: true' kit/skills/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
+  NX="$(grep -lE '^  experimental: "?true' kit/skills/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
   NL="$(node "$CLI" add --list | grep -c '^  ')"; NC=$(( $(ls kit/agents/*.md | wc -l) + $(ls -d kit/skills/*/ | wc -l) - NX ))
   [ "$NL" = "$NC" ] || { echo "FAIL: add --list shows $NL entries, the catalogue has $NC (after $NX experimental)"; exit 1; }
   node "$CLI" add --list | grep -qE '^  (/crew-board|teamboard) ' && { echo "FAIL: add --list shows an experimental entry"; exit 1; }
@@ -2024,7 +2024,7 @@ printf '%s\n' "$ADOPT_OUT" | grep -q 'git branch -m main' || die "adopt on an un
 ( cd "$U1" && eval "$_dl" ) >/dev/null 2>&1 || die "the printed discard command failed when run" adopt-unborn "$U1"
 [ -z "$(cd "$U1" && git diff --cached --name-only)" ] && [ "$(cd "$U1" && git symbolic-ref --short HEAD)" = main ] \
   || die "after the printed discard something is still staged, or HEAD is not back on main" adopt-unborn "$U1"
-_xs=0; _xc=0; for _f in kit/skills/*/SKILL.md; do grep -qx '  experimental: true' "$_f" && continue
+_xs=0; _xc=0; for _f in kit/skills/*/SKILL.md; do grep -qxE '  experimental: "?true"?' "$_f" && continue
   if grep -qx '  kind: command' "$_f"; then _xc=$((_xc+1)); else _xs=$((_xs+1)); fi; done
 _ps="$(printf '%s\n' "$ADOPT_OUT" | sed -n 's/^  skills  *+\([0-9]*\).*/\1/p' | head -1)"; _pc="$(printf '%s\n' "$ADOPT_OUT" | sed -n 's/^  commands  *+\([0-9]*\).*/\1/p' | head -1)"
 [ "$_ps" = "$_xs" ] && [ "$_pc" = "$_xc" ] || die "adopt's summary says skills +$_ps, commands +$_pc; the README's rule counts $_xs and $_xc" adopt-unborn "$U1"

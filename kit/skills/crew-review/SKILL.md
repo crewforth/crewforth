@@ -31,3 +31,8 @@ Run the change set through the review trio (read-only). **The audits go out in p
 
 Each agent returns a **short summary** to the main thread; raw output goes to `docs/` if needed. Do NOT modify code;
 collect findings in severity order, and leave the fix to the relevant expert.
+
+**Every lane reports how it ended, before any finding.** One state per launched lane: `ran` · `ran-partial` (what it
+did not reach) · `failed` (the error) · `timed-out` · `not-run (why)`. A lane that did not finish is **not reviewed**,
+never "no findings" — an empty answer from an agent that died reads exactly like a clean one. The report opens with
+the lane table, and **"clean" requires every launched lane to be `ran`**; otherwise say which part was not reviewed.

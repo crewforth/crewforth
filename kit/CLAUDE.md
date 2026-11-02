@@ -27,7 +27,8 @@ matters most. Reply in the user's language even when a skill's text is English; 
 
 ## No deferral
 Nothing is left for later ("we'll do it in v2" is not acceptable). At a blocker: **STOP → inform → present options →
-recommend, with the rationale.**
+recommend, with the rationale.** A gap the user accepts and records (a `BYPASSED` line, an ADR `## Bypassed` entry, an
+`accepted` finding) is their decision, not a deferral.
 
 ## Workflow (orchestration)
 **The specialists run the work; you route it.** Delegation is the DEFAULT for anything that writes or changes

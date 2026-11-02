@@ -36,8 +36,8 @@ carries the session.
 ## Who runs it
 
 Wherever the handover is written — usually inside `crew-session-manager`, which the discipline routes this
-through, sometimes the main thread. Either way no agent in Crewforth holds the delegation tool (all twelve
-shipped agents declare an explicit allowlist and none contains it), so there is no separate cold-reader
+through, sometimes the main thread. Either way no agent in Crewforth holds the delegation tool (every
+shipped agent declares an explicit allowlist and none contains it), so there is no separate cold-reader
 subagent to hand the file to. That is a real limitation and worth naming: the same context that wrote the file is answering
 from it, so the discipline is entirely in step 1 (questions from the work, written first) and step 3 (answer
 from the file only). If a genuinely cold reader is available — another session, a teammate, a fresh window

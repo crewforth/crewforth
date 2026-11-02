@@ -242,3 +242,6 @@ the lockfile changed after the merge, check the new dependency|dependency-audit
 the build changed after the merge, check the new module|!dependency-audit
 axios paketini ekle ve sürümünü sabitle|dependency-audit
 axios isteğinin zaman aşımını düzelt|!dependency-audit
+# WCAG 2.2 criteria a 2.1 checklist misses.
+make the buttons at least 24 pixels so the target size passes|a11y
+the focus is hidden under the sticky header when tabbing|a11y

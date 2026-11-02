@@ -14,5 +14,6 @@ Delegate to the @agent-crew-planner agent (spec-planning skill). For ambiguously
 3. Order by dependency + put the riskiest first.
 4. Ask about ambiguities with **explicit options**; write down the assumptions.
 
-Write the output to `docs/PLAN.md`, return a summary + pointer to the main thread (token-budget).
+crew-planner is read-only and returns the plan; you (the main thread) write it to `docs/PLAN.md` and keep only the
+summary + file pointer in context (token-budget).
 Do NOT write code — this is a planning step.

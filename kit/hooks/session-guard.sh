@@ -14,10 +14,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 IN="$(cat 2>/dev/null || true)"
 
-# Loop guard: if this Stop is already a Stop-hook continuation, do nothing (defensive; we never block anyway).
-case "$IN" in
-  *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0 ;;
-esac
+# No `stop_hook_active` guard. The flag says SOME Stop hook blocked this turn — another plugin's, typically, since
+# this one never does — and honouring it silenced the fill warning on exactly those turns. The loop it guards
+# against cannot happen here: nothing below blocks, and each warning is deduplicated per session and tier.
 
 # Per-session dedup key: session_id from the Stop stdin JSON (documented field), else the transcript
 # filename. Sanitized to a safe filename fragment. Without any key we fall back to a shared marker

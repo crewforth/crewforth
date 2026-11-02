@@ -24,7 +24,7 @@ read as "designed" — many one-off decisions read as "assembled".** Design is s
 3. **Typography** — one or two families, a small scale (≈4–6 steps), consistent line-height (~1.5 body). Limit weights. Measure ~45–75 chars per line. Type does most of the hierarchy work.
 4. **Color** — a restrained system: 1 brand/accent, a neutral ramp, semantic states (success/warn/error). Accent is for *action and emphasis*, not decoration. Verify contrast (→ `a11y`).
 5. **Layout & composition** — align to a grid; consistent alignment edges. Respect proximity/similarity (Gestalt). Responsive by *intent* (reflow, not just shrink); design the breakpoints, don't inherit them by accident.
-6. **State & polish** — design loading / empty / error / disabled / hover / focus as first-class, not afterthoughts. Motion is restrained and purposeful (~150–250ms, ease), and honors `prefers-reduced-motion`.
+6. **State & polish** — design loading / empty / error / disabled / hover / focus as first-class, not afterthoughts. Motion is restrained and purposeful: ~150–250ms, `ease-out` for enter and exit (never `ease-in` on UI), a strong custom curve rather than the built-in `ease`; it honors `prefers-reduced-motion`.
 
 ## When the project gives no design direction
 Look for the project's own system first: a token file, a theme, the components it already has. If there is one,

@@ -569,7 +569,7 @@ count_installed() {   # $1=glob  -> count to install
 }
 N_AG="$(count_installed "$SRC/agents/*.md")"
 # Skills and commands the way the README and crewforth.com count them, so the install does not print a third number:
-# a skill whose metadata says `kind: command` is a command, one marked `experimental: true` is neither (it is
+# a skill whose metadata says `kind: command` is a command, one marked `experimental: "true"` is neither (it is
 # installed and works when typed, but nothing advertises it). Read from the frontmatter with builtins only.
 count_showcase() {   # $1 = a skills directory -> N_SKL N_CMD
   N_SKL=0; N_CMD=0; local f l k e d
@@ -577,7 +577,7 @@ count_showcase() {   # $1 = a skills directory -> N_SKL N_CMD
     [ -f "$f" ] || continue; k=0; e=0; d=0
     while IFS= read -r l || [ -n "$l" ]; do
       l="${l%$'\r'}"
-      case "$l" in ---) d=$((d+1)); [ "$d" -ge 2 ] && break ;; "  kind: command") k=1 ;; "  experimental: true") e=1 ;; esac
+      case "$l" in ---) d=$((d+1)); [ "$d" -ge 2 ] && break ;; "  kind: command") k=1 ;; "  experimental: true"|"  experimental: \"true\"") e=1 ;; esac
     done < "$f"
     [ "$e" = 1 ] && continue
     if [ "$k" = 1 ]; then N_CMD=$((N_CMD+1)); else N_SKL=$((N_SKL+1)); fi

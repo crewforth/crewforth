@@ -70,6 +70,21 @@ Continue? (yes / no)
 ```
 If rejected, stop immediately and propose a safer path (e.g. a new column + background copy instead of changing the type).
 
+### Breaking change across deploys — expand/contract
+A rolling deploy runs the old and the new code against ONE schema at the same time, and a rollback runs the old
+code against the new schema. So a rename, a type change or a new `NOT NULL` on a live table is never one
+migration. It is a sequence, each step its own release:
+1. **Expand** — additive only: the new column/table, nullable or defaulted. The old artefact must still run.
+2. **Dual-write** — the code writes both shapes; reads stay on the old one.
+3. **Backfill** in batches, outside the deploy, idempotent and resumable (never one `UPDATE` over the table).
+4. **Switch reads** to the new shape; keep writing both until the rollback window has passed.
+5. **Contract** — drop or rename the old shape in a LATER release, as its own migration through the approval gate
+   above, approved separately: approving the expand does not approve the contract.
+
+Build an index on a live table online (`CREATE INDEX CONCURRENTLY` on PostgreSQL, or the engine's equivalent); a
+plain build locks writes. Each step with an example, and deprecating an API or a feature (warn → adapter →
+removal, and deleting the code nobody calls any more): **`references/expand-contract.md`**.
+
 ---
 
 ## 3. Backup (mandatory in prod)
