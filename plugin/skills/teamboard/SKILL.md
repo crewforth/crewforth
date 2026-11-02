@@ -4,7 +4,7 @@ description: |
   Experimental: a shared team board. Claim a work item, hand it over, finish it; the claim is a git-ref
   lock, so two people cannot take the same item.
 metadata:
-  experimental: true
+  experimental: "true"
 ---
 
 # Team Board (shared claims + shared item memory)
@@ -66,8 +66,8 @@ applies unchanged: strip secrets, tokens, credentials and personal notes, leave 
 
 ## Filling the board
 Items come from either direction, and both end at `add`:
-- **From a plan:** `crew-planner` + `spec-planning` produce `docs/PLAN.md` with measurable acceptance criteria and
-  a dependency order; each task becomes one `add <id> <title> <deps>`. Keep the plan's dependency edges — they
+- **From a plan:** `crew-planner` + `spec-planning` produce the plan for `docs/PLAN.md` with measurable acceptance
+  criteria and a dependency order; each task becomes one `add <id> <title> <deps>`. Keep the plan's dependency edges — they
   are what makes `claim` able to refuse blocked work.
 - **By hand:** the user dictates the items.
 

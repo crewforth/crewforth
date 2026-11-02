@@ -17,9 +17,9 @@ CMD_FILES="$(grep -l '^  kind: command' "$SKILLS"/*/SKILL.md 2>/dev/null | tr '\
 CMD_NAMES=" "; for _cf in $CMD_FILES; do _cn="${_cf%/SKILL.md}"; CMD_NAMES="$CMD_NAMES${_cn##*/} "; done
 is_cmd(){ case "$CMD_NAMES" in *" $1 "*) return 0 ;; esac; return 1; }
 NCMD=0; for _cf in $CMD_FILES; do NCMD=$((NCMD+1)); done
-# `metadata: experimental: true` installs and answers when typed, but no showcase counts or lists it (5W: the team
+# `metadata: experimental: "true"` installs and answers when typed, but no showcase counts or lists it (5W: the team
 # board is not finished). Everything below that counts what a reader is shown asks is_exp.
-EXP_NAMES=" "; for _ef in $(grep -l '^  experimental: true' "$SKILLS"/*/SKILL.md 2>/dev/null); do _en="${_ef%/SKILL.md}"; EXP_NAMES="$EXP_NAMES${_en##*/} "; done
+EXP_NAMES=" "; for _ef in $(grep -lE '^  experimental: "?true' "$SKILLS"/*/SKILL.md 2>/dev/null); do _en="${_ef%/SKILL.md}"; EXP_NAMES="$EXP_NAMES${_en##*/} "; done
 is_exp(){ case "$EXP_NAMES" in *" $1 "*) return 0 ;; esac; return 1; }
 NCMD_SHOWN=0; for _cf in $CMD_FILES; do _cn="${_cf%/SKILL.md}"; is_exp "${_cn##*/}" || NCMD_SHOWN=$((NCMD_SHOWN+1)); done
 FAIL=0; PASSN=0; SKIPN=0; SKIP_HARD=0; SKIP_LIST=""
@@ -267,6 +267,52 @@ done
 [ "$AC" -ge 7 ] && pass "$AC agents found (7 core complete)" || fail "agent count below the 7 core: $AC"
 
 sec "== 2) Skill frontmatter & trigger =="
+# fm_lint FILE — the frontmatter as a strict YAML parser reads it, in awk (one bash path, no python).
+# Prints one `P <problem>` line per defect, then `L <bytes>`: the PARSED description's length, not its source
+# lines. The old count printed every line from `description:` to the closing `---`, so `metadata:` and
+# `argument-hint:` were charged to the 1024 limit, and a `description: Experimental: …` plain scalar — which
+# PyYAML refuses ("mapping values are not allowed here") and a spec-strict host would drop with the whole
+# frontmatter — passed. Calibrated against PyYAML 6.0.3 once, by hand: the same byte count on all 55 kit skills
+# it parses and on eight fixture shapes (literal, folded, |-, blank lines, CRLF, a continued plain line, a
+# continued `: `, and metadata holding a version, a date, an integer and a float).
+fm_lint(){ LC_ALL=C awk '
+  NR == 1 { sub(/\r$/, ""); if ($0 != "---") { print "P no frontmatter"; bad = 1; exit } next }
+  { sub(/\r$/, "") }
+  $0 == "---" { exit }
+  /^[^ \t#][^:]*:/ {
+    key = $0; sub(/:.*/, "", key); val = $0; sub(/^[^:]*:[ \t]*/, "", val)
+    blk = 0; meta = (key == "metadata")
+    if (key == "description") {
+      have = 1; dn = 0; ind = -1
+      if (val ~ /^[|>][-+]?$/) { blk = 1; dblk = 1; fold = (val ~ /^>/); chomp = substr(val, 2, 1); desc = ""; next }
+      q = 0; if (val ~ /^".*"$/ || val ~ /^\047.*\047$/) { desc = substr(val, 2, length(val) - 2); q = 1 }
+      else { desc = val; if (val ~ /: / || val ~ /:$/ || val ~ / #/) print "P description is a plain scalar holding \": \" or \" #\" (a strict YAML parser rejects it): quote it or use |" }
+    }
+    next
+  }
+  /^[ \t]/ || /^$/ {
+    if (key == "description" && blk) {
+      if ($0 ~ /^[ \t]*$/) { desc = desc "\n"; nl++; next }
+      if (ind < 0) { match($0, /^[ \t]*/); ind = RLENGTH }
+      line = substr($0, ind + 1)
+      if (dn++) desc = desc (fold ? (nl ? "" : " ") : "\n") line; else desc = line
+      nl = 0; next
+    }
+    if (key == "description" && $0 !~ /^[ \t]*$/) { t = $0; sub(/^[ \t]+/, "", t); desc = desc " " t; if (!q && (t ~ /: / || t ~ /:$/ || t ~ / #/)) print "P description continues a plain scalar with \": \" or \" #\" (a strict YAML parser rejects it): quote it or use |"; next }
+    if (meta && $0 ~ /^  [A-Za-z0-9_-]+:/) {
+      v = $0; sub(/^  [^:]*:[ \t]*/, "", v)
+      if (v ~ /^(true|false|True|False|TRUE|FALSE|yes|no|on|off|null|~|[-+]?[0-9]+|[-+]?[0-9]*\.[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]?-[0-9][0-9]?)$/) { k = $0; sub(/^  /, "", k); sub(/:.*/, "", k); print "P metadata." k " is " v ", not a string: quote it" }
+    }
+    next
+  }
+  END {
+    if (bad) exit
+    if (!have || desc ~ /^[ \t\n]*$/) print "P description is empty"
+    if (dblk && chomp != "-") { sub(/\n*$/, "", desc); desc = desc "\n" }
+    if (desc ~ /[<>]/) print "P description holds < or > (the spec forbids them)"
+    print "L " length(desc)
+  }
+' "$1"; }
 for d in "$SKILLS"/*/; do
   n=$(basename "$d"); f="$d/SKILL.md"
   [ -f "$f" ] || { fail "$n: no SKILL.md"; continue; }
@@ -277,10 +323,29 @@ for d in "$SKILLS"/*/; do
   nm="$(awk -F':' '/^name:/{sub(/^name:[[:space:]]*/,"",$0); print; exit}' "$f" | tr -d ' \r')"
   [ "$nm" = "$n" ]     || fail "$n: name '$nm' must equal the parent directory (spec)"
   [ "${#nm}" -le 64 ]  || fail "$n: name is ${#nm} chars (>64 spec limit)"
-  dl="$(awk 'BEGIN{c=0} /^---$/{c++; next} c==1 && /^description:/{p=1} c==1 && p{print}' "$f" | wc -c | tr -d ' ')"
-  [ "${dl:-0}" -le 1024 ] || fail "$n: description ~$dl bytes (>1024 spec limit)"
+  case "$nm" in *[!a-z0-9-]*|-*|*-|*--*) fail "$n: name '$nm' is not lower-case letters, digits and single inner hyphens (spec)" ;; esac
+  _fm="$(fm_lint "$f")"
+  while IFS= read -r _p; do [ -n "$_p" ] && fail "$n: frontmatter: $_p"; done <<< "$(printf '%s\n' "$_fm" | sed -n 's/^P //p')"
+  dl="$(printf '%s\n' "$_fm" | sed -n 's/^L //p')"
+  [ "${dl:-0}" -le 1024 ] || fail "$n: description is $dl bytes once parsed (>1024 spec limit)"
 done
-pass "$(ls -d "$SKILLS"/*/ | wc -l | tr -d ' ') skills scanned (name==dir · name≤64 · description≤1024)"
+# The lint's own twin, on fixtures it must tell apart: a short description followed by long metadata passes (the
+# old count failed it), a 1025-byte one fails, and each strict-YAML defect is named.
+_fmd="$(mktemp -d)"; _fmbad=""
+{ printf -- '---\nname: a\ndescription: short\nmetadata:\n  note: "'; head -c 1100 /dev/zero | tr '\0' 'x'; printf '"\n---\n'; } > "$_fmd/meta.md"
+{ printf -- '---\nname: a\ndescription: |\n  '; head -c 1024 /dev/zero | tr '\0' 'y'; printf '\n---\n'; } > "$_fmd/long.md"
+printf -- '---\nname: a\ndescription: Experimental: a board\nmetadata:\n  experimental: true\n---\n' > "$_fmd/yaml.md"
+printf -- '---\nname: a\ndescription: "Experimental: quoted"\nmetadata:\n  experimental: "true"\n---\n' > "$_fmd/ok.md"
+[ "$(fm_lint "$_fmd/meta.md")" = "L 5" ]  || _fmbad="$_fmbad meta:[$(fm_lint "$_fmd/meta.md" | tr '\n' ' ')]"
+[ "$(fm_lint "$_fmd/long.md")" = "L 1025" ] || _fmbad="$_fmbad long:[$(fm_lint "$_fmd/long.md" | tr '\n' ' ')]"
+[ "$(fm_lint "$_fmd/yaml.md" | grep -c '^P ')" = 2 ] || _fmbad="$_fmbad yaml:[$(fm_lint "$_fmd/yaml.md" | tr '\n' ' ')]"
+[ "$(fm_lint "$_fmd/ok.md")" = "L 20" ] || _fmbad="$_fmbad ok:[$(fm_lint "$_fmd/ok.md" | tr '\n' ' ')]"
+printf -- '---\nname: a\ndescription: plain start\n  when: the user asks\nmetadata:\n  version: 1.2.3\n  since: 2024-01-01\n---\n' > "$_fmd/cont.md"
+[ "$(fm_lint "$_fmd/cont.md" | grep -c '^P ')" = 2 ] || _fmbad="$_fmbad cont:[$(fm_lint "$_fmd/cont.md" | tr '\n' ' ')]"
+rm -rf "$_fmd"
+[ -z "$_fmbad" ] && pass "frontmatter lint tells its five fixtures apart (long metadata 5 B passes · 1025 B fails · plain ': ', a bare boolean, a continued ': ' and a date named · a version string and the quoted twin clean)" \
+                 || fail "frontmatter lint misreads its fixtures:$_fmbad"
+pass "$(ls -d "$SKILLS"/*/ | wc -l | tr -d ' ') skills scanned (name==dir · name≤64 · name charset · strict YAML · parsed description≤1024, no < >)"
 
 sec "== 3) Orphan skill reference (agent -> nonexistent skill) =="
 # (a) Do the X's in "applies the \`X\` skill" in an agent body exist?
@@ -413,6 +478,23 @@ for f in "$AGENTS"/*.md; do
 done
 pass "every skill & agent is routed (no idle components)"
 
+# The severities the review skill names and the ones the findings schema accepts are two lists nothing tied: the
+# schema took a fifth value, `info`, that no skill or agent text explained. Read both — the skill's §4 table (its
+# backticked first column) and the schema's enum — and require them to be the same set.
+_svs="$(awk '/^## 4\. Severity/{p=1;next} p&&/^## /{exit} p&&/^\| `[a-z]+` \|/{s=$0; sub(/^\| `/,"",s); sub(/`.*/,"",s); print s}' "$SKILLS/crew-code-review/SKILL.md" | sort | tr '\n' ' ')"
+_svj="$(grep -m1 '"severity": *{ *"enum"' "$ROOT/eval/lib/findings/findings.schema.json" | sed 's/.*\[//; s/\].*//' | tr -d '" ' | tr ',' '\n' | sort | tr '\n' ' ')"
+if [ -z "$_svs" ] || [ -z "$_svj" ]; then fail "severity pin read nothing (skill: '$_svs' · schema: '$_svj') — the §4 table or the schema enum moved"
+elif [ "$_svs" = "$_svj" ]; then pass "crew-code-review names exactly the severities the findings schema accepts ($_svs)"
+else fail "crew-code-review's severities ($_svs) differ from findings.schema.json's ($_svj): a value one accepts and the other never explains"; fi
+
+# A cross-skill pointer to a SECTION is not covered by the references/ check above: deploy's topology-b sent the
+# reader to "db-migration's expand/contract question", and db-migration had no such section for releases. The
+# pointer now quotes the heading; the heading must exist.
+_tbh="$(tr '\n' ' ' < "$SKILLS/deploy/references/topology-b.md" | sed -n 's/.*`db-migration`.s "\([^"]*\)" section.*/\1/p' | tr -s ' ')"
+if [ -z "$_tbh" ]; then fail "topology-b no longer quotes the db-migration section it points to — the pointer cannot be checked"
+elif grep -qxF "### $_tbh" "$SKILLS/db-migration/SKILL.md"; then pass "topology-b's pointer resolves: db-migration has the section \"$_tbh\""
+else fail "topology-b points to db-migration's \"$_tbh\" section, and db-migration has no such heading"; fi
+
 sec "== 3b2) Capability: a skill cannot demand a tool its agent does not have =="
 # A rule an agent physically cannot obey is worse than no rule: it does not fail, it degrades quietly into the
 # thing it forbids. `privacy-compliance` told its agent to CHECK THE OFFICIAL SOURCE rather than decide from
@@ -439,6 +521,30 @@ for d in "$SKILLS"/*/; do
 done
 [ -z "$CAPFAIL" ] && pass "every skill's declared tool requirement is met by the agents that apply it" \
                   || fail "an agent applies a skill it cannot obey:$CAPFAIL"
+# The same failure from the agent's own text: crew-planner had `tools: Read, Grep, Glob`, said it writes no
+# files, and two lines later told itself to write `docs/PLAN.md`. An agent with no Write, Edit, Bash or
+# PowerShell has no way to put a file on disk, so an imperative "Write/Save/Record … to `path`" in its body is
+# an instruction it cannot obey. The plan goes back to the main thread, which writes it.
+ROFAIL=""; RON=0
+for af in "$AGENTS"/*.md; do
+  [ -e "$af" ] || continue
+  case "$(grep -m1 '^tools:' "$af")" in *Write*|*Edit*|*Bash*|*PowerShell*) continue ;; esac
+  RON=$((RON + 1))
+  _rol="$(grep -nE '(^|[.:;!] |^- )(Write|Save|Record) [^.]* (to|in|into) `' "$af" | head -1 | cut -d: -f1)"
+  [ -n "$_rol" ] && ROFAIL="$ROFAIL $(basename "$af" .md):$_rol"
+done
+if [ "$RON" -eq 0 ]; then fail "read-only agent contract: no agent without Write/Edit/Bash/PowerShell found — the check saw nothing (crew-planner should be one)"
+elif [ -z "$ROFAIL" ]; then pass "read-only agent contract: none of the $RON agents without a write-capable tool tells itself to write a file"
+else fail "a read-only agent tells itself to write a file it has no tool for:$ROFAIL — return the content and let the main thread write it"; fi
+# handoff's cold-reader.md says no shipped agent can delegate: each declares a `tools:` allowlist without Agent or
+# Task. It once also counted them ("all twelve") and went stale at fourteen; the claim is pinned, the count is gone.
+_dlg=""; for af in "$AGENTS"/*.md; do [ -e "$af" ] || continue
+  _t="$(grep -m1 '^tools:' "$af")"
+  if [ -z "$_t" ]; then _dlg="$_dlg $(basename "$af" .md)(no tools: line)"
+  elif grep -qE '[ ,:](Agent|Task)([ ,(]|$)' <<< "$_t"; then _dlg="$_dlg $(basename "$af" .md)(delegates)"; fi
+done
+[ -z "$_dlg" ] && pass "no shipped agent can delegate: every one declares a tools: allowlist without Agent or Task (handoff/cold-reader.md says so)" \
+               || fail "an agent can delegate, so handoff/cold-reader.md is now wrong:$_dlg"
 
 sec "== 3c) Backend is stack-agnostic, and the pattern skill kept its routing =="
 # 3.0 removed the .NET install path: one backend agent, one pattern skill (backend-architecture) that resolves
@@ -1044,9 +1150,11 @@ else skip tool "stop-hook JSON check skipped (no working JSON parser: jq, python
 # (7) fail-open: unreadable transcript -> exit 0 and silent (never blocks on measurement failure)
 o="$(mkjson "${SGPFX}-f" "/no/such.jsonl" false | bash "$HOOKS/session-guard.sh" 2>/dev/null)"; r=$?
 { [ "$r" = 0 ] && [ -z "$o" ]; } && pass "stop-hook: measurement failure fails open (exit 0, silent)" || fail "stop-hook not fail-open (rc=$r out=$o)"
-# (8) loop guard: stop_hook_active -> silent no-op
+# (8) stop_hook_active: another hook blocked this turn. This one never blocks, so it still warns — once.
 fill 920000
-[ -z "$(sg "${SGPFX}-g" true)" ] && pass "stop-hook: stop_hook_active loop-guard is a silent no-op" || fail "stop-hook ignored stop_hook_active"
+_sga="$(sg "${SGPFX}-g" true)"; _sgb="$(sg "${SGPFX}-g" true)"
+case "$_sga" in *'"systemMessage"'*'>90%'*) [ -z "$_sgb" ] && pass "stop-hook: stop_hook_active (another hook blocked) still warns, once" || fail "stop-hook re-fired under stop_hook_active: $_sgb" ;;
+  *) fail "stop-hook went silent under stop_hook_active — another plugin's blocking Stop hook suppresses the fill warning: '$_sga'" ;; esac
 # fillc: the same usage record, followed by N compaction boundaries of a given trigger.
 fillc(){ fill "$1"; i=0; while [ "$i" -lt "${3:-0}" ]; do
   printf '%s\n' "{\"type\":\"system\",\"subtype\":\"compact_boundary\",\"compactMetadata\":{\"trigger\":\"$2\",\"preTokens\":900000,\"postTokens\":9000}}" >> "$SGFX"
@@ -1468,6 +1576,18 @@ esac
 
 sec "== 6j) session-stats: evidence signals read off the transcript =="
 [ -x "$HOOKS/session-stats.sh" ] && pass "session-stats.sh +x" || fail "session-stats.sh missing/not executable"
+# The header's threshold list is what a reader tunes from; it said CREW_RUNAWAY_TOOLS=15 while the code ran 25.
+# Every NAME=N in the header must equal every ${NAME:-N} default the script uses.
+_ssh="$(sed -n 's/^# Thresholds (env overrides): //p' "$HOOKS/session-stats.sh" | head -1)"; _ssbad=""; _ssn=0
+for _kv in $(printf '%s' "$_ssh" | tr -d '·'); do
+  case "$_kv" in CREW_*=*) ;; *) continue ;; esac
+  _ssn=$((_ssn + 1)); _k="${_kv%%=*}"; _v="${_kv#*=}"
+  _ds="$(grep -o "\${$_k:-[0-9]*}" "$HOOKS/session-stats.sh" | sed 's/.*:-//; s/}//' | sort -u | tr '\n' ' ')"
+  [ "$_ds" = "$_v " ] || _ssbad="$_ssbad $_k(header $_v, code ${_ds:-none})"
+done
+if [ "$_ssn" -lt 4 ]; then fail "session-stats header: read $_ssn thresholds from the '# Thresholds (env overrides):' line, want 4 — the line moved or changed shape"
+elif [ -z "$_ssbad" ]; then pass "session-stats header: its $_ssn thresholds equal the code's defaults"
+else fail "session-stats header disagrees with the code:$_ssbad"; fi
 SSD="$(mktemp -d)"; SSF="$SSD/t.jsonl"
 {
   # two identical real prompts -> one near-duplicate
@@ -2361,7 +2481,7 @@ sec "== 6f) always-on token budget =="
 # for that cost, and a gate rather than a reminder — a verbose new description fails the suite instead of
 # quietly taxing every future session. Budgets sit just above the current sizes: raising one is allowed, but
 # only as a deliberate edit here.
-BUDGET_DISC=15429    # 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
+BUDGET_DISC=15570    # P01: 15429 → 15570 (+141): "No deferral" names the recorded, user-accepted bypass (BYPASSED line, ADR Bypassed entry, accepted finding) as the user's decision, so the rule stops contradicting confidence-check, adr and crew-code-review. Before that, 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
                      # answer, the orphaned background-warning line removed). Before that: 3.0 rename (suffix → crew- prefix): +23 B (23 occurrences), not content — measured 13696 → 13719.
                      # DISCIPLINE.md (the discipline half of CLAUDE.md); before 3.0 the ceiling was 13700, currently 13601. (2026-09-18, a second
                      # +100 B on top of the raise below, and the whole of it went into ONE sentence of §4.6: a commit

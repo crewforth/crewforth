@@ -38,7 +38,7 @@ with new inputs and it may not even reproduce the bug you are escaping. So:
 - Keep the previous artefacts addressable for at least as long as you promise to be able to roll back. A
   retention policy that deletes them is a rollback policy that does not work.
 - Rolling back **code** does not roll back a **migration**. If the release included an irreversible schema
-  change, the old artefact may not run against the new schema — that is `db-migration`'s expand/contract
-  question and it has to be answered before the deploy, not during the incident.
+  change, the old artefact may not run against the new schema — that is `db-migration`'s "Breaking change
+  across deploys — expand/contract" section, and it has to be answered before the deploy, not during the incident.
 - After a rollback, the environment is running an artefact older than the recorded state. Say so plainly to
   whoever is watching; a silent rollback is how two people fix the same outage twice.

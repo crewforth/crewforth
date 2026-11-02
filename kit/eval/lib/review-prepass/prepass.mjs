@@ -4,7 +4,8 @@
 //
 //   node prepass.mjs [--root DIR] [--base REF] [--stdout]
 //       default   the staged change (git diff --cached), what the next commit will hold
-//       --base    the working tree against REF (a branch under review: --base origin/next)
+//       --base    the working tree against REF (a branch under review: --base origin/next), and every untracked,
+//                 not ignored file as added in full: git diff never lists a file git does not track
 //       --stdout  print the document, write nothing; otherwise .crewforth/review-prepass.json, through findings.mjs
 //   rc 0 = written (or printed), whatever it found · 1 = the document did not verify, nothing written ·
 //   2 = usage, or not a git repository
@@ -41,6 +42,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const NAME = 'review-prepass';
 const LARGE = 500;
 const QUOTE = 200;
+const MAX_UNTRACKED = 2 * 1024 * 1024;   // the size crew-map stops reading at, too
 
 const DEBUG = [
   { files: /\.(m?[jt]sx?|cjs|cts|vue|svelte)$/, re: /\bconsole\.(log|debug|trace)\(|^\s*debugger\s*;?\s*$/, what: 'a console call or debugger statement' },
@@ -95,6 +97,29 @@ export function prepass(root = '.', { base = null } = {}) {
   const d = git(rootReal, base ? [...diffArgs, base, '--'] : [...diffArgs, '--cached', '--']);
   if (d.status !== 0) throw new Error(`git diff failed: ${(d.stderr || '').trim().split('\n')[0]}`);
   const { added, files, binary } = addedLines(d.stdout);
+  // Under --base the change is the working tree, and a new file nobody has `git add`ed yet is part of it.
+  let untracked = 0; const unread = [];
+  if (base) {
+    // Paths relative to the root, the way every citation here is read back; a subdirectory root lists its own.
+    const u = git(rootReal, ['ls-files', '--others', '--exclude-standard', '-z']);
+    if (u.status !== 0) throw new Error(`git ls-files failed: ${(u.stderr || '').trim().split('\n')[0]}`);
+    // .crewforth/ holds the tools' own documents (this one included), not the change under review.
+    for (const f of u.stdout.split('\0').filter((x) => x && !x.startsWith('.crewforth/')).sort()) {
+      // Never followed, never read whole when large, never dropped without a word.
+      const skip = (reason) => { untracked++; unread.push({ what: f, reason }); };
+      let st; try { st = fs.lstatSync(path.join(rootReal, f)); } catch { skip('untracked, could not be read'); continue; }
+      if (st.isSymbolicLink()) { skip('an untracked symbolic link: not followed'); continue; }
+      if (!st.isFile()) { skip('untracked, not a regular file'); continue; }
+      if (st.size > MAX_UNTRACKED) { skip('untracked, over 2 MiB: not read'); continue; }
+      let buf; try { buf = fs.readFileSync(path.join(rootReal, f)); } catch { skip('untracked, could not be read'); continue; }
+      untracked++; files.push(f);
+      if (buf.subarray(0, 8000).includes(0)) { binary.push(f); continue; }
+      const text = buf.toString('utf8').split('\n');
+      if (text.length > 1 && text[text.length - 1] === '') text.pop();
+      text.forEach((t, i) => added.push({ file: f, line: i + 1, text: t.replace(/\r$/, '') }));
+    }
+    files.sort(); binary.sort();
+  }
 
   const doc = { schema: SCHEMA_ID, producer: { name: NAME, version: '1' }, findings: [], notMeasured: [] };
   const seen = new Set();
@@ -114,6 +139,7 @@ export function prepass(root = '.', { base = null } = {}) {
   const lines = added.filter((a) => { const t = linesOf(a.file); if (t && t[a.line - 1] === a.text) return true; stale.add(a.file); return false; });
   for (const f of [...stale].sort()) doc.notMeasured.push({ what: f, reason: 'edited again after it was staged: its staged lines are not the ones on disk, so they were not read' });
   for (const f of binary) doc.notMeasured.push({ what: f, reason: 'a binary file: no line to read' });
+  doc.notMeasured.push(...unread);
 
   // ---- secrets: the pre-commit gate's list, minus the project's allowlist ----
   let allow = new Set();
@@ -172,6 +198,8 @@ export function prepass(root = '.', { base = null } = {}) {
     }
   }
   doc.findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Reported on the summary line, not in the document: the findings schema has no field for it.
+  Object.defineProperty(doc, 'untracked', { value: untracked, enumerable: false });
   return doc;
 }
 
@@ -188,7 +216,7 @@ function main(argv) {
   let doc;
   try { doc = prepass(root, { base }); } catch (e) { console.error(`prepass: ${e.message}`); return 2; }
   const count = (s) => doc.findings.filter((f) => f.severity === s).length;
-  const line = `review-prepass: ${doc.findings.length} finding(s) · high ${count('high')} · medium ${count('medium')} · low ${count('low')} · info ${count('info')} · ${doc.notMeasured.length} not measured`;
+  const line = `review-prepass: ${doc.findings.length} finding(s) · high ${count('high')} · medium ${count('medium')} · low ${count('low')} · info ${count('info')} · ${doc.notMeasured.length} not measured${base ? ` · ${doc.untracked} untracked read` : ''}`;
   if (stdout) {
     const r = validate(doc, root);
     if (!r.ok) { for (const p of r.problems) console.error(`prepass: ${p.at} ${p.code}: ${p.message}`); return 1; }

@@ -39,13 +39,16 @@ decision — the main thread asks and records the answer.
 - Break tasks into atomic steps; derive the dependency order.
 - For each step, write acceptance criteria (how "done" is judged).
 - Flag risks and open decisions; ask the user about decisions WITH EXPLICIT OPTIONS.
-- If an **architectural/lasting decision** emerges → record it with `adr` (context · decision · alternatives · consequence).
+- If an **architectural/lasting decision** emerges → draft it in the `adr` shape (context · decision · alternatives ·
+  consequence) inside the plan; the main thread records it.
 
 ## Constraints
-- Writes no code/files (read-only); produces a plan and leaves implementation to the specialists.
+- Writes no code and no files (read-only: `tools: Read, Grep, Glob`); returns the plan and leaves writing it, and
+  implementing it, to others.
 
 ## Output & context (token)
-To the main thread: task breakdown + acceptance criteria + dependency order — a **summary**. Write the long plan to `docs/PLAN.md`, and return only the heading list + a file pointer.
+Return the full plan in the `spec-planning` output shape, headed by a one-paragraph summary. The **main thread**
+writes it to `docs/PLAN.md` and keeps only the summary and the file pointer in its context.
 
 **More than one person will work this plan → say so.** `docs/PLAN.md` is gitignored and therefore private to
 this machine: say that the plan, with its dependency order, has to be shared before several people start on it, or

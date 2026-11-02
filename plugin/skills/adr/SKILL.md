@@ -67,7 +67,8 @@ Record it in the same file as any other decision, with the fields that make it r
 ```
 
 `revisit` is the load-bearing field. A bypass with no condition attached is permanent by default, and nobody
-chose permanence. See [[confidence-check]], which is where most bypasses surface.
+chose permanence. See [[confidence-check]], which is where most bypasses surface. A recorded bypass is the user's decision, not a
+deferral (`CLAUDE.md`, "No deferral").
 
 ## DoD
 - Decision + rationale + rejected alternatives recorded; status current.

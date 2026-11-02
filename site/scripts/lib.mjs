@@ -57,7 +57,7 @@ export function agents(root) {
 }
 
 // Skills split in two: a skill whose metadata marks it `kind: command` is a command (since 3.0). One marked
-// `experimental: true` still installs and still answers when typed, but no page counts or lists it.
+// `experimental: "true"` still installs and still answers when typed, but no page counts or lists it.
 export function skillsAndCommands(root) {
   const dir = path.join(root, 'kit/skills');
   const skills = []; const commands = [];
@@ -65,7 +65,7 @@ export function skillsAndCommands(root) {
     const f = path.join(dir, d, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     const raw = read(f);
-    if (/^\s+experimental:\s*true\s*$/m.test(raw.split('\n---')[0])) continue;
+    if (/^\s+experimental:\s*"?true"?\s*$/m.test(raw.split('\n---')[0])) continue;
     const fm = frontmatter(f);
     const item = { name: fm.name || d, summary: firstSentence(fm.description) };
     if (/^\s+kind:\s*command\s*$/m.test(raw.split('\n---')[0])) {

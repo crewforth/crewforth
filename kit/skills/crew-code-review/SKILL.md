@@ -62,6 +62,7 @@ Every finding carries one severity and one category.
 | `high` | a core function stops working, or works wrongly | **yes** |
 | `medium` | performance, maintainability, an unhandled edge case | no |
 | `low` | readability and style | no |
+| `info` | a note for the reader (the pre-pass marks an added TODO with it) | no, and not counted |
 
 Category: `bug` · `security` · `performance` · `maintainability` · `test` · `style` · `docs`.
 
@@ -146,7 +147,8 @@ never a silent drop:
 | **dropped** | disproved by the code | say so; a candidate that vanishes unexplained reads as an oversight |
 
 A blocker (`critical` / `high`) may only be `fixed now` or `tracked`. "Accepted" needs the user's decision — an
-agent does not grant it to itself. Close the review by stating the counts per severity and per disposition; an
+agent does not grant it to itself. Once the user grants it and it is recorded, it is not a deferral (`CLAUDE.md`,
+"No deferral"). Close the review by stating the counts per severity and per disposition; an
 unreported finding is indistinguishable from one that was never made, which is exactly the state a review exists
 to leave behind.
 

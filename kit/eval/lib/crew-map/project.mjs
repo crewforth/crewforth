@@ -50,8 +50,9 @@ export function openProject(root) {
   }
   files = [...new Set(files)].sort();
   const cache = new Map();
-  const tooBig = [];
-  // { text, lines } or null (unreadable, binary or over the size limit)
+  const tooBig = []; const unreadable = []; const binary = [];
+  // { text, lines } or null (unreadable, binary or over the size limit). Each null lands in a list, so a file the
+  // scanner asked for and could not use is reported as not measured instead of vanishing.
   const read = (rel) => {
     if (cache.has(rel)) return cache.get(rel);
     let r = null;
@@ -61,16 +62,17 @@ export function openProject(root) {
       if (st.size > MAX_BYTES) tooBig.push(rel);
       else {
         const buf = fs.readFileSync(abs);
-        if (!buf.subarray(0, 8000).includes(0)) {
+        if (buf.subarray(0, 8000).includes(0)) binary.push(rel);
+        else {
           const text = buf.toString('utf8').replace(/^﻿/, '');
           r = { text, lines: text.split('\n').map((l) => l.replace(/\r$/, '')) };
         }
       }
-    } catch { r = null; }
+    } catch { r = null; unreadable.push(rel); }
     cache.set(rel, r);
     return r;
   };
-  return { root: real, files, commit, read, tooBig, git: git.ok };
+  return { root: real, files, commit, read, tooBig, unreadable, binary, git: git.ok };
 }
 
 // A citation. `anchor` must be a piece of the cited line (the validator checks it, collapsing whitespace); the

@@ -12,7 +12,7 @@
 #   bash session-stats.sh --raw [transcript.jsonl]     # key=value lines instead of the report (tests/scripting)
 #   echo '{"transcript_path":"..."}' | bash session-stats.sh
 #
-# Thresholds (env overrides): CREW_RUNAWAY_TOOLS=15 · CREW_DUP_MIN=2 · CREW_ERR_PCT=15 · CREW_INTERRUPT_MIN=3
+# Thresholds (env overrides): CREW_RUNAWAY_TOOLS=25 · CREW_DUP_MIN=2 · CREW_ERR_PCT=15 · CREW_INTERRUPT_MIN=3
 #
 # ONE awk engine, no jq path — deliberate. context-usage.sh carries two engines because it reads a nested usage
 # object, and they drifted once (the sidechain bug) with a wrong number, not silence, as the result. Every signal

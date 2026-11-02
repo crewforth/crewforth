@@ -1243,7 +1243,7 @@ done
 # kit-owned trees: FORCE-refresh on a re-adopt (KIT_PRESENT) so kit updates land; never-overwrite on a fresh adopt
 copy_noclobber "$SRC/agents"   .claude/agents   "$KIT_PRESENT" "$EXCL_A"; A_ADD=$ret_add; A_SKIP=$ret_skip
 # The summary counts skills and commands the way the README does — one per skill, a `kind: command` skill as a
-# command, an `experimental: true` one as neither. copy_noclobber counts FILES (a skill with references/ is several),
+# command, an `experimental: "true"` one as neither. copy_noclobber counts FILES (a skill with references/ is several),
 # which is how an update from 2.13.0 once reported "skills +75" for 39 skills. A skill counts as added when the
 # copy put it there or refreshed it; one that was excluded, or that a fresh adopt found already present and left
 # alone, counts as skipped. The "already present" answer is taken before the copy, with builtins only.
@@ -1254,7 +1254,7 @@ for kd in "$SRC"/skills/*/; do
   [ -f "$kd/SKILL.md" ] || continue; kn="${kd%/}"; kn="${kn##*/}"; _k=0; _e=0; _d=0
   while IFS= read -r _l || [ -n "$_l" ]; do
     _l="${_l%$'\r'}"
-    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true") _e=1 ;; esac
+    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true"|"  experimental: \"true\"") _e=1 ;; esac
   done < "$kd/SKILL.md"
   [ "$_e" = 1 ] && continue
   _got=1

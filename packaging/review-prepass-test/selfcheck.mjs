@@ -141,6 +141,33 @@ const F = repo('base', { 'src/a.ts': 'export const a = 1;\n' }, {});
 g(F.root, 'checkout', '-qb', 'work'); F.put('src/a.ts', "export const a = 1;\nconsole.log(a);\n"); g(F.root, 'commit', '-qam', 'work');
 const staged = prepass(F.root); const based = prepass(F.root, { base: 'HEAD~1' });
 check('--base: the branch\'s change is read (the staged area is empty)', staged.findings.length === 0 && has(based, 'prepass-debug-call', 'src/a.ts:2'), `${got(staged)} | ${got(based)}`);
+// A new file nobody has added yet is part of the working tree under review; git diff never lists it.
+const U = repo('untracked', { 'src/a.ts': 'export const a = 1;\n', '.gitignore': 'tmp/\n' }, {});
+U.put('src/new.ts', 'export const n = 1;\nconsole.log(n);\n'); U.put('tmp/scratch.ts', 'console.log(1);\n');
+U.put('.crewforth/review-prepass.json', '{}\n'); fs.writeFileSync(path.join(U.root, 'logo.png'), Buffer.from([0x89, 0x50, 0, 1]));
+const ub = prepass(U.root, { base: 'HEAD' });
+check('--base: an untracked file is read in full, an ignored one is not, a binary one is not measured',
+  has(ub, 'prepass-debug-call', 'src/new.ts:2') && none(ub, 'tmp/scratch.ts') && ub.notMeasured.some((x) => x.what === 'logo.png') && ub.untracked === 2,
+  `${got(ub)} | untracked ${ub.untracked} | ${ub.notMeasured.map((x) => x.what).join(' ')}`);
+check('the staged mode still reads only what is staged (an untracked file is not in the next commit)', none(prepass(U.root), 'src/new.ts'));
+// What --base must not do with an untracked entry: follow a link out of the project, read a huge file whole, or
+// drop one it could not read. Each is said in notMeasured, and the document still verifies.
+const out1 = path.join(TMP, 'outside.js'); fs.writeFileSync(out1, 'console.log(2);\n');
+const V = repo('untracked-edges', { 'sub/a.ts': 'export const a = 1;\n' }, {});
+fs.symlinkSync(out1, path.join(V.root, 'link.js'));
+V.put('big.ts', 'x'.repeat(2 * 1024 * 1024 + 1)); V.put('sub/new.ts', 'console.log(1);\n'); V.put('locked.ts', 'console.log(3);\n');
+fs.chmodSync(path.join(V.root, 'locked.ts'), 0o000);
+let lockedReadable = true; try { fs.readFileSync(path.join(V.root, 'locked.ts')); } catch { lockedReadable = false; }
+const vb = prepass(V.root, { base: 'HEAD' });
+const nmv = (w, r) => vb.notMeasured.some((x) => x.what === w && x.reason.includes(r));
+check('--base: an untracked link is not followed, a file over 2 MiB is not read, each is said, and the document verifies',
+  none(vb, 'link.js') && nmv('link.js', 'symbolic link') && nmv('big.ts', 'over 2 MiB') && validate(vb, V.root).ok,
+  `${got(vb)} | ${vb.notMeasured.map((x) => `${x.what}: ${x.reason}`).join('; ')}`);
+if (lockedReadable) process.stdout.write('SKIP --base: an unreadable untracked file is said — chmod 000 does not stop reads here\n');
+else check('--base: an untracked file it cannot read is said, not dropped', nmv('locked.ts', 'could not be read'), vb.notMeasured.map((x) => x.what).join(' '));
+fs.chmodSync(path.join(V.root, 'locked.ts'), 0o644);
+const vs = prepass(path.join(V.root, 'sub'), { base: 'HEAD' });
+check('--base with --root a subdirectory: its untracked files are read, cited from that root', has(vs, 'prepass-debug-call', 'new.ts:1') && vs.untracked === 1, `${got(vs)} | untracked ${vs.untracked}`);
 const cli = (root, ...a) => spawnSync('bash', [path.join(LIB, 'prepass.sh'), '--root', root, ...a], { encoding: 'utf8', env: { ...ENV, CREW_SHELLCHECK: path.join(TMP, 'none') } });
 const w = cli(A.root);
 const out = path.join(A.root, '.crewforth', `${NAME}.json`);

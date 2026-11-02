@@ -256,6 +256,37 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   }
 }
 
+/* -- 7b. a manifest the scanner asked for and could not use is said, never dropped ---------------------------- */
+{
+  // A binary file named like a manifest, and (where permissions hold) one that throws on read. Before this,
+  // both left read() with null and nothing else: the module was missing from the map without a word.
+  const nm = (doc) => doc.notMeasured.map((x) => `${x.what} · ${x.reason}`);
+  const base = scan(copy('node-ws')).doc;
+  const root = copy('node-ws');
+  fs.mkdirSync(path.join(root, 'packages', 'blob'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'packages', 'blob', 'package.json'), Buffer.from([0x7b, 0x00, 0x01, 0x7d]));
+  const one = scan(root).doc;
+  check('crew-map: a binary package.json is not measured ("binary, not read"), one more than the clean copy',
+    one.notMeasured.some((x) => x.what === 'packages/blob/package.json' && x.reason === 'binary, not read')
+      && one.notMeasured.length === base.notMeasured.length + 1, nm(one).join('; '));
+  const locked = path.join(root, 'packages', 'api', 'package.json');
+  fs.chmodSync(locked, 0o000);
+  let readable = true; try { fs.readFileSync(locked); } catch { readable = false; }
+  if (readable) skip('crew-map: an unreadable manifest is not measured', 'chmod 000 does not stop reads here (Windows, or root)');
+  else {
+    const two = scan(root).doc;
+    check('crew-map: an unreadable package.json is not measured ("could not be read")',
+      two.notMeasured.some((x) => x.what === 'packages/api/package.json' && x.reason === 'could not be read'), nm(two).join('; '));
+  }
+  fs.chmodSync(locked, 0o644);
+  // A README is read late, while the nodes are built; a binary one must still be said.
+  const r2 = copy('node-ws');
+  fs.writeFileSync(path.join(r2, 'README.md'), Buffer.from([0x23, 0x20, 0x00, 0x0a]));
+  const three = scan(r2).doc;
+  check('crew-map: a binary README (read while the nodes are built) is not measured too',
+    three.notMeasured.some((x) => x.what === 'README.md' && x.reason === 'binary, not read'), nm(three).join('; '));
+}
+
 /* -- 8. K1: no installer ignores .crewforth/crew-map.json ----------------------------------------------------- */
 {
   // The entries the installers write, read from the scripts themselves, then asked of git: a string search

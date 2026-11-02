@@ -157,6 +157,9 @@ export function scan(root = '.', opts = {}) {
       [b.module, b.path, b.method, b.evidence[0].file, String(b.evidence[0].line).padStart(9, '0')].join('\u0000')));
   };
   const nm = new Map();
+  // After every read (the nodes' README included), so a file that failed late is still said.
+  for (const f of pj.unreadable) out.notMeasured.push({ what: f, reason: 'could not be read' });
+  for (const f of pj.binary) out.notMeasured.push({ what: f, reason: 'binary, not read' });
   for (const x of out.notMeasured) nm.set(`${x.what}\u0000${x.reason}`, x);
 
   const stacks = [...new Set([...st.modules.map((m) => m.stack), ...(services.length ? ['container'] : [])])].sort();

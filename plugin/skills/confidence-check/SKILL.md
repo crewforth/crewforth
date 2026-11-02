@@ -60,6 +60,7 @@ So when a gate is knowingly bypassed, write one line where the decision lives �
 The `revisit` field is what separates a decision from a leak: a bypass with no condition attached is permanent
 by default, and nobody chose that. Never write this on the model's own authority — a bypass is the user's call,
 so the line records *their* decision, and its absence means the gate was not bypassed at all.
+A recorded bypass is not a deferral (`CLAUDE.md`, "No deferral"): the user chose the cost, in writing.
 
 ## Output
 Six lines, one per check: `✅ <what was run/read>` or `❌ <what is missing>` or `n/a — <why>`. Then either
