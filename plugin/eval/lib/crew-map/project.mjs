@@ -16,9 +16,13 @@ export const SKIP_DIRS = new Set(['.git', '.hg', '.svn', 'node_modules', 'bower_
 const MAX_BYTES = 2 * 1024 * 1024;
 
 // Every child process the scanner starts goes through here, so the gate can count them.
+// A git call never runs a program the scanned repository's own config names: /crew-map on a freshly cloned
+// third-party repo would otherwise start its `core.fsmonitor` (measured: `ls-files -co` runs it, git 2.54).
+export const GIT_SAFE = ['-c', 'core.fsmonitor=', '-c', 'core.quotePath=false'];
 export const spawned = { count: 0 };
 export function run(cmd, args, cwd) {
   spawned.count++;
+  if (cmd === 'git') args = [...GIT_SAFE, ...args];
   const r = spawnSync(cmd, args, { cwd, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, windowsHide: true,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' } });
   return { ok: r.status === 0 && !r.error, out: r.stdout ? r.stdout.toString('utf8') : '' };

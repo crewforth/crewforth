@@ -2496,7 +2496,7 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
     case "$op" in commit|commit+push) ;; *) _APW="the approval on record is for a push, not for a commit"; return 1 ;; esac
     _a44_collapse "$CMD" commit "$tool" || { _APW="$_A44_WHY. Run the commit alone: git commit -m '…'"; return 1; }
     _c44_scan "$_A44_S" || { _APW="an approved commit takes its message and -q, -s or -v, nothing else ($_C44_WHY)"; return 1; }
-    cur="$(git -C "$dir" write-tree 2>/dev/null)"
+    cur="$(git -C "$dir" -c core.fsmonitor= write-tree 2>/dev/null)"
     # HAVE_H is §4.6's own reading of HEAD, taken a few lines above for this call.
     if [ -z "$tr" ] || [ "$tr" != "$cur" ] || [ "$h" != "${HAVE_H:-}" ]; then
       _APW="what is staged, or HEAD, is not what the user approved (approved tree ${tr:0:7} on ${h:0:7}; now ${cur:0:7} on ${HAVE_H:0:7})"; return 1
@@ -3453,7 +3453,7 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     # every staged change print NOTHING — one id for all of them, so one review record vouched for any diff (measured,
     # 3.1.0 review). With neither configured the two flags change no byte, so a record written by the older recipe
     # still matches.
-    HAVE_D="$(git -C "$_RPD" diff --cached --no-ext-diff --no-textconv 2>/dev/null | git hash-object --stdin 2>/dev/null)"
+    HAVE_D="$(git -C "$_RPD" -c core.fsmonitor= diff --cached --no-ext-diff --no-textconv 2>/dev/null | git hash-object --stdin 2>/dev/null)"
     # --verify --quiet, not a bare `git rev-parse HEAD`: on an UNBORN head the bare form prints the literal
     # string "HEAD" on stdout and still fails, so `|| echo NONE` appended to it and the value became two
     # lines ("HEAD" then "NONE") — which never matches any record. Measured on a fresh `git init`.

@@ -66,7 +66,7 @@ _crew_preview(){
   esac
   case "$kind" in
     reset)
-      n="$(git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
+      n="$(git -c core.fsmonitor= status --porcelain --untracked-files=no 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
       _pv_words "$cmd" reset; t=""
       for w in $_PV_W; do case "$w" in -*) ;; *) t="$w"; break ;; esac; done
       a=""
@@ -82,7 +82,7 @@ _crew_preview(){
         -*) case "$w" in --*) ;; *) case "$w" in *d*) flags="$flags -d" ;; esac; case "$w" in *x*) flags="$flags -x" ;; *X*) flags="$flags -X" ;; esac ;; esac ;;
       esac; done
       # shellcheck disable=SC2086 # the flags are words of our own
-      n="$(git clean $flags 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
+      n="$(git -c core.fsmonitor= clean $flags 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
       _CREW_PV="Preview: a dry run (git clean $flags) lists ${n:-0} path(s) it would delete."
       ;;
     push)
@@ -118,7 +118,7 @@ _crew_preview(){
       [ -n "$out" ] && _CREW_PV="Preview: $out."
       ;;
     commit)
-      case " $cmd " in *' -a'*|*' --all'*|*' -[A-Za-z]*a'*) line="$(git diff HEAD --shortstat 2>/dev/null)" ;; *) line="$(git diff --cached --shortstat 2>/dev/null)" ;; esac
+      case " $cmd " in *' -a'*|*' --all'*|*' -[A-Za-z]*a'*) line="$(git -c core.fsmonitor= diff --no-ext-diff --no-textconv HEAD --shortstat 2>/dev/null)" ;; *) line="$(git -c core.fsmonitor= diff --no-ext-diff --no-textconv --cached --shortstat 2>/dev/null)" ;; esac
       line="${line# }"
       _CREW_PV="Preview: ${line:-nothing staged}."
       ;;

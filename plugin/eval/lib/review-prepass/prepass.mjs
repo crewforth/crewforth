@@ -65,7 +65,8 @@ const LOCKS = {
 const GENERATED = /(^|\/)(dist|build|vendor|node_modules|__snapshots__)\/|\.(g|freezed|gr|pb)\.dart$|\.min\.(js|css)$|\.snap$|\.lock$|-lock\.(json|yaml)$/;
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const git = (root, args) => spawnSync('git', ['-C', root, '-c', 'core.quotePath=false', ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+// core.fsmonitor= : a review of someone else's branch must not start the program its .git/config names.
+const git = (root, args) => spawnSync('git', ['-C', root, '-c', 'core.fsmonitor=', '-c', 'core.quotePath=false', ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 
 // The added lines of a unified diff with no context: { file, line, text }[] and the files it touches.
 export function addedLines(diff) {

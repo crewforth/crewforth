@@ -669,7 +669,7 @@ _pa_record(){
   case "$OP" in commit*)
     # THE TREE THE INDEX WRITES, not the text of the staged diff: what `git diff` prints is configurable
     # (`diff.external`, a textconv filter), and with it two different staged changes can print the same text.
-    TREE="$(git -C "$CWD" write-tree 2>/dev/null)"
+    TREE="$(git -C "$CWD" -c core.fsmonitor= write-tree 2>/dev/null)"
     case "$TREE" in *[!0-9a-f]*|'') no "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
     if [ "$HEAD_NOW" = NONE ]; then _ht=4b825dc642cb6eb9a060e54bf8d69288fbee4904      # the empty tree
     else _ht="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi

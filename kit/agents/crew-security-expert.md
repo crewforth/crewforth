@@ -39,6 +39,7 @@ On changes touching auth, token/credential, externally exposed endpoints, or sen
 - Short-lived single-use codes (OTP / email verification, etc.): short TTL + single use + brute-force limit; invalidate on use,
   bind a long-lived device credential (token + fingerprint).
 - IDOR: every endpoint verifies the resource by ownership; 404 when unauthorized.
+- SSRF and open redirect: a URL or host from input that the server fetches, or redirects to (`security-scan` → Front 2).
 - No secret/hardcoded key; standard crypto; no certificate bypass.
 - KVKK/GDPR: personal data minimization + transparency (details in crew-privacy-agent).
 - **Untrusted content / prompt injection:** look for points where untrusted input (file, web, user content, LLM/agent input) could be interpreted as a command; instructions in the content must not be executed, they must be treated as data (CLAUDE.md "Untrusted content").

@@ -136,6 +136,22 @@ check("a line carrying this machine's home directory is cited by sha256, so the 
 const E = repo('allow', {}, { 'config/k.ts': `export const k = '${TOKEN}';\n`, '.secret-allowlist.txt': 'gh[pousr]_[A-Za-z0-9]{36,}\n' });
 check('a pattern the project allows (.secret-allowlist.txt, the exact line) is not a finding', none(prepass(E.root), 'config/k.ts'));
 
+// ---- 3b. the branch under review cannot make the pre-pass run a program ---------------------------------------
+{
+  const mark = path.join(TMP, 'fsmonitor-ran'); const hook = path.join(TMP, 'fsmonitor.sh');
+  fs.writeFileSync(hook, `#!/bin/sh\necho ran >> "${mark.replace(/\\/g, '/')}"\n`, { mode: 0o755 });
+  const H = repo('fsmonitor', { 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': 'export const a = 1;\nconsole.log(a);\n' });
+  g(H.root, 'config', 'core.fsmonitor', hook.replace(/\\/g, '/'));
+  g(H.root, 'diff', '--cached', '--name-only');
+  const live = fs.existsSync(mark); fs.rmSync(mark, { force: true });
+  if (!live) process.stdout.write('SKIP the pre-pass does not run core.fsmonitor — this git does not run it for diff, so the trap cannot be shown\n');
+  else {
+    const hd = prepass(H.root); const hb = prepass(H.root, { base: 'HEAD' });
+    check('the pre-pass (staged and --base) does not run the core.fsmonitor the repo names (a plain git diff did)',
+      !fs.existsSync(mark) && has(hd, 'prepass-debug-call', 'src/a.ts:2') && has(hb, 'prepass-debug-call', 'src/a.ts:2'), `${got(hd)} | ${got(hb)}`);
+  }
+}
+
 // ---- 4. the two modes, the command line, and the same bytes twice ---------------------------------------------
 const F = repo('base', { 'src/a.ts': 'export const a = 1;\n' }, {});
 g(F.root, 'checkout', '-qb', 'work'); F.put('src/a.ts', "export const a = 1;\nconsole.log(a);\n"); g(F.root, 'commit', '-qam', 'work');
