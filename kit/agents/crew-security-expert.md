@@ -4,7 +4,7 @@ color: red
 description: |
   Security review expert. Use proactively whenever auth/authz, anonymous/token flows, secret leakage, injection,
   weak crypto, IDOR, rate limits, or tamper surface are touched. Findings + fixes via `security-scan` (plus
-  `sonarqube-check` where used); writes no code.
+  `sonarqube-check`); writes no code.
 tools: Read, Grep, Glob, Bash, PowerShell
 # No `model` field: the caller names it per call, and hooks/guard-agent-model.sh refuses this agent below
 # `opus`. A pin could only make the audit WEAKER than the code it reviews — this said `sonnet` for 156
@@ -32,7 +32,7 @@ Read-only auditor. The relevant expert (backend/database) makes the fix; this ag
 ## When
 On changes touching auth, token/credential, externally exposed endpoints, or sensitive data.
 
-## How (scope with `threat-model`, then apply `security-scan` · in SonarQube projects also `sonarqube-check`)
+## How (scope with `threat-model`, then apply `security-scan` · `sonarqube-check` per the `## Stack` quality line)
 - **Scope first:** for a first or noisy audit, run the `threat-model` skill to produce `docs/THREAT_MODEL.md`
   (assets · entry points · trust boundaries · 5-8 attack classes). `security-scan` then reviews *that* surface
   instead of everything — the biggest lever on false positives. A threat survives a patch; a vulnerability is only evidence.

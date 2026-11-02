@@ -74,7 +74,7 @@ Worked good-vs-bad commit examples: **`references/examples.md`**.
 
 ## Rules
 - **Atomic:** one logical change = one commit.
-- **No commit without DoD:** don't propose a message until `/simplify` + tests green + (if SonarQube is used) `sonarqube-check` 0/0/0/0 pass.
+- **No commit without DoD:** don't propose a message until `/simplify` + tests green + `sonarqube-check` per the DoD quality line (`## Stack` → `Quality analysis:`) pass.
 - If there is no staged diff, warn; ask the user about the `git add` scope with explicit options.
 - Don't run `git commit` silently; propose the message, **wait for approval**.
 

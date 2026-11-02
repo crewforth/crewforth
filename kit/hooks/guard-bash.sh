@@ -152,7 +152,9 @@ _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 # Where the gate log goes: one rule for every gate and reader (eval/lib/gate-log.sh).
 [ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"
 # What a stopped or asked command would have touched (eval/lib/preview.sh), read only when one is stopped or asked.
-_CREW_PV_LIB="$_crew_d/../eval/lib/preview.sh"; unset _crew_d
+_CREW_PV_LIB="$_crew_d/../eval/lib/preview.sh"
+# The lockfile list and the audit record's shape (eval/lib/lockfiles.sh), loaded only when a commit reaches §4.7.
+_CREW_LF_LIB="$_crew_d/../eval/lib/lockfiles.sh"; unset _crew_d
 # The preview of a command. ALWAYS called as "$(_pv_line …)": the command substitution is the subshell that keeps an
 # exit or a failure in the library from ending this hook or changing its decision (smoke plants both).
 _pv_line(){ [ -f "$_CREW_PV_LIB" ] || return 0; . "$_CREW_PV_LIB" 2>/dev/null && crew_preview "$1" "$2" 2>/dev/null && printf '%s' "${_CREW_PV:-}"; return 0; }
@@ -3465,6 +3467,70 @@ if git_has "$CMD_SEEN" 'commit|push'; then
       exit 2
     fi
     gatelog ALLOW 4.6 "review-pass matches the staged diff"
+
+    # §4.7 — A STAGED LOCKFILE NEEDS AN AUDIT OF THAT LOCKFILE.
+    # The rule "package or lockfile change -> dependency-audit" lived in DISCIPLINE.md alone, and it did not hold:
+    # one project measured 21 commits that changed a lockfile against 0 audits in 322 session transcripts, with the
+    # skill installed and preloaded into the agents that made those commits. The trigger is an event in the DIFF,
+    # and nothing that reads only the prompt can see it. So the same shape as §4.6: the audit writes a record
+    # (skills/dependency-audit/scripts/record.sh), this reads it back and compares one exact fact, the object id of
+    # the staged lockfile diff. No network here — the audit runs in the session, the hook only checks its receipt.
+    # After §4.6 on purpose: the forms that commit the WORK TREE (-a, a pathspec) were refused above, and the
+    # ordinary commit pays ONE process for this, the name listing; the hash runs only when a lockfile is staged.
+    # What §4.6 does not settle is a command that STAGES and commits in one call (`git add -A && git commit`): this
+    # hook reads the index before the command runs, so the lockfile it stages was never looked at (found in review:
+    # `git add <the lockfile> && git commit` was let through to the approval prompt). Such a command is refused
+    # here when a lockfile differs from HEAD anywhere; one that touches no lockfile goes on as before.
+    if [ ! -f "$_CREW_LF_LIB" ] || ! . "$_CREW_LF_LIB" 2>/dev/null || ! declare -F crew_git_dir >/dev/null 2>&1; then
+      gatelog BLOCK 4.7 "the lockfile list could not be loaded"
+      echo "GUARD (§4.7): '$_CREW_LF_LIB' (or eval/lib/gate-log.sh) is missing, so this hook cannot tell whether the" >&2
+      echo "commit stages a lockfile. Restore Crewforth's eval/lib (run the doctor); a gate that cannot look does not pass." >&2
+      exit 2
+    fi
+    # The work-tree top: git lists staged paths from there, and hands them back as pathspecs (lib/lockfiles.sh).
+    # _RPD can be a sub-folder that keeps its own review record; the walk is the builtin one §4.6 uses.
+    # Made absolute first: with no cwd in the payload _RPD is ".", and a relative path has no parent to walk to.
+    case "$_RPD" in /*|[A-Za-z]:*) _DAT="$_RPD" ;; *) _DAT="$PWD/$_RPD" ;; esac
+    while [ ! -e "$_DAT/.git" ]; do case "$_DAT" in */*) _DAT="${_DAT%/*}" ;; *) _DAT="$_RPD"; break ;; esac; done
+    [ -n "$_DAT" ] || _DAT="$_RPD"
+    if git_has "$CMD_SEEN" 'add|rm|mv|restore|reset|stash|apply|am|checkout|switch|update-index|read-tree|merge|cherry-pick|revert|pull|rebase' \
+       && crew_lockfile_pending "$_DAT"; then
+      gatelog BLOCK 4.7 "a command that stages and commits, with a lockfile changed"
+      echo "GUARD (§4.7): this command stages and commits in one call, and a lockfile differs from HEAD. The gate reads" >&2
+      echo "what is staged BEFORE the command runs, so it cannot see the lockfile this would commit. Stage in its own" >&2
+      echo "call (git add …), apply the dependency-audit skill to the staged lockfile and record it, then git commit." >&2
+      exit 2
+    fi
+    crew_staged_lockfiles "$_DAT"
+    if [ "${#CREW_LOCKS[@]}" -gt 0 ]; then
+      crew_lock_oid "$_DAT"
+      DA_REC=""; crew_git_dir "$_DAT" && DA_REC="$_CREW_GD/$CREW_DEPS_RECORD"
+      DAJ=""
+      if [ -n "$DA_REC" ] && [ -f "$DA_REC" ]; then
+        while IFS= read -r _l || [ -n "$_l" ]; do DAJ="$DAJ${_l%$'\r'}"; done < "$DA_REC"
+      fi
+      _daf(){ _r="${DAJ#*\"$1\":\"}"; [ "$_r" = "$DAJ" ] && return 1; printf '%s' "${_r%%\"*}"; }
+      WANT_L="$(_daf lock_oid || true)"; DA_V="$(_daf verdict || true)"
+      if [ -z "$CREW_LOCK_OID" ] || [ "$WANT_L" != "$CREW_LOCK_OID" ]; then
+        # One gatelog per line: gate-report.sh builds its rule inventory from lines that start with the call.
+        if [ -z "$DAJ" ]; then
+          gatelog BLOCK 4.7 "a staged lockfile with no audit record"
+        else
+          gatelog BLOCK 4.7 "the audit record does not match the staged lockfiles"
+        fi
+        echo "GUARD (§4.7): this commit stages ${CREW_LOCKS[*]}, and no dependency audit covers that change." >&2
+        echo "  audited lockfile diff : ${WANT_L:-<no record>}" >&2
+        echo "  staged  lockfile diff : ${CREW_LOCK_OID:-<git could not hash it>}" >&2
+        echo "Apply the dependency-audit skill to what changed (known CVEs, deprecated and unmaintained packages)," >&2
+        # The skill names the recorder's path; this text does not, because the path differs between the file install
+        # and the plugin, and only the skill's text is rewritten for the plugin (packaging/build-plugin.sh).
+        echo "then record the verdict with the skill's own step (\"The audit record\": scripts/record.sh <clean|accepted|unverified> \"<what it found>\")." >&2
+        echo "'accepted' needs the user to accept the findings by name; 'unverified' is for an audit that could not run, and says why." >&2
+        echo "To skip it deliberately, run the commit yourself in your terminal." >&2
+        exit 2
+      fi
+      gatelog ALLOW 4.7 "the audit record matches the staged lockfiles (${DA_V:-?})"
+    fi
   fi
   # WHICH MODES CAN ACTUALLY ASK A PERSON. `default` and `acceptEdits` show the prompt to the human and wait.
   # `auto` and `dontAsk` do not: in `auto` the permission prompt is answered by the auto-mode classifier, and

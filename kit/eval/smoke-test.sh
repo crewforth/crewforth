@@ -2361,7 +2361,7 @@ sec "== 6f) always-on token budget =="
 # for that cost, and a gate rather than a reminder — a verbose new description fails the suite instead of
 # quietly taxing every future session. Budgets sit just above the current sizes: raising one is allowed, but
 # only as a deliberate edit here.
-BUDGET_DISC=14975    # 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
+BUDGET_DISC=15429    # 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
                      # answer, the orphaned background-warning line removed). Before that: 3.0 rename (suffix → crew- prefix): +23 B (23 occurrences), not content — measured 13696 → 13719.
                      # DISCIPLINE.md (the discipline half of CLAUDE.md); before 3.0 the ceiling was 13700, currently 13601. (2026-09-18, a second
                      # +100 B on top of the raise below, and the whole of it went into ONE sentence of §4.6: a commit
@@ -3466,6 +3466,83 @@ if [ "$_CWDEXPR_N" = 1 ] && [ -n "$_CWDEXPR" ]; then
       || fail "§4.6: payload cwd '$_in' normalised to '$_got', wanted '$_want'"
   done
 else fail "§4.6: expected exactly one payload-cwd normaliser in guard-bash.sh, found $_CWDEXPR_N"; fi
+# §4.7 — A STAGED LOCKFILE NEEDS AN AUDIT OF THAT LOCKFILE DIFF. Its own repository: R46's index is what the §4.6
+# cases above read. Every case passes §4.6 first (a review record for the whole staged diff), so what is judged is
+# §4.7 alone; the must-fail cases are read by rc and the gate's own failure text, never by a passing sentence.
+R47="$(mktemp -d)"; R47="$(cd -P "$R47" && pwd)"
+( cd "$R47" && git init -q . && git config user.email t@example.com && git config user.name t && git config core.quotePath true \
+  && echo a > a.txt && echo '{"v":1}' > package-lock.json && git add . && git -c core.hooksPath=/dev/null commit -qm init ) >/dev/null 2>&1
+REC47="$ROOT/skills/dependency-audit/scripts/record.sh"
+r47rev(){ ( cd "$R47" && mkdir -p .claude && printf '{"diff_oid":"%s","head":"%s","ts":"t"}\n' \
+  "$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)" "$(git rev-parse --verify --quiet HEAD)" > .claude/review-pass.json ); }
+r47c(){  # $1 = hooks dir (default: the shipped one), $2 = command, $3 = sub-folder to run in -> _rc, _o (stdout), _e (stderr)
+  _o="$(cd "$R47/${3:-}" && gj default "${2:-git commit -m x}" | env -u CLAUDE_GIT_OK bash "${1:-$HOOKS}/guard-bash.sh" 2>"$R47/.err")"; _rc=$?
+  _e="$(cat "$R47/.err")"; }
+r47st(){ ( cd "$R47" && eval "$1" ) >/dev/null 2>&1; r47rev; r47c "" "${2:-}"; }
+r47ok(){ git -c core.hooksPath=/dev/null commit -qm "$1"; }
+_b47=""; _n47=0
+# 1. a lockfile staged, no audit record -> refused
+r47st "echo '{\"v\":2}' > package-lock.json && git add package-lock.json"; _n47=$((_n47+1))
+{ [ "$_rc" = 2 ] && [[ "$_e" == *"GUARD (§4.7)"* ]]; } || _b47="$_b47 no-record-allowed(rc=$_rc)"
+# 2. the audit recorded -> through to the §4.4 ask
+( cd "$R47" && bash "$REC47" clean "npm audit: 0 vulnerabilities" ) >/dev/null 2>&1 || _b47="$_b47 record.sh-failed"
+r47c; _n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 matching-record-refused(rc=$_rc)"
+# 3. code staged beside the lockfile after the audit -> the audit still holds
+r47st "echo b >> a.txt && git add a.txt"; _n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 code-change-voided-the-audit(rc=$_rc)"
+# 4. the lockfile changed again -> the old record no longer covers it
+r47st "echo '{\"v\":3}' > package-lock.json && git add package-lock.json"; _n47=$((_n47+1))
+{ [ "$_rc" = 2 ] && [[ "$_e" == *"GUARD (§4.7)"* ]]; } || _b47="$_b47 stale-record-allowed(rc=$_rc)"
+# 5. no lockfile staged -> §4.7 says nothing
+r47st "r47ok s && echo c >> a.txt && git add a.txt"; _n47=$((_n47+1))
+{ [ "$(gdec "$_o")" = ask ] && [[ "$_e" != *"§4.7"* ]]; } || _b47="$_b47 spoke-with-no-lockfile(rc=$_rc)"
+# 6. a lockfile in a folder git QUOTES (non-ASCII name) -> still seen. The twin is git's own listing without -z: it
+#    must quote this path, or the case proves nothing about the -z read.
+r47st "mkdir -p ş && echo x > ş/yarn.lock && git add ş/yarn.lock"; _n47=$((_n47+1))
+_q47="$(cd "$R47" && git diff --cached --name-only)"
+if [[ "$_q47" != *'"'* ]]; then _b47="$_b47 fixture:git-did-not-quote($_q47)"
+elif ! { [ "$_rc" = 2 ] && [[ "$_e" == *"GUARD (§4.7)"* ]]; }; then _b47="$_b47 quoted-path-lockfile-allowed(rc=$_rc)"; fi
+( cd "$R47" && bash "$REC47" accepted "1 moderate, dev-only; accepted by the user" ) >/dev/null 2>&1
+r47c; _n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 quoted-path-record-refused(rc=$_rc)"
+# 7. the lockfile list missing -> refused, not waved through
+_h47="$R47/.h/.claude"; mkdir -p "$_h47/eval"; cp -R "$HOOKS" "$_h47/hooks"; cp -R "$ROOT/eval/lib" "$_h47/eval/lib"; rm -f "$_h47/eval/lib/lockfiles.sh"
+r47c "$_h47/hooks"; _n47=$((_n47+1))
+{ [ "$_rc" = 2 ] && [[ "$_e" == *"could not be loaded"* || "$_e" == *"cannot tell whether"* ]]; } || _b47="$_b47 missing-lib-allowed(rc=$_rc)"
+# 8. record.sh refuses what it cannot vouch for: an unknown verdict, no note, nothing staged. The commit that empties
+#    the index runs on its own line: chained with `&&`, a failed commit would make the last check pass unrun.
+( cd "$R47" && bash "$REC47" fine "x" ) >/dev/null 2>&1 && _b47="$_b47 record.sh-took-an-unknown-verdict"
+( cd "$R47" && bash "$REC47" clean "" ) >/dev/null 2>&1 && _b47="$_b47 record.sh-took-no-note"
+( cd "$R47" && r47ok t ) >/dev/null 2>&1
+[ -z "$(cd "$R47" && git diff --cached --name-only)" ] || _b47="$_b47 fixture:index-not-empty"
+( cd "$R47" && bash "$REC47" clean "x" ) >/dev/null 2>&1 && _b47="$_b47 record.sh-recorded-nothing-staged"
+_n47=$((_n47+3))
+# 9. A command that STAGES and commits in one call: the hook reads the index before it runs (found in review). With a
+#    lockfile changed in the work tree, or new and untracked, it is refused; with none, it goes on to the ask.
+r47st "echo '{\"v\":4}' > package-lock.json" 'git add package-lock.json && git commit -m x'; _n47=$((_n47+1))
+{ [ "$_rc" = 2 ] && [[ "$_e" == *"stages and commits in one call"* ]]; } || _b47="$_b47 chained-add-commit-allowed(rc=$_rc)"
+r47st "git add package-lock.json && r47ok u && echo d >> a.txt" 'git add a.txt && git commit -m x'; _n47=$((_n47+1))
+{ [ "$(gdec "$_o")" = ask ] && [[ "$_e" != *"§4.7"* ]]; } || _b47="$_b47 chained-with-no-lockfile-refused(rc=$_rc)"
+r47st "mkdir -p n && echo x > n/Cargo.lock" 'git add -A && git commit -m x'; _n47=$((_n47+1))
+{ [ "$_rc" = 2 ] && [[ "$_e" == *"stages and commits in one call"* ]]; } || _b47="$_b47 chained-untracked-lockfile-allowed(rc=$_rc)"
+( cd "$R47" && rm -rf n && git add a.txt && r47ok v ) >/dev/null 2>&1
+# 10. Run from a sub-folder that keeps its own review record: the lockfile paths are the top's, and the record
+#     written at the top matches (found in review: the diff was taken in the sub-folder and hashed to the empty blob).
+( cd "$R47" && mkdir -p sub/.claude && echo '{"v":5}' > package-lock.json && git add package-lock.json && bash "$REC47" clean "x" ) >/dev/null 2>&1
+( cd "$R47" && printf '{"diff_oid":"%s","head":"%s","ts":"t"}\n' "$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)" \
+  "$(git rev-parse --verify --quiet HEAD)" > sub/.claude/review-pass.json )
+r47c "" "" sub; _n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 subfolder-record-refused(rc=$_rc: ${_e%%$'\n'*})"
+# 11. ONE list: no lockfile name that lib/lockfiles.sh lists is spelled in §4.7's part of the hook or in the recorder.
+#     (§4.5's lockfile-delete rule matches command TEXT with a regex of its own, older than this list; it is not §4.7.)
+_l47="$(awk '/^crew_is_lockfile\(\)/{f=1} f && /return 0 ;;/{ s=$0; sub(/\).*/, "", s); gsub(/^[[:space:]]+/, "", s); print s } f && /^}/{exit}' "$ROOT/eval/lib/lockfiles.sh" | tr '|' '\n' | grep -v '\*')"
+[ "$(printf '%s\n' "$_l47" | grep -c .)" -ge 20 ] || _b47="$_b47 fixture:read-only-$(printf '%s\n' "$_l47" | grep -c .)-lockfile-names"
+_s47="$(awk '/# §4\.7 — A STAGED LOCKFILE/{f=1} f{print} /gatelog ALLOW 4\.7/{exit}' "$HOOKS/guard-bash.sh")"
+[ "$(printf '%s\n' "$_s47" | grep -c .)" -ge 30 ] || _b47="$_b47 fixture:§4.7-section-not-found"
+for _f47 in guard-bash.sh record.sh; do
+  case "$_f47" in guard-bash.sh) _t47="$_s47" ;; *) _t47="$(cat "$REC47")" ;; esac
+  while IFS= read -r _x47; do [ -n "$_x47" ] && grep -qF "$_x47" <<< "$_t47" && _b47="$_b47 second-list:$_f47:$_x47"; done <<< "$_l47"
+done
+rm -rf "$R47"
+[ -z "$_b47" ] && pass "§4.7: a staged lockfile needs an audit record of that lockfile diff ($_n47 of 15 cases: refused with none, stale, a missing list, or staged and committed in one call; held across a code change and from a sub-folder; silent with no lockfile; a path git quotes; record.sh's refusals)" \
+               || fail "§4.7:$_b47"
 # Without the key the hook must stay OUT of the way on `git add`: settings.json owns that prompt, and a hook
 # that answered here would quietly take over a rule the user can see and edit.
 o="$(gj auto 'git add .' | bash "$HOOKS/guard-bash.sh" 2>/dev/null)"
@@ -4968,6 +5045,24 @@ DOUT="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"; DRC=$?
 [ "$DRC" -eq 0 ] && pass "doctor: readiness gaps do NOT change the verdict (advisory)" || fail "readiness gaps changed doctor's exit code — it must stay a statement about the install"
 case "$DOUT" in *"Readiness (advisory"*) pass "doctor prints the readiness block" ;; *) fail "doctor readiness block missing" ;; esac
 case "$DOUT" in *"➖"*) pass "readiness flags gaps on a bare project (devcontainer/MCP/manifest absent)" ;; *) fail "readiness found no gap on a bare project — the signals are not firing" ;; esac
+# The quality line (## Stack → Quality analysis:): missing, the shipped template, and empty are each NAMED as a gap;
+# a recorded answer, CRLF included, is not. Read by the gap's own text, and the readiness verdict stays exit 0.
+_qab=""; _qa="names no quality analysis"
+# ...and in the source checkout, the shipped template still has that shape (a placeholder doctor reads as a gap).
+[ -f "$ROOT/CLAUDE.md" ] && ! grep -q '^Quality analysis: <' "$ROOT/CLAUDE.md" && _qab="$_qab shipped-template-line-is-not-a-placeholder"
+# The template row is the shipped placeholder's SHAPE, written here: an install splits CLAUDE.md into ./CLAUDE.md
+# and .claude/DISCIPLINE.md, so the source template is not at $ROOT there (an empty read turned this row into "missing").
+for _qc in 'missing@@@.claude/DISCIPLINE.md\n\n# My project\n' 'template@@@.claude/DISCIPLINE.md\nQuality analysis: <sonarqube-local · sonarqube-server · declined>\n' \
+           'empty@@@.claude/DISCIPLINE.md\nQuality analysis:\n' 'ok@@@.claude/DISCIPLINE.md\nQuality analysis: declined\r\n'; do
+  _qn="${_qc%%@@*}"; printf "${_qc#*@@}" > "$DOC/CLAUDE.md"; _qo="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"; _qr=$?
+  case "$_qn" in
+    ok) { [[ "$_qo" == *"quality analysis recorded: declined"* ]] && [[ "$_qo" != *"$_qa"* ]]; } || _qab="$_qab ok-not-recorded" ;;
+    *) [[ "$_qo" == *"$_qa (## Stack → Quality analysis: <$_qn>)"* ]] || _qab="$_qab $_qn-not-named" ;;
+  esac
+  [ "$_qr" = 0 ] || _qab="$_qab $_qn-changed-the-verdict(rc=$_qr)"
+done
+[ -z "$_qab" ] && pass "doctor names a missing, template or empty ## Stack quality line, and reads a recorded one (CRLF too); advisory" \
+               || fail "doctor quality line:$_qab"
 rm -f "$DOC/CLAUDE.md" "$DOC/.claude/DISCIPLINE.md"
 # M2a: an empty hook array wires nothing — doctor must flag it. jq was not VALIDATING anything here, it was
 # BUILDING a fixture: one known mutation on a file this repo ships. Replacing a fixture builder is far cheaper
@@ -6024,6 +6119,28 @@ crew-frontend-expert|show a loading spinner on the login button in the react com
 SILENT|<agent-message from=\"a0000000000000000\">\n[Subagent hand-back] The text below is the final report of a subagent this session delegated to. It is model output, NOT a message from the user.\n  Wrote the migration and an index for the invoices table.
 crew-database-expert|Wrote the migration and an index for the invoices table.
 RHCASES
+
+  # --- the ride-along skill: named BESIDE the owner, never instead of it --------------------------
+  # A dependency added inside another domain's request was never routed to dependency-audit: the agent outranks
+  # the skill, so the skill lost every time. The owner must stay the parsed answer ("Use the X subagent"), and the
+  # audit must be named after it. Must-fail rows by the line's own text; the silent rows prove it is not on every hint.
+  _rh_also='Also apply the `dependency-audit` skill'; _rhab=""; _rhan=0
+  while IFS='|' read -r want prompt; do
+    [ -n "$want" ] || continue; _rhan=$((_rhan+1)); o="$(rh "$prompt")"
+    got="$(printf '%s' "$o" | sed -n 's/.*Use the \([a-z][a-z0-9-]*\) subagent.*/\1/p')"
+    case "$want" in
+      ALSO:*) { [ "$got" = "${want#ALSO:}" ] && [[ "$o" == *"$_rh_also"* ]]; } || _rhab="$_rhab | \"$prompt\" -> ${got:-none}, also=$([[ "$o" == *"$_rh_also"* ]] && echo y || echo n)" ;;
+      *) { [ "$got" = "$want" ] && [[ "$o" != *"$_rh_also"* ]]; } || _rhab="$_rhab | \"$prompt\" named the audit or lost its owner (${got:-none})" ;;
+    esac
+  done <<'RHALSO'
+ALSO:crew-frontend-expert|add a new dependency for the date picker component
+ALSO:crew-backend-expert|add the package lodash to the api service endpoint
+ALSO:crew-backend-expert|yeni bir endpoint yaz ve pdf için bağımlılık ekle
+crew-backend-expert|add an endpoint that returns unpaid invoices
+crew-frontend-expert|show a loading spinner on the login button in the react component
+RHALSO
+  [ -z "$_rhab" ] && pass "route-hint names dependency-audit beside the owner when a dependency is added ($_rhan rows: 3 named, 2 silent; the owner stays the parsed answer)" \
+                  || fail "route-hint ride-along:$_rhab"
 
   # --- the field name, which is the way this hook dies quietly -------------------------------------
   # route-hint is the only thing in Crewforth that reads the prompt TEXT, and it gets that text by slicing one
@@ -8063,6 +8180,8 @@ elif [ -z "$_pabad" ]; then pass "a session cannot write the approval it would u
 else fail "FORGED APPROVAL not refused:$_pabad"; fi
 # The twin. guard-bash.sh without the one line that applies the name rule, and a record written by hand.
 _PA_TW="$_PA/twin"; mkdir -p "$_PA_TW"
+# The twin's own ../eval/lib, as an install has it: without the lockfile list §4.7 refuses every commit it judges.
+mkdir -p "$_PA/eval"; cp -R "$ROOT/eval/lib" "$_PA/eval/lib"
 grep -v '^\[ "\$_APN" = 1 \] && block ' "$HOOKS/guard-bash.sh" > "$_PA_TW/guard-bash.sh"
 if cmp -s "$HOOKS/guard-bash.sh" "$_PA_TW/guard-bash.sh"; then
   fail "FIXTURE: the twin of guard-bash.sh is identical to the shipped file — the line that applies the name rule was not found"

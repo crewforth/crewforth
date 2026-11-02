@@ -150,7 +150,9 @@ function readonly(   w, n, f, l) {
       w[l] !~ /^(oku|okur|okuyun|okuyabilir|anlat|anlatir|anlatin|acikla|aciklar|aciklayin|ozetle|ozetler|ozetleyin)$/) return 0
   return !hasw("and|then|ve|sonra|(fix|add|updat|writ|wrote|chang|implement|creat|remov|delet|refactor|build|buil|mak|renam|edit|migrat|mov|deploy|ship|instal|upgrad|review|audit|check|test|debug|investigat|optimi[sz]|improv|translat|draft|generat|setup|set|harden|resolv|run|merg|publish|configur|propos|analy[sz])[a-z]?[a-z]?[a-z]?[a-z]?|why|bug|bugs|crash[a-z]*|fail[a-z]*|error[a-z]*|broken|duzelt[a-z]*|ekle[a-z]*|guncelle[a-z]*|yaz[a-z]*|degistir[a-z]*|olustur[a-z]*|sil[a-z]*|kaldir[a-z]*|yap[a-z]*|kur[a-z]*|tasi[a-z]*|incele[a-z]*|denetle[a-z]*|cevir[a-z]*|duzenle[a-z]*|iyilestir[a-z]*|yayinla[a-z]*|cikar[a-z]*|hizlandir[a-z]*|uygula[a-z]*|coz[a-z]*|gelistir[a-z]*|sadelestir[a-z]*|analiz[a-z]*|neden|hata[a-z]*|cokuyor|bozuk[a-z]*")
 }
-BEGIN { np = " " norm(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; nameA=""; nameS=""; if (readonly()) exit }
+BEGIN { np = " " norm(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; bestX=0; nameA=""; nameS=""; nameX=""
+  ALSO["dependency-audit"] = 1
+  if (readonly()) exit }
 seen[FILENAME] { next }                                    # one Trigger-phrases line per component, the first
 {
   if (tolower($0) !~ /trigger phrases:/) next
@@ -187,18 +189,25 @@ seen[FILENAME] { next }                                    # one Trigger-phrases
   # keeps its own best and the preference is applied at the END, among candidates that clear the floor.
   if (kind == "agent") { if (score > bestA) { bestA=score; nameA=name } }
   else                 { if (score > bestS) { bestS=score; nameS=name } }
+  # A RIDE-ALONG skill is named BESIDE the agent instead of losing to it. Its trigger is an event inside the work
+  # of another domain: "add axios to the web app" is a request for crew-frontend-expert, and adding the package
+  # is what dependency-audit judges. Under agent-outranks-skill it was never named (one project measured 21
+  # lockfile commits against 0 audits), so it gets its own slot, scored the same way, and no process.
+  # NO APOSTROPHE anywhere in this program: it sits inside a single-quoted shell string, and one closes it.
+  if (kind == "skill" && name in ALSO && score >= 6 && score > bestX) { bestX=score; nameX=name }
 }
 # Silence is the default. No match, or a match too weak to be sure, means the main thread decides as before.
 # The agent is preferred only when it is credible on its own: a weak agent match no longer buries a strong skill.
 END {
-  if      (bestA >= 6) print "agent\t" nameA
-  else if (bestS >= 6) print "skill\t" nameS
+  if      (bestA >= 6) print "agent\t" nameA "\t" nameX
+  else if (bestS >= 6) print "skill\t" nameS "\t"
 }
 ' "${FILES[@]}" 2>/dev/null)"
 
 [ -n "$RES" ] || exit 0
 BESTKIND="${RES%%	*}"; BEST="${RES#*	}"
 [ -n "$BEST" ] && [ "$BEST" != "$RES" ] || exit 0
+ALSO="${BEST#*	}"; [ "$ALSO" = "$BEST" ] && ALSO=""; BEST="${BEST%%	*}"
 
 # The wording is an INSTRUCTION, not a suggestion, and that distinction is the whole experiment. The first
 # version hedged — "unless it is a one-line edit", "if it is genuinely not that agent's work, say so" — which
@@ -210,5 +219,7 @@ if [ "$BESTKIND" = skill ]; then
   MSG="Use the \`$BEST\` skill for this task."
 else
   MSG="Use the $BEST subagent for this task."
+  # Not "Use the …": that sentence names THE owner, and every reader of this hook's answer parses it as such.
+  [ -n "$ALSO" ] && MSG="$MSG Also apply the \`$ALSO\` skill: the commit gate (§4.7) asks for its record."
 fi
 printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$MSG"
