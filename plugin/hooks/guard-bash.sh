@@ -147,7 +147,11 @@ _join_cmd(){  # CMD -> CMD with its continued lines joined
 }
 # ---- /CREW-JOIN
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+# Backslashes folded first: a hook started by a Windows path (`C:\…\hooks\guard-bash.sh`, as Node's path.join builds
+# it, and as a native CLAUDE_PLUGIN_ROOT spells it) has no `/` to cut at, so its directory read as `.` and every
+# library below was looked for in the PROJECT. Optional ones vanished silently; §4.7's required one refused every
+# commit (the Windows runner's Studio gate check; reproduced on macOS with a file NAMED `x\hooks\guard-bash.sh`, smoke §4.7).
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
 # Where the gate log goes: one rule for every gate and reader (eval/lib/gate-log.sh).
 [ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"

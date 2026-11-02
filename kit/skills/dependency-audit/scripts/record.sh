@@ -11,7 +11,7 @@
 # The record lives in the git directory (lib/lockfiles.sh says why) and holds the object id of the staged lockfile
 # diff alone, so code staged beside the lockfiles does not invalidate it; another lockfile diff does.
 set -u
-_here="${BASH_SOURCE%/*}"; [ "$_here" = "$BASH_SOURCE" ] && _here=.
+_here="${BASH_SOURCE//\\//}"; _here="${_here%/*}"; [ "$_here" = "${BASH_SOURCE//\\//}" ] && _here=.   # a Windows path has no `/` to cut at
 LIB="$_here/../../../eval/lib"
 . "$LIB/gate-log.sh" && . "$LIB/lockfiles.sh" || { echo "record.sh: cannot load $LIB (lockfiles.sh, gate-log.sh)" >&2; exit 1; }
 

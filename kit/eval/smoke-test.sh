@@ -3530,6 +3530,15 @@ r47st "mkdir -p n && echo x > n/Cargo.lock" 'git add -A && git commit -m x'; _n4
 ( cd "$R47" && printf '{"diff_oid":"%s","head":"%s","ts":"t"}\n' "$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)" \
   "$(git rev-parse --verify --quiet HEAD)" > sub/.claude/review-pass.json )
 r47c "" "" sub; _n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 subfolder-record-refused(rc=$_rc: ${_e%%$'\n'*})"
+# 12. A hook started by a Windows path (`x\hooks\guard-bash.sh`, no `/` in it, as Node's path.join and a native
+#     CLAUDE_PLUGIN_ROOT spell it) still finds its own eval/lib. Before the fold its directory read as `.` and §4.7
+#     refused every commit (the Windows runner, Studio's gate check). Off Windows the shape is a FILE named that way
+#     beside the real folders; on Windows the copy lands on the real path and bash is handed the backslash spelling.
+_bs="$R47/.bs"; mkdir -p "$_bs/x/hooks" "$_bs/x/eval"; cp -R "$ROOT/eval/lib" "$_bs/x/eval/lib"; cp "$HOOKS/guard-bash.sh" "$_bs/x/hooks/"
+cp "$HOOKS/guard-bash.sh" "$_bs/x\\hooks\\guard-bash.sh" 2>/dev/null || true
+_o="$(cd "$_bs" && printf '{"cwd":"%s","tool_name":"Bash","permission_mode":"default","tool_input":{"command":"git commit -m x"}}' "$R47/sub" \
+  | env -u CLAUDE_GIT_OK bash 'x\hooks\guard-bash.sh' 2>"$R47/.err")"; _rc=$?
+_n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 backslash-hook-path-refused(rc=$_rc: $(head -1 "$R47/.err"))"
 # 11. ONE list: no lockfile name that lib/lockfiles.sh lists is spelled in §4.7's part of the hook or in the recorder.
 #     (§4.5's lockfile-delete rule matches command TEXT with a regex of its own, older than this list; it is not §4.7.)
 _l47="$(awk '/^crew_is_lockfile\(\)/{f=1} f && /return 0 ;;/{ s=$0; sub(/\).*/, "", s); gsub(/^[[:space:]]+/, "", s); print s } f && /^}/{exit}' "$ROOT/eval/lib/lockfiles.sh" | tr '|' '\n' | grep -v '\*')"
@@ -3541,7 +3550,7 @@ for _f47 in guard-bash.sh record.sh; do
   while IFS= read -r _x47; do [ -n "$_x47" ] && grep -qF "$_x47" <<< "$_t47" && _b47="$_b47 second-list:$_f47:$_x47"; done <<< "$_l47"
 done
 rm -rf "$R47"
-[ -z "$_b47" ] && pass "§4.7: a staged lockfile needs an audit record of that lockfile diff ($_n47 of 15 cases: refused with none, stale, a missing list, or staged and committed in one call; held across a code change and from a sub-folder; silent with no lockfile; a path git quotes; record.sh's refusals)" \
+[ -z "$_b47" ] && pass "§4.7: a staged lockfile needs an audit record of that lockfile diff ($_n47 of 16 cases: refused with none, stale, a missing list, or staged and committed in one call; held across a code change, from a sub-folder and from a hook started by a Windows path; silent with no lockfile; a path git quotes; record.sh's refusals)" \
                || fail "§4.7:$_b47"
 # Without the key the hook must stay OUT of the way on `git add`: settings.json owns that prompt, and a hook
 # that answered here would quietly take over a rule the user can see and edit.
