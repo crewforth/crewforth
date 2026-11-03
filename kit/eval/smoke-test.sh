@@ -12299,7 +12299,7 @@ README*.md site/content/*/install.md	4	migration: the 2.x plugin note names the 
 evals/results/* packaging/review-bench/cases/* packaging/review-bench/results/* packaging/advisor-bench/results/*	729	history: recorded eval runs, and the review bench'"'"'s cases (past versions of Crewforth'"'"'s own files) and results, and the advisor bench'"'"'s results on them, stay byte-for-byte
 adopt.sh kit/legacy-blobs.tsv	347	migration: finds and moves 2.x names (components, CLAUDE.md, board, auto-mode rules, variables), and the generated list of the 1.x/2.x files it may move
 bin/cli.js	4	migration: add accepts a typed <x>-csk and moves an add record written under the old names
-evals/run.sh	4	compat: reads the 2.x trusted eval parent when the 3.0 one is absent — removed in 4.0
+evals/run.sh	6	compat: reads the 2.x trusted eval parent when the 3.0 one is absent — removed in 4.0; and the control-arm leak check matches the 2.x component suffix a user-level install from then still carries
 site/scripts/check.mjs	7	tests: the old-name pattern of the built-site gate, and its twins
 */eval/doctor.sh	8	migration: PROOF-5 and the variable notice name what is still on the 2.x spelling; 9c names the 2.x plugin id
 */crew-env.*	18	compat layer (bash + Node): reads CSK_* when CREW_* is unset — removed in 4.0
@@ -12833,8 +12833,12 @@ sec "== 15b) evals: the trusted parent — the 2.x one is still read, and strict
 if [ -f "$_EVR" ]; then
   _ET="$(mktemp -d)"
   mkdir -p "$_ET/bin" "$_ET/root/kit" "$_ET/cases/probe" "$_ET/h0" "$_ET/h1" "$_ET/h2"
+  # The stub answers as the CLI does since every run reads its event stream: an opening event naming the pinned model,
+  # then a result. Plain text would make every run "the stream is empty" and these rows would measure that instead.
   printf '%s\n' '#!/usr/bin/env bash' '[ "${1:-}" = --version ] && { echo "0.0.0 (stub)"; exit 0; }' ': > "$STUB_MARK"' \
-    '[ "${STUB_UNTRUSTED:-0}" = 1 ] && echo "Warning: this workspace has not been trusted" >&2' 'echo done' > "$_ET/bin/claude"
+    '[ "${STUB_UNTRUSTED:-0}" = 1 ] && echo "Warning: this workspace has not been trusted" >&2' \
+    'echo '"'"'{"type":"system","subtype":"init","model":"claude-sonnet-4-5","agents":[]}'"'"'' \
+    'echo '"'"'{"type":"result","subtype":"success","is_error":false,"result":"done","usage":{}}'"'"'' > "$_ET/bin/claude"
   chmod +x "$_ET/bin/claude"
   printf 'mkdir -p .claude\n' > "$_ET/root/start.sh"
   printf '%s\n' 'DESC="trust probe"' 'NEEDS_GIT_OK=0' 'seed() { echo x > f.txt; }' "PROMPT='noop'" > "$_ET/cases/probe/case.env"
@@ -12855,6 +12859,7 @@ if [ -f "$_EVR" ]; then
   _gwo=0; _gp="$(mktemp -d)"; _mkpar "$_gp/p" && git -C "$_gp/p" worktree add -q --orphan -b probe "$_gp/w" >/dev/null 2>&1 && _gwo=1; rm -rf "$_gp"
   _mut=0; for _m in m1 m2 m3; do cmp -s "$_EVR" "$_ET/$_m.sh" || _mut=$((_mut+1)); done
   if [ "$_mut" != 3 ]; then fail "FIXTURE: only $_mut of 3 mutants differ from run.sh — a twin would test the unmodified file"
+  elif [ "$_PY3OK" = 0 ]; then skip tool "evals trusted-parent rows (no working python3: run.sh reads every run's event stream with it)" 5
   elif [ "$_gwo" = 0 ]; then skip tool "evals trusted-parent rows (git has no 'worktree add --orphan', needs 2.42+)" 5
   else
     # (1) No parent at all, strict: stops at build time, BEFORE any model call. Twin: without that `|| exit 4`.

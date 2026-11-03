@@ -26,7 +26,8 @@
 # Usage:
 #   bash evals/run.sh                       # every case, 1 run per arm
 #   bash evals/run.sh --runs 3              # 3 runs per arm (nondeterminism is real; 1 run is an anecdote)
-#   CREW_EVAL_TRACE=1 bash evals/run.sh      # also capture the event stream: main-thread delegations, cost and tokens per arm
+#   CREW_EVAL_TRACE=1 bash evals/run.sh      # also print the trace summary: main-thread delegations, cost and tokens per arm
+#   CREW_EVAL_MODEL=opus bash evals/run.sh   # the model both arms are pinned to (default sonnet); the served one is checked
 #   CREW_EVAL_ARMS="kit kitb" CREW_EVAL_DISCIPLINE_B=<a CLAUDE.md with the sentinel> CREW_EVAL_TRACE=1 bash evals/run.sh --runs 3
 #                                           # same install in both arms, only the discipline text differs: measures a RULE
 #   CREW_EVAL_CASES=<dir>                    # run cases from another directory (a draft set, before it lands here)
@@ -35,6 +36,10 @@
 # stdin is /dev/null for every run: without it the CLI waits 3 s for piped input it will never get, and says so.
 #   bash evals/run.sh --case secret-refused # one case
 #   bash evals/run.sh --keep                # keep the scratch projects for inspection
+#
+# Every run is pinned to one model and loads only the project's own settings (no user settings, plugins, MCP servers or
+# auto-memory). Its stream says which model served it and what the session could see; a run served another model, or
+# a control arm that could see a crew- component, makes the run exit 3: the comparison did not hold.
 #
 # A case may declare REQUIRES="tool ..." in its case.env; when one is missing the case is skipped before anything is built.
 #
@@ -57,7 +62,24 @@ while [ $# -gt 0 ]; do
 done
 
 command -v claude >/dev/null 2>&1 || { echo "run.sh: the claude CLI is not on PATH" >&2; exit 1; }
-MODEL="$(claude --version 2>/dev/null | head -1)"
+# Probed by running it: on Windows `command -v python3` finds the Store redirector, which resolves and exits 49.
+printf '' | python3 -c 'import sys,json' >/dev/null 2>&1 || { echo "run.sh: no working python3 — the event stream every run is read from cannot be parsed" >&2; exit 1; }
+CLI="$(claude --version 2>/dev/null | head -1)"
+# The model is PINNED, and the one each run was served is read back from its own stream. The header used to print
+# the CLI version where the model belonged and no run named one, so the two arms ran whatever each session's
+# default was that day — and a later rerun could not say whether a difference was the kit or the model.
+EVAL_MODEL="${CREW_EVAL_MODEL:-sonnet}"
+# Only a request that names a model can be checked against the stream: an alias of a family or a full id. `default`
+# or `opusplan` would pass whatever was served, and the pin would be a word.
+case "$(printf '%s' "${EVAL_MODEL%%\[*}" | tr '[:upper:]' '[:lower:]')" in
+  sonnet|opus|haiku|fable|claude-*) ;;
+  *) echo "run.sh: CREW_EVAL_MODEL='$EVAL_MODEL' names no model the stream can be checked against — use sonnet, opus, haiku, fable or a full claude-… id" >&2; exit 1 ;;
+esac
+# Both arms run with ONLY the project's own settings. Without these flags the user's settings, plugins, MCP servers,
+# hooks and auto-memory loaded into the kit arm and the bare arm alike: on a machine with Crewforth installed as a
+# user plugin, the control arm was running Crewforth. The CLAUDE.md files are NOT turned off — the kit arm IS the
+# project CLAUDE.md. Whether a user-level CLAUDE.md still loads under these flags is not measured; it is said below.
+ISO_FLAGS="--setting-sources project,local --strict-mcp-config --no-session-persistence"
 
 # Where the scratch projects live matters more than it looks: Claude Code trusts a workspace per path, and an
 # untrusted one silently drops the `permissions.allow` entry the kit ships. Override with CREW_EVAL_WORK to run
@@ -233,6 +255,15 @@ tests = tnest = 0; seen_tu = set(); msgs_top = set(); msgs_nest = set(); k = las
 # instead of collapsing into one bucket (which is a latent flaw in msgs_top, left alone here rather than
 # changed silently).
 per_msg = {}; by_type = {}
+# The session's opening event lists what it could see. A control arm that sees a crew- agent, skill, command or
+# plugin is not a control: that is the leak a run on a machine with Crewforth as a user plugin produced.
+init = None
+def names(v):
+    out = []
+    for x in v or []:
+        if isinstance(x, str): out.append(x)
+        elif isinstance(x, dict) and isinstance(x.get('name'), str): out.append(x['name'])
+    return out
 try: lines = open(src, errors='replace').read().splitlines()
 except OSError: lines = []
 for ln, line in enumerate(lines):
@@ -259,11 +290,31 @@ for ln, line in enumerate(lines):
             elif c.get('name') == 'Bash' and RUNRX.search((c.get('input') or {}).get('command') or ''):
                 tests += 1; last_test = k
                 if nested: tnest += 1
+    elif e.get('type') == 'system' and e.get('subtype') == 'init' and init is None:
+        init = e
     elif e.get('type') == 'rate_limit_event':
         if (e.get('rate_limit_info') or {}).get('status') == 'rejected': limited = 1
     elif e.get('type') == 'result':
         res = e
 open(txt, 'w').write((res or {}).get('result') or '')
+# The main session's model is the one the pin is about; a crew agent may run on another by design, so every model
+# the run used is reported beside it (column 25), not held to the pin.
+mu = (res or {}).get('modelUsage') or {}
+used = sorted(mu.keys())
+# No model in the opening event: the one that wrote the most is the main session's (a background model writes little).
+# Nothing to tell them apart by: say nothing rather than guess.
+def out_tok(v): return (v or {}).get('outputTokens', 0) if isinstance(v, dict) else 0
+if init and init.get('model'): served = [init['model']]
+elif used and any(out_tok(mu[k]) for k in used): served = [max(used, key=lambda k: out_tok(mu[k]))]
+else: served = []
+seen = []
+for key in ('agents', 'skills', 'slash_commands', 'plugins', 'tools', 'mcp_servers'):
+    seen += names((init or {}).get(key))
+# Crewforth by name: a crew- component, the plugin itself (`crewforth`, `crewforth:<x>`), or a 2.x name (`*-csk`).
+# A user's own `crewforth-notes` or `my-crew-tool` is not Crewforth. A plugin is also caught by its install path.
+CREW = re.compile(r'(^|[:/])crew-[a-z0-9-]+|(^|[:/])crewforth(:|$)|-csk$', re.I)
+paths = [x.get('path') for x in ((init or {}).get('plugins') or []) if isinstance(x, dict) and isinstance(x.get('path'), str)]
+leak = sorted({n for n in seen if CREW.search(n)} | {p for p in paths if re.search(r'[/\\]crewforth([/\\@]|$)', p, re.I)})
 u = (res or {}).get('usage') or {}
 sp = ((res or {}).get('subagent_stats') or {}).get('spawned', '')
 print('\t'.join(str(x) for x in (top, allc, sp, (res or {}).get('total_cost_usd', ''), u.get('input_tokens', ''),
@@ -272,8 +323,22 @@ print('\t'.join(str(x) for x in (top, allc, sp, (res or {}).get('total_cost_usd'
       1 if (res or {}).get('is_error') else 0, 1 if limited or (res or {}).get('api_error_status') == 429 else 0,
       '' if not edits else (1 if last_test > last_edit else 0),
       sum(1 for v in per_msg.values() if v >= 2), max(per_msg.values(), default=0),
-      ','.join(f'{k}:{by_type[k]}' for k in sorted(by_type)) or '-')))
+      ','.join(f'{k}:{by_type[k]}' for k in sorted(by_type)) or '-',
+      ','.join(served) or '-', len(seen) if init else '-', ','.join(leak[:8]) or '-', ','.join(used) or '-')))
 PYM
+}
+
+# served_is REQUESTED SERVED — 0 when the main session's model answers the request. An alias (sonnet, opus, haiku,
+# fable) matches an id that names that family; a full id must equal it (a `[1m]` context suffix aside).
+served_is() {
+  local want got
+  want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"; got="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  want="${want%%\[*}"; got="${got%%\[*}"          # a context-size suffix ([1m]) is not another model
+  [ -n "$got" ] && [ "$got" != "-" ] || return 1
+  case "$want" in
+    sonnet|opus|haiku|fable) case "$got" in *"$want"*) return 0 ;; esac; return 1 ;;
+    *) case "$got" in "$want"|"$want"-*) return 0 ;; esac; return 1 ;;   # claude-sonnet-4-5 answers by claude-sonnet-4-5-20250929
+  esac
 }
 
 run_arm() {
@@ -298,27 +363,28 @@ run_arm() {
   # the difference between evidence for the always-on discipline TEXT and evidence for the GATE. Set in both arms
   # so they stay identical in environment; the bare arm has no hooks, so its log simply never appears.
   ( cd "$dir" || exit 1
-    if [ "${CREW_EVAL_TRACE:-0}" = 1 ]; then
-      # Delegation and tokens are invisible in text output. The event stream carries both; the reply text is
-      # re-derived into .eval-stdout.txt so anything reading it sees the same thing as before.
-      env $env_prefix CREW_GATE_LOG="$dir/.eval-gates.log" claude -p "$PROMPT" --output-format stream-json --verbose \
-          --permission-mode "${CREW_EVAL_PERM:-bypassPermissions}" \
-          --allowedTools ${CREW_EVAL_TOOLS:-Bash Read Write Edit Task Agent} \
-          </dev/null >"$dir/.eval-stream.jsonl" 2>"$dir/.eval-stderr.txt"
-      eval_trace_metrics "$dir/.eval-stream.jsonl" "$dir/.eval-stdout.txt" > "$dir/.eval-metrics.tsv"
-    else
-      env $env_prefix CREW_GATE_LOG="$dir/.eval-gates.log" claude -p "$PROMPT" \
-          --permission-mode "${CREW_EVAL_PERM:-bypassPermissions}" \
-          --allowedTools ${CREW_EVAL_TOOLS:-Bash Read Write Edit Task Agent} \
-          </dev/null >"$dir/.eval-stdout.txt" 2>"$dir/.eval-stderr.txt"
-    fi
+    # One call shape for every run: the event stream carries the served model, the components the session saw at
+    # start, delegation and tokens; the reply text is re-derived into .eval-stdout.txt for the graders.
+    # CREW_EVAL_TRACE now only decides whether the trace summary is printed.
+    printf '%s\n' "--model $EVAL_MODEL $ISO_FLAGS CLAUDE_CODE_DISABLE_AUTO_MEMORY=1" > "$dir/.eval-flags.txt"
+    # shellcheck disable=SC2086  # ISO_FLAGS is a fixed list of words
+    env $env_prefix CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CREW_GATE_LOG="$dir/.eval-gates.log" claude -p "$PROMPT" \
+        --model "$EVAL_MODEL" $ISO_FLAGS --output-format stream-json --verbose \
+        --permission-mode "${CREW_EVAL_PERM:-bypassPermissions}" \
+        --allowedTools ${CREW_EVAL_TOOLS:-Bash Read Write Edit Task Agent} \
+        </dev/null >"$dir/.eval-stream.jsonl" 2>"$dir/.eval-stderr.txt"
+    eval_trace_metrics "$dir/.eval-stream.jsonl" "$dir/.eval-stdout.txt" > "$dir/.eval-metrics.tsv"
   ) || true   # a non-zero exit is itself a result; the grader decides
 }
 
 # Arms come from CREW_EVAL_ARMS (default "kit bare"). The totals below were written for exactly those two and filed
 # every non-kit arm under "bare": a kit-vs-kitb run would have printed kitb's score as bare's and dropped kitb's checks.
 ARMS="${CREW_EVAL_ARMS:-kit bare}"; ARM_A="${ARMS%% *}"; ARM_B=""; [ "$ARMS" != "$ARM_A" ] && ARM_B="${ARMS#* }"; ARM_B="${ARM_B%% *}"
-printf '== kit A/B eval ==  %s · %s runs/arm · arms: %s\n\n' "$MODEL" "$RUNS" "$ARMS"
+printf '== kit A/B eval ==  model %s (requested) · %s · %s runs/arm · arms: %s\n' "$EVAL_MODEL" "$CLI" "$RUNS" "$ARMS"
+printf '   isolation: %s · CLAUDE_CODE_DISABLE_AUTO_MEMORY=1\n' "$ISO_FLAGS"
+[ -f "$HOME/.claude/CLAUDE.md" ] && printf '   ! ~/.claude/CLAUDE.md exists: whether it loads into both arms under these flags is not measured\n'
+printf '\n'
+MISMATCH=0; LEAKED=0; SERVED_IDS=
 [ -d "$CASES" ] || { echo "run.sh: no cases under evals/cases" >&2; exit 1; }
 
 # A NODE THE KIT FETCHED IS STILL A NODE. ensure-node.sh deliberately never edits PATH, so on a machine whose only Node
@@ -400,21 +466,28 @@ for cdir in "$CASES"/*/; do
       # stream it is a reply that is not the limit message, in the one form seen so far, the result text of a rejected run:
       # "You've hit your session limit · resets …".
       nm=""
-      if [ "${CREW_EVAL_TRACE:-0}" = 1 ]; then
-        m_has=""; m_err=""; m_lim=""
-        read -r m_has m_err m_lim < <(LC_ALL=C awk -F'\t' '{print ($11==""?0:$11), ($16==""?0:$16), ($17==""?0:$17)}' "$P/.eval-metrics.tsv" 2>/dev/null)
-        if [ "${m_has:-0}" != 1 ]; then nm="the stream is empty or broken"
-        elif [ "${m_err:-0}" = 1 ] || [ "${m_lim:-0}" = 1 ]; then
-          nm="the run ended in an error or hit the usage limit: $(head -1 "$P/.eval-stdout.txt" 2>/dev/null | cut -c1-160)"
-        fi
-        [ "${m_lim:-0}" = 1 ] && LIMITED=1
-      elif head -1 "$P/.eval-stdout.txt" 2>/dev/null | grep -qiE "^you.ve hit your .*limit"; then
-        nm="$(head -1 "$P/.eval-stdout.txt" | cut -c1-160)"; LIMITED=1
+      m_has=""; m_err=""; m_lim=""; m_srv=""; m_seen=""; m_leak=""
+      IFS=$'\t' read -r m_has m_err m_lim m_srv m_seen m_leak < <(LC_ALL=C awk -F'\t' '{print ($11==""?0:$11) "\t" ($16==""?0:$16) "\t" ($17==""?0:$17) "\t" $22 "\t" $23 "\t" $24}' "$P/.eval-metrics.tsv" 2>/dev/null)
+      if [ "${m_has:-0}" != 1 ]; then nm="the stream is empty or broken"
+      elif [ "${m_err:-0}" = 1 ] || [ "${m_lim:-0}" = 1 ]; then
+        nm="the run ended in an error or hit the usage limit: $(head -1 "$P/.eval-stdout.txt" 2>/dev/null | cut -c1-160)"
+      fi
+      [ "${m_lim:-0}" = 1 ] && LIMITED=1
+      # The comparison holds only if the run was served the model asked for, and the control could not see the kit.
+      case " $SERVED_IDS " in *" ${m_srv:--} "*) ;; *) SERVED_IDS="$SERVED_IDS ${m_srv:--}" ;; esac
+      if [ -z "$nm" ] && ! served_is "$EVAL_MODEL" "$m_srv"; then
+        MISMATCH=$((MISMATCH+1)); nm="asked for model $EVAL_MODEL, the stream says it was served ${m_srv:-nothing}"
+      fi
+      if [ -z "$nm" ] && [ "$arm" != kit ] && [ "$arm" != kitb ]; then
+        if [ -z "$m_seen" ] || [ "$m_seen" = "-" ]; then nm="the stream has no init event, so the control arm cannot be shown clean"
+        elif [ -n "$m_leak" ] && [ "$m_leak" != "-" ]; then LEAKED=$((LEAKED+1)); nm="the control arm could see Crewforth components: $m_leak"; fi
       fi
       if [ -n "$nm" ]; then
         NOT_MEASURED=$((NOT_MEASURED+1)); arm_nm=$((arm_nm+1))
         printf '   ! %s run %s NOT MEASURED, not graded — %s\n' "$arm" "$r" "$nm"
-        [ -s "$P/.eval-metrics.tsv" ] && cat "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv"
+        # Marked in column 26, so the trace summary leaves it out like an empty stream: a run that was not graded
+        # must not lend its cost or its delegations to the arm's figures.
+        [ -s "$P/.eval-metrics.tsv" ] && LC_ALL=C awk -F'\t' -v OFS='\t' '{ $26 = "rejected"; print }' "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv"
         [ "$LIMITED" = 1 ] && { printf '   ! usage limit reached — no further run is started\n'; break; }
         continue
       fi
@@ -448,13 +521,13 @@ for cdir in "$CASES"/*/; do
     done
     if [ "${CREW_EVAL_TRACE:-0}" = 1 ]; then
       LC_ALL=C awk -F'\t' -v arm="$arm" -v cname="$cname" '
-        { n++; if ($11 != 1 || $16 == 1 || $17 == 1) { empty++; next } ok++; if ($1 > 0) deleg++; cost += $4; tin += $5; tout += $6; cr += $7; cc += $8; tst += $12; tsn += $13; ttop += $14; tnst += $15
+        { n++; if ($11 != 1 || $16 == 1 || $17 == 1 || $26 == "rejected") { empty++; next } ok++; if ($1 > 0) deleg++; cost += $4; tin += $5; tout += $6; cr += $7; cc += $8; tst += $12; tsn += $13; ttop += $14; tnst += $15
           if ($21 != "" && $21 != "-") { m = split($21, kv, ","); for (i = 1; i <= m; i++) { split(kv[i], p, ":"); bt[p[1]] += p[2] } }
           if ($21 ~ /(^|,)crew-commit-agent:/) cagent++ }
         END {
           if (n == 0) { printf "     trace %-5s NO TRACE FILE — the runs wrote no metrics; this measured nothing\n", arm; exit }
           printf "     trace %-5s delegated %d/%d · cost $%.3f · in %d out %d cache_read %d cache_create %d · test runs %d (nested %d) · turns %d (nested %d)", arm, deleg, ok, cost, tin, tout, cr, cc, tst, tsn, ttop, tnst
-          if (empty) printf " · %d EMPTY/BROKEN/ERROR stream(s), not counted", empty
+          if (empty) printf " · %d run(s) not graded (empty, error, limit, wrong model or leaked control), not counted", empty
           printf "\n"
           s = ""; for (k in bt) s = s (s == "" ? "" : ", ") k " " bt[k]
           if (s != "") printf "     agents %-5s %s\n", arm, s
@@ -499,6 +572,11 @@ if [ -n "$ARM_B" ] && [ "$TOTAL_CHECKS" -gt 0 ] && [ "$NOT_MEASURED" = 0 ] && [ 
     echo "         favourable runs measures nothing."
 fi
 [ "$RUNS" = 1 ] && echo "   n=1: one run per arm is an anecdote, not a rate. Use --runs 3+ before quoting a number."
+# An alias pins a family, not a version: two ids here mean the arms may not have run the same model.
+printf '   served:%s\n' "${SERVED_IDS:- none}"
+[ "$(printf '%s\n' $SERVED_IDS | grep -c .)" -gt 1 ] && printf '   ! more than one model id was served in this run: compare the arms per row before reading the delta\n'
+[ "$MISMATCH" -gt 0 ] && printf '   MODEL MISMATCH: %s run(s) were served a model other than %s — not graded.\n' "$MISMATCH" "$EVAL_MODEL"
+[ "$LEAKED" -gt 0 ] && printf '   CONTROL LEAK: %s control-arm run(s) could see a Crewforth component — not graded.\n' "$LEAKED"
 if [ "$NOT_MEASURED" -gt 0 ] || [ "$LIMITED" = 1 ] || [ "$SKIPPED" -gt 0 ]; then
   printf '   INCOMPLETE: %s run(s) NOT MEASURED%s%s. The totals above are not a result.\n' "$NOT_MEASURED" \
     "$([ "$SKIPPED" -gt 0 ] && echo ", $SKIPPED case(s) SKIPPED for a missing tool")" \
