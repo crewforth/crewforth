@@ -125,7 +125,7 @@ _join(){ # _join <3.x commit> <2.x commit> -> a commit that has both as parents
   base="$(git merge-base "$n" "$l" 2>/dev/null)"
   if [ -n "$base" ]; then bt="$base^{tree}"; else bt="$(git hash-object -w -t tree /dev/null)"; fi
   idx="$(_git_dir)/crew-index.$$"; rm -f "$idx"
-  GIT_INDEX_FILE="$idx" git read-tree -m -i --aggressive "$bt" "$n^{tree}" "$l^{tree}" 2>/dev/null || { rm -f "$idx"; return 1; }
+  GIT_INDEX_FILE="$idx" git -c core.fsmonitor= read-tree -m -i --aggressive "$bt" "$n^{tree}" "$l^{tree}" 2>/dev/null || { rm -f "$idx"; return 1; }
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if [ "$p" = refusals.log ]; then
@@ -133,12 +133,12 @@ _join(){ # _join <3.x commit> <2.x commit> -> a commit that has both as parents
     else
       b="$(git rev-parse -q --verify "$n:$p" 2>/dev/null || git rev-parse -q --verify "$l:$p" 2>/dev/null)"
     fi
-    GIT_INDEX_FILE="$idx" git update-index --force-remove "$p" 2>/dev/null
-    [ -n "$b" ] && GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "100644,$b,$p" 2>/dev/null
+    GIT_INDEX_FILE="$idx" git -c core.fsmonitor= update-index --force-remove "$p" 2>/dev/null
+    [ -n "$b" ] && GIT_INDEX_FILE="$idx" git -c core.fsmonitor= update-index --add --cacheinfo "100644,$b,$p" 2>/dev/null
   done <<EOF
-$(GIT_INDEX_FILE="$idx" git ls-files -u 2>/dev/null | cut -f2 | sort -u)
+$(GIT_INDEX_FILE="$idx" git -c core.fsmonitor= ls-files -u 2>/dev/null | cut -f2 | sort -u)
 EOF
-  t="$(GIT_INDEX_FILE="$idx" git write-tree 2>/dev/null)"; rm -f "$idx"
+  t="$(GIT_INDEX_FILE="$idx" git -c core.fsmonitor= write-tree 2>/dev/null)"; rm -f "$idx"
   [ -n "$t" ] || return 1
   git commit-tree "$t" -p "$n" -p "$l" -m 'board: join the 2.x and 3.x boards'
 }
@@ -278,13 +278,13 @@ _tree_with(){ # _tree_with <path> <blob>  [<path2> <blob2> ...] -> tree sha, bas
   rm -f "$idx"
   local rc=0
   if _have_board; then
-    GIT_INDEX_FILE="$idx" git read-tree "$(_ref)^{tree}" 2>/dev/null || rc=1
+    GIT_INDEX_FILE="$idx" git -c core.fsmonitor= read-tree "$(_ref)^{tree}" 2>/dev/null || rc=1
   fi
   while [ $# -ge 2 ]; do
-    GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "100644,$2,$1" 2>/dev/null || rc=1
+    GIT_INDEX_FILE="$idx" git -c core.fsmonitor= update-index --add --cacheinfo "100644,$2,$1" 2>/dev/null || rc=1
     shift 2
   done
-  local t; t="$(GIT_INDEX_FILE="$idx" git write-tree 2>/dev/null)" || rc=1
+  local t; t="$(GIT_INDEX_FILE="$idx" git -c core.fsmonitor= write-tree 2>/dev/null)" || rc=1
   rm -f "$idx"
   [ "$rc" = 0 ] || return 1
   printf '%s' "$t"

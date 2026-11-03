@@ -39,6 +39,8 @@ Known vulnerabilities in third-party packages are the cheapest path to most brea
 
 Start from every entry point on the attack surface, trace the input to where it is used, and check whether there is a gate in between. The table below is the **minimum** coverage — if you see another sink during the scan, add it.
 
+A source is not only an HTTP request: a WebSocket, gRPC or SSE message is input too. Check authentication at the upgrade **and** per message where the channel outlives the session, the `Origin` of a WebSocket upgrade, method-level authorization on gRPC, and that gRPC reflection is off in production.
+
 | Sink class | Vulnerability | What the "gate" should be |
 |---|---|---|
 | **Query** | SQL / NoSQL / LDAP / ORM raw query injection | Parameterized query; no string concatenation |
@@ -47,6 +49,11 @@ Start from every entry point on the attack surface, trace the input to where it 
 | **Path** | Path traversal, unrestricted file upload | Path allowlist/normalization; type-size-content validation |
 | **Object** | Insecure deserialization, mass assignment | Safe format; field allowlist |
 | **Expression** | Expression/eval injection, `eval`/`exec` | Never evaluate input as code |
+| **Outbound request** | SSRF: the server fetches a URL or host the input chose (webhooks, URL previews, importers, PDF/image renderers) | An allowlist of hosts, or a check of the **resolved** address against private, loopback, link-local (`169.254.169.254` metadata) and RFC 1918 ranges before connecting; redirects not followed, or each hop checked again; the check and the connection use the same resolved IP (re-resolving opens DNS rebinding) |
+| **Redirect** | Open redirect: a `next=` / `returnUrl` sends the user to a site the input chose | A relative path, or a host allowlist; `http(s)` only (no `javascript:`, no `//evil`) |
+| **Parser** | XXE: an XML parser that resolves external entities or a DTD | External entities and DTD processing off |
+| **Destructive op on a derived path** | A delete, overwrite or move whose path comes from input (`../`, a symlink, an absolute path) | Canonicalize, then require the result under an allowlisted root; ownership of the target proven from the authenticated state, not from the request |
+| **State change** | A race in check-then-act on money, stock or a quota (two requests both pass the balance check) | An atomic conditional update (`UPDATE … WHERE balance >= :x`), a row lock, or an idempotency key on the request |
 
 **On state-changing + browser-originating endpoints, additionally:**
 - **CSRF** — does the state-changing endpoint have token protection?

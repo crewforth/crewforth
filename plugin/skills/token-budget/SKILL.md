@@ -17,7 +17,8 @@ transcript the first turn was `cache_read=0`, every token `cache_creation` — n
 thread's cache. A **no-op** subagent (task = "reply DONE") already cost **~10k tokens with restricted tools and
 ~16k with full tool access**; that floor is base system prompt + tool schemas, paid fresh every time. Of the
 always-on material only the **skill listing (~2.5–3k tokens) is inherited** by a subagent — the discipline
-(`DISCIPLINE.md`/CLAUDE.md) and the agent descriptions are **not** injected into it. So a delegation is worth it
+(`DISCIPLINE.md`/CLAUDE.md) and the agent descriptions are **not** injected into it. (A crew agent is given one ~600-byte block of
+the rules it cites at SubagentStart, by `agent-outcome.sh`; nothing else.) So a delegation is worth it
 for **isolation / parallelism / a clean window**, or when the isolated work would otherwise cost the main thread
 **more than that ~10–16k floor** — never by default.
 

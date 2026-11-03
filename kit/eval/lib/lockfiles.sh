@@ -33,7 +33,7 @@ crew_staged_lockfiles(){
   CREW_LOCKS=()
   while IFS= read -r -d '' p; do
     crew_is_lockfile "$p" && CREW_LOCKS+=("$p")
-  done < <(git -C "${1:-.}" diff --cached --name-only --no-renames --diff-filter=d -z 2>/dev/null)
+  done < <(git -C "${1:-.}" -c core.fsmonitor= diff --cached --name-only --no-renames --diff-filter=d -z 2>/dev/null)
   return 0
 }
 
@@ -46,7 +46,7 @@ crew_lockfile_pending(){
     # A porcelain entry is "XY path"; a rename's second field is the bare original path. Both are tested.
     crew_is_lockfile "${e:3}" && return 0
     crew_is_lockfile "$e" && return 0
-  done < <(git -C "${1:-.}" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
+  done < <(git -C "${1:-.}" -c core.fsmonitor= status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
   return 1
 }
 
@@ -60,7 +60,7 @@ crew_lockfile_pending(){
 #     agree on e69de29… (found in review). A staged lockfile change is never an empty diff, so that id means "none".
 crew_lock_oid(){
   CREW_LOCK_OID="$( set -o pipefail
-    git -C "${1:-.}" --literal-pathspecs diff --cached --full-index --no-ext-diff --no-textconv -- "${CREW_LOCKS[@]}" 2>/dev/null \
+    git -C "${1:-.}" -c core.fsmonitor= --literal-pathspecs diff --cached --full-index --no-ext-diff --no-textconv -- "${CREW_LOCKS[@]}" 2>/dev/null \
       | git hash-object --stdin 2>/dev/null )" || CREW_LOCK_OID=""
   case "$CREW_LOCK_OID" in e69de29bb2d1d6434b8b29ae775ad8c2e48c5391|473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813) CREW_LOCK_OID="" ;; esac   # the empty blob, SHA-1 and SHA-256
   return 0

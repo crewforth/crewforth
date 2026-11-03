@@ -287,6 +287,30 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
     three.notMeasured.some((x) => x.what === 'README.md' && x.reason === 'binary, not read'), nm(three).join('; '));
 }
 
+/* -- 7c. a scanned repository cannot make the scanner run a program of its choosing --------------------------- */
+{
+  // A third-party clone whose .git/config names a core.fsmonitor program. The twin proves the trap is live: a
+  // plain `git ls-files` here does run it. The scan must not.
+  const git = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (git.status !== 0) skip('crew-map fsmonitor', 'git is not on PATH');
+  else {
+    const root = copy('node-ws');
+    const mark = path.join(TMP, 'fsmonitor-ran');
+    const hook = path.join(TMP, 'fsmonitor.sh');
+    fs.writeFileSync(hook, `#!/bin/sh\necho ran >> "${mark.replace(/\\/g, '/')}"\n`, { mode: 0o755 });
+    const g = (...a) => spawnSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t.invalid', ...a], { encoding: 'utf8' });
+    g('init', '-q'); g('add', '-A'); g('commit', '-qm', 'x');
+    g('config', 'core.fsmonitor', hook.replace(/\\/g, '/'));
+    g('ls-files', '-co', '--exclude-standard');
+    const live = fs.existsSync(mark); fs.rmSync(mark, { force: true });
+    if (!live) skip('crew-map fsmonitor', 'this git does not run core.fsmonitor for ls-files, so the trap cannot be shown here');
+    else {
+      scan(root);
+      check('crew-map: scanning a repo whose .git/config names core.fsmonitor does not run it (a plain ls-files did)', !fs.existsSync(mark));
+    }
+  }
+}
+
 /* -- 8. K1: no installer ignores .crewforth/crew-map.json ----------------------------------------------------- */
 {
   // The entries the installers write, read from the scripts themselves, then asked of git: a string search
