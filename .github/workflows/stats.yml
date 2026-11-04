@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: stats-ledger      # two appends racing would each build a tree from the same parent and one would lose
@@ -31,8 +31,12 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The one job that writes: it appends to the stats branch with `git push`, so its checkout also keeps the
+    # credentials (every other workflow's checkout sets persist-credentials: false).
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Collect the week's numbers
         env:
