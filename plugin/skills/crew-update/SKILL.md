@@ -1,6 +1,6 @@
 ---
 name: crew-update
-description: Check for a newer version, update, report what changed, then prompt /clear to reload.
+description: Update Crewforth, report what changed, then prompt /clear.
 metadata:
   kind: command
 ---
@@ -23,6 +23,9 @@ Bring the Crewforth install up to the latest published version:
      pass its two lines to the user and go on; there is nothing to commit.
 6. **Update** — this rewrites Crewforth-owned files under `.claude/` (your `./CLAUDE.md` and project skills are
    preserved). **Show this plan first, then run:** `npx --yes crewforth@latest update --here --yes`.
+   **Apply it after other sessions in this project are idle:** an update that changes the skill listing
+   mid-conversation makes a running session send a different prompt, which re-writes its prompt cache (not measured
+   here; reasoned from how the cache works, not measured).
    Two DIFFERENT `--yes` flags, both required for a non-interactive run: the one **before** the package name is
    **npx's own** — it auto-confirms npx's `Ok to proceed?` install prompt, which reads the real TTY and IGNORES piped
    input, so without it the command hangs before Crewforth even starts. The `--here --yes` **after** the package go to

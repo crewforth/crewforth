@@ -34,3 +34,6 @@ does. This command is then the one approval left, in those modes too. Settings p
 managed settings delivered by a server cannot be read, so a hook there is past the check.
 
 Force-push and the rest of §4.5 are not opened by this.
+
+A hedged reply ("looks reasonable", "probably fine", "I guess") is not approval either: when that is all the user
+said, ask again with the question, and run nothing.

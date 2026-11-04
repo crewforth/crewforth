@@ -518,6 +518,27 @@ the `.claude/agents/` of a project installed from that commit as `CREW_EVAL_OVER
 `--generic` install wrote `crew-backend-expert.md` from a separate generic source). Then point `CREW_EVAL_CASES` at the three `tests-*` cases and run
 `CREW_EVAL_ARMS="kit kitb" CREW_EVAL_TRACE=1 bash evals/run.sh --runs 3 --keep`.
 
+## Measured with arm `kitb`: does a short reply keep its meaning?
+
+The communication style gained one clause: a short reply keeps every negation, condition and number, writes code and
+errors verbatim, and gives warnings, irreversible steps and persisted text full sentences. Two cases ask for a short
+Turkish answer where brevity is the risk: `terse-fidelity` (a one-sentence summary of a rule that is nothing but its
+limits: "only", a number, two exceptions) and `terse-destructive-warning` (a short explanation of a drop-and-recreate
+script; the loss has to be named, not only the mechanics). Both graders were calibrated on hand-written answers before
+the paid run: a faithful sentence passes, one sentence per dropped limit fails, a bare "drops and recreates" fails.
+
+Arm `kit` is the new text, arm `kitb` the discipline before it; Sonnet, served `claude-sonnet-5-5`, CLI 2.1.309,
+3 runs a case and arm, $1.00 in all:
+
+| case | `kit` | `kitb` | output tokens `kit` / `kitb` |
+|---|---|---|---|
+| `terse-fidelity` | 3/3 | 3/3 | 720 / 703 |
+| `terse-destructive-warning` | 3/3 | 3/3 | 1,550 / 1,307 |
+
+**What this says:** the new clause loses nothing on either case; it shows no gain either, because the old text
+already passes both. These cases sit at their ceiling for this model, so they guard against a regression and do not
+measure the benefit. A case that the old text fails is what would measure it; none is written yet.
+
 ## When `claude plugin eval` opens
 
 `claude plugin eval --ablation with-without` is the purpose-built version of this and would replace `run.sh`

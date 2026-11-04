@@ -21,7 +21,7 @@ This skill is the discipline that turns "try things until it works" into "unders
 ## The loop (do them in order — skipping a step is why bugs come back)
 1. **Reproduce** — a reliable, minimal repro. Can't reproduce → that IS the first problem; see `references/techniques.md` (intermittent/heisenbug).
 2. **Isolate** — shrink the surface until the failure is in the smallest possible slice (bisect commits, halve the input, disable half the system).
-3. **Hypothesize** — state ONE falsifiable cause: "X fails because Y." Write it down. A vague hunch is not a hypothesis.
+3. **Hypothesize** — state ONE falsifiable cause: "X fails because Y." Write it down. A vague hunch is not a hypothesis. (`hooks/loop-guard.sh` points back here when a turn repeats one failure.)
 4. **Test the hypothesis** — the cheapest observation that would *disprove* it (a log, a breakpoint, a probe). If it survives, you have the cause; if not, back to 3.
 5. **Confirm the root cause** — you can explain the full chain symptom←…←cause, and you can turn the bug on and off by touching the cause.
 6. **Fix** — the smallest change at the cause (not the symptom). Consider what else shares that cause.

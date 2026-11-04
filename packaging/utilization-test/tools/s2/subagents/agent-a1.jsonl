@@ -1,0 +1,1 @@
+{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_f3","name":"NotebookEdit","input":{}}]},"sessionId":"s2"}

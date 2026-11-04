@@ -28,6 +28,7 @@ Principle: **agent = thin trigger** ("who / when"), **skill = "how"**. Knowledge
     - **No unbounded ping-pong.** More than 3 handovers between the SAME two agents on one task (e.g. `crew-backend-expert` ↔ `crew-database-expert`) is a loop, not coordination: stop before the fourth, summarise what each round changed and what is still open, and put it to the user with `AskUserQuestion`. Model discipline — nothing counts the hops for you.
 5. **DoD** — closure responsibility: `/simplify` + tests green + `sonarqube-check` (0/0/0/0, build 0/0).
 6. **Output & context (token)** — what returns to the main thread: a **short summary**, not raw logs/dumps; heavy output goes to `docs/*.md` (token-budget skill).
+   Two working rules every agent follows (given to crew agents at SubagentStart, so they are not copied into each file): a `file:line` handed to you is a range to open with offset/limit, not a reason to read the whole file or search again; a file being listed is not a reason to change it.
 7. **Errors/escalation** — when stuck/unsure, **stop and report** or hand off to the relevant expert; do not proceed on a guess.
 8. **Example delegation** — 1 ✅ triggers / 1 ❌ does-not-trigger line (delegation accuracy).
 9. **Constraints** — read-only or not, what it does not do, platform/policy limits.
@@ -47,6 +48,10 @@ verify: npm test -- orders
 
 `change` is one of `text` · `feature` · `fix-known` · `fix-unknown` · `refactor` · `migration` · `security` ·
 `architecture` · `test-run` · `test-write` · `audit`. `verify` is the command that proves the work, or `none`.
+
+**What the dispatch carries.** Paths, the card and, when there is more to say, a brief file — never pasted history
+(token-budget rule 12). A dispatch to a reviewer or an auditor carries **no verdict hint**: no "don't flag X", no
+"at most low", no "this is fine, just confirm". The referee is there to find what the author did not expect.
 
 **Risk class.** `critical` when the change is `migration`, `security`, `architecture` or `fix-unknown`, or a file is
 on a critical path (auth, payments, billing, migrations, security, crypto, secrets, legal, privacy, consent, terms,

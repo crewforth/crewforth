@@ -24,7 +24,8 @@ failing approach are exactly the ones it remembers least. The script counts what
 tool calls, failing loops, near-duplicate prompts, interrupts, auto-compactions.
 
 Treat each ⚠️ as a **question to answer in the pass**, not a verdict: a runaway loop asks *what assumption kept
-failing*; a repeated prompt asks *what context never landed*; an interrupt asks *where intent diverged*; an auto
+failing*; a re-fetch loop asks *what the first truncated look hid*; an error loop asks *what the error said
+that the retries ignored*; a repeated prompt asks *what context never landed*; an interrupt asks *where intent diverged*; an auto
 compaction asks *what state was silently dropped*. If the numbers and your recollection disagree, the numbers are
 the record. If the script is missing, say the retro is recall-based —
 do not present recall as measurement.

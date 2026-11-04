@@ -1172,9 +1172,31 @@ fillc 100000 auto 1
 o="$(sg "${SGPFX}-i")"
 case "$o" in *'"systemMessage"'*Auto-compaction*) pass "stop-hook: an auto-compaction is reported even at a low fill" ;; *) fail "stop-hook did not report an auto-compaction: $o" ;; esac
 [ -z "$(sg "${SGPFX}-i")" ] && pass "stop-hook: the auto-compaction notice fires once, not per turn" || fail "stop-hook repeated the auto-compaction notice"
-# (11) a MANUAL compaction is a deliberate act — never announced as an unchosen loss.
+# (11) a MANUAL compaction is a deliberate act — never announced as an unchosen loss. What it kept is said once,
+#      from the record's own preTokens/postTokens; a record without them says nothing.
 fillc 100000 manual 1
-[ -z "$(sg "${SGPFX}-j")" ] && pass "stop-hook: a manual compaction is not reported as a loss" || fail "stop-hook reported a deliberate /compact as an unchosen loss"
+o="$(sg "${SGPFX}-j")"
+case "$o" in *Auto-compaction*|*'nobody chose'*) fail "stop-hook reported a deliberate /compact as an unchosen loss: $o" ;;
+  *'Compaction 1 (manual): 900k → 9k tokens.'*) pass "stop-hook: a manual compaction says what it kept (900k → 9k), not a loss" ;;
+  *) fail "stop-hook did not say what a manual compaction kept: $o" ;; esac
+[ -z "$(sg "${SGPFX}-j")" ] && pass "stop-hook: the manual-compaction line fires once per generation" || fail "stop-hook repeated the manual-compaction line"
+fill 100000; printf '%s\n' '{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual"}}' >> "$SGFX"
+[ -z "$(sg "${SGPFX}-j2")" ] && pass "stop-hook: a compaction record without preTokens/postTokens says nothing (27 of 98 real records carry no metadata)" \
+  || fail "stop-hook spoke about a compaction it has no numbers for"
+fillc 100000 auto 1
+case "$(sg "${SGPFX}-j3")" in *'(the last one: 900k → 9k tokens)'*) pass "stop-hook: the auto-compaction notice carries the numbers the record kept" ;;
+  *) fail "stop-hook's auto-compaction notice lost the record's preTokens/postTokens" ;; esac
+fill 100000
+printf '%s\n' '{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":800000,"postTokens":30000}}' >> "$SGFX"
+sg "${SGPFX}-j5" >/dev/null
+printf '%s\n' '{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":200000,"postTokens":15000}}' >> "$SGFX"
+o="$(sg "${SGPFX}-j5")"
+case "$o" in *Auto-compaction*) fail "stop-hook re-announced an earlier auto compaction after a manual /compact: $o" ;;
+  *'Compaction 2 (manual): 200k → 15k tokens.'*) pass "stop-hook: a manual /compact after an auto one is reported as manual, with its own numbers, at once" ;;
+  *) fail "stop-hook did not report a manual /compact that followed an auto one: $o" ;; esac
+fillc 930000 manual 1
+case "$(sg "${SGPFX}-j4")" in *'Compaction 1 (manual)'*CRITICAL*) pass "stop-hook: the manual-compaction line and a fill alert share one systemMessage" ;;
+  *) fail "stop-hook: a manual-compaction line pre-empted the >90% alert, or was dropped" ;; esac
 # (12) THE HOOK RUNS CLEAN — nothing on stderr. Every case above pipes stderr to /dev/null, which is what
 #      let a shipped defect live: `grep -c` with zero matches prints "0" AND exits 1, so a trailing
 #      `|| echo 0` appended a second line and `$(( 0\n0 + 0 ))` failed. Found by reading a real session
@@ -1750,6 +1772,49 @@ fi
 { [ "$(ss_f "$_o" runaway)" = 0 ] && [ "$(ss_f "$_o" refused)" = 3 ]; } \
   && pass "session-stats: the same 25 calls with 3 REFUSALS is not a runaway loop, and the 3 are still reported" \
   || fail "session-stats FALSE ALARM: refusals tripped the runaway warning (runaway=$(ss_f "$_o" runaway) refused=$(ss_f "$_o" refused))"
+# RE-FETCH AND ERROR LOOPS. The same look retaken with a wider window (50 -> 100 -> 200) inside one prompt is a
+# re-fetch loop; the same command failing again and again is an error loop. Four cases, asserted on --raw: two
+# must fire, two must not — the negatives are what stop a key that collapses EVERYTHING from looking correct.
+# Pinned must-fail by mutation when written: with the head/tail pipe strip and the window-number normalisation
+# removed from a copy of the hook, (1) read refetch=0 and (2) errloop=0 while (3) and (4) stayed green — the
+# positives depend on the collapse and are not satisfied by any three calls.
+_ss_p='{"type":"user","isSidechain":false,"message":{"role":"user","content":"show me the notes file please"}}'
+_ss_c(){ printf '{"type":"assistant","isSidechain":false,"message":{"content":[{"type":"tool_use","id":"toolu_%s","name":"Bash","input":{"command":"%s"}}]}}\n' "$1" "$2"; }
+_ss_r(){ printf '{"type":"user","isSidechain":false,"message":{"content":[{"tool_use_id":"toolu_%s","type":"tool_result","content":"x","is_error":%s}]}}\n' "$1" "$2"; }
+_ss_loop(){ # $1 = case name; then triples of id:command:is_error; a lone "P" opens a new prompt
+  _n="$1"; shift
+  { printf '%s\n' "$_ss_p"
+    for _t in "$@"; do
+      if [ "$_t" = P ]; then printf '%s\n' "$_ss_p"; continue; fi
+      _ss_c "${_t%%:*}" "$(printf '%s' "$_t" | cut -d: -f2)"; _ss_r "${_t%%:*}" "${_t##*:}"
+    done
+  } > "$SSD/$_n.jsonl"
+  bash "$HOOKS/session-stats.sh" --raw "$SSD/$_n.jsonl" 2>/dev/null
+}
+_o="$(_ss_loop rf 'a1:sed -n 1,50p notes.txt:false' 'a2:sed -n 1,100p notes.txt:false' 'a3:sed -n 1,200p notes.txt:false')"
+{ [ "$(ss_f "$_o" refetch)" = 1 ] && [ "$(ss_f "$_o" errloop)" = 0 ]; } \
+  && pass "session-stats: the same look widened 50 -> 100 -> 200 in one prompt is ONE re-fetch loop" \
+  || fail "session-stats: a widening re-fetch read refetch=$(ss_f "$_o" refetch) errloop=$(ss_f "$_o" errloop), want 1/0"
+_o="$(_ss_loop el 'b1:make test 2>err.log | tail -20:true' 'b2:make test 2>err.log | tail -50:true' 'b3:make test 2>err.log:true')"
+{ [ "$(ss_f "$_o" errloop)" = 1 ] && [ "$(ss_f "$_o" refetch)" = 0 ]; } \
+  && pass "session-stats: three failing variants of one command in one prompt is ONE error loop" \
+  || fail "session-stats: a failing retry loop read errloop=$(ss_f "$_o" errloop) refetch=$(ss_f "$_o" refetch), want 1/0"
+_o="$(_ss_loop pf 'e1:npm test:false' 'e2:npm test:true' 'e3:npm test:true')"
+{ [ "$(ss_f "$_o" errloop)" = 0 ]; } \
+  && pass "session-stats: a pass, then two failures, is not an error loop (only two attempts failed)" \
+  || fail "session-stats: pass-fail-fail read errloop=$(ss_f "$_o" errloop), want 0"
+_o="$(_ss_loop fp 'f1:npm test:true' 'f2:npm test:true' 'f3:npm test:false')"
+{ [ "$(ss_f "$_o" errloop)" = 1 ]; } \
+  && pass "session-stats: two failures and then the pass that got through is still an error loop" \
+  || fail "session-stats: fail-fail-pass read errloop=$(ss_f "$_o" errloop), want 1"
+_o="$(_ss_loop nd 'c1:ls src:false' 'c2:git status:false' 'c3:sed -n 1,50p notes.txt:false')"
+{ [ "$(ss_f "$_o" refetch)" = 0 ] && [ "$(ss_f "$_o" errloop)" = 0 ]; } \
+  && pass "session-stats: three DIFFERENT commands in one prompt are no loop" \
+  || fail "session-stats: three different commands read refetch=$(ss_f "$_o" refetch) errloop=$(ss_f "$_o" errloop), want 0/0"
+_o="$(_ss_loop sp 'd1:sed -n 1,50p notes.txt:false' P 'd2:sed -n 1,100p notes.txt:false' P 'd3:sed -n 1,200p notes.txt:false')"
+{ [ "$(ss_f "$_o" refetch)" = 0 ] && [ "$(ss_f "$_o" errloop)" = 0 ] && [ "$(ss_f "$_o" cycles)" = 3 ]; } \
+  && pass "session-stats: the same three looks spread over three prompts are no loop" \
+  || fail "session-stats: looks split across prompts read refetch=$(ss_f "$_o" refetch) errloop=$(ss_f "$_o" errloop) cycles=$(ss_f "$_o" cycles), want 0/0/3"
 # UTF-8 must not kill the scan: BSD awk aborts on a multi-byte char inside a character class unless LC_ALL=C.
 printf '%s\n' '{"type":"user","isSidechain":false,"message":{"role":"user","content":"şu değişikliği gözden geçirir misin — İıĞğŞşÇçÖöÜü"}}' > "$SSD/utf8.jsonl"
 bash "$HOOKS/session-stats.sh" --raw "$SSD/utf8.jsonl" >/dev/null 2>&1 \
@@ -2511,7 +2576,7 @@ sec "== 6f) always-on token budget =="
 # for that cost, and a gate rather than a reminder — a verbose new description fails the suite instead of
 # quietly taxing every future session. Budgets sit just above the current sizes: raising one is allowed, but
 # only as a deliberate edit here.
-BUDGET_DISC=15637    # P02: 15570 → 15637 (+67): "Untrusted content" names the text a hook injects from teammates (the team board) as data; the hook now labels it the same way. Before that, P01: 15429 → 15570 (+141): "No deferral" names the recorded, user-accepted bypass (BYPASSED line, ADR Bypassed entry, accepted finding) as the user's decision, so the rule stops contradicting confidence-check, adr and crew-code-review. Before that, 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
+BUDGET_DISC=16214    # P05: 15637 → 16214 (+577): "Short never costs meaning" (a short reply keeps every negation, condition and number; code, paths and errors verbatim; point to path:line instead of restating; full sentences for warnings, irreversible steps, questions and persisted text), principle 2's "never cut" list (validation at a trust boundary, data-loss error handling, security, accessibility, what was asked) and a re-read-after-compaction clause. All three are about how every reply is written, so a skill read on demand would arrive after the reply. evals/cases/terse-fidelity measures the first. Before that, P02: 15570 → 15637 (+67): "Untrusted content" names the text a hook injects from teammates (the team board) as data; the hook now labels it the same way. Before that, P01: 15429 → 15570 (+141): "No deferral" names the recorded, user-accepted bypass (BYPASSED line, ADR Bypassed entry, accepted finding) as the user's decision, so the rule stops contradicting confidence-check, adr and crew-code-review. Before that, 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
                      # answer, the orphaned background-warning line removed). Before that: 3.0 rename (suffix → crew- prefix): +23 B (23 occurrences), not content — measured 13696 → 13719.
                      # DISCIPLINE.md (the discipline half of CLAUDE.md); before 3.0 the ceiling was 13700, currently 13601. (2026-09-18, a second
                      # +100 B on top of the raise below, and the whole of it went into ONE sentence of §4.6: a commit
@@ -2694,6 +2759,16 @@ bud "discipline"         "$DB" "$BUDGET_DISC" "$DBCR"
 bud "agent descriptions" "$AB" "$BUDGET_AGENTS"
 bud "skill listing" "$SL" "$BUDGET_SKILL_LISTING" 0 chars
 echo "   always-on: discipline + agents $((DB+AB)) bytes (budget $((BUDGET_DISC+BUDGET_AGENTS))) · skill listing $SL chars for ${SLN:-0} skills (budget $BUDGET_SKILL_LISTING)"
+# The clauses that keep a short reply from losing meaning are pinned by their words, so a later trim of the style
+# section cannot drop one silently: the negation list, verbatim code/paths, the path:line pointer and full sentences.
+if [ -f "$ROOT/CLAUDE.md" ]; then
+  _sty="$(disc_text "$ROOT/CLAUDE.md")"; _miss=""
+  for _p in 'Short never costs meaning' 'not, only, except, unless' 'errors verbatim' 'Point to `path:line`' 'get full sentences' 'Never cut: validation at a trust'; do
+    case "$_sty" in *"$_p"*) ;; *) _miss="$_miss · $_p" ;; esac
+  done
+  [ -z "$_miss" ] && pass "the communication style keeps its meaning-preserving clauses (negations, verbatim, pointer, full sentences, never-cut list)" \
+    || fail "the communication style lost a meaning-preserving clause:${_miss}"
+fi
 # The diagnosis is pinned, not only written, on CRLF copies of this very file: the carriage-return count must cover
 # exactly the measured lines, a copy whose text is exactly at the budget with LF endings must be named as CRLF with its
 # figures, and one a byte past the budget must still read "over budget". All three failed while the count came from
@@ -2807,6 +2882,128 @@ done
 if [ "$IS_KIT" = 1 ] && [ "$_cs" -lt 4 ]; then fail "FIXTURE: $_cs chain-step agents read (close/handoff/understand) — the stage field or the count broke, not the agents"
 elif [ -z "$_csb" ]; then pass "every chain-step agent ($_cs) is called as @agent-<name> by a command or the discipline"
 else fail "chain-step agent(s) nothing calls by name — the main thread does their work instead:$_csb"; fi
+
+sec "== 6k) per-turn hook injection budget (eval/lib/hook-inject.sh, doctor 4c) =="
+# What the UserPromptSubmit hooks add to EVERY turn, and the SessionStart hooks to each start, measured by RUNNING
+# them (doctor 4c prints the same numbers). Bytes, like 6f: a hook that starts saying more fails here instead of
+# quietly taxing every turn. Budgets = the measured value + a stated margin; raising one is a deliberate edit.
+#   Measured 2026-11-04 (macOS, bash 3.2) on the fixture below, prompt "write unit tests for the payment service":
+#   UserPromptSubmit 107 B = context-usage 59 (the fill line) + route-hint 48 (one owner named) + prompt-approval 0.
+#   SessionStart 399 B = session-rehydrate's "git hooks are not connected" line (the fixture is a repository with
+#   core.hooksPath unset, so that line is the one it says) + skill-trust 0 (no manifest) + board-sync 0 (no board).
+#   Margin: +21 B per turn (a longer owner name), +31 B per start. A FLOOR for this fixture, not a maximum (an
+#   approval, an update, a compaction or a board say more), and doctor says so.
+BUDGET_INJ_UPS="${CREW_INJECT_BUDGET_UPS:-128}"
+BUDGET_INJ_SS="${CREW_INJECT_BUDGET_SS:-430}"
+# One verdict, three uses (the real run, and the two calibrations below). Sets _IV; no subshell, no process.
+_inj_verdict(){  # $1 = hook-inject.sh output file, $2 = per-turn budget, $3 = per-start budget
+  local k e b n u="" s="" un=0 sn=0
+  while IFS=$'\t' read -r k e b n _; do
+    [ "$k" = total ] || continue
+    case "$e" in UserPromptSubmit) u="$b"; un="$n" ;; SessionStart) s="$b"; sn="$n" ;; esac
+  done < "$1"
+  if [ -z "$u" ] || [ -z "$s" ] || [ "${un:-0}" = 0 ] || [ "${sn:-0}" = 0 ]; then
+    _IV="broken: ${un:-0} UserPromptSubmit and ${sn:-0} SessionStart hook(s) ran — the measurement is broken, not the hooks"
+  elif [ "$u" -gt "$2" ] || [ "$s" -gt "$3" ]; then
+    _IV="over: $u B per turn (budget $2), $s B per start (budget $3)"
+  else _IV="ok: $u B per turn (budget $2), $s B per start (budget $3)"; fi
+}
+if [ "$IS_KIT" != 1 ]; then
+  skip scope "the injection budget is pinned on Crewforth's own wiring; an installed project's settings may add its own hooks" 6
+elif ! command -v git >/dev/null 2>&1; then
+  skip tool "the injection budget (the fixture is a git repository; git is not on PATH)" 6
+else
+  _hj="$(mktemp -d)"; mkdir -p "$_hj/p/.claude/eval"
+  cp -R "$HOOKS" "$_hj/p/.claude/hooks"; cp -R "$ROOT/eval/lib" "$_hj/p/.claude/eval/lib"
+  cp -R "$AGENTS" "$_hj/p/.claude/agents"; cp -R "$SKILLS" "$_hj/p/.claude/skills"; cp "$ROOT/settings.json" "$_hj/p/.claude/"
+  # Hermetic: no global or system git config reaches the fixture (a runner's core.hooksPath would change the answer).
+  git -C "$_hj/p" -c init.defaultBranch=main init -q >/dev/null 2>&1
+  : > "$_hj/marker"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 CREW_INJECT_SCRATCH="$_hj/s" \
+    bash "$_hj/p/.claude/eval/lib/hook-inject.sh" "$_hj/p" > "$_hj/out" 2>"$_hj/err"
+  _hjrc=$?
+  _inj_verdict "$_hj/out" "$BUDGET_INJ_UPS" "$BUDGET_INJ_SS"
+  case "$_IV" in
+    ok:*)     pass "hook injection within budget — $_IV" ;;
+    over:*)   fail "hook injection over budget — $_IV; trim what the hook says, or raise the budget here with what was measured" ;;
+    *)        fail "hook injection: $_IV (rc $_hjrc: $(head -c 200 "$_hj/err"))" ;;
+  esac
+  # Every hook Crewforth wires on these events is in the lib's table: one missing from it is silently "not measured".
+  _hju=""; while IFS=$'\t' read -r k e h r; do [ "$k" = skip ] || continue; case "$r" in unchecked|missing) _hju="$_hju $h($r)" ;; esac; done < "$_hj/out"
+  [ -z "$_hju" ] && pass "every hook Crewforth wires on UserPromptSubmit/SessionStart is in hook-inject.sh's checked table" \
+                 || fail "hook(s) Crewforth wires that hook-inject.sh did not run (unchecked = not in its table: read what it writes, then add it; missing = no script):$_hju"
+  # No lasting side effect: nothing in the project is newer than the marker, and the TMPDIR redirection was used
+  # (context-usage leaves its state file there — the must-pass twin: an empty scratch would mean the redirect is dead).
+  _hjw="$(find "$_hj/p" -newer "$_hj/marker" -type f ! -path '*/.git/*' 2>/dev/null | head -5 | tr '\n' ' ')"
+  [ -z "$_hjw" ] && pass "measuring wrote nothing in the project (outside .git/)" || fail "measuring the hooks wrote into the project: $_hjw"
+  _hjt=0; for f in "$_hj/s/tmp"/crew-context.crew-inject-probe-*; do [ -f "$f" ] && _hjt=1; done
+  [ "$_hjt" = 1 ] && pass "the hooks' TMPDIR writes landed in the throwaway scratch" \
+                  || fail "no context-usage state in the scratch TMPDIR — the redirection is not exercised (or context-usage did not run)"
+  # Calibration, must-fail: the same verdict on the same output with a budget one byte under it says over.
+  read -r _hju _hjs <<< "$(awk -F'\t' '$1 == "total" { printf "%s ", $3 }' "$_hj/out")"
+  _inj_verdict "$_hj/out" "$(( ${_hju:-1} - 1 ))" "$BUDGET_INJ_SS"
+  case "$_IV" in over:*) pass "calibration: a per-turn budget 1 B under the measurement reads over" ;;
+    *) fail "calibration: a budget under the measurement did not read over ($_IV) — the budget gate is always-green" ;; esac
+  # Calibration, broken measurement: the same lib on a project whose hooks are absent runs none, and the verdict must
+  # name the MEASUREMENT, not the hooks.
+  mkdir -p "$_hj/e/.claude/eval"; cp "$ROOT/settings.json" "$_hj/e/.claude/"; cp -R "$ROOT/eval/lib" "$_hj/e/.claude/eval/lib"
+  bash "$_hj/e/.claude/eval/lib/hook-inject.sh" "$_hj/e" > "$_hj/out-e" 2>/dev/null
+  _inj_verdict "$_hj/out-e" "$BUDGET_INJ_UPS" "$BUDGET_INJ_SS"
+  case "$_IV" in "broken: 0 UserPromptSubmit and 0 SessionStart"*) pass "calibration: no hook run reads as a broken measurement, not as 0 bytes" ;;
+    *) fail "calibration: an empty measurement read as '$_IV' — zero hooks run would pass as a cheap turn" ;; esac
+  rm -rf "$_hj"
+fi
+
+sec "== 6l) utilization --tools: available, never called, proposed (never written) =="
+# The fixture (packaging/utilization-test/tools, repository-only) is five sessions shaped like real transcripts:
+#   mcp__idle__a/b   available in all 5, never called                       -> the ONE proposal: mcp__idle__*
+#   mcp__used__x     available in all 5, called once                        -> not proposed
+#   NotebookEdit     available in all 5, called once, by a SUBAGENT only    -> not proposed (a subagent call counts)
+#   Rare             available in 2                                         -> not proposed (under the threshold)
+#   AskUserQuestion, WebSearch, TaskCreate: available in all 5, never called -> protected, never printed
+#   s2 also quotes a tool_use of mcp__idle__a INSIDE a tool result (escaped): data, not a call.
+# Discovery is the script's own: HOME points at a fixture home and the project directory is encoded the way the
+# script encodes it, so the real lookup is what finds the transcripts.
+_utf="$ROOT/../packaging/utilization-test/tools"
+if [ "$IS_KIT" != 1 ] || [ ! -f "$_utf/s1.jsonl" ]; then
+  skip scope "utilization --tools fixtures live in Crewforth's repository (packaging/utilization-test), not in an install" 6
+else
+  _ut="$(mktemp -d)"; mkdir -p "$_ut/proj" "$_ut/home"
+  _ute="$(cd "$_ut/proj" && pwd | sed 's#[:\\/._]#-#g')"
+  mkdir -p "$_ut/home/.claude/projects/$_ute"; cp -R "$_utf/." "$_ut/home/.claude/projects/$_ute/"
+  : > "$_ut/marker"
+  ( cd "$_ut/proj" && env -u CREW_TOOLS_MIN_SESSIONS HOME="$_ut/home" bash "$ROOT/eval/utilization.sh" --tools ) > "$_ut/out" 2>&1
+  _utp="$(grep -cE '^    (mcp__|[A-Z])' "$_ut/out")"
+  if grep -q '^    mcp__idle__\*  *available in 5 session(s), 0 calls' "$_ut/out" && [ "$_utp" = 1 ] \
+     && grep -q '"deny": \["mcp__idle__\*"\]' "$_ut/out"; then
+    pass "utilization --tools: exactly one proposal, mcp__idle__* (available in 5 sessions, never called), as a deny line"
+  else fail "utilization --tools: want exactly one proposal mcp__idle__*, got $_utp: $(tr '\n' '|' < "$_ut/out" | head -c 600)"; fi
+  if grep -qE '^    (AskUserQuestion|WebSearch|TaskCreate) |"(AskUserQuestion|WebSearch|TaskCreate)"' "$_ut/out"; then
+    fail "utilization --tools proposed a protected tool (AskUserQuestion / WebSearch / Task*)"
+  else pass "utilization --tools: protected tools never called (AskUserQuestion, WebSearch, TaskCreate) are not proposed"; fi
+  grep -qE 'mcp__used__|NotebookEdit|Rare' "$_ut/out" \
+    && fail "utilization --tools proposed a tool that was called (also by a subagent) or is under the threshold" \
+    || pass "utilization --tools: a server called once, a tool called only by a subagent, and a tool under the threshold are not proposed"
+  grep -q 'apply after sessions are idle; a mid-conversation change re-writes the cache' "$_ut/out" \
+    && pass "utilization --tools says when to apply it (sessions idle: the change re-writes the prompt cache)" \
+    || fail "utilization --tools does not say to apply the deny after sessions are idle"
+  # Must-fail by mutation: the same script with its protection list broken must print the protected tools. A copy
+  # that does not differ from the original would make this vacuous, so that is checked first.
+  sed -e 's/AskUserQuestion|Agent|Skill|WebFetch|WebSearch/NONE/' -e 's#t ~ /^Task/#t ~ /^NONE/#' "$ROOT/eval/utilization.sh" > "$_ut/u-mut.sh"
+  if cmp -s "$ROOT/eval/utilization.sh" "$_ut/u-mut.sh"; then
+    fail "calibration: the protection-list mutation changed nothing — the list moved, so this check proves nothing"
+  else
+    ( cd "$_ut/proj" && env -u CREW_TOOLS_MIN_SESSIONS HOME="$_ut/home" bash "$_ut/u-mut.sh" --tools ) > "$_ut/out-m" 2>&1
+    if grep -q '^    AskUserQuestion ' "$_ut/out-m" && grep -q '^    WebSearch ' "$_ut/out-m" && grep -q '^    TaskCreate ' "$_ut/out-m"; then
+      pass "calibration: with the protection list broken the same fixture proposes AskUserQuestion, WebSearch, TaskCreate"
+    else fail "calibration: a broken protection list still proposed no protected tool — the fixture does not exercise it: $(tr '\n' '|' < "$_ut/out-m" | head -c 400)"; fi
+  fi
+  # Nothing written: no file under the fixture home or project is newer than the marker.
+  _utw="$(find "$_ut/home" "$_ut/proj" -newer "$_ut/marker" -type f 2>/dev/null | head -3 | tr '\n' ' ')"
+  [ -z "$_utw" ] && pass "utilization --tools wrote nothing (no file newer than the run under the fixture home or project)" \
+                 || fail "utilization --tools wrote a file: $_utw"
+  rm -rf "$_ut"
+fi
 
 
 # ---- gate UNIT cases: skipped under CREW_SMOKE_SCOPE=install ------------------------------------------------
@@ -4858,6 +5055,15 @@ printf 'lang=tr\n' > "$RHD/.claude/kit.conf"; _o6="$(_rh clear)"
 _got="$(_rk "$_o1")/$(_rk "$_o2")/$(_rk "$_o3")/$(_rk "$_o4")/$(_rk "$_o5")/$(_rk "$_o6")"
 [ "$_got" = "L/HL//H//L" ] && pass "SessionStart names a Turkish install's language on startup and on a boundary; English adds nothing; startup never offers the handover (6 states)" \
   || fail "session-rehydrate language/handover states read '$_got', want 'L/HL//H//L' (tr startup · tr compact+handover · en startup · en compact+handover · en startup no handover · tr clear no handover)"
+# A RESUME REPLAYS THE SAME BYTES. A resumed conversation is served from the prompt cache only as far as its prefix
+# is unchanged, and this hook's line is part of that prefix: two resumes over an unchanged handover must print the
+# same bytes, or every resume re-pays the conversation. The output is built from fixed text, so this holds by
+# construction today; the pin keeps a timestamp, a counter or a reordering from breaking it silently.
+mkdir -p "$RHD/docs"; printf 'x\n' > "$RHD/docs/SESSION_STATE.md"; _r1="$(_rh resume)"; _r2="$(_rh resume)"
+case "$_r1" in *handover*) [ "$_r1" = "$_r2" ] && pass "SessionStart: two resumes over an unchanged handover print byte-identical context (the cached prefix holds)" \
+    || fail "SessionStart: two resumes over the same handover printed different bytes — each resume would re-pay the cache" ;;
+  *) fail "SessionStart: a resume with a handover present offered no handover: '$_r1'" ;; esac
+rm -f "$RHD/docs/SESSION_STATE.md"
 # THE GIT HOOKS LINE. pre-commit and commit-msg run only when core.hooksPath points at them, or at .claude/git-shim.
 # An install made before `git init`, and every clone of a repository that shares .claude/, starts without it, and a
 # commit typed in a terminal is then scanned by nothing. Crewforth does not change git's configuration by itself:
@@ -6419,6 +6625,113 @@ else
   fail "route-hint.sh missing or not executable — plain prompts get no routing"
 fi
 
+sec "== 7y2) loop-guard: a turn that stopped converging is noticed, once, and only recorded (shadow) =="
+# loop-guard.sh runs after every Bash/Edit/Write call and fires on a strict conjunction: >= 20 calls, one file edited
+# >= 4 times or >= 3 files edited, >= 6 errors, and one normalised error signature >= 20% of them. Shipped in shadow
+# mode: a firing appends a line of counters to .claude/state/loop-guard.jsonl; CREW_LOOP_GUARD=on returns the redirect as
+# additionalContext instead; off runs nothing. Each case below drives a real sequence of payloads through the hook, and
+# the negative case is proven able to go red: the same sequence fires once the signature clause is cut from a copy.
+LG="$ROOT/hooks/loop-guard.sh"
+if [ -x "$LG" ]; then
+  _lgd="$(mktemp -d)"; _lgd="$(cd -P "$_lgd" && pwd)"
+  # $1 project, $2 prompt id, $3 event, $4 tool, $5 path or error text ("" for none); session s1
+  lgj(){ case "$4" in
+      Bash) if [ "$3" = PostToolUseFailure ]; then
+              printf '{"session_id":"s1","prompt_id":"%s","cwd":"%s","hook_event_name":"%s","tool_name":"Bash","tool_input":{"command":"npm test"},"tool_use_id":"t","error":"%s","is_interrupt":false}' "$2" "$1" "$3" "$5"
+            else printf '{"session_id":"s1","prompt_id":"%s","cwd":"%s","hook_event_name":"%s","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a","stderr":""},"tool_use_id":"t"}' "$2" "$1" "$3"; fi ;;
+      *) printf '{"session_id":"s1","prompt_id":"%s","cwd":"%s","hook_event_name":"%s","tool_name":"%s","tool_input":{"file_path":"%s","old_string":"a","new_string":"b"},"tool_use_id":"t"}' "$2" "$1" "$3" "$4" "$5" ;;
+    esac; }
+  # $1 project, $2 sequence file (event|tool|text per line), $3 prompt id, $4 hook -> stdout of every call into $1/out
+  lgrun(){ local ev tl tx
+    while IFS='|' read -r ev tl tx; do [ -n "$ev" ] || continue
+      lgj "$1" "$3" "$ev" "$tl" "$tx" > "$1/p.json"
+      ( cd "$1" && CLAUDE_PROJECT_DIR="$1" bash "$4" < "$1/p.json" >> "$1/out" 2>>"$1/err" ); echo "$?" >> "$1/rc"
+    done < "$2"; }
+  # LOOP: 30 calls, 5 edits to one file, 8 failures that differ only in numbers, paths and hex (one signature).
+  { _i=0; while [ "$_i" -lt 30 ]; do
+      case "$_i" in
+        1|5|9|13|17) echo "PostToolUse|Edit|$_lgd/src/app.ts" ;;
+        2|6|10|14|18|22|26|28) echo "PostToolUseFailure|Bash|Exit code 1\\nError: Cannot find module at /tmp/run-$_i/app.js:$_i:7 (0x7ff$_i) id deadbeef$_i" ;;
+        *) echo "PostToolUse|Bash|" ;;
+      esac; _i=$((_i+1)); done; } > "$_lgd/loop.seq"
+  # PRODUCTIVE: 30 calls, edits spread over 4 files, 8 failures that are each a different problem.
+  { _i=0; for _w in alpha beta gamma delta epsilon zeta eta theta; do echo "PostToolUseFailure|Bash|Error: $_w check failed"; done
+    for _f in a b c d; do echo "PostToolUse|Write|$_lgd/src/$_f.ts"; done
+    while [ "$_i" -lt 18 ]; do echo "PostToolUse|Bash|"; _i=$((_i+1)); done; } > "$_lgd/prod.seq"
+  lgcase(){ # $1 name, $2 seq, $3 env value ("" unset), $4 hook -> sets _LGP (project), _LGL (jsonl lines), _LGA (additionalContext lines), _LGR (non-zero rcs)
+    _LGP="$_lgd/$1"; rm -rf "$_LGP"; mkdir -p "$_LGP"
+    if [ -n "$3" ]; then CREW_LOOP_GUARD="$3" lgrun "$_LGP" "$2" p1 "$4"; else ( unset CREW_LOOP_GUARD; lgrun "$_LGP" "$2" p1 "$4" ); fi
+    _LGL=0; [ -f "$_LGP/.claude/state/loop-guard.jsonl" ] && _LGL="$(grep -c . "$_LGP/.claude/state/loop-guard.jsonl")"
+    _LGA="$(grep -c '"additionalContext":"Do not stop; form one new falsifiable hypothesis' "$_LGP/out" 2>/dev/null)"; _LGA="${_LGA:-0}"
+    _LGR="$(grep -cvx 0 "$_LGP/rc" 2>/dev/null)"; _LGR="${_LGR:-0}"; }
+  # (1) the loop, shadow: one line, nothing said; then on: one additionalContext, nothing recorded.
+  lgcase loop-shadow "$_lgd/loop.seq" "" "$LG"
+  _lgl1="$(cat "$_LGP/.claude/state/loop-guard.jsonl" 2>/dev/null)"
+  if [ "$_LGL" = 1 ] && [ "$_LGA" = 0 ] && [ "$_LGR" = 0 ] && [ ! -s "$_LGP/out" ]; then
+    case "$_lgl1" in
+      *'"mode":"shadow"'*'"calls":23,"errors":6,'*'"max_edits_one_file":5,"top_signature":6,"signatures":1}'*)
+        case "$_lgl1" in *npm*|*src/*|*"$_lgd"*|*Cannot*) fail "loop-guard (shadow): the record carries command, path or error text: $_lgl1" ;;
+          *) pass "loop-guard (shadow): a looping turn is recorded once, at call 23 (the 6th error, one signature), and nothing reaches the session" ;; esac ;;
+      *) fail "loop-guard (shadow): one line, but not the counters the sequence implies: $_lgl1" ;;
+    esac
+  else fail "loop-guard (shadow) on a looping turn: $_LGL record line(s) (want 1), $_LGA additionalContext (want 0), $_LGR non-zero exit(s), stdout $(wc -c < "$_LGP/out" | tr -d ' ') bytes (want 0)"; fi
+  lgcase loop-on "$_lgd/loop.seq" on "$LG"
+  [ "$_LGA" = 1 ] && [ "$_LGL" = 0 ] && [ "$_LGR" = 0 ] \
+    && pass "loop-guard (CREW_LOOP_GUARD=on): the same turn gets the redirect exactly once, and nothing is recorded" \
+    || fail "loop-guard (on): $_LGA additionalContext (want 1), $_LGL record line(s) (want 0), $_LGR non-zero exit(s)"
+  # (2) a productive turn: as many calls and failures, but every failure a different one.
+  lgcase prod "$_lgd/prod.seq" "" "$LG"
+  [ "$_LGL" = 0 ] && [ "$_LGA" = 0 ] && [ "$_LGR" = 0 ] && [ -f "$_LGP/.claude/state/loop-s1.txt" ] \
+    && pass "loop-guard: a productive turn (30 calls, 8 different failures, 4 files) records nothing" \
+    || fail "loop-guard: a productive turn fired or failed: $_LGL record(s), $_LGA additionalContext, $_LGR non-zero exit(s), state $( [ -f "$_LGP/.claude/state/loop-s1.txt" ] && echo kept || echo MISSING — the hook never counted)"
+  # (5) ...and that silence can go red: cut the signature clause from a copy and the same turn fires.
+  sed '/S_MS" -ge 2/d' "$LG" > "$_lgd/mut.sh"
+  if cmp -s "$LG" "$_lgd/mut.sh"; then fail "loop-guard must-fail: the mutation changed nothing — the signature clause moved, so the productive case proves nothing"
+  else
+    lgcase prod-mut "$_lgd/prod.seq" "" "$_lgd/mut.sh"
+    [ "$_LGL" = 1 ] && pass "loop-guard must-fail: without the signature clause the productive turn fires (1 record), so its silence above is the clause's" \
+                    || fail "loop-guard must-fail: the mutated copy recorded $_LGL line(s) on the productive turn (want 1) — the negative case cannot go red"
+  fi
+  # (3) a new prompt is a new turn: 19 looping calls under one prompt and 11 under the next never reach 20.
+  _LGP="$_lgd/reset"; rm -rf "$_LGP"; mkdir -p "$_LGP"
+  head -n 19 "$_lgd/loop.seq" > "$_lgd/a.seq"; tail -n 11 "$_lgd/loop.seq" > "$_lgd/b.seq"
+  ( unset CREW_LOOP_GUARD; lgrun "$_LGP" "$_lgd/a.seq" p1 "$LG"; lgrun "$_LGP" "$_lgd/b.seq" p2 "$LG" )
+  read -r _ _lgpid _lgcalls _ < "$_LGP/.claude/state/loop-s1.txt" 2>/dev/null
+  if [ ! -f "$_LGP/.claude/state/loop-guard.jsonl" ] && [ "${_lgpid:-}" = p2 ] && [ "${_lgcalls:-}" = 11 ]; then
+    ( unset CREW_LOOP_GUARD; lgrun "$_LGP" "$_lgd/a.seq" p2 "$LG" )
+    [ -f "$_LGP/.claude/state/loop-guard.jsonl" ] \
+      && pass "loop-guard: the counters start again at a new prompt (19 + 11 across two prompts: silent; 11 + 19 under one: fires)" \
+      || fail "loop-guard reset: 30 looping calls under one prompt (11 + 19) did not fire — the reset case proves nothing"
+  else fail "loop-guard reset: after 19 + 11 calls across prompts p1/p2 the state reads prompt '${_lgpid:-?}' calls '${_lgcalls:-?}' (want p2 11), record $( [ -f "$_LGP/.claude/state/loop-guard.jsonl" ] && echo WRITTEN || echo none)"; fi
+  # (4) off: nothing at all, not even state.
+  lgcase off "$_lgd/loop.seq" off "$LG"
+  [ "$_LGL" = 0 ] && [ "$_LGA" = 0 ] && [ ! -e "$_LGP/.claude/state" ] && [ ! -s "$_LGP/out" ] \
+    && pass "loop-guard (CREW_LOOP_GUARD=off): no record, no output, no state file" \
+    || fail "loop-guard (off) still acted: $_LGL record(s), $_LGA additionalContext, state dir $( [ -e "$_LGP/.claude/state" ] && echo PRESENT || echo absent)"
+  # Cost: a call that does not fire starts no process (counter from §4.5's gate cost table, when it calibrated).
+  if declare -F _gcost >/dev/null 2>&1 && [ "${_gc1:-}" = 5 ] && [ "${_gc2:-}" = 7 ]; then
+    _LGP="$_lgd/cost"; rm -rf "$_LGP"; mkdir -p "$_LGP/.claude/state" "$_LGP/.crewforth"
+    lgj "$_LGP" p1 PostToolUse Edit "$_LGP/src/app.ts" > "$_lgd/c1.json"
+    lgj "$_LGP" p1 PostToolUseFailure Bash 'Exit code 1\nError: x at /tmp/a/1.js:3' > "$_lgd/c2.json"
+    ( cd "$_LGP" && unset CREW_LOOP_GUARD && CLAUDE_PROJECT_DIR="$_LGP" _gcost "$LG" "$_lgd/c1.json" "$_lgd/t1" && printf '%s' "$_GCN" > "$_lgd/n1" \
+      && CLAUDE_PROJECT_DIR="$_LGP" _gcost "$LG" "$_lgd/c2.json" "$_lgd/t2" && printf '%s' "$_GCN" > "$_lgd/n2" )
+    _lgn1="$(cat "$_lgd/n1" 2>/dev/null)"; _lgn2="$(cat "$_lgd/n2" 2>/dev/null)"
+    sed '/^IFS= read -r -d .. INPUT || true$/a\
+_PLANT="$(printf x | grep -c x)"
+' "$LG" > "$_lgd/twin.sh"
+    ( cd "$_LGP" && CLAUDE_PROJECT_DIR="$_LGP" _gcost "$_lgd/twin.sh" "$_lgd/c1.json" "$_lgd/t3" && printf '%s' "$_GCN" > "$_lgd/n3" )
+    _lgn3="$(cat "$_lgd/n3" 2>/dev/null)"
+    if [ "${_lgn3:-0}" -lt 2 ]; then fail "loop-guard cost: a planted \$( ) + grep read ${_lgn3:-nothing} — the counter sees nothing here, so a zero proves nothing"
+    elif [ "$_lgn1" = 0 ] && [ "$_lgn2" = 0 ]; then pass "loop-guard cost: an edit and a failure that do not fire start 0 processes (planted twin read $_lgn3)"
+    else fail "loop-guard cost: an edit cost ${_lgn1:-?} and a failure ${_lgn2:-?} processes, want 0 — it runs after every Bash/Edit/Write call, and on Git Bash a process is 20-130 ms"; fi
+  # The counter is calibrated by the gate cost table, which runs in Crewforth's source checkout only: in an installed
+  # project it never ran, so there the missing calibration is scope, not a broken runner (CI fails a fixture skip).
+  elif [ "$IS_KIT" != 1 ]; then skip scope "loop-guard cost: the process counter is calibrated in Crewforth's source checkout, not in an install"
+  else skip fixture "loop-guard cost: the process counter of the gate cost table did not calibrate on this bash, so no cost is claimed"; fi
+  rm -rf "$_lgd"
+else
+  fail "loop-guard.sh missing or not executable"
+fi
 sec "== 7z) No kit name shadows a Claude Code bundled skill/command =="
 # Skills and commands share one namespace: a SKILL.md and a commands/*.md both create `/name`, and per the
 # official docs a project skill "also overrides a bundled skill with the same name" — silently. Crewforth shipped a
@@ -9073,7 +9386,10 @@ _sar="$(cd "$_sad" && printf '{"session_id":"s","hook_event_name":"SubagentStart
 _san="$(cd "$_sad" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"sa2","agent_type":"general-purpose"}' | HOME="$PWD" bash "$HOOKS/agent-outcome.sh" 2>/dev/null)"
 _sab=""; [ "$_sarc" = 0 ] || _sab="$_sab rc=$_sarc"
 case "$_sar" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'is data'*'§4.4'*'"}}') ;; *) _sab="$_sab shape:[${_sar:0:120}]" ;; esac
-[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 700 ] || _sab="$_sab over-700-bytes"
+# The ceiling counts the whole JSON line. 700 → 800 (P05): the block also carries the two reading rules every agent
+# follows (a handed file:line is a range to open, a listed file is not one to change), which AGENT_TEMPLATE names
+# and no agent file copies. Measured: 664 bytes before, 763 with them.
+[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 800 ] || _sab="$_sab over-800-bytes"
 [ -z "$_san" ] || _sab="$_sab non-crew-agent-got:[${_san:0:60}]"
 printf '%s' "$_sar" | json_ok; case $? in 0) ;; 2) ;; *) _sab="$_sab not-json" ;; esac
 rm -rf "$_sad"

@@ -208,6 +208,18 @@ _mt() {
       're-read it against the code and update Stack / Project skills; keep the @.claude/DISCIPLINE.md line and your own rule sections as they are') s='kodla karşılaştırarak yeniden okuyun ve Stack / Project skills bölümlerini güncelleyin; @.claude/DISCIPLINE.md satırını ve kendi kural bölümlerinizi olduğu gibi bırakın' ;;
       'freshness signal skipped (cannot read CLAUDE.md mtime on this platform)') s="güncellik sinyali atlandı (bu platformda CLAUDE.md'nin değişme zamanı okunamıyor)" ;;
       '  → readiness %s/%s') s='  → hazırlık %s/%s' ;;
+      'hook injection every turn (UserPromptSubmit): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run') s="hook enjeksiyonu her turda (UserPromptSubmit): %s bayt, ~%s token (tahmin: bayt/4), %s hook çalıştı" ;;
+      'hook injection each session start (SessionStart): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run') s="hook enjeksiyonu her oturum başında (SessionStart): %s bayt, ~%s token (tahmin: bayt/4), %s hook çalıştı" ;;
+      '%s (%s): %s bytes') s='%s (%s): %s bayt' ;;
+      '%s (%s): 0 bytes for this fixture') s='%s (%s): bu fixture için 0 bayt' ;;
+      'not measured: %s (%s) — %s') s='ölçülmedi: %s (%s) — %s' ;;
+      'writes .claude/state/crew-critical-paths.auto in the project') s="projede .claude/state/crew-critical-paths.auto dosyasını yazıyor" ;;
+      'writes .claude/.state/update-asked (it would silence the real update question) and starts a network check') s="projede .claude/.state/update-asked dosyasını yazıyor (gerçek güncelleme sorusunu susturur) ve bir ağ denetimi başlatıyor" ;;
+      'its scratch folder is inside a git repository, where it would empty a recorded approval') s="geçici klasörü bir git deposunun içinde; orada kayıtlı bir onayı boşaltırdı" ;;
+      'the script is not in .claude/hooks') s=".claude/hooks içinde betik yok" ;;
+      "not one of Crewforth's checked hooks, so what it writes is unknown") s="Crewforth'un denetlenmiş hook'larından değil; ne yazdığı bilinmiyor" ;;
+      'a floor for one fixture (prompt: %s; a new session), not a maximum: a hook that speaks only for some prompts or states says nothing here') s='tek bir fixture için alt sınır (istem: %s; yeni oturum), üst sınır değil: yalnız bazı istemlerde ya da durumlarda konuşan bir hook burada hiçbir şey söylemez' ;;
+      'hook injection NOT MEASURED — the measurement printed no totals (eval/lib/hook-inject.sh)') s='hook enjeksiyonu ÖLÇÜLMEDİ — ölçüm toplam basmadı (eval/lib/hook-inject.sh)' ;;
       'npx crewforth adopt') ;;   # identifier, printed as is
       'chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg') ;;   # identifier, printed as is
       'git config core.hooksPath .claude/hooks') ;;   # identifier, printed as is
@@ -512,6 +524,56 @@ EOF_SLA
       warn "  %s%% of a 200k window — instead of at most %s chars. (4 characters per token is how Claude Code sizes" "$PCT" "$B200"
       warn "  this budget on a 200k window: 0.01 of 200,000 tokens is 8,000 characters.)"
     fi
+  fi
+fi
+
+# 4c) Per-turn hook injection. What the hooks on UserPromptSubmit (every turn) and SessionStart (each start, resume,
+#     clear, compact) add to the context, in bytes: eval/lib/hook-inject.sh runs each one on a fixture payload with a
+#     throwaway HOME/TMPDIR and a session id no real session has, and skips, by name, a hook it cannot run without a
+#     lasting write. A FLOOR for that fixture, not a maximum: a hook that speaks only for some prompts or states says
+#     nothing here, and Claude Code's own framing around each injection is not counted. Tokens are bytes/4, an
+#     estimate, not a tokenizer count. Advisory, never a failure.
+_HI="$_DOC_LIB/hook-inject.sh"; [ -f "$_HI" ] || _HI=.claude/eval/lib/hook-inject.sh
+if [ -f .claude/settings.json ] && [ -f "$_HI" ]; then
+  _hio="$(bash "$_HI" . 2>/dev/null)"
+  _hip=""; _hiu=""; _his=""; _hil=""
+  while IFS=$'\t' read -r _k _e _h _b _r; do
+    case "$_k" in
+      prompt) _hip="$_e" ;;
+      total) case "$_e" in UserPromptSubmit) _hiu="$_h $_b" ;; *) _his="$_h $_b" ;; esac ;;
+      run) _hil="$_hil$_e	$_h	$_b
+" ;;
+      skip) case "$_b" in
+              writes-state)   _mt "writes .claude/state/crew-critical-paths.auto in the project" ;;
+              writes-update)  _mt "writes .claude/.state/update-asked (it would silence the real update question) and starts a network check" ;;
+              scratch-in-repo) _mt "its scratch folder is inside a git repository, where it would empty a recorded approval" ;;
+              missing)        _mt "the script is not in .claude/hooks" ;;
+              *)              _mt "not one of Crewforth's checked hooks, so what it writes is unknown" ;;
+            esac
+            _hil="$_hil$_e	$_h	!$_M
+" ;;
+    esac
+  done <<EOF_HI
+$_hio
+EOF_HI
+  if [ -n "$_hiu" ] && [ -n "$_his" ]; then
+    read -r _ub _un <<< "$_hiu"; read -r _sb _sn <<< "$_his"
+    ok "hook injection every turn (UserPromptSubmit): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run" "$_ub" "$((_ub / 4))" "$_un"
+    ok "hook injection each session start (SessionStart): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run" "$_sb" "$((_sb / 4))" "$_sn"
+    while IFS=$'\t' read -r _e _h _v; do
+      [ -n "$_h" ] || continue
+      case "$_v" in
+        !*) _mt "not measured: %s (%s) — %s" "$_h" "$_e" "${_v#!}" ;;
+        0)  _mt "%s (%s): 0 bytes for this fixture" "$_h" "$_e" ;;
+        *)  _mt "%s (%s): %s bytes" "$_h" "$_e" "$_v" ;;
+      esac
+      echo "     ↳ $_M"
+    done <<EOF_HL
+$_hil
+EOF_HL
+    _mt "a floor for one fixture (prompt: %s; a new session), not a maximum: a hook that speaks only for some prompts or states says nothing here" "$_hip"; echo "     ↳ $_M"
+  else
+    skip "hook injection NOT MEASURED — the measurement printed no totals (eval/lib/hook-inject.sh)"
   fi
 fi
 
