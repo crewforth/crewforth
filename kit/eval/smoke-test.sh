@@ -6724,6 +6724,9 @@ _PLANT="$(printf x | grep -c x)"
     if [ "${_lgn3:-0}" -lt 2 ]; then fail "loop-guard cost: a planted \$( ) + grep read ${_lgn3:-nothing} — the counter sees nothing here, so a zero proves nothing"
     elif [ "$_lgn1" = 0 ] && [ "$_lgn2" = 0 ]; then pass "loop-guard cost: an edit and a failure that do not fire start 0 processes (planted twin read $_lgn3)"
     else fail "loop-guard cost: an edit cost ${_lgn1:-?} and a failure ${_lgn2:-?} processes, want 0 — it runs after every Bash/Edit/Write call, and on Git Bash a process is 20-130 ms"; fi
+  # The counter is calibrated by the gate cost table, which runs in Crewforth's source checkout only: in an installed
+  # project it never ran, so there the missing calibration is scope, not a broken runner (CI fails a fixture skip).
+  elif [ "$IS_KIT" != 1 ]; then skip scope "loop-guard cost: the process counter is calibrated in Crewforth's source checkout, not in an install"
   else skip fixture "loop-guard cost: the process counter of the gate cost table did not calibrate on this bash, so no cost is claimed"; fi
   rm -rf "$_lgd"
 else
