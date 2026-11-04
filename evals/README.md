@@ -23,6 +23,18 @@ read git state and files. What the model *says* it did is not evidence.
 **Both arms get identical tool access.** Otherwise the bare arm fails for permission reasons and the delta
 measures the harness. The only difference between the arms is whether `.claude/` and `CLAUDE.md` exist.
 
+**The control arm is checked, not assumed.** Both arms load only the project's own settings
+(`--setting-sources project,local --strict-mcp-config --no-session-persistence`, auto-memory off), so the user's
+settings, plugins, MCP servers and hooks reach neither — on a machine with Crewforth as a user plugin they used to
+reach both, and the bare arm was running Crewforth. Each run's opening event lists what the session could see; a
+control-arm run that lists a `crew-` component is not graded, and the run exits 3. The `arm-isolation` case asks the
+session the same question in its own words. Whether a user-level `~/.claude/CLAUDE.md` still loads under these flags
+is not measured; the runner says so when one exists.
+
+**One model, pinned and read back.** Both arms run `--model "${CREW_EVAL_MODEL:-sonnet}"`, and the model the main
+session was served is read from its stream. A run served another model is not graded, and the run exits 3. A crew
+agent may run on another model by design; every model a run used is recorded beside it, not held to the pin.
+
 ## Environment
 
 The permission layer is deliberately out of the way (`--permission-mode bypassPermissions`, override with
@@ -46,9 +58,9 @@ loads (before 3.0 a `--generic` install swapped `crew-backend-expert.md` for ano
 varies only the rule, and is how a rule change is measured. `CREW_EVAL_CASES` runs cases from another directory, so a
 draft set can be exercised before it lands here.
 
-**Delegation and cost, from the event stream.** `CREW_EVAL_TRACE=1` runs the CLI with `--output-format stream-json
---verbose`, keeps the stream in `.eval-stream.jsonl`, re-derives the reply into `.eval-stdout.txt`, and writes one
-metrics line per run: main-thread `Agent`/`Task` calls, nested calls, `subagent_stats.spawned`, `total_cost_usd`,
+**Delegation and cost, from the event stream.** Every run uses `--output-format stream-json --verbose`, keeps
+the stream in `.eval-stream.jsonl`, re-derives the reply into `.eval-stdout.txt`, and writes one metrics line per
+run (`CREW_EVAL_TRACE=1` also prints the summary below): main-thread `Agent`/`Task` calls, nested calls, `subagent_stats.spawned`, `total_cost_usd`,
 token usage and turns — and test and build runs: `Bash` calls that run a test runner or a build/lint tool, in the main
 thread and in subagents alike (a subagent's calls arrive in the same stream, carrying `parent_tool_use_id`),
 deduplicated by tool-use id, with main-thread and nested turns beside them. The bare word `test` does not count: on
