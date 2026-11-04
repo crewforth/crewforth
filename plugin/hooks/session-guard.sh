@@ -70,14 +70,41 @@ if [ -n "$TP" ] && [ -f "$TP" ]; then
 fi
 marker(){ printf '%s/crew-session-guard.%s.c%s.%s' "${TMPDIR:-/tmp}" "$KEY" "$COMP" "$1"; }
 
+# What the last compaction kept, from its own record: `compactMetadata` carries `preTokens` and `postTokens`
+# (measured on this machine's transcripts: 71 of 98 boundary records carry both; the other 27 carry no metadata at
+# all, and then the line says nothing). Read only on the rare path that speaks about a compaction, so its two
+# processes are not paid on an ordinary Stop. Sets CNUM ("345k → 20k tokens") and CTRIG (auto / manual).
+CNUM=""; CTRIG=""; CINFO=""
+compnums(){
+  local cb pre post
+  cb="$(grep '"compact_boundary"' "$TP" 2>/dev/null | tail -n 1)"
+  case "$cb" in *'"trigger":"manual"'*|*'"trigger": "manual"'*) CTRIG=manual ;; *'"trigger"'*) CTRIG=auto ;; esac
+  pre="${cb#*\"preTokens\":}"; [ "$pre" != "$cb" ] || return 0; pre="${pre# }"; pre="${pre%%[!0-9]*}"
+  post="${cb#*\"postTokens\":}"; [ "$post" != "$cb" ] || return 0; post="${post# }"; post="${post%%[!0-9]*}"
+  case "$pre$post" in ''|*[!0-9]*) return 0 ;; esac
+  [ -n "$pre" ] && [ -n "$post" ] || return 0
+  CNUM="$(( (pre + 500) / 1000 ))k → $(( (post + 500) / 1000 ))k tokens"
+}
+
 # An AUTO compaction is not a milestone, it is a loss: state nobody chose to drop is already gone, and the fill
 # reading right after it is reassuringly low precisely because the context was thrown away. Announce it once per
 # generation, independently of the fill tier — waiting for 75% would report the loss long after it happened.
-if [ "${AUTOC:-0}" -gt 0 ] && [ ! -e "$(marker autocompact)" ]; then
-  : > "$(marker autocompact)" 2>/dev/null || true
-  printf '{"systemMessage":"⚠️ Auto-compaction has fired %s time(s) this session — context was dropped that nobody chose to drop. Check that docs/SESSION_STATE.md still matches reality, and hand off at the next phase boundary instead of riding the fill up to another one."}\n' "$AUTOC"
-  exit 0
+# The generation is judged by ITS OWN record, the last boundary: a manual /compact after an earlier auto one opens a
+# generation of its own, and must not re-announce the old loss with the new compaction's numbers.
+# A MANUAL compaction is a choice, so it gets no warning — only what it kept, once per generation, so the user can
+# see what the next stretch of the session starts from. Silent when the record carries no numbers.
+if [ "${COMP:-0}" -gt 0 ] && [ ! -e "$(marker compacted)" ]; then
+  : > "$(marker compacted)" 2>/dev/null || true
+  compnums
+  if [ "$CTRIG" = auto ]; then
+    printf '{"systemMessage":"⚠️ Auto-compaction has fired %s time(s) this session%s — context was dropped that nobody chose to drop. Check that docs/SESSION_STATE.md still matches reality, and hand off at the next phase boundary instead of riding the fill up to another one."}\n' "$AUTOC" "${CNUM:+ (the last one: $CNUM)}"
+    exit 0
+  fi
+  [ "$CTRIG" = manual ] && [ -n "$CNUM" ] && CINFO="Compaction $COMP (manual): $CNUM."
 fi
+# Every exit after this point goes through bye, so the compaction line is never lost to a turn that has no fill
+# reading, and never preempts a fill warning on the same turn: the two share one systemMessage.
+bye(){ [ -n "$CINFO" ] && printf '{"systemMessage":"%s"}\n' "$CINFO"; exit 0; }
 
 # Real context%, from context-usage.sh's measurement. Fail-open on any error.
 #
@@ -103,7 +130,7 @@ if [ -z "$PCT" ]; then
   # --verbose here: this line reaches the USER at most twice per session, so the raw token counts are free.
   LINE="$(printf '%s' "$IN" | bash "$HERE/context-usage.sh" --verbose 2>/dev/null || true)"
   LINE="${LINE%%$'\n'*}"                     # first line, without paying `head` a process for it
-  [ -n "$LINE" ] || exit 0
+  [ -n "$LINE" ] || bye
   # Pull the percentage back out of the "🔋 Session: %77.2 (...)" line. context-usage.sh pins LC_ALL=C, so the
   # decimal separator is always '.' whatever the locale. No number -> cannot classify -> stay silent (fail open).
   # Pure expansion rather than `sed | head`: take everything after the first '%', then stop at the first
@@ -113,7 +140,7 @@ if [ -z "$PCT" ]; then
   [ "$PCT" != "$LINE" ] || PCT=""
   PCT="${PCT%%[!0-9.]*}"
   case "$PCT" in ''|*[!0-9.]*|.*) PCT="" ;; esac
-  [ -n "$PCT" ] || exit 0
+  [ -n "$PCT" ] || bye
 fi
 
 # The reply's own 🔋 line, held against the reading. The discipline says that figure is copied from the hook's
@@ -146,7 +173,7 @@ fi
 # turn bought nothing here: the thresholds are whole numbers, so truncating is exactly equivalent — 89.9 is below
 # 90 either way — and dropping the decimal also drops the locale hazard the awk calls existed to pin down.
 INT="${PCT%%.*}"; INT="${INT:-0}"
-case "$INT" in ''|*[!0-9]*) exit 0 ;; esac
+case "$INT" in ''|*[!0-9]*) bye ;; esac
 TIER=""
 [ "$INT" -ge 90 ] && TIER=90
 [ -n "$TIER" ] || { [ "$INT" -ge 75 ] && TIER=75; }
@@ -164,11 +191,12 @@ if [ -n "$TIER" ] && [ ! -e "$(marker "$TIER")" ]; then
     MSG=">75% threshold. Recommended: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Manual; your call."
   fi
 fi
-[ -n "$MSG$WRONG" ] || exit 0
+[ -n "$MSG$WRONG" ] || bye
 
 # JSON-escape backslash + double-quote in the measured line before embedding it.
 SAFE="$(printf '%s' "$LINE" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 OUT="${MSG:+$SAFE | $MSG}"
+[ -n "$CINFO" ] && OUT="$CINFO${OUT:+ · $OUT}"
 [ -n "$WRONG" ] && OUT="⚠️ The 🔋 line in this reply says $WRONG, but the fill measured from the transcript is: $SAFE. The reply's figure is not a measurement — do not decide a handoff on it.${OUT:+ · $OUT}"
 # exit 0 + systemMessage: a neutral, user-facing warning (NOT a hook error, does NOT force an extra turn).
 printf '{"systemMessage":"%s"}\n' "$OUT"

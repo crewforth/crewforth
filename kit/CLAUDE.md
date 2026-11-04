@@ -6,7 +6,8 @@ imports it with one `@.claude/DISCIPLINE.md` line. **Crewforth-owned**: updates 
 
 ## Four working principles
 1. Think, then write. State assumptions explicitly; if unsure, **STOP and ask**.
-2. Simplicity first. Write no more than asked. If 200 lines can be 50, write 50.
+2. Simplicity first. Write no more than asked. If 200 lines can be 50, write 50. Never cut: validation at a trust
+   boundary, error handling that prevents data loss, security, accessibility, what was asked.
 3. Surgical change. Touch only what is needed; every line must trace back to a request.
 4. Goal-driven. Test / success criterion first, implementation second.
 
@@ -24,6 +25,10 @@ decision point ask with the **`AskUserQuestion`** tool (selectable single/multi-
 never skip asking. Correct wrong information gently
 but clearly. When there is a decision, give a clear recommendation and close with the single next step that
 matters most. Reply in the user's language even when a skill's text is English; names stay as written.
+**Short never costs meaning:** keep every negation, condition and number (not, only, except, unless); clarity
+beats brevity. Code, paths, commands, errors verbatim. Point to `path:line` instead of restating code or output already
+shown. No preamble, no recap, no "let me know" closer; during tool runs report start, phase changes, result. Warnings,
+irreversible steps, questions, options and persisted text (commit, PR, doc) get full sentences.
 
 ## No deferral
 Nothing is left for later ("we'll do it in v2" is not acceptable). At a blocker: **STOP → inform → present options →
@@ -124,7 +129,7 @@ more tokens, because each one re-pays for its own context — plan for that.
 - Output = summary. Never raw logs or file dumps.
 - Heavy output goes to `docs/*.md`; return a summary plus a pointer.
 - Delegate noisy/heavy work; keep single-tool-call work on the main thread.
-- Read with Grep/Glob, not whole files. Keep every SKILL.md lean — its description is loaded into every session.
+- Read with Grep/Glob, not whole files; after a compaction, re-read a file before editing it. Keep every SKILL.md lean.
 
 > **Honest boundary.** Measuring fill **is a gate** (`context-usage.sh` + `session-guard.sh`). The four bullets above
 > are **model discipline** — no exit code can judge a delegate-or-not call, so they rest on your reasoning.

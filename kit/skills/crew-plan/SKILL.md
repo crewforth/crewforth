@@ -1,6 +1,6 @@
 ---
 name: crew-plan
-description: Spec-first planning — break down ambiguously scoped work with crew-planner.
+description: Spec-first planning for loosely scoped work (crew-planner).
 argument-hint: "[task/feature description]"
 metadata:
   kind: command
