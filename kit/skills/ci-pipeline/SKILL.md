@@ -19,6 +19,10 @@ Trigger phrases: "ci", "pipeline", "github actions", "jenkins", "build pipeline"
 
 ## Principles
 - **Deterministic:** dependencies pinned, cache keyed correctly; no "it worked on my machine".
+- **Actions and the token:** pin every third-party action to a full commit SHA with its version in a comment (a tag
+  moves when its owner moves it); `permissions: contents: read` at the top, raised per job only where a step writes;
+  `persist-credentials: false` on checkout unless a later step pushes; never put `${{ github.event.* }}` or a matrix
+  value inside `run:` — pass it through `env:` and quote it.
 - **Secret management:** CI secret store; NO plaintext secrets in the repo/logs (overlaps with trace scan).
 - **PR gate:** quality gate + tests must pass; a red build is not merged.
 - **Branch protection:** direct push to main is disabled; PR + review required.

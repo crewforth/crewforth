@@ -38,10 +38,11 @@ jobs:
       - name: core.autocrlf=true (Windows)
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf true
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0   # the 2.13.0 install is made from the v2.13.0 tree with git archive
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ matrix.node }}
       - name: Launch cell
@@ -63,10 +64,11 @@ jobs:
     steps:
       - name: core.autocrlf=true
         run: git config --global core.autocrlf true
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22'
       - name: Launch cell, then the forwarder
@@ -94,10 +96,11 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates xz-utils >/dev/null
           v="$(git --version)"; echo "$v"
           case "$v" in "git version 2.34."*) ;; *) echo "::error::expected Ubuntu 22.04's git 2.34.x, got: $v"; exit 1 ;; esac
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '22'
       - name: Launch cell

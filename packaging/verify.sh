@@ -178,6 +178,8 @@ step_skilleval(){
 # The only step that needs a tool the repo does not carry. CI installs the CLI; a developer machine
 # usually already has it, and a machine without it must say SKIPPED rather than quietly pass.
 step_manifests(){
+  # The repository's own workflows first: no tool needed, so it runs where the CLI is absent too.
+  bash packaging/workflow-check.sh || return 1
   command -v claude >/dev/null 2>&1 || { echo "SKIP: the claude CLI is not on PATH"; return 3; }
   claude plugin validate plugin --strict || return 1
   claude plugin validate .claude-plugin/marketplace.json --strict || return 1
