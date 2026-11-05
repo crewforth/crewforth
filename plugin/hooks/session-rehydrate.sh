@@ -21,12 +21,15 @@
 #   - THE GIT HOOKS LINE. Where the hooks are installed but git is not pointed at them, the session is told (below).
 #   - Fails OPEN and SILENT: no handover file, no output. It never blocks the session (always exits 0).
 set -uo pipefail
-IN="$(cat 2>/dev/null || true)"
+# stdin and the cwd are read with builtins: the hook then needs no external command to decide what to say, so it
+# answers the same with an empty PATH (smoke §7c). With `cat`, an empty PATH left IN empty, the event's `source` was
+# lost, and a fresh session was handed the previous one's handover.
+IN=""; IFS= read -r -d '' IN || true
 
 # Project root: CLAUDE_PROJECT_DIR (set for hooks) → cwd from the stdin JSON → PWD.
 ROOT="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$ROOT" ]; then
-  ROOT="$(printf '%s' "$IN" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  case "$IN" in *'"cwd"'*) ROOT="${IN#*\"cwd\"}"; ROOT="${ROOT#*\"}"; ROOT="${ROOT%%\"*}" ;; esac
 fi
 [ -n "$ROOT" ] || ROOT="$PWD"
 # Windows hands both CLAUDE_PROJECT_DIR and the stdin `cwd` over as native paths (`C:\Repos\app`), and the stdin

@@ -142,6 +142,8 @@ step_findings(){
   node packaging/findings-test/selfcheck.mjs || return 1
   node packaging/review-prepass-test/selfcheck.mjs || return 1
   node packaging/review-bench/selfcheck.mjs || return 1
+  # The labelled sets (routing, review bench) may not get more predictable by one surface feature: packaging/case-shortcuts.mjs.
+  node packaging/case-shortcuts.mjs || return 1
   local d
   for d in findings review-prepass review-bench; do
     diff -r "kit/eval/lib/$d" "plugin/eval/lib/$d" >/dev/null 2>&1 || {

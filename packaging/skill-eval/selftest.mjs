@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { casesFor } from './lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const git = (cwd, ...a) => spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8' });
@@ -100,6 +101,19 @@ r = runEvent('0'.repeat(40));
 check('a new branch (all-zero before) has no base and says so', r.rc === 3 && /not a pass/.test(r.out), r.out.trim());
 r = run('--base', 'no-such-ref');
 check('a base that cannot be read judges nothing and says so (rc 3, not a pass)', r.rc === 3 && /not a pass/.test(r.out), r.out.trim());
+
+// improve.mjs, free half only: --dry-run prints the limit and the rewriting prompt and calls no model. The held-out rows
+// are the test, so their prompts must never be in the prompt; an unknown skill is refused. Run against this repository.
+{
+  const imp = (...a) => { const e2 = { ...process.env }; delete e2.SKILL_EVAL_ROOT; const x = spawnSync(process.execPath, [path.join(HERE, 'improve.mjs'), ...a], { encoding: 'utf8', env: e2 }); return { rc: x.status, out: x.stdout + x.stderr }; };
+  const held = casesFor(['api-design']).filter((c) => c.source === 'holdout').map((c) => c.prompt);
+  r = imp('--skill', 'api-design', '--dry-run');
+  check('improve --dry-run prints a character limit and the prompt, and no held-out prompt is in it',
+    r.rc === 0 && /limit \d+ chars/.test(r.out) && /--- prompt ---/.test(r.out) && held.length > 0 && held.every((p) => !r.out.split('--- prompt ---')[1].includes(p)),
+    r.out.split('\n')[0]);
+  r = imp('--skill', 'no-such-skill', '--dry-run');
+  check('improve refuses a skill that does not exist (rc 2)', r.rc === 2, r.out.trim());
+}
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`${n - bad}/${n} skill-eval cases behaved`);

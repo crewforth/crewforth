@@ -209,7 +209,7 @@ export function run(o) {
   const rows = []; let spent = 0;
   try {
     for (const c of cases) {
-      if (o.arm === 'agent' && spent + o.caseBudget > o.maxCost) { rows.push({ id: c.id, skipped: `the run's cap ($${o.maxCost}) would be passed` }); continue; }
+      if (o.arm === 'agent' && spent + o.caseBudget > o.maxCost) { rows.push({ id: c.id, kind: c.kind, stratum: c.stratum, skipped: `the run's cap ($${o.maxCost}) would be passed` }); continue; }
       const b = build(c, tmp);
       let out;
       if (c.kind === 'task') {
@@ -236,6 +236,10 @@ export function summarise(rows, o, spent = 0) {
   const sum = (k) => done.reduce((n, r) => n + (Number(r[k]) || 0), 0);
   return { arm: o.arm, model: o.arm === 'agent' ? o.model : null, advisor: o.arm === 'agent' ? o.advisor ?? null : null, split: o.split, cases: rows.length, ran: done.length,
     tasks: { done: tasks.filter((r) => r.done).length, of: tasks.length }, ms: sum('ms'), advisorCalls: sum('advisorCalls'),
+    // Worst case: a defect row that did not run counts as missed. Recall over the rows that ran can clear a floor the
+    // whole set would miss, because the cap decides which rows run; this is the figure that cannot.
+    recallWorstCase: rec([...defects, ...rows.filter((r) => r.skipped && r.kind === 'defect')]),
+    byStratumWorstCase: Object.fromEntries(['pattern', 'judgement'].map((s) => [s, rec([...defects, ...rows.filter((r) => r.skipped && r.kind === 'defect')].filter((r) => r.stratum === s))])),
     recall: rec(defects), recallNoHint: rec(defects.filter((r) => !r.hint)), recallHint: rec(defects.filter((r) => r.hint)),
     byStratum: Object.fromEntries(['pattern', 'judgement'].map((s) => [s, rec(defects.filter((r) => r.stratum === s))])),
     precision: { matched, of: claims, pct: pct(matched, claims) },
@@ -249,6 +253,7 @@ function main(argv) {
   const line = (n, x) => `${n} ${x.caught}/${x.of}${x.pct === null ? '' : ` (${x.pct}%)`}`;
   console.log(`review-bench · arm ${s.arm}${s.model ? ` (${s.model}${s.advisor ? ` + ${s.advisor} advisor` : ''})` : ''} · split ${s.split} · ${s.ran}/${s.cases} cases`);
   console.log(`  ${line('recall', s.recall)} · ${line('without a hint', s.recallNoHint)} · ${line('with one', s.recallHint)}`);
+  if (s.recallWorstCase.of > s.recall.of) console.log(`  ${line('recall counting the defect rows that did not run as missed', s.recallWorstCase)}`);
   console.log(`  ${line('pattern', s.byStratum.pattern)} · ${line('judgement', s.byStratum.judgement)}`);
   console.log(`  precision ${s.precision.matched}/${s.precision.of}${s.precision.pct === null ? ' (no claim made)' : ` (${s.precision.pct}%)`} · ${s.falseAlarms.length} false alarm(s)${s.arm === 'agent' ? ` · cost $${s.cost}` : ''}`);
   if (s.tasks.of) console.log(`  tasks done ${s.tasks.done}/${s.tasks.of}`);
@@ -260,12 +265,19 @@ function main(argv) {
   let rc = s.errors.length && o.arm === 'agent' ? 1 : 0;
   if (o.floors) {
     const fl = JSON.parse(fs.readFileSync(o.floors, 'utf8'))[o.arm] ?? {};
+    let skippedPass = false;
     for (const [k, v] of Object.entries(fl)) {
       const got = k === 'precision' ? s.precision.pct : k === 'falseAlarms' ? s.falseAlarms.length : (k === 'recall' ? s.recall : s.byStratum[k.replace(/^recall-/, '')])?.pct;
       const ok = k === 'falseAlarms' ? got <= v : got !== null && got !== undefined && got >= v;
-      console.log(`  floor ${k}: ${got} ${k === 'falseAlarms' ? '≤' : '≥'} ${v} ${ok ? 'ok' : 'BELOW THE FLOOR'}`);
+      // A recall floor that holds only because rows were skipped is not a pass: the worst case is checked beside it.
+      const worst = k === 'recall' ? s.recallWorstCase.pct : k.startsWith('recall-') ? s.byStratumWorstCase[k.replace(/^recall-/, '')]?.pct : null;
+      const onlySkipped = ok && worst !== null && worst !== undefined && worst < v;
+      console.log(`  floor ${k}: ${got} ${k === 'falseAlarms' ? '≤' : '≥'} ${v} ${!ok ? 'BELOW THE FLOOR' : onlySkipped ? `NOT A PASS — met only because rows did not run (worst case ${worst})` : 'ok'}`);
       if (!ok) rc = 1;
+      if (onlySkipped) skippedPass = true;
     }
+    // 3: no floor failed on what ran, but one held only because the cap skipped rows. Not 0, and not a measured 1.
+    if (rc === 0 && skippedPass) rc = 3;
   }
   return rc;
 }

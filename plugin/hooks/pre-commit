@@ -725,6 +725,7 @@ if [ "$HIT" -ne 0 ]; then
   echo "-----------------------------------------------------------"
   echo "Commit stopped. Remove the AI-authorship trace / vendor name / secret / bloated file / bar-lowering move from the staged changes."
   echo "A bar-lowering move that is genuinely warranted? record it in .floor-allowlist.txt at the repo root (path:<glob>, rule:<name>, or the exact pattern line, each followed by '  # <reason, 20+ characters>') — in the same commit, where review sees it. A path: glob's * also crosses directories: write the narrowest path."
+  echo "Not the way out: an allowlist line written only to get this commit through. Fix the code; a rule: line switches a rule off for the whole repository and needs an ADR."
   echo "False positive (trace/secret)? add the EXACT pattern line to .trace-allowlist.txt or .secret-allowlist.txt at the repo root."
   echo "Private path flagged but genuinely public? add that exact term to .private-allowlist.txt at the repo root."
   echo "Large file is intentional? raise CREW_MAX_FILE_BYTES, use Git LFS, or gitignore the build/vendored path."

@@ -36,6 +36,9 @@
 # stdin is /dev/null for every run: without it the CLI waits 3 s for piped input it will never get, and says so.
 #   bash evals/run.sh --case secret-refused # one case
 #   bash evals/run.sh --keep                # keep the scratch projects for inspection
+#   bash evals/run.sh --calibrate           # FREE, no model: each case's grader is fed a known-good and a known-bad
+#                                           # project (its calibrate.sh) and must pass the first and fail the second.
+#                                           # --selftest is the same mode. Combine with --case to calibrate one.
 #
 # Every run is pinned to one model and loads only the project's own settings (no user settings, plugins, MCP servers or
 # auto-memory). Its stream says which model served it and what the session could see; a run served another model, or
@@ -50,9 +53,10 @@ set -uo pipefail
 ROOT="${CREW_EVAL_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CASES="${CREW_EVAL_CASES:-$ROOT/evals/cases}"
 
-RUNS=1; ONLY=""; KEEP=0
+RUNS=1; ONLY=""; KEEP=0; CALIB=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --calibrate|--selftest) CALIB=1; shift ;;
     --runs) RUNS="${2:-1}"; shift 2 ;;
     --case) ONLY="${2:-}"; shift 2 ;;
     --keep) KEEP=1; shift ;;
@@ -60,6 +64,65 @@ while [ $# -gt 0 ]; do
     *) echo "run.sh: unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+# ---- CALIBRATION: the graders, graded. No model, no CLI, no cost. ----------------------------------------------
+# A grader that passes everything, or fails everything, produces a delta that looks like a finding. Each case may
+# carry calibrate.sh with two functions, `good` and `bad`, run in the seeded project the way a model run would leave
+# it: `good` makes the outcome the case asks for (a correct commit, a refusal written in the reply), `bad` the one it
+# guards against. The grader must print no FAIL and at least one PASS for `good`, and at least one FAIL for `bad`; a
+# NOT_MEASURED from either is a calibration failure too. A case with no calibrate.sh is counted and named: an
+# uncalibrated grader is not known to work, so the run is then INCOMPLETE (exit 3), not green.
+# Exit: 0 every case calibrated and graded right · 1 a grader misgraded, or a case is malformed · 3 some uncalibrated.
+if [ "$CALIB" = 1 ]; then
+  CASES_DIR="${CREW_EVAL_CASES:-$ROOT/evals/cases}"
+  CW="$(mktemp -d "${TMPDIR:-/tmp}/crew-eval-cal.XXXXXX")" || { echo "run.sh: could not create a scratch dir" >&2; exit 2; }
+  trap 'rm -rf "$CW"' EXIT
+  cal_one(){ # $1 case dir, $2 good|bad -> grader output on stdout
+    local cd="$1" fn="$2" P="$CW/$(basename "$1")-$2"
+    mkdir -p "$P"
+    ( cd "$P" || exit 1
+      unset -f seed post_seed good bad 2>/dev/null
+      . "$cd/case.env"; . "$cd/calibrate.sh"
+      git init -q . && git config user.email eval@example.invalid && git config user.name "Eval Runner" && git config commit.gpgsign false
+      seed; git add -A >/dev/null 2>&1; git commit -q -m seed >/dev/null 2>&1
+      command -v post_seed >/dev/null 2>&1 && post_seed
+      "$fn" ) >/dev/null 2>&1
+    # The grader gets what the paid path gives it: KIT_ROOT, and EVAL_SECRET as the case defines it.
+    ( cd "$P" && unset -f seed post_seed 2>/dev/null; EVAL_SECRET=""; . "$cd/case.env" >/dev/null 2>&1
+      KIT_ROOT="$ROOT" EVAL_SECRET="${EVAL_SECRET:-}" bash "$cd/grade.sh" 2>/dev/null )
+  }
+  CAL_OK=0; CAL_BAD=0; CAL_NONE=""; CAL_N=0
+  echo "== grader calibration (no model) =="
+  for cdir in "$CASES_DIR"/*/; do
+    cname="$(basename "$cdir")"; [ -n "$ONLY" ] && [ "$ONLY" != "$cname" ] && continue
+    [ -f "$cdir/case.env" ] && [ -f "$cdir/grade.sh" ] || { echo "run.sh: $cname is missing case.env or grade.sh" >&2; exit 1; }
+    CAL_N=$((CAL_N+1))
+    if [ ! -f "$cdir/calibrate.sh" ]; then CAL_NONE="$CAL_NONE $cname"; continue; fi
+    # A case that declares a tool its grader needs is not calibrated without it either: say so, do not guess.
+    REQUIRES=""; REQUIRES="$(sed -n 's/^REQUIRES="\(.*\)"/\1/p' "$cdir/case.env" | head -1)"
+    miss=""; for t in $REQUIRES; do command -v "$t" >/dev/null 2>&1 || miss="$miss $t"; done
+    if [ -n "$miss" ]; then CAL_NONE="$CAL_NONE $cname(needs$miss)"; continue; fi
+    og="$(cal_one "$cdir" good)"; ob="$(cal_one "$cdir" bad)"
+    why=""
+    printf '%s\n' "$og" | grep -q '^NOT_MEASURED ' && why="$why good:NOT_MEASURED"
+    printf '%s\n' "$ob" | grep -q '^NOT_MEASURED ' && why="$why bad:NOT_MEASURED"
+    printf '%s\n' "$og" | grep -q '^FAIL ' && why="$why good:$(printf '%s\n' "$og" | grep -c '^FAIL ')-FAIL"
+    printf '%s\n' "$og" | grep -q '^PASS ' || why="$why good:no-PASS"
+    printf '%s\n' "$ob" | grep -q '^FAIL ' || why="$why bad:no-FAIL"
+    if [ -z "$why" ]; then
+      CAL_OK=$((CAL_OK+1)); printf '   ok    %-32s good %s PASS · bad %s FAIL\n' "$cname" "$(printf '%s\n' "$og" | grep -c '^PASS ')" "$(printf '%s\n' "$ob" | grep -c '^FAIL ')"
+    else
+      CAL_BAD=$((CAL_BAD+1)); printf '   MISGRADED %-28s%s\n' "$cname" "$why"
+      printf '%s\n' "$og" | grep '^FAIL ' | sed 's/^/        good → /' | head -3
+    fi
+  done
+  echo "---"
+  printf '   calibrated %s of %s case(s): %s graded right, %s misgraded\n' "$((CAL_OK+CAL_BAD))" "$CAL_N" "$CAL_OK" "$CAL_BAD"
+  [ -n "$CAL_NONE" ] && printf '   NOT CALIBRATED:%s\n' "$CAL_NONE"
+  [ "$CAL_BAD" -gt 0 ] && exit 1
+  [ -n "$CAL_NONE" ] && exit 3
+  exit 0
+fi
 
 command -v claude >/dev/null 2>&1 || { echo "run.sh: the claude CLI is not on PATH" >&2; exit 1; }
 # Probed by running it: on Windows `command -v python3` finds the Store redirector, which resolves and exits 49.
@@ -255,6 +318,10 @@ tests = tnest = 0; seen_tu = set(); msgs_top = set(); msgs_nest = set(); k = las
 # instead of collapsing into one bucket (which is a latent flaw in msgs_top, left alone here rather than
 # changed silently).
 per_msg = {}; by_type = {}
+# Columns 27-29, appended: every tool call of the run, the Reads of a component's references or an agent file (did the
+# run open the material the kit points at), and the skills it loaded, in order.
+REFRX = re.compile(r'(^|[\\/])(skills[\\/][^\\/]+[\\/]references[\\/]|agents[\\/])[^\\/]+\.md$')
+ref_reads = 0; skills = []
 # The session's opening event lists what it could see. A control arm that sees a crew- agent, skill, command or
 # plugin is not a control: that is the leak a run on a machine with Crewforth as a user plugin produced.
 init = None
@@ -278,6 +345,8 @@ for ln, line in enumerate(lines):
         for c in m.get('content') or []:
             if not (isinstance(c, dict) and c.get('type') == 'tool_use') or c.get('id') in seen_tu: continue
             seen_tu.add(c.get('id')); k += 1
+            if c.get('name') == 'Read' and REFRX.search(str((c.get('input') or {}).get('file_path') or '')): ref_reads += 1
+            if c.get('name') == 'Skill': skills.append(str((c.get('input') or {}).get('skill') or '?').split(':')[-1])
             if c.get('name') in ('Agent', 'Task'):
                 allc += 1
                 if not nested:
@@ -324,7 +393,8 @@ print('\t'.join(str(x) for x in (top, allc, sp, (res or {}).get('total_cost_usd'
       '' if not edits else (1 if last_test > last_edit else 0),
       sum(1 for v in per_msg.values() if v >= 2), max(per_msg.values(), default=0),
       ','.join(f'{k}:{by_type[k]}' for k in sorted(by_type)) or '-',
-      ','.join(served) or '-', len(seen) if init else '-', ','.join(leak[:8]) or '-', ','.join(used) or '-')))
+      ','.join(served) or '-', len(seen) if init else '-', ','.join(leak[:8]) or '-', ','.join(used) or '-',
+      '', k, ref_reads, ','.join(skills) or '-')))
 PYM
 }
 
@@ -372,7 +442,19 @@ run_arm() {
         --model "$EVAL_MODEL" $ISO_FLAGS --output-format stream-json --verbose \
         --permission-mode "${CREW_EVAL_PERM:-bypassPermissions}" \
         --allowedTools ${CREW_EVAL_TOOLS:-Bash Read Write Edit Task Agent} \
-        </dev/null >"$dir/.eval-stream.jsonl" 2>"$dir/.eval-stderr.txt"
+        </dev/null >"$dir/.eval-stream.jsonl" 2>"$dir/.eval-stderr.txt" &
+    _cpid=$!
+    # STOP_WHEN / FORBID / MAX_TURNS (case.env): a watcher reads the stream as it is written and stops the run once the
+    # case has its answer, did what it forbids, or ran past its ceiling. Without them, nothing watches and the run ends
+    # on its own, as before. The reason, if any, is left in .eval-stop.txt for the runner.
+    if [ -n "${STOP_WHEN:-}${FORBID:-}${MAX_TURNS:-}" ]; then
+      STOP_WHEN="${STOP_WHEN:-}" FORBID="${FORBID:-}" MAX_TURNS="${MAX_TURNS:-}" \
+        python3 "$ROOT/evals/lib/watch.py" "$dir/.eval-stream.jsonl" "$_cpid" "$dir/.eval-stop.txt" 2>/dev/null &
+      _wpid=$!
+      wait "$_cpid" 2>/dev/null; wait "$_wpid" 2>/dev/null
+    else
+      wait "$_cpid" 2>/dev/null
+    fi
     eval_trace_metrics "$dir/.eval-stream.jsonl" "$dir/.eval-stdout.txt" > "$dir/.eval-metrics.tsv"
   ) || true   # a non-zero exit is itself a result; the grader decides
 }
@@ -409,7 +491,7 @@ for cdir in "$CASES"/*/; do
   [ -f "$cdir/case.env" ] && [ -f "$cdir/grade.sh" ] || { echo "run.sh: $cname is missing case.env or grade.sh" >&2; exit 1; }
 
   # shellcheck disable=SC1090
-  NEEDS_GIT_OK=0; REQUIRES=""; NEEDS_OVERLAY_B=0; unset -f seed post_seed 2>/dev/null; . "$cdir/case.env"
+  NEEDS_GIT_OK=0; REQUIRES=""; NEEDS_OVERLAY_B=0; STOP_WHEN=""; FORBID=""; MAX_TURNS=""; unset -f seed post_seed 2>/dev/null; . "$cdir/case.env"
   echo "-- $cname --"
   [ -n "${DESC:-}" ] && echo "   $DESC"
   # A case whose grader needs a tool this machine lacks is skipped BEFORE anything is built or paid for. Run anyway, it
@@ -465,10 +547,15 @@ for cdir in "$CASES"/*/; do
       # graded only on evidence that it ran. In trace mode that is a result that is neither an error nor limited. Without the
       # stream it is a reply that is not the limit message, in the one form seen so far, the result text of a rejected run:
       # "You've hit your session limit · resets …".
-      nm=""
-      m_has=""; m_err=""; m_lim=""; m_srv=""; m_seen=""; m_leak=""
-      IFS=$'\t' read -r m_has m_err m_lim m_srv m_seen m_leak < <(LC_ALL=C awk -F'\t' '{print ($11==""?0:$11) "\t" ($16==""?0:$16) "\t" ($17==""?0:$17) "\t" $22 "\t" $23 "\t" $24}' "$P/.eval-metrics.tsv" 2>/dev/null)
-      if [ "${m_has:-0}" != 1 ]; then nm="the stream is empty or broken"
+      nm=""; fclass="harness"
+      m_has=""; m_err=""; m_lim=""; m_srv=""; m_seen=""; m_leak=""; m_calls=""
+      IFS=$'\t' read -r m_has m_err m_lim m_srv m_seen m_leak m_calls < <(LC_ALL=C awk -F'\t' '{print ($11==""?0:$11) "\t" ($16==""?0:$16) "\t" ($17==""?0:$17) "\t" $22 "\t" $23 "\t" $24 "\t" ($27==""?0:$27)}' "$P/.eval-metrics.tsv" 2>/dev/null)
+      stopw=""; [ -s "$P/.eval-stop.txt" ] && IFS= read -r stopw < "$P/.eval-stop.txt"
+      # A run the watcher stopped has no result event. `stop` and `forbid` were stopped on purpose and are graded on
+      # what they left; past MAX_TURNS the run is unfinished, so it is not graded, and its class says why.
+      case "$stopw" in stop\ *|forbid\ *) m_has=1 ;; maxturns\ *) nm="stopped past MAX_TURNS ($stopw)"; fclass="timeout" ;; esac
+      if [ -n "$nm" ]; then :
+      elif [ "${m_has:-0}" != 1 ]; then nm="the stream is empty or broken"
       elif [ "${m_err:-0}" = 1 ] || [ "${m_lim:-0}" = 1 ]; then
         nm="the run ended in an error or hit the usage limit: $(head -1 "$P/.eval-stdout.txt" 2>/dev/null | cut -c1-160)"
       fi
@@ -484,7 +571,7 @@ for cdir in "$CASES"/*/; do
       fi
       if [ -n "$nm" ]; then
         NOT_MEASURED=$((NOT_MEASURED+1)); arm_nm=$((arm_nm+1))
-        printf '   ! %s run %s NOT MEASURED, not graded — %s\n' "$arm" "$r" "$nm"
+        printf '   ! %s run %s NOT MEASURED, not graded — %s · class %s\n' "$arm" "$r" "$nm" "$fclass"
         # Marked in column 26, so the trace summary leaves it out like an empty stream: a run that was not graded
         # must not lend its cost or its delegations to the arm's figures.
         [ -s "$P/.eval-metrics.tsv" ] && LC_ALL=C awk -F'\t' -v OFS='\t' '{ $26 = "rejected"; print }' "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv"
@@ -496,6 +583,7 @@ for cdir in "$CASES"/*/; do
       # discovered inside the project: the bare arm has no .claude/, so a grader that looked there would score
       # "cannot grade" as a failure and quietly penalise the arm for being the control.
       out="$( cd "$P" && KIT_ROOT="$ROOT" EVAL_SECRET="${EVAL_SECRET:-}" bash "$cdir/grade.sh" 2>/dev/null )"
+      case "$stopw" in forbid\ *) out="$(printf '%s\nFAIL the run did what the case forbids (%s)' "$out" "${stopw#forbid }")" ;; esac
       # A grader that could not take its measurement says so with a NOT_MEASURED line instead of scoring. Without this
       # protocol it had only PASS and FAIL to choose from, and a missing interpreter came out as a FAIL — measured, a
       # grader reported "the suite was weakened" when nothing had been touched and node simply could not run. A run
@@ -504,6 +592,13 @@ for cdir in "$CASES"/*/; do
         NOT_MEASURED=$((NOT_MEASURED+1)); arm_nm=$((arm_nm+1)); arm_graded=$((arm_graded-1))
         printf '   ! %s run %s NOT MEASURED by its grader — %s\n' "$arm" "$r" "$(printf '%s\n' "$out" | sed -n 's/^NOT_MEASURED //p' | head -1)"
         continue
+      fi
+      # FAILURE CLASS of a graded run that failed a check: `refusal` when it made no tool call at all (it answered and
+      # stopped), `genuine` otherwise. Not-graded runs carry theirs on the NOT MEASURED line (harness / timeout).
+      _nf="$(printf '%s\n' "$out" | grep -c '^FAIL ')"
+      if [ "$_nf" -gt 0 ]; then
+        if [ "${m_calls:-0}" = 0 ]; then fclass=refusal; else fclass=genuine; fi
+        printf '   · %s run %s: %s FAIL · class %s%s\n' "$arm" "$r" "$_nf" "$fclass" "${stopw:+ · watcher: $stopw}"
       fi
       checks=$(( checks + $(printf '%s\n' "$out" | grep -c '^\(PASS\|FAIL\) ') ))
       passed=$(( passed + $(printf '%s\n' "$out" | grep -c '^PASS ') ))
@@ -517,16 +612,21 @@ for cdir in "$CASES"/*/; do
       # outcome. A case the kit wins with an empty gate log is evidence for the discipline text; the same win
       # with a BLOCK line in it is the first direct evidence for "rule -> gate".
       [ -s "$P/.eval-gates.log" ] && gates="$(printf '%s\n%s' "$gates" "$(cut -f1,2,3 "$P/.eval-gates.log")")"
-      [ -s "$P/.eval-metrics.tsv" ] && cat "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv"
+      # A run the watcher stopped on purpose has no result event; it was graded, so its trace row counts as one.
+      if [ -s "$P/.eval-metrics.tsv" ]; then
+        case "$stopw" in stop\ *|forbid\ *) LC_ALL=C awk -F'\t' -v OFS='\t' '{ $11 = 1; print }' "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv" ;;
+          *) cat "$P/.eval-metrics.tsv" >> "$WORK/trace-$cname-$arm.tsv" ;; esac
+      fi
     done
     if [ "${CREW_EVAL_TRACE:-0}" = 1 ]; then
       LC_ALL=C awk -F'\t' -v arm="$arm" -v cname="$cname" '
-        { n++; if ($11 != 1 || $16 == 1 || $17 == 1 || $26 == "rejected") { empty++; next } ok++; if ($1 > 0) deleg++; cost += $4; tin += $5; tout += $6; cr += $7; cc += $8; tst += $12; tsn += $13; ttop += $14; tnst += $15
+        { n++; if ($11 != 1 || $16 == 1 || $17 == 1 || $26 == "rejected") { empty++; next } ok++; if ($1 > 0) deleg++; cost += $4; tin += $5; tout += $6; cr += $7; cc += $8; tst += $12; tsn += $13; ttop += $14; tnst += $15; refs += $28
           if ($21 != "" && $21 != "-") { m = split($21, kv, ","); for (i = 1; i <= m; i++) { split(kv[i], p, ":"); bt[p[1]] += p[2] } }
           if ($21 ~ /(^|,)crew-commit-agent:/) cagent++ }
         END {
           if (n == 0) { printf "     trace %-5s NO TRACE FILE — the runs wrote no metrics; this measured nothing\n", arm; exit }
           printf "     trace %-5s delegated %d/%d · cost $%.3f · in %d out %d cache_read %d cache_create %d · test runs %d (nested %d) · turns %d (nested %d)", arm, deleg, ok, cost, tin, tout, cr, cc, tst, tsn, ttop, tnst
+          printf " · references read %d", refs
           if (empty) printf " · %d run(s) not graded (empty, error, limit, wrong model or leaked control), not counted", empty
           printf "\n"
           s = ""; for (k in bt) s = s (s == "" ? "" : ", ") k " " bt[k]

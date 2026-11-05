@@ -28,6 +28,8 @@ inflates; a separate grader on a fixed suite does not.
 - **Layer 2 — LLM-as-judge graders** (semantic): **one call per dimension** (clarity · correctness-vs-source ·
   completeness…), scored on an explicit rubric. Steer against leniency — "use the full 0-5 range, not only 3-5";
   judge with a **different model family** to avoid self-preference; **randomize A/B order** to kill position bias.
+  The judge prompt follows a fixed contract (mandatory dimensions, the graded text fenced as data, two samples per
+  item, ties unscored): `references/method.md` § Judge prompt contract.
 
 Each grader is one **scorecard column**; adding a metric = appending one grader.
 
@@ -41,6 +43,13 @@ turn/token budget** to `pass-slow` — so "correct but too expensive" is visible
 3. **Pin a baseline** once; every later run shows **signed deltas vs that baseline**, not vs the previous run — so
    re-running the same round shows real movement, not noise.
 4. Change one thing, re-run, read the deltas. Keep what moves the number up.
+
+## Critique the eval, not only the output
+After each round, two questions about the graders themselves:
+- **Which assertion passed in every arm?** It does not discriminate: the control earns it too, so it measures the
+  task, not the change. Say so in the scorecard, and either sharpen it or stop counting it toward the delta.
+- **What did you see happen that no grader checks?** An outcome a reader noticed and no line scores is an
+  outcome the next round will not notice. Write the grader, or write down that it is unmeasured.
 
 ## Noise floor
 State it. At n=20 tasks, one task ≈ 5 points — deltas smaller than that are not meaningful. If the cheapest option

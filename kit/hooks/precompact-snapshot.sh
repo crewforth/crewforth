@@ -49,7 +49,11 @@ if [ -f "$LIB/gate-log.sh" ]; then
   . "$LIB/gate-log.sh"; crew_gate_log_read
   if [ -n "${_CREW_GL:-}" ] && [ -f "$_CREW_GL" ]; then
     last=""; while IFS= read -r l; do case "$l" in BLOCK$'\t'*) last="$l" ;; esac; done < "$_CREW_GL"
-    if [ -n "$last" ]; then IFS=$'\t' read -r _ rule why _ <<< "$last"; LINES+=("the last refusal in the gate log: ${rule} ${why:0:120}"); fi
+    # Head AND tail of a long reason: the cause of a refusal is often the last words of it (the path, the value), and
+    # a head-only cut dropped exactly that part.
+    if [ -n "$last" ]; then IFS=$'\t' read -r _ rule why _ <<< "$last"
+      [ "${#why}" -gt 120 ] && why="${why:0:70} … ${why: -45}"
+      LINES+=("the last refusal in the gate log: ${rule} ${why}"); fi
   fi
 fi
 fnd=""

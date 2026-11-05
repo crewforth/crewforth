@@ -64,7 +64,21 @@ fi
 # moment a character class meets a multi-byte character — and a transcript of a session held in Turkish is made
 # of them, so the tool would die on exactly the sessions it was written for. Under C every regex is byte-wise,
 # tolower() folds ASCII only (which is all the duplicate key needs), and non-ASCII bytes pass through untouched.
-STATS="$(LC_ALL=C awk '
+# THE TRIGGER MAP, read once: every `Trigger phrases:` line of the installed agents and skills, and which agents apply
+# which skill (`skills: [..]`). One awk over the files, so the cost does not grow with the component count.
+# `T <name> <phrase>` and `O <skill> <agent>` lines; empty when nothing is installed, and then trigger_missed is 0.
+TRIGF=""; _CLD="${CLAUDE_PROJECT_DIR:-.}"; _CLD="${_CLD//\\//}/.claude"
+if [ -d "$_CLD/agents" ] || [ -d "$_CLD/skills" ]; then
+  TRIGF="$(mktemp 2>/dev/null)" || TRIGF=""
+  [ -n "$TRIGF" ] && LC_ALL=C awk '
+    FNR == 1 { n = FILENAME; if (n ~ /\/SKILL\.md$/) { sub(/\/SKILL\.md$/, "", n); sub(/.*\//, "", n) } else { sub(/.*\//, "", n); sub(/\.md$/, "", n) } }
+    /^Trigger phrases:/ { s = $0; while (match(s, /"[^"]+"/)) { print "T\t" n "\t" tolower(substr(s, RSTART + 1, RLENGTH - 2)); s = substr(s, RSTART + RLENGTH) } }
+    /^  skills: *\[/ { s = $0; sub(/^[^[]*\[/, "", s); sub(/\].*/, "", s); k = split(s, a, /, */); for (i = 1; i <= k; i++) if (a[i] != "") print "O\t" a[i] "\t" n }
+  ' "$_CLD"/agents/*.md "$_CLD"/skills/*/SKILL.md > "$TRIGF" 2>/dev/null
+fi
+STATS="$(LC_ALL=C awk -v TRIGF="$TRIGF" '
+  BEGIN { if (TRIGF != "") while ((getline l < TRIGF) > 0) { split(l, f, "\t")
+            if (f[1] == "T") { nt++; tn[nt] = f[2]; tp[nt] = f[3] } else if (f[1] == "O") own[f[2]] = own[f[2]] " " f[3] } }
   # A subagent has its own window and its own story; counting its tool calls as the main thread\x27s would make
   # every delegating session look like it was spinning.
   /"isSidechain": *true/ { next }
@@ -215,6 +229,12 @@ STATS="$(LC_ALL=C awk '
         add_window(k)
       }
     }
+    # What ran this cycle (a skill loaded, an agent started, a shell command) and what was CLAIMED in the reply.
+    c=$0; while (match(c, /"skill": *"[^"]*"/)) { v=substr(c, RSTART, RLENGTH); sub(/^"skill": *"/, "", v); sub(/"$/, "", v); sub(/.*:/, "", v); ranc[v]=1; c=substr(c, RSTART+RLENGTH) }
+    c=$0; while (match(c, /"subagent_type": *"[^"]*"/)) { v=substr(c, RSTART, RLENGTH); sub(/^"subagent_type": *"/, "", v); sub(/"$/, "", v); sub(/.*:/, "", v); ranc[v]=1; c=substr(c, RSTART+RLENGTH) }
+    if ($0 ~ /"name": *"Bash"/) curbash=1
+    c=$0; while (match(c, /"type": *"text", *"text": *"([^"\\]|\\.)*"/)) { v=tolower(substr(c, RSTART, RLENGTH)); c=substr(c, RSTART+RLENGTH)
+      if (v ~ /(^|[^a-z])(done|fixed|passing|all green|tests pass|works now)([^a-z]|$)/) curclaim=1 }
     c=$0; e=gsub(/"is_error": *true/, "", c)
     r=refusals($0); if (r>e) r=e          # a line cannot hold more refusals than it holds errors
     errs+=e-r; curerr+=e-r; refused+=r
@@ -258,8 +278,10 @@ STATS="$(LC_ALL=C awk '
     if (lt ~ /^<[a-z-]+>/) next
     if (lt ~ /^this session is being continued from a previous conversation/) next
 
-    if (started) { close_cycle() } else close_looks()   # pre-prompt calls are no cycle of their own
+    if (started) { close_cycle() } else { close_looks(); split("", ranc); curbash=0; curclaim=0 }   # pre-prompt calls are no cycle of their own
     started=1; cycles++; cur=0; curerr=0
+    # Which components this prompt names by a trigger phrase (route-hint reads the same lines).
+    if (nt) { p=tolower(substr($0, RSTART+RLENGTH, 2000)); for (i = 1; i <= nt; i++) if (index(p, tp[i])) cm[tn[i]]=1 }
 
     # Near-duplicate key: normalise hard and keep a prefix. Punctuation and escapes go, case folds, runs of
     # space collapse — but non-ASCII is LEFT ALONE, because stripping it would fold every prompt in a
@@ -282,19 +304,25 @@ STATS="$(LC_ALL=C awk '
     tools += cur
     if (cur > maxtools) maxtools = cur
     if (cur >= RUNAWAY && curerr >= RUNERR) { runaway++; if (curerr > runworst) runworst = curerr }
+    # A reply that says done/fixed/passing in a cycle where no shell command ran: the claim had nothing behind it.
+    if (curclaim && !curbash) unbacked++
+    # A component the prompt named by its trigger, where neither it nor an agent that applies it ran.
+    for (n in cm) if (!(n in ranc)) { hit=0; k=split(own[n], ow, " "); for (i = 1; i <= k; i++) if (ow[i] in ranc) hit=1; if (!hit) tmissed++ }
+    split("", cm); split("", ranc); curbash=0; curclaim=0
     close_looks()
   }
 
   END {
     if (started) close_cycle(); else close_looks()
     for (k in seen) if (seen[k] > 1) { dupdistinct++; dupextra += seen[k]-1 }
-    printf "cycles=%d\nturns=%d\ntools=%d\nmaxtools=%d\nrunaway=%d\nrunaway_errors=%d\nerrors=%d\ninterrupts=%d\ndup_extra=%d\ndup_distinct=%d\ncompactions=%d\nauto_compactions=%d\npre_tokens=%d\npost_tokens=%d\ndelegations=%d\nrefused=%d\nrefetch=%d\nerrloop=%d\n",
-      cycles+0, turns+0, tools+0, maxtools+0, runaway+0, runworst+0, errs+0, ints+0, dupextra+0, dupdistinct+0, comp+0, autocomp+0, pre+0, post+0, deleg+0, refused+0, refetch+0, errloop+0
+    printf "cycles=%d\nturns=%d\ntools=%d\nmaxtools=%d\nrunaway=%d\nrunaway_errors=%d\nerrors=%d\ninterrupts=%d\ndup_extra=%d\ndup_distinct=%d\ncompactions=%d\nauto_compactions=%d\npre_tokens=%d\npost_tokens=%d\ndelegations=%d\nrefused=%d\nrefetch=%d\nerrloop=%d\nclaims_unbacked=%d\ntrigger_missed=%d\n",
+      cycles+0, turns+0, tools+0, maxtools+0, runaway+0, runworst+0, errs+0, ints+0, dupextra+0, dupdistinct+0, comp+0, autocomp+0, pre+0, post+0, deleg+0, refused+0, refetch+0, errloop+0, unbacked+0, tmissed+0
   }
 ' RUNAWAY="${CREW_RUNAWAY_TOOLS:-25}" RUNERR="${CREW_RUNAWAY_ERRORS:-3}" "$TR")"
 
 # An awk that died (locale, a truncated file, a transcript format change) leaves this empty, and `set -u` would
 # then fail deep inside the report with an unbound-variable trace. Say what happened instead.
+[ -n "$TRIGF" ] && rm -f "$TRIGF"
 case "$STATS" in *"cycles="*) ;; *) echo "session-stats: could not read the transcript ($TR)" >&2; exit 1 ;; esac
 
 [ "$RAW" = 1 ] && { printf '%s\n' "$STATS"; exit 0; }
@@ -333,6 +361,14 @@ if [ "${S_errloop:-0}" -gt 0 ]; then
   echo "   ⚠️  error loop: $S_errloop command(s) retried ≥3 times in one prompt while failing."
   echo "       → re-running a variant of a failing call rarely changes the answer; read the error, fix the cause first."
   FOUND=1
+fi
+if [ "${S_claims_unbacked:-0}" -gt 0 ]; then
+  echo "   ⚠️  unbacked claim: $S_claims_unbacked prompt(s) ended with done/fixed/passing and no command run in that prompt."
+  echo "       → a claim of green is the output of a run; name the command and its result, or say it was not run."
+  FOUND=1
+fi
+if [ "${S_trigger_missed:-0}" -gt 0 ]; then
+  echo "   ·  $S_trigger_missed time(s) a prompt named a component by its trigger and neither it nor an agent applying it ran."
 fi
 if [ "${S_dup_extra:-0}" -ge "$DUP_MIN" ]; then
   echo "   ⚠️  repeated prompts: $S_dup_extra near-duplicate(s) across $S_dup_distinct distinct text(s)."
