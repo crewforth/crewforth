@@ -36,6 +36,8 @@ flutter ekranı ekle|crew-frontend-expert
 add a SwiftUI view for the profile|crew-frontend-expert
 build a Jetpack Compose screen for settings|crew-frontend-expert
 run an OWASP check and a full security scan|crew-security-expert
+check the login flow for session fixation|crew-security-expert
+the oauth redirect accepts any callback url|crew-security-expert
 we need a kvkk privacy audit|crew-privacy-agent
 commit the changes|crew-commit-agent
 run tests and give me a coverage report|crew-test-expert
@@ -62,6 +64,7 @@ keep going until the tests pass and the review is clean|iterate
 debug this and find the root cause of the intermittent bug|systematic-debugging
 improve the visual design — the spacing and typography look off|frontend-design
 build an MCP server to expose these tools to Claude|mcp-builder
+add an MCP tool to my agent|mcp-builder
 build a threat model and map the attack surface before we scan|threat-model
 set up an eval to measure output quality against a baseline|eval-grader
 
@@ -140,6 +143,7 @@ the screen froze during the demo|!crew-frontend-expert
 fix the layout of this json file|!frontend-design
 design the database schema|!frontend-design
 read the model context and summarize it|!mcp-builder
+redirect the user to the dashboard after login|!crew-security-expert
 optimize the slow sql query performance|!systematic-debugging
 # `build` contains `ui`, and `UI` used to be a trigger, so a CI failure routed to the frontend expert. A wrong
 # route is worse than none: it looks like Crewforth worked. Fixed by word-bounded matching AND by retiring the

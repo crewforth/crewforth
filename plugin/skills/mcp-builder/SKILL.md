@@ -33,7 +33,19 @@ protocol is easy; the design of the tools is what makes the server good or usele
 - [ ] Returns are structured and model-readable; errors are actionable
 - [ ] Transport chosen (stdio for local, HTTP/SSE for remote) — see references
 - [ ] Secrets via env; no hardcoded keys
+- [ ] Path inputs are relative and contained: the reject list and the two-step check are in `references/building.md`
+- [ ] Error text to the model is built from codes and safe fields; the raw exception goes to stderr
+- [ ] Every tool declares its behaviour hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`)
+- [ ] A tool whose reach you cannot bound (any path, any URL, any query) is not registered
+- [ ] Large output returns a handle plus a read-range and a search tool, not the whole blob
+- [ ] Shelling out: options first, then `--`, then untrusted values; admin verbs only behind an explicit mode the
+      operator turns on
 - [ ] Tested against a real client (Inspector + a live client)
+
+**Consuming a server someone else wrote** (adding one to an agent, not building one): pin the server's version;
+keep a fixture of the tool names you rely on and check it on upgrade; give the consuming agent only that server's
+tools (`mcp__<server>__*`), not a wildcard; when the tools are absent, stop and say so, never fall back to
+calling the API another way (curl, a script).
 
 ---
 

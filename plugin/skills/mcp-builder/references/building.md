@@ -62,6 +62,33 @@ Both: the **docstring/description is the model's interface** — write it as the
 - Return errors as normal tool results with clear text the model can act on, or throw the SDK's error type for protocol-level failures. Never let an unhandled exception kill the process on bad input.
 - Don't leak internals (stack traces, connection strings) in error text.
 
+### Path inputs
+
+A path that comes from the model is attacker-shaped. Accept only a path relative to one root the server owns, and
+reject before touching the disk:
+
+- absolute paths in any OS form: `/etc`, `C:\x`, `C:/x`, `\\server\share`
+- a drive-relative path (`C:foo`) and a home shortcut (`~`, `~user`)
+- any `..` segment, split on both `/` and `\`
+
+Then resolve and check again: the lexical check stops the obvious forms, the resolved check stops a symlink that
+points out of the root.
+
+```ts
+import path from "node:path";
+import fs from "node:fs/promises";
+
+async function safePath(root: string, input: string): Promise<string> {
+  const parts = input.split(/[\\/]/);
+  if (path.isAbsolute(input) || /^[A-Za-z]:/.test(input) || input.startsWith("~") || parts.includes(".."))
+    throw new Error("E_PATH_REJECTED");
+  const realRoot = await fs.realpath(root);
+  const real = await fs.realpath(path.join(realRoot, input));      // follows symlinks
+  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) throw new Error("E_PATH_OUTSIDE_ROOT");
+  return real;
+}
+```
+
 ## The test loop
 
 1. **MCP Inspector** — `npx @modelcontextprotocol/inspector <run-command>` launches a UI that lists your tools/resources and lets you call them with arbitrary inputs. Verify each tool's schema, a happy path, and a bad-input path here first — fastest feedback.

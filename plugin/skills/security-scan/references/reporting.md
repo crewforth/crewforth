@@ -15,10 +15,18 @@
 **Finding format** (ranked by severity):
 ```
 [CRITICAL] SQL Injection — src/api/users.ts:42
+  CWE   : CWE-89
   Vuln  : Input concatenated directly into the SQL query
   Impact: DB can be read / modified / deleted
   Fix   : Use a parameterized query
+  Depth : Least-privilege DB user for this service (limits the damage if another path is missed)
+  Detect: Alert on SQL syntax errors from this endpoint
+  Retest: Send `' OR 1=1--` as the id; expect 400 and no rows
 ```
+`CWE` names the weakness class, so findings can be counted and compared across reports. `Fix` closes the hole;
+`Depth` (defense in depth) and `Detect` (how an attempt would be seen) are optional and never replace it.
+`Retest` is the one check that proves the fix, written so someone else can run it. Several findings of the same
+class (ten unescaped outputs) may share one entry with a table of locations instead of ten copies.
 
 **Summary line:**
 ```
@@ -65,6 +73,11 @@ Read it before planning, and let it shape priority — never coverage.
   with that same named blocker.
 - A previous `partial` or `unknown` row is never inherited as `complete`, and a previous narrow or quick pass is
   never read as "the rest was fine". Say in this report which rows came from the earlier one and why they still hold.
+
+When this pass closes out earlier findings, add a retest table, one row per finding, each with its `Retest`
+result: `fixed-verified` (the retest ran and failed to reproduce) · `partial` (one path closed, another open) ·
+`not-fixed` · `accepted-risk` (the user's recorded decision, with where it is recorded). A fix nobody retested
+is `not-fixed` until it is.
 
 ## Fix presentation
 ```

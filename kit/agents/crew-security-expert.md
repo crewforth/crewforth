@@ -18,7 +18,7 @@ metadata:
 # Security Expert
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "security audit", "security scan", "OWASP check", "security review", "secret scan", "auth check", "token security", "tampering", "another user", "another customer", "unauthorized", "idor", "data leak", "who can access", "leak data"
+Trigger phrases: "security audit", "security scan", "OWASP check", "security review", "secret scan", "auth check", "token security", "tampering", "another user", "another customer", "unauthorized", "idor", "data leak", "who can access", "leak data", "session fixation", "oauth redirect"
 
 Read-only auditor. The relevant expert (backend/database) makes the fix; this agent produces the findings.
 

@@ -13,7 +13,9 @@
 #
 # A legitimate exception is a tracked decision, not a loosened rule: `.floor-allowlist.txt` at the repo root, one
 # entry per line — `path:<glob>` exempts a path, `rule:<name>` turns one rule off, and any other line exempts the
-# EXACT pattern line below. The allowlist change sits in the same diff as the code it excuses, where review sees it.
+# EXACT pattern line below. Each entry ends in its reason, `  # <why, 20+ characters>`: an entry without one exempts
+# nothing, and a staged allowlist with a bare entry or a reason copied word for word is refused. The allowlist change
+# sits in the same diff as the code it excuses, where review sees it; gate-report.sh counts the entries per rule.
 #
 # `path:` IS A SHELL PATTERN, NOT A .gitignore GLOB, and it is wider than it reads. `*` also matches `/`, so
 # `path:*.cs` exempts EVERY C# file in the repository, not the ones at the root; and `**` means nothing special, so
