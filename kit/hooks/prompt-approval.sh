@@ -69,6 +69,7 @@ _CREW_LOCALE="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
 case "$_CREW_LOCALE" in C|POSIX) _CREW_LOCALE="" ;; esac
 export LC_ALL=C
 # ---- /CREW-LOCALE
+ASK_TREE=""; ASK_HEAD=""; ASK_BRANCH=""   # what an approval was asked for (the question, or a refused command); _pa_record compares
 # guard-schedule.sh SOURCES this file for one thing, _crew_appr_op: which text is an approval is decided here and
 # nowhere else. Sourced, the file defines its functions and returns before anything is read or written.
 _PA_LIB=0; [ "${BASH_SOURCE[0]}" != "$0" ] && _PA_LIB=1
@@ -609,7 +610,21 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   case "$SID$_QTU" in *[!A-Za-z0-9._-]*) qno "the call carries no session or tool id this hook can bind the answer to." ;; esac
   { [ -n "$SID" ] && [ -n "$_QTU" ]; } || qno "the call carries no session or tool id this hook can bind the answer to."
   _crew_prh_scan && qno "a PermissionRequest hook may be wired ($_PRH). Such a hook can answer the question before the user does, and the answer cannot be told from a click."
-  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\n' "$SID" "$_QTU" "$_QNOW" > "$ASKED"; } 2>/dev/null \
+  # WHAT THE QUESTION IS ABOUT, written down when it is asked: the tree the index writes and HEAD. The answer is
+  # recorded only if both are still the same, however long the user took (a question asked at night is answered in
+  # the morning); a change in between is a different thing from what the user was shown, so it is asked again.
+  local _qh _qt _qe _qb
+  _qh="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
+  _qb="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)" || _qb=""; [ -n "$_qb" ] || _qb=-
+  case "$_qb" in *[!A-Za-z0-9._/+@-]*) qno "the branch name could not be written down." ;; esac
+  case "$_qh" in NONE) ;; *[!0-9a-f]*|'') qno "git could not name HEAD here." ;; esac
+  _qt="$(git -C "$CWD" -c core.fsmonitor= write-tree 2>/dev/null)"
+  case "$_qt" in *[!0-9a-f]*|'') qno "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
+  if [ "$_qh" = NONE ]; then _qe=4b825dc642cb6eb9a060e54bf8d69288fbee4904; else _qe="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
+  # NOTHING STAGED: every commit answer would be refused after the user gave it (field: 35 times in three projects,
+  # most of them "Commit + push" for a commit already made). So the question is not asked; a push alone is typed.
+  [ "$_qt" = "$_qe" ] && qno "nothing is staged, so there is no commit to approve. If the commit is already made and only the push is wanted, ask with no question: the user can type /crew-approve push as their whole message; to commit, stage the change with git add, show the commit message, then ask again." nohint
+  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" > "$ASKED"; } 2>/dev/null \
     || qno "the state folder could not be written, so the answer could not be bound to this question."
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
     "Crewforth §4.4: only the person in front of this session answers the approval question."
@@ -665,6 +680,11 @@ _pa_record(){
 
   HEAD_NOW="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
   case "$HEAD_NOW" in NONE) ;; *[!0-9a-f]*|'') no "git could not name HEAD here." ;; esac
+  [ -n "$ASK_HEAD" ] && [ "$HEAD_NOW" != "$ASK_HEAD" ] && no "HEAD moved after the approval was asked for, so the answer is not about this branch as it is now. Ask again."
+  if [ -n "$ASK_BRANCH" ]; then
+    _cb="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)" || _cb=""; [ -n "$_cb" ] || _cb=-
+    [ "$_cb" = "$ASK_BRANCH" ] || no "the branch changed after the approval was asked for ($ASK_BRANCH, now $_cb). Ask again."
+  fi
   TREE=""; BR=""; RM=""; URL=""
   case "$OP" in commit*)
     # THE TREE THE INDEX WRITES, not the text of the staged diff: what `git diff` prints is configurable
@@ -676,8 +696,10 @@ _pa_record(){
     # A commit+push with nothing staged is most often a push alone, answered with the option people pick first (field
     # report, 3.2.1: twice in a row). It is not turned into a push approval, which the user did not give; the line
     # names the one they can.
+    # What was asked about, or refused, is what is approved: the staged tree written down then is the one now.
+    [ -n "$ASK_TREE" ] && [ "$TREE" != "$ASK_TREE" ] && no "what is staged changed after the approval was asked for, so the answer is not about what is staged now. Show the commit message again and ask again."
     if [ "$TREE" = "$_ht" ]; then
-      [ "$OP" = commit+push ] && no "nothing is staged, so there is no commit to approve. For a push of the branch as it is, the answer is Push only (or the user can type /crew-approve push); for a commit, stage it with git add, show the commit message, then ask again."
+      [ "$OP" = commit+push ] && no "nothing is staged, so there is no commit to approve. For a push of the branch as it is, the user can type /crew-approve push; for a commit, stage it with git add, show the commit message, then ask again."
       no "nothing is staged, so there is nothing to approve. Stage the change with git add, show the commit message, then ask again."
     fi ;;
   esac
@@ -735,20 +757,24 @@ _pa_record(){
 # ---- THE APPROVAL QUESTION (PreToolUse and PostToolUse of AskUserQuestion) -----------------------------------
 # Only the fixed question is this hook's business: any other question gets no decision from it, here or later.
 _pa_question(){
-  local _as="" _at="" _au="" _al _an
+  local _as="" _at="" _au="" _al _an _aq="" _ah="" _ab=""
   _crew_q_ctx
   # PostToolUse: the user has answered. Recorded only if THIS call was asked by the half above.
   SRC="answer to the approval question"; SRC_BY="by answering the approval question"; OP="a commit or a push"
   [ -n "$SID" ] && [ -n "$_QTU" ] || no "the answer carries no session or tool id."
   if [ -f "$ASKED" ]; then
     while IFS= read -r _al || [ -n "$_al" ]; do
-      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; esac
+      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; esac
     done < "$ASKED"
   fi
   { [ "$_as" = "$SID" ] && [ "$_au" = "$_QTU" ]; } || no "Crewforth did not ask this question (guard-question.sh, its PreToolUse half, is not wired or did not pass it), so the answer cannot be shown to have come from the user."
   : > "$ASKED" 2>/dev/null                                 # one question, one answer
   case "$_at$_QNOW" in *[!0-9]*|'') no "the time of the question could not be read." ;; esac
-  [ $((_QNOW - _at)) -ge 0 ] && [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."
+  [ $((_QNOW - _at)) -ge 0 ] || no "the time of the question is in the future."
+  # A question written down with its tree and HEAD holds until the answer, however long that takes: _pa_record
+  # compares them. One written before that (no tree, no head) keeps the old 30 minutes.
+  if [ -n "$_aq" ] && [ -n "$_ah" ] && [ -n "$_ab" ]; then ASK_TREE="$_aq"; ASK_HEAD="$_ah"; ASK_BRANCH="$_ab"
+  else [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."; fi
   _crew_q_is "$INPUT" || no "the question answered is not the fixed one."
   [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
   _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
@@ -942,7 +968,8 @@ fi
 # ---- `/crew-approve` with nothing after it: what this session was last refused ---------------------------------
 # guard-bash.sh, when it refuses a commit or a push in auto / dontAsk, writes down what it refused
 # (.claude/state/crew-approval-pending: the session, commit | push | commit+push, the second). The bare command
-# approves THAT and nothing else: the same session's, not older than 30 minutes. What is approved is therefore
+# approves THAT and nothing else: the same session's, with HEAD, the branch and (for a commit) the staged tree still
+# as they were when it was refused — or, for a record that does not carry them, not older than 30 minutes. What is approved is therefore
 # never read from the message and never from the model: the gate wrote it, from the command it refused. From here
 # on the flow is the one a spelled-out approval takes, with every proof it asks for (the mode, a session that is
 # attended, a transcript on disk) and the same record at the end.
@@ -956,7 +983,7 @@ if [ "$OP" = pending ]; then
   _bs=""; _bo=""; _bt=""
   if [ -f "$_bp" ]; then
     while IFS= read -r _bl || [ -n "$_bl" ]; do
-      case "$_bl" in sid=*) _bs="${_bl#sid=}" ;; op=*) _bo="${_bl#op=}" ;; ts=*) _bt="${_bl#ts=}" ;; esac
+      case "$_bl" in sid=*) _bs="${_bl#sid=}" ;; op=*) _bo="${_bl#op=}" ;; ts=*) _bt="${_bl#ts=}" ;; tree=*) ASK_TREE="${_bl#tree=}" ;; head=*) ASK_HEAD="${_bl#head=}" ;; branch=*) ASK_BRANCH="${_bl#branch=}" ;; esac
     done < "$_bp"
   fi
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _bn '%(%s)T' -1; else _bn="$(date +%s)"; fi
@@ -964,7 +991,16 @@ if [ "$OP" = pending ]; then
   case "$_bo" in commit|push|commit+push) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
   { [ -n "$_bsid" ] && [ "$_bs" = "$_bsid" ]; } || no "what is waiting for approval was refused in another session, not this one. Nothing is approved; have it tried here first."
   case "$_bt$_bn" in *[!0-9]*|'') no "the time of what is waiting could not be read." ;; esac
-  [ $((_bn - _bt)) -ge 0 ] && [ $((_bn - _bt)) -le 1800 ] || no "what was waiting for approval ($_bo) is more than 30 minutes old. Nothing is approved; have it tried again first."
+  [ $((_bn - _bt)) -ge 0 ] || no "the time of what is waiting is in the future."
+  # Written down with HEAD and the branch (and, for a commit, the staged tree) when it was refused: it holds until the
+  # user approves, however long that takes, as long as those are unchanged (_pa_record compares them). A record
+  # without them — an older one, or a commit whose tree could not be written — keeps 30 minutes, and compares nothing.
+  case "$_bo" in commit*) [ -n "$ASK_TREE" ] || ASK_HEAD="" ;; esac
+  [ -n "$ASK_BRANCH" ] || ASK_HEAD=""
+  [ -n "$ASK_HEAD" ] || { ASK_TREE=""; ASK_BRANCH=""; }
+  if [ -z "$ASK_HEAD" ]; then
+    [ $((_bn - _bt)) -le 1800 ] || no "what was waiting for approval ($_bo) is more than 30 minutes old. Nothing is approved; have it tried again first."
+  fi
   OP="$_bo"                                                 # used up further down, once the approval is on record
 fi
 

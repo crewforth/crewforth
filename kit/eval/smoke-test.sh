@@ -8400,7 +8400,7 @@ _pabad=""
 # commit+push with nothing staged (field report, 3.2.1: picked twice for a push alone): still nothing recorded, and the
 # line names Push only; the plain commit above does not, so a line that always says it cannot pass.
 : > "$_pa_rec"; _po="$(_pa_say auto 'approve: commit+push')"
-{ [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - nothing is staged"*"the answer is Push only"*) true ;; *) false ;; esac; } || _pabad="$_pabad nothing-staged-commit+push"
+{ [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - nothing is staged"*"can type /crew-approve push"*) true ;; *) false ;; esac; } || _pabad="$_pabad nothing-staged-commit+push"
 _po="$(_pa_say auto 'approve: commit')"; case "$_po" in *'Push only'*) _pabad="$_pabad [a commit with nothing staged was told Push only]" ;; esac
 ( cd "$_paw" && git add a.txt && git checkout -q --detach ) >/dev/null 2>&1      # detached HEAD
 : > "$_pa_rec"; _po="$(_pa_say auto 'approve: push')"
@@ -9057,6 +9057,44 @@ _paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label"
 if [ "$_paqn" != 20 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 20"
 elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four, in whatever key order Claude Code hands it back; the record allows the commit (20 cases, 14 must-fail)"
 else fail "the approval question:$_paqbad"; fi
+# An approval holds as long as what it is about is unchanged, not for 30 minutes (field: a question asked at night was
+# refused in the morning). The question and the refused command write down the staged tree and HEAD; the answer or
+# the bare /crew-approve is recorded however late, and refused when either changed. With nothing staged the question
+# is not asked at all (field: 35 answers refused after the user gave them). A record of the old shape keeps 30 minutes.
+_pqa="$_paw/.claude/state/crew-approval-asked"; _pqb=""
+_pq_age(){ sed "s/^ts=.*/ts=$(( $(date +%s) - $2 ))/" "$1" > "$1.t" && mv "$1.t" "$1"; }
+_pa_new; ( cd "$_paw" && git reset -q ) >/dev/null 2>&1; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq0
+{ [ "$_par" = 2 ] && grep -q 'nothing is staged' "$_PA/qerr" && grep -q 'can type /crew-approve push' "$_PA/qerr"; } || _pqb="$_pqb [nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq1
+{ grep -q '^tree=[0-9a-f]' "$_pqa" && grep -q '^head=[0-9a-f]' "$_pqa"; } || _pqb="$_pqb [the question wrote no tree/head]"
+_pq_age "$_pqa" 7200; _paq_post auto 'Commit only' tq1; [ "$(_paq_rec)" = commit ] || _pqb="$_pqb [a 2-hour-old question, nothing changed: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq2; ( cd "$_paw" && echo three >> a.txt && git add a.txt ) >/dev/null 2>&1
+_paq_post auto 'Commit only' tq2; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'what is staged changed'*) true ;; *) false ;; esac; } || _pqb="$_pqb [staged changed after asking: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq3; ( cd "$_paw" && git commit -qm y && echo four >> a.txt && git add a.txt ) >/dev/null 2>&1
+_paq_post auto 'Commit + push' tq3; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'HEAD moved'*) true ;; *) false ;; esac; } || _pqb="$_pqb [HEAD moved after asking: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq4; grep -v '^tree=\|^head=' "$_pqa" > "$_pqa.t" && mv "$_pqa.t" "$_pqa"; _pq_age "$_pqa" 1900
+_paq_post auto 'Commit only' tq4; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'more than 30 minutes ago'*) true ;; *) false ;; esac; } || _pqb="$_pqb [an old-shape question 31 min old: $(_paq_rec)]"
+# the bare /crew-approve after a refused commit
+_pa_new; : > "$_pa_rec"; _pa_run auto 'git commit -m x'
+{ grep -q '^head=[0-9a-f]' "$_pa_pend" && grep -q '^tree=[0-9a-f]' "$_pa_pend"; } || _pqb="$_pqb [the refusal wrote no head/tree: $(tr '\n' ' ' < "$_pa_pend")]"
+_pq_age "$_pa_pend" 7200; _pa_say auto '/crew-approve' >/dev/null; [ "$(_pa_op)" = commit ] || _pqb="$_pqb [a 2-hour-old refusal, nothing changed: $(_pa_op)]"
+_pa_new; : > "$_pa_rec"; _pa_run auto 'git commit -m x'; ( cd "$_paw" && git commit -qm y && echo five >> a.txt && git add a.txt ) >/dev/null 2>&1
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'HEAD moved'*) true ;; *) false ;; esac; } || _pqb="$_pqb [HEAD moved after the refusal: $(_pa_op) ${_po:0:100}]"
+# ...a change staged after the refusal (m4 in the review); a commit record that carries HEAD but no tree, and one of
+# the old shape, both 2 hours old (m3); the branch switched at the same HEAD; a commit then a push refused on
+# different trees is not merged into one commit+push.
+_pa_new; : > "$_pa_rec"; _pa_run auto 'git commit -m x'; ( cd "$_paw" && echo six >> a.txt && git add a.txt ) >/dev/null 2>&1
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'what is staged changed'*) true ;; *) false ;; esac; } || _pqb="$_pqb [staged changed after the refusal: $(_pa_op) ${_po:0:100}]"
+_pa_new; : > "$_pa_rec"; mkdir -p "${_pa_pend%/*}"; printf 'sid=s\nop=commit\nts=%s\nhead=%s\nbranch=feat/x\n' "$(( $(date +%s) - 7200 ))" "$(git -C "$_paw" rev-parse HEAD)" > "$_pa_pend"
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'more than 30 minutes old'*) true ;; *) false ;; esac; } || _pqb="$_pqb [a commit record with HEAD and no tree, 2 h old: $(_pa_op)]"
+_pa_new; : > "$_pa_rec"; mkdir -p "${_pa_pend%/*}"; printf 'sid=s\nop=commit\nts=%s\n' "$(( $(date +%s) - 7200 ))" > "$_pa_pend"
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'more than 30 minutes old'*) true ;; *) false ;; esac; } || _pqb="$_pqb [an old-shape record 2 h old: $(_pa_op)]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq5; ( cd "$_paw" && git checkout -q -b other ) >/dev/null 2>&1
+_paq_post auto 'Push only' tq5; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'branch changed'*) true ;; *) false ;; esac; } || _pqb="$_pqb [branch switched after asking: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; rm -f "$_pa_pend"; _pa_run auto 'git commit -m x'; ( cd "$_paw" && echo seven >> a.txt && git add a.txt ) >/dev/null 2>&1; _pa_run auto 'git push'
+grep -q '^op=push$' "$_pa_pend" || _pqb="$_pqb [a commit and a push refused on different trees were merged: $(tr '\n' ' ' < "$_pa_pend")]"
+[ -z "$_pqb" ] && pass "an approval holds while what it is about is unchanged, not for 30 minutes: a question or a refusal 2 hours old with the same tree and HEAD is recorded, a changed tree or a moved HEAD is refused, an old-shape record keeps 30 minutes; with nothing staged the question is not asked and the typed push is named" \
+  || fail "approval bound to tree and HEAD:$_pqb"
 # ...and the way to it. B-2 (a real `auto` session, 2026-10-17): /crew-ship asked for /crew-approve before any commit
 # was refused, so the refusal that prints the question never came and the click was never offered; telling the agent
 # to try the commit first did not help either (§4.4 says not to, and it did not). agent-outcome.sh now hands the
