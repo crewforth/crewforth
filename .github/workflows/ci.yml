@@ -207,7 +207,9 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
+    # Windows: the smoke job ran 35 and 42 min on next (2026-11-04) and was cancelled at 45 with every check passing
+    # (a slower runner: 945 s slower spread over 1,402 steps, not one case). 60 leaves room for runner variance.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     defaults:
       run:
         shell: bash
