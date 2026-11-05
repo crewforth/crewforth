@@ -148,7 +148,16 @@ never a silent drop:
 
 A blocker (`critical` / `high`) may only be `fixed now` or `tracked`. "Accepted" needs the user's decision — an
 agent does not grant it to itself. Once the user grants it and it is recorded, it is not a deferral (`CLAUDE.md`,
-"No deferral"). Close the review by stating the counts per severity and per disposition; an
+"No deferral"). Record it in the finding's `disposition` field when you write `.crewforth/review.json`.
+
+**A finding already disposed of is not raised again.** Before writing, read the previous `.crewforth/review.json` if
+there is one. A finding whose `id` matches one marked `tracked`, `accepted` or `dropped` there is carried over with
+that disposition and its reason, not raised as new — unless this diff touches the code it cites. Matching works only
+if you reuse the previous `id` for the same finding, so do. Re-anchor a carried finding's evidence to where those
+lines are now (the validator refuses a stale anchor); if they are gone, judge it again. A blocker is never carried
+over: a `critical`/`high` one is judged again on every diff.
+
+Close the review by stating the counts per severity and per disposition; an
 unreported finding is indistinguishable from one that was never made, which is exactly the state a review exists
 to leave behind.
 

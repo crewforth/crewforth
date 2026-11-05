@@ -53,8 +53,9 @@ sequence. All are installed: "no owner" is an `ls`.
 3. **Audit — the applicable ones AT ONCE, not in a queue.** security (mandatory when security-critical) ·
    privacy (personal data) · performance (hot path/query/render) · test (new behaviour). None writes product code,
    so issue them as several `Agent` calls in ONE message — that is what makes them concurrent (`/crew-review`).
-   A finding or a red test goes back to the owner that wrote the code, and after the fix **all of them run
-   again**: the diff they cleared no longer exists.
+   A finding or a red test goes back to the owner that wrote the code. After a critical/high fix, or one on a
+   critical path, **all of them run again**; after a lesser one, only the auditor that raised it, on the fix. A low
+   finding never starts a round; after 3 rounds with medium+ open, stop and ask (`/crew-review` § Rounds).
 4. **Close — only once 3 is clean.** DoD → **crew-review-agent** (LAST, never first) clean → **crew-commit-agent**
    writes the message, not you; waits for approval (`/crew-ship`); held items close here.
 5. **Hand off** — phase boundary or 🔋 ≥ medium → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
@@ -85,7 +86,8 @@ and report. Commit/push and destructive commands are gated (§4.4/§4.5).
 - Ambiguous scope goes to **crew-planner** first, so the acceptance criterion is explicit before coding.
   *Not code work* is not an exemption from this — planning IS its domain.
 - `/simplify` (a built-in — shadowed or absent, run its passes through **crew-review-agent**) + tests green +
-  **crew-review-agent** clean + triggered skills + nothing deferred.
+  **crew-review-agent** clean + triggered skills + nothing deferred (medium+ fixed, tracked or user-accepted; the
+  lows go to the user as one list).
 - **Tests green = one run of the suite on the final code.** Whoever makes the last edit runs it and reports the command,
   the exit code and the pass/fail counts; that report is the evidence the main thread and the reviewer cite. Run the suite
   again only after a further edit, or when a report has no exit code — a second run on code nobody touched verifies nothing new.

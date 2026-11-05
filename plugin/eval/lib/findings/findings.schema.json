@@ -56,7 +56,17 @@
           "description": "The producer's own fields. Not interpreted here.",
           "type": "object"
         },
-        "verification": { "$ref": "#/$defs/verification" }
+        "verification": { "$ref": "#/$defs/verification" },
+        "disposition": {
+          "description": "What became of the finding: fixed now, tracked elsewhere, accepted by the user, or dropped as disproved. A later review carries a tracked, accepted or dropped finding with the same id over instead of raising it again, unless the diff changes the lines it cites; a critical or high one is judged again every time.",
+          "type": "object",
+          "required": ["state"],
+          "additionalProperties": false,
+          "properties": {
+            "state": { "enum": ["fixed", "tracked", "accepted", "dropped"] },
+            "reason": { "type": "string", "maxLength": 500 }
+          }
+        }
       }
     },
     "verification": {

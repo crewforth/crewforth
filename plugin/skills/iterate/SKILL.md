@@ -28,7 +28,9 @@ interval. Open-ended exploration with no checkable target does not belong here.
 3. **Report the gap** every round — state what still fails and why. Never loop silently.
 4. **Repeat** until the exit test passes. Stop early and surface it if: two rounds pass with no new
    progress (you are stuck — report, don't spin), the exit test itself is wrong, or a blocker needs a
-   decision from the user.
+   decision from the user. **When the exit test is a review**, round 2 and later review only what changed since
+   the last round, a finding already disposed of is not raised again unless the change touches it, and after 3
+   review rounds you stop and report (`/crew-review` § Rounds).
 5. **Close at the DoD gate, not at a commit.** `crew-commit-agent` still proposes and waits for §4.4
    approval. The loop never commits, pushes, or deploys on its own.
 
