@@ -29,6 +29,30 @@ Run the change set through the review trio (read-only). **The audits go out in p
    reviewer in every writing agent's Coordination ("at closure, report findings to crew-review-agent"), so it
    reads a diff the audits have already cleared of blockers — not the other way round.
 
+**Which lanes, by what the diff touches.** A diff of only docs, prose, comments, translations' text or styles
+(`*.md`, `*.css`, …) goes to crew-review-agent alone — unless a file in it is on a critical path (legal, privacy, terms
+or consent text, a store listing: the list in `.claude/hooks/guard-agent-model.sh`), which keeps its lanes. Security runs when the diff touches input handling, auth, data
+access, secrets, egress or a critical path (the list in `.claude/hooks/guard-agent-model.sh`); performance on a hot
+path, a query or a migration, rendering or payload; privacy on personal data; test on new behaviour. When in doubt,
+run the lane: a missed audit costs more than one more agent.
+
+## Rounds
+A **round** is one pass of the lanes above over the diff. Number them, and open each report with
+`round N · new: <critical>/<high>/<medium>/<low>`. Real findings arrive early; the cost of a review sits in the late
+rounds, where each fix of a minor finding opens a new minor finding.
+- **After a fix, re-check only what the fix touched.** A `critical`/`high` fix, or a fix that touches a critical path,
+  runs every lane again; otherwise only the lane that raised the finding re-checks, on the fix diff, and answers per
+  finding: addressed / not addressed. A change to tests alone does not bring security or performance back.
+- **A low finding never starts a round by itself.** Collect the lows; they go to the user once, as one list, with a
+  recommended disposition each (fix now · accept · track) — never silently dropped.
+- **Stop when a round adds nothing above low.** That round is the last.
+- **At most 3 rounds.** If a `medium`-or-higher finding is still open after the third, stop and ask the user
+  (`AskUserQuestion`): each open finding, what was tried, and the choices — one more round one model up, fix it in its
+  own change, track; accept only for a `medium` (a blocker is fixed or tracked, crew-code-review § Triage).
+- **A fix that adds a dependency, a column or migration, or shared infrastructure is its own change**, reviewed on its
+  own, not a round of this one: it is new surface, not a fix.
+- Run `/simplify` once, on the final diff, not in every round.
+
 Each agent returns a **short summary** to the main thread; raw output goes to `docs/` if needed. Do NOT modify code;
 collect findings in severity order, and leave the fix to the relevant expert.
 

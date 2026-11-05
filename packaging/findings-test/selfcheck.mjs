@@ -295,5 +295,44 @@ const good = JSON.stringify(doc()); const bad = JSON.stringify(ev({ line: 1 }));
   }
 }
 
+/* -- 12. dispositions, and the review-round log -------------------------------------------------------------- */
+{
+  // A finding carries what became of it, so a later review can carry a tracked, accepted or dropped one over.
+  const disp = (d) => doc([finding({ disposition: d })]);
+  holds('a finding may carry a disposition (accepted, with the reason)', disp({ state: 'accepted', reason: 'the user accepted it' }));
+  { const r = validate(disp({ state: 'later' }), ROOT);
+    check('a disposition outside fixed|tracked|accepted|dropped is refused', !r.ok && /must be one of fixed \| tracked \| accepted \| dropped/.test(r.problems[0]?.message ?? ''), JSON.stringify(r.problems)); }
+  { const r = validate(disp({ reason: 'no state' }), ROOT);
+    check('a disposition without its state is refused', !r.ok && /"state" is required/.test(r.problems[0]?.message ?? ''), JSON.stringify(r.problems)); }
+
+  const bash = spawnSync('bash', ['-c', 'echo ok'], { encoding: 'utf8' });
+  const git = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (bash.status !== 0 || git.status !== 0) skip('the review-round log (4 checks)', 'bash or git is not on PATH');
+  else {
+    // Its own repository on a branch of its own, so the log cannot read this checkout's state.
+    const repo = path.join(TMP, 'rounds'); fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'src', 'app.js'), path.join(repo, 'src', 'app.js'));
+    const g = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+    g('init', '-q', '.'); g('checkout', '-q', '-b', 'feat/rounds');
+    const withNode = { ...process.env, PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH };
+    const sh = (input, name) => spawnSync('bash', [path.join(CORE, 'findings.sh'), 'write', '--root', repo, name, '-'], { input, encoding: 'utf8', env: withNode, cwd: TMP });
+    const two = JSON.stringify(doc([finding({ id: 'a', severity: 'medium' }), finding({ id: 'b', severity: 'low' })]));
+    const w1 = sh(two, 'review'); const w2 = sh(two, 'review'); const w3 = sh(two, 'security'); const wb = sh(bad, 'review');
+    // Another branch starts its own count, and a name git allows (a '+') is logged as it is.
+    g('checkout', '-q', '-b', 'feat/a+b'); const w4 = sh(two, 'review');
+    const logp = g('rev-parse', '--path-format=absolute', '--git-path', 'crewforth-review-rounds.tsv').stdout.trim();
+    const lines = fs.existsSync(logp) ? fs.readFileSync(logp, 'utf8').trim().split('\n').map((l) => l.split('\t').slice(1).join(' ')) : [];
+    check('each written document is one round: the round counts up per branch and name, with the severities',
+      w1.status === 0 && w2.status === 0 && w3.status === 0 && w4.status === 0
+      && lines.join('|') === 'feat/rounds review 1 0 0 1 1 0|feat/rounds review 2 0 0 1 1 0|feat/rounds security 1 0 0 1 1 0|feat/a+b review 1 0 0 1 1 0', JSON.stringify(lines));
+    check('a refused document is not a round', wb.status === 1 && lines.length === 4, `rc=${wb.status} lines=${lines.length}`);
+    check('the log is in the git directory, so it is never committed', !g('status', '--porcelain').stdout.includes('rounds'), g('status', '--porcelain').stdout);
+    const out = path.join(TMP, 'norepo'); fs.mkdirSync(path.join(out, 'src'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'src', 'app.js'), path.join(out, 'src', 'app.js'));
+    const wn = spawnSync('bash', [path.join(CORE, 'findings.sh'), 'write', '--root', out, 'review', '-'], { input: two, encoding: 'utf8', env: withNode, cwd: out });
+    check('outside a repository the document is still written, and nothing else', wn.status === 0 && fs.existsSync(path.join(out, '.crewforth', 'review.json')) && fs.readdirSync(out).sort().join(',') === '.crewforth,src', `rc=${wn.status} ${fs.readdirSync(out)}`);
+  }
+}
+
 process.stdout.write(`${pass}/${pass + fail} assertions passed${skipped ? `, ${skipped} skipped` : ''}\n`);
 process.exit(fail ? 1 : 0);
