@@ -23,7 +23,11 @@ Trigger phrases: "ci", "pipeline", "github actions", "jenkins", "build pipeline"
   moves when its owner moves it); `permissions: contents: read` at the top, raised per job only where a step writes;
   `persist-credentials: false` on checkout unless a later step pushes; never put `${{ github.event.* }}` or a matrix
   value inside `run:` — pass it through `env:` and quote it.
-- **Secret management:** CI secret store; NO plaintext secrets in the repo/logs (overlaps with trace scan).
+- **Secret management:** CI secret store; NO plaintext secrets in the repo/logs (overlaps with trace scan). Log
+  masking is a filter on exact strings: an encoded, split or transformed value prints in clear, so a secret never
+  reaches a step that echoes its environment. Prefer short-lived OIDC credentials over stored keys and ephemeral
+  runners over reused ones; a cache restored into a job is input, so key it on what produced it and never on a
+  value a fork controls.
 - **PR gate:** quality gate + tests must pass; a red build is not merged.
 - **Branch protection:** direct push to main is disabled; PR + review required.
 

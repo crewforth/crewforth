@@ -236,20 +236,60 @@ FAL=""; [ -n "$GITROOT" ] && [ -f "$GITROOT/.floor-allowlist.txt" ] && FAL="$GIT
 # EXACT pattern line. `path:` is matched as a shell `case` pattern: `*` crosses `/` and `**` is not special, so
 # `path:*.cs` exempts every C# file in the tree. Documented in floor-blocklist.txt and pinned in smoke §7h2. The allowlist sits in the same diff as the code it excuses, which is the point: an exception
 # is a decision someone can see, not a rule that quietly got weaker.
+#
+# EVERY EXCEPTION SAYS WHY, on its own line: `<entry>  # <reason, at least 20 characters>`. A bare `rule:` line used to
+# switch a rule off for the whole repository with nothing a reviewer could weigh; now an entry without its reason
+# exempts nothing, and the commit names the line. The reason starts at the first " # " (space, hash, space), which no
+# floor pattern contains (they spell a literal hash as [#]).
+_fal_split(){ # $1 = allowlist line -> FAL_E (the entry) and FAL_R (the reason, trimmed; empty when there is none)
+  FAL_E="${1%% # *}"; FAL_R=""
+  [ "$FAL_E" != "$1" ] && FAL_R="${1#* # }"
+  FAL_E="${FAL_E%"${FAL_E##*[![:space:]]}"}"
+  FAL_R="${FAL_R#"${FAL_R%%[![:space:]]*}"}"; FAL_R="${FAL_R%"${FAL_R##*[![:space:]]}"}"
+}
+_FAL_SAID="|"
+_fal_unreasoned(){ # $1 = the bare line: reported once per commit, and the commit is stopped
+  case "$_FAL_SAID" in *"|$1|"*) return 0 ;; esac
+  _FAL_SAID="$_FAL_SAID$1|"
+  echo "FLOOR-ALLOWLIST: '$1' exempts nothing without a reason — write it as: $1  # <why, at least 20 characters>"
+  HIT=1
+}
 _floor_allowed(){ # $1 = rule, $2 = pattern (may be empty), $3 = path
   [ -n "$FAL" ] || return 1
-  local a
+  local a m
   while IFS= read -r a || [ -n "$a" ]; do
     a="${a%$'\r'}"
-    case "$a" in
-      ''|\#*) continue ;;
-      path:*) case "$3" in ${a#path:}) return 0 ;; esac ;;
-      rule:*) [ "${a#rule:}" = "$1" ] && return 0 ;;
-      *)      [ -n "$2" ] && [ "$a" = "$2" ] && return 0 ;;
+    case "$a" in ''|\#*) continue ;; esac
+    _fal_split "$a"; m=0
+    case "$FAL_E" in
+      path:*) case "$3" in ${FAL_E#path:}) m=1 ;; esac ;;
+      rule:*) [ "${FAL_E#rule:}" = "$1" ] && m=1 ;;
+      *)      [ -n "$2" ] && [ "$FAL_E" = "$2" ] && m=1 ;;
     esac
+    [ "$m" = 1 ] || continue
+    [ "${#FAL_R}" -ge 20 ] || _fal_unreasoned "$FAL_E"
+    return 0
   done < "$FAL"
   return 1
 }
+# A staged change to the allowlist itself is checked whole: every entry has a reason of 20+ characters, and no two
+# entries share one word for word (a copied reason explains neither). Only when the file is in this commit, so a
+# project whose old list has bare lines is not locked out of unrelated commits; those lines exempt nothing instead.
+if [ -n "$FAL" ] && ! git diff --cached --quiet -- "$FAL" 2>/dev/null; then
+  _fal_reasons="
+"
+  while IFS= read -r a || [ -n "$a" ]; do
+    a="${a%$'\r'}"
+    case "$a" in ''|\#*) continue ;; esac
+    _fal_split "$a"
+    if [ "${#FAL_R}" -lt 20 ]; then _fal_unreasoned "$FAL_E"; continue; fi
+    case "$_fal_reasons" in *"
+$FAL_R
+"*) echo "FLOOR-ALLOWLIST: '$FAL_E' repeats the reason of another entry word for word — say why THIS exception is needed"; HIT=1 ;; esac
+    _fal_reasons="$_fal_reasons$FAL_R
+"
+  done < "$FAL"
+fi
 
 # Test files, by the naming each ecosystem uses. Names and not whole `test/` directories, because deleting a
 # fixture or a helper there is not a test made easier. Rust integration tests are the one convention that is a
@@ -684,7 +724,7 @@ fi
 if [ "$HIT" -ne 0 ]; then
   echo "-----------------------------------------------------------"
   echo "Commit stopped. Remove the AI-authorship trace / vendor name / secret / bloated file / bar-lowering move from the staged changes."
-  echo "A bar-lowering move that is genuinely warranted? record it in .floor-allowlist.txt at the repo root (path:<glob>, rule:<name>, or the exact pattern line) — in the same commit, where review sees it. A path: glob's * also crosses directories: write the narrowest path."
+  echo "A bar-lowering move that is genuinely warranted? record it in .floor-allowlist.txt at the repo root (path:<glob>, rule:<name>, or the exact pattern line, each followed by '  # <reason, 20+ characters>') — in the same commit, where review sees it. A path: glob's * also crosses directories: write the narrowest path."
   echo "False positive (trace/secret)? add the EXACT pattern line to .trace-allowlist.txt or .secret-allowlist.txt at the repo root."
   echo "Private path flagged but genuinely public? add that exact term to .private-allowlist.txt at the repo root."
   echo "Large file is intentional? raise CREW_MAX_FILE_BYTES, use Git LFS, or gitignore the build/vendored path."

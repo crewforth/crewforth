@@ -78,6 +78,16 @@ resource, the exact action, the authority used, and the result someone can obser
   values placed in context that user-influenced output can reveal. Leaking generic instructions crosses no
   boundary and is not a finding.
 
+### Runtime controls the audit expects to find
+Their absence is not a finding on its own (the boundary rule above still decides); it tells you where to look
+first, and their presence is evidence for a `FALSE_POSITIVE`.
+- **Egress allowlist** on every tool that makes a network call: link-local and cloud metadata addresses, loopback
+  and private ranges blocked, checked again after each redirect and after DNS resolution.
+- **Strict argument schemas:** unknown fields rejected, no silent type coercion, a size cap on every string and
+  array.
+- **Output guards:** a size and time limit on what a tool returns, and a breaker that stops the loop after
+  repeated policy violations instead of retrying them.
+
 ## How to hunt it
 
 Before opening single files, make four inventories: the identities code runs under, the capabilities it holds, the

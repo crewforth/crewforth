@@ -88,7 +88,7 @@ If it's a finding, CRITICAL: `git rm --cached .env` → add to `.gitignore` → 
 
 ---
 
-## Front 4 — Authorization (auth-z)
+## Front 4 — Authentication + session + authorization
 
 Access-control flaws are the class most often missed in a scan, because the code appears to "work." Mandatory if the project includes admin/dashboard or role-based access:
 
@@ -98,7 +98,27 @@ Access-control flaws are the class most often missed in a scan, because the code
 4. Look for endpoints that should be protected but aren't; try whether there is an admin endpoint reachable by guessing the URL.
 5. Verify that authorization is enforced both at the controller **and** at the data-access layer (IDOR: object reference without ownership validation).
 6. Privilege escalation: can a user change their own role/permission? Does a sensitive admin action require extra protection (re-auth/2FA)?
-7. **JWT:** `alg: none` / algorithm confusion, secret embedded in code, missing expiration.
+7. **JWT:** `alg: none` / algorithm confusion, secret embedded in code, missing expiration; `aud` and `iss` checked,
+   the algorithm pinned by the verifier and never read from the token; a `kid`, `jku` or `x5u` header never chooses
+   a key from outside the configured set; `jti` (or a session record) lets a token be revoked before it expires.
+
+Authentication and the session are the same front: a correct permission check on a session an attacker owns
+protects nothing. Answer each with the line that does it:
+
+8. **Account discovery:** login, signup and reset answer an unknown and a known account alike — same status, same
+   message, no timing gap an attacker can measure.
+9. **Guessing:** login, OTP and reset are rate-limited per account and per source, with a lockout or backoff that
+   an attacker cannot turn into a denial of service against a named user.
+10. **Reset token:** single use, unpredictable, short-lived, bound to the account; the reset link is built from
+    configuration, never from the request's `Host` header, and the token never reaches a third party via `Referer`.
+11. **Session lifecycle:** a new session id on login, logout and any privilege change (no fixation); logout
+    invalidates the session on the server, not only the cookie; a remember-me token has real entropy and is
+    stored hashed.
+12. **Refresh tokens:** rotated on every use, and a reused old one revokes the whole family.
+13. **MFA:** cannot be skipped by calling the step after it, disabled without re-authentication, or bypassed
+    through enrollment of a new factor.
+14. **OAuth / OIDC:** `state` checked, `redirect_uri` matched exactly (no prefix or wildcard), PKCE on public
+    clients.
 
 ## Front 5 — AI, agent and MCP code
 

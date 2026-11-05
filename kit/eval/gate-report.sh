@@ -69,6 +69,30 @@ awk '
 sort -u "$TMP/inv" -o "$TMP/inv"
 NRULES=$(grep -c . "$TMP/inv" 2>/dev/null); NRULES=$(( ${NRULES:-0} + 0 ))
 
+# ---- the exceptions a project wrote down. A gate with many exceptions is a rule the project disagrees with, and that
+# is worth an ADR or a change to the rule rather than one more line. Counted per rule: a `rule:<name>` entry, and an
+# exact pattern line, credited to the rule heading it sits under in floor-blocklist.txt; a `path:` entry names no rule.
+allowlists(){
+  local fa=./.floor-allowlist.txt pa=./.private-allowlist.txt fb="$HOOKS/floor-blocklist.txt"
+  [ -f "$fa" ] || [ -f "$pa" ] || return 0
+  echo "  exceptions written down:"
+  if [ -f "$fa" ]; then
+    awk -v fb="$fb" '
+      FILENAME == fb { sub(/\r$/, ""); if ($0 ~ /^# rule: /) { r = substr($0, 9); next } if ($0 ~ /^#/ || $0 == "") next; rule[$0] = r; next }
+      { sub(/\r$/, ""); if ($0 ~ /^#/ || $0 == "") next
+        e = $0; i = index(e, " # "); if (i) e = substr(e, 1, i - 1); sub(/[[:space:]]+$/, "", e); n++
+        if (e ~ /^rule:/) c[substr(e, 6)]++; else if (e !~ /^path:/ && (e in rule)) c[rule[e]]++ }
+      END { printf "    .floor-allowlist.txt    %d entr%s\n", n, (n == 1 ? "y" : "ies")
+            for (k in c) if (c[k] >= 3) printf "    \342\232\240  rule %s is allowlisted %d times: write an ADR or change the rule\n", k, c[k] }
+    ' "$fb" "$fa" 2>/dev/null
+  fi
+  if [ -f "$pa" ]; then
+    local np; np="$(grep -cvE '^[[:space:]]*(#|$)' "$pa" 2>/dev/null)"; np="${np:-0}"
+    printf '    .private-allowlist.txt  %s entr%s\n' "$np" "$([ "$np" = 1 ] && echo y || echo ies)"
+  fi
+  echo
+}
+
 # ---- no log. Since 2.5.0 recording is ON by default, so the absence of a file means one of two DIFFERENT
 # things and the report must not blur them:
 #   .claude/ exists  -> recording had somewhere to go and nothing has tripped a gate yet. That is a real
@@ -81,6 +105,7 @@ if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then
       echo "  ✅ no gate has fired in this project yet — $NRULES rules wired, recording on,"
       echo "     nothing has tripped one. (Recording writes .claude/gate-log.tsv, which is gitignored;"
       echo "     rule names and verdicts only, never the command — CREW_GATE_LOG_CMD=1 adds it for debugging.)"
+      echo; allowlists
     fi
     exit 0
   fi
@@ -137,3 +162,6 @@ echo
 echo "  Not observed is NOT dead. It means one of: nobody attempted it, the model never reached for that"
 echo "  command, or the rule cannot match. Only the first two are healthy, and this report cannot tell them"
 echo "  apart — smoke-test is what proves a rule CAN fire; this shows whether anything tripped it."
+
+echo
+allowlists
