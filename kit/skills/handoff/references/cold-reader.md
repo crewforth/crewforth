@@ -32,16 +32,23 @@ carries the session.
   rejected" is what a resuming session actually needs, and it is what handovers most often drop.
 - **Ask at least one question whose answer is a location** — a file, a branch, a command. Handovers routinely
   describe a state that nothing points at.
+- **Ask the two questions that guard against repeating the past:** "Which approach must not be tried again,
+  and why?" (could a fresh agent walk back into a failed one from this file?) and "What did the previous handover
+  leave open, and where does it stand now?" (a decision carried in silence is lost).
 
 ## Who runs it
 
 Wherever the handover is written — usually inside `crew-session-manager`, which the discipline routes this
-through, sometimes the main thread. Either way no agent in Crewforth holds the delegation tool (every
-shipped agent declares an explicit allowlist and none contains it), so there is no separate cold-reader
-subagent to hand the file to. That is a real limitation and worth naming: the same context that wrote the file is answering
-from it, so the discipline is entirely in step 1 (questions from the work, written first) and step 3 (answer
-from the file only). If a genuinely cold reader is available — another session, a teammate, a fresh window
-opened at the file — use it; the procedure is unchanged and the result is stronger.
+through, sometimes the main thread. No Crewforth agent holds the delegation tool (every shipped agent declares an
+explicit allowlist and none contains it), so an agent that writes the handover answers its own questions: the
+same context that wrote the file reads it, and the discipline is entirely in step 1 (questions from the work,
+written first) and step 3 (answer from the file only).
+
+**The main thread does hold it, and that is the stronger pass.** When the main thread wrote the file (or holds it
+after the agent returns), it can hand a fresh `general-purpose` subagent the file path and the questions, and
+nothing else: no summary, no hint of the answers. What that reader cannot answer, the file does not carry. The same
+pass fits any document written for a later reader — `docs/PLAN.md` (`spec-planning`), an ADR (`adr`). Another
+session, a teammate or a fresh window opened at the file serve too; the procedure is unchanged.
 
 ## What a failure looks like
 

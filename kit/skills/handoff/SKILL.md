@@ -17,18 +17,29 @@ Session fill (the `🔋` line) > 75% · phase closure · topic change. Goal: the
 ```
 # Session Handover — <date>
 ## Done
-- <completed work + which files>
+- <completed work + which files; an item the previous handover left open, closed here: how>
 ## In progress
-- <what's half-finished + exactly where it was left off>
+- <what's half-finished + exactly where it was left off; an error's text verbatim, not paraphrased>
 ## Next step
 - <a clear, single high-value step>
 ## Open decisions
 - <pending decision + options>
+## Tried and why it failed
+- <approach · what happened · why it is not the way>
+## Current best theory
+- <what is believed now, and what would disprove it>
+## The user's explicit do-nots
+- "<their words, quoted>"
+## Verification
+- <command> -> exit <code>, <pass/fail counts>, at <commit> · or: not verified
+## Uncommitted state
+- <`git status --short`, as printed>
 ## File pointers
-- docs/PLAN.md, relevant modules...
+- <from `git status --porcelain` and `git diff --stat`, not from memory> · docs/PLAN.md...
 ## Blockers / risks
 - <if any>
 ```
+An empty section says "none"; it is not left out, so the reader knows it was considered.
 
 ## Measure the session before summarising it
 Run **`bash .claude/hooks/session-stats.sh`** first, with the Bash tool, not PowerShell. What it reports belongs in the handover as fact, not
@@ -39,7 +50,21 @@ that never landed and has to be written down explicitly this time. Missing scrip
 ## Principles
 - **Action-oriented:** focused not on "what was done" but on "exactly where to resume now."
 - Preserve the rationale behind decisions (why this path was chosen) — so context isn't lost.
+- **Record what the code cannot show:** decisions, corrections, preferences, dead ends. Skip what git or the
+  code already says. Mark each claim **verified** (the command, its result, the commit) or **guessed**.
+- **State facts, never a reason not to look.** "No need to rerun the tests", "already verified", "skip X" tell the
+  next session to trust instead of check; write what was run and what it returned, and let it decide.
+- **Read the existing `docs/SESSION_STATE.md` first.** An open decision or blocker this session did not resolve is
+  carried forward word for word; one it resolved moves to Done, with how. Absence is not resolution. Drop only
+  what is done or no longer true.
+- **An approval does not cross the boundary.** A "yes, commit" or "go ahead" given in this session is not one in
+  the next; write it down as history, never as standing permission.
 - Once written, start a fresh session with `/clear`.
+
+## Leaving a worktree (optional)
+If this work ran in a `git worktree` and is finished: `git status --short` there. Clean → offer the user a
+plain `git worktree remove <path>` (never `--force`). Dirty → list the files and stop; committing them is the
+user's call (§4.4), never a step of the handover.
 
 ## Holding a board item? The handover is not finished until the TEAM has it
 `docs/SESSION_STATE.md` is gitignored — it survives your `/clear`, and nobody else can read it. So when a

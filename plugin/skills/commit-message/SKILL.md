@@ -16,7 +16,7 @@ Format: `type(scope): summary` + (optional blank line + body) + (optional footer
 Conventional Commits below is the **default**, not a law. Before writing anything, read `./CLAUDE.md` for a
 `## Conventions` section (`Commit language:` / `Commit format:`). A declared format REPLACES the shape below —
 ticket-prefixed subjects, smart-commit trailers (`#comment`, `#time`), gitmoji, whatever the team runs on. A
-declared language replaces "the project's established language" guess. Nothing declared → the defaults here.
+declared language replaces "the project's established language" guess. Nothing declared → read `git log --oneline -20` first: a history with a shape of its own (another language, a ticket prefix, plain sentences) is the convention, and the message matches it. Only an empty or mixed history falls back to the defaults here.
 
 **Whatever the request hands you verbatim — a ticket id, a `#time 1d`, a required prefix — goes into the
 message EXACTLY as given.** Rewriting a literal someone typed is the worst failure this skill has: it looks

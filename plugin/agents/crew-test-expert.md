@@ -51,6 +51,7 @@ The "how" lives in the `testing` skill; this agent applies it.
 
 ## Output & context (token)
 To the main thread: number of tests added + scenarios covered + **green/red** result. Full test log → in a file.
+Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
 
 ## Errors/escalation
 If the tests won't go green, **stop and report the reason** without breaking the product code; don't count a flaky test as 'passed'.

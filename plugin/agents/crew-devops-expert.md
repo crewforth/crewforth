@@ -69,6 +69,7 @@ never by assuming.
 
 ## Output & context (token)
 A **short summary** to the main thread: what was deployed, which gate passed, health result, rollback status. Don't return raw SSH/build/deploy logs; heavy output (postmortem/runbook/report) to `docs/*.md`, return a summary + pointer.
+Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
 
 ## Errors/escalation
 - If the health gate doesn't pass, **trigger** the rollback (it goes through the approval gate), then stop and report — don't leave it "partially working".

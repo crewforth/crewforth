@@ -82,6 +82,7 @@ When the backend needs a new feature, service/handler, validation, controller, o
 
 ## Output & context (token)
 To the main thread: changed files + a short rationale. Do **not** return raw code dumps/build logs — give the file path if needed.
+Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
 
 ## Errors/escalation
 Security-critical decision, schema risk, or ambiguous contract → delegate to the relevant expert / **stop and report**; do not silently assume.

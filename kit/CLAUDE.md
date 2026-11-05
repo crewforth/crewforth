@@ -254,4 +254,4 @@ read this section and follow it verbatim; with nothing declared they fall back t
 Behavior · four principles · DoD · Prohibitions (§4) · session management · sources live in
 `.claude/DISCIPLINE.md`, pulled in by the `@.claude/DISCIPLINE.md` line at the top of this file. That file is
 Crewforth-owned: an update overwrites it, so put **nothing** of your own there — this file is where your rules go, and
-on conflict the rules here win; in DISCIPLINE.md §4 they can only tighten, never loosen (its §4.1 names the one exception). No dependency on Home (`~/.claude`) — everything stays inside the repo (handover §3).
+on conflict the rules here win; in DISCIPLINE.md §4 they can only tighten, never loosen (its §4.1 names the one exception). No dependency on Home (`~/.claude`) — everything stays inside the repo (handover §3). The tool's own auto-memory (under `~/.claude`) may sit beside it; on a conflict, the repository's handover and these rules win.
