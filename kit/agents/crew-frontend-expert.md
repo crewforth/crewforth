@@ -72,6 +72,7 @@ On UI, component/page, navigation/routing, state, i18n interface, responsive, or
 
 ## Output & context (token)
 To the main thread: the changed screen/component + state coverage (loading/empty/error). Raw diff → file path.
+Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
 
 ## Errors/escalation
 If the API contract isn't clear or a nonexistent capability is requested, **stop and report**; don't invent a promise in the UI.

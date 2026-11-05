@@ -153,6 +153,9 @@ _mt() {
       'CLAUDE.md (or a doc it references) names auto-delegated agent(s) that no installed agent matches — delegation to them silently fails') s='CLAUDE.md (ya da başvurduğu bir belge) kurulu hiçbir ajanla eşleşmeyen, otomatik devredilen ajan(lar) anıyor — onlara devretmek sessizce başarısız olur' ;;
       'rename each bare reference to its `crew-` id:') s='her çıplak anmayı `crew-` kimliğiyle değiştirin:' ;;
       'CLAUDE.md (or a referenced doc) names pull-only agent(s) by their old bare id — invoked explicitly, so delegation still works; rename for consistency:%s') s='CLAUDE.md (ya da başvurduğu bir belge) yalnız açıkça çağrılan ajan(lar)ı eski çıplak kimliğiyle anıyor — açıkça çağrıldıkları için devretme yine çalışır; tutarlılık için yeniden adlandırın:%s' ;;
+      'CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s') s='CLAUDE.md var olmayan dosya(lar)ı içe aktarıyor — hiçbir şey yüklenmiyor ve bu söylenmiyor:%s' ;;
+      'CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s') s='CLAUDE.md var olmayan yol(lar)ı gösteriyor (taşındı ya da silindi mi?):%s' ;;
+      'every import and file path in CLAUDE.md resolves') s="CLAUDE.md'deki her içe aktarma ve dosya yolu çözülüyor" ;;
       'agent references resolve to installed agents (CLAUDE.md + referenced docs)') s='ajan anmaları kurulu ajanlara çözülüyor (CLAUDE.md ve başvurduğu belgeler)' ;;
       'CLAUDE.md missing — .claude/DISCIPLINE.md is never loaded (routing / DoD / session rules absent)') s='CLAUDE.md yok — .claude/DISCIPLINE.md hiç yüklenmiyor (yönlendirme / DoD / oturum kuralları yok)' ;;
       'create CLAUDE.md with this as its own line: @.claude/DISCIPLINE.md') s="CLAUDE.md'yi oluşturun ve şunu ayrı bir satır olarak yazın: @.claude/DISCIPLINE.md" ;;
@@ -700,6 +703,52 @@ if [ -f .claude/DISCIPLINE.md ]; then
     bad "CLAUDE.md does not import .claude/DISCIPLINE.md — the discipline is on disk but never loaded" \
         "add this as its own line at the top of CLAUDE.md: @.claude/DISCIPLINE.md"
   fi
+fi
+
+# 6a) Pointers in ./CLAUDE.md that lead nowhere. An `@path` import whose file is gone loads nothing and says nothing;
+#     a backticked path to a file that was moved or deleted sends the model to read what is not there. Imports are read
+#     where Claude Code reads them (its memory docs: `@` anywhere in the file, not inside a code span or block):
+#     a line of its own is always one; inside a sentence only a word shaped like a file (an extension), so `@types/node`
+#     or `@agent-x` is not mistaken for one. `~/` and absolute paths live outside the repository and are not judged,
+#     nor is a path with an escaped space. A backticked path counts when it is shaped like one (a `/`, an extension, no
+#     placeholder, glob or space); a `:42` or `#L10` after it is a location in the file, not part of its name. An
+#     example path in prose that is shaped like a real one is still named: doctor cannot tell an example from a pointer.
+if [ -f CLAUDE.md ]; then
+  _imp=""; _btp=""; _fen=0
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    _l="${_l%$'\r'}"
+    case "$_l" in '```'*|'~~~'*) _fen=$((1-_fen)); continue ;; esac
+    [ "$_fen" = 1 ] && continue
+    # Backticked spans: collected as path candidates, and removed from the text the imports are read in.
+    _r="$_l"; _p=""
+    while case "$_r" in *'`'*'`'*) true ;; *) false ;; esac; do
+      _p="$_p ${_r%%\`*}"; _r="${_r#*\`}"; _t="${_r%%\`*}"; _r="${_r#*\`}"
+      _t="${_t%%#*}"; case "$_t" in *:[0-9]*) _t="${_t%%:[0-9]*}" ;; esac
+      case "$_t" in *[[:space:]\<\>\*\{\}\$\|]*|'~'*|@*|/*|http*|-*|*://*) continue ;; */*.[A-Za-z]*) ;; *) continue ;; esac
+      _t="${_t#./}"; [ -e "$_t" ] || case "$_btp" in *" $_t"*) ;; *) _btp="$_btp $_t" ;; esac
+    done
+    _p="$_p $_r"
+    case "$_l" in @*) _own=1 ;; *) _own=0 ;; esac
+    read -r -a _ws <<< "$_p"
+    for _w in "${_ws[@]+"${_ws[@]}"}"; do
+      case "$_w" in @?*) ;; *) continue ;; esac
+      _t="${_w#@}"; while case "$_t" in *[.,\;:\)\]]) true ;; *) false ;; esac; do _t="${_t%?}"; done
+      case "$_t" in ''|'~/'*|/*|*\\*) continue ;; esac
+      [ "$_own" = 1 ] || case "$_t" in *.[A-Za-z]*) ;; *) continue ;; esac
+      _own=0
+      [ -e "$_t" ] || case "$_imp" in *" @$_t"*) ;; *) _imp="$_imp @$_t" ;; esac
+    done
+  done < CLAUDE.md
+  # A path written relative to a sub-project (`services/x.py` for backend/app/services/x.py) is not missing: one
+  # `git ls-files`, asked only when something looked missing, and a tracked file that ends with the path resolves it.
+  if [ -n "$_btp" ] && _ls="$(git ls-files 2>/dev/null)" && [ -n "$_ls" ]; then
+    _nl=$'\n'; _ls="$_nl$_ls$_nl"; _k=""
+    for _t in $_btp; do case "$_ls" in *"/$_t$_nl"*|*"$_nl$_t$_nl"*) ;; *) _k="$_k $_t" ;; esac; done
+    _btp="$_k"
+  fi
+  [ -n "$_imp" ] && warn "CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s" "$_imp"
+  [ -n "$_btp" ] && warn "CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s" "$_btp"
+  [ -z "$_imp$_btp" ] && ok "every import and file path in CLAUDE.md resolves"
 fi
 
 # 8b) The shell matcher. Claude Code's hooks reference is explicit: inspect shell commands with

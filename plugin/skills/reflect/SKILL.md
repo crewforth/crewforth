@@ -48,6 +48,9 @@ Ask each question honestly and write the answer, not a reassurance:
 - **Honest, not performative.** A retro that only confirms good work is a failed retro. If nothing is found,
   say specifically *why* you're confident (what was verified), don't just assert it.
 - **Bounded.** One pass, concrete findings, then act or close — not an open rumination loop.
+- **A lesson needs a pattern.** A rule for the next session needs two or more occurrences in the
+  `session-stats.sh` evidence, or an explicit correction from the user. A one-off failure is a finding, not a
+  rule. A rule says "do X instead of Y"; one that restates the goal ("be careful with tests") is not a rule.
 - **Token discipline** ([[token-budget]]): a short ranked findings list to the main thread; detail to a file.
 
 ## DoD (this skill's contribution)

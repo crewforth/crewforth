@@ -46,6 +46,7 @@ What was decided (clear, one sentence + rationale)?
 Pros / cons / accepted trade-offs.
 ## Alternatives considered
 Why were they not chosen?
+Verified against: <package>@<version> · <docs or source> · <date> — or "none" (no external fact relied on)
 ```
 
 ## Principles

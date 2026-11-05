@@ -60,16 +60,95 @@ for f in .crewforth/*.json; do
 done
 [ -n "$fnd" ] && LINES+=("findings on record: $fnd")
 [ -s docs/SESSION_STATE.md ] && LINES+=("a handover is at docs/SESSION_STATE.md")
-[ "${#LINES[@]}" -gt 0 ] || exit 0
 
-SUM=""; for l in "${LINES[@]}"; do SUM="${SUM:+$SUM; }$l"; done
-SUM="${SUM:0:1800}"
+# ---- what the transcript says: the user's own words, and the skills in use ----
+# A compaction summary retells the task, and a retelling can soften a hard "do not". So the first prompt and the
+# last three are kept as the user typed them, each cut at about 300 characters. And a skill's text is not always
+# brought back after a compaction (measured on local transcripts: 3 of 12 compactions that followed a Skill call
+# re-attached nothing), so the skill names are kept too. ONE grep over the transcript; the rest is builtins.
+# A prompt line in a transcript is already a JSON string, so it is stored as it is and never re-escaped; a cut
+# that splits an escape or a multibyte character is trimmed back to a whole one. Skipped: a prompt that opens with
+# a tag (command output, a notification, pasted content), a meta, sidechain or compaction-summary record, and any
+# prompt a secret pattern matches. <private>…</private> becomes [redacted], as the handover does.
+clip(){ local LC_ALL=C p="$1" t k c n o=""
+  # Left to right, one pass: each <private> to the NEXT </private> becomes [redacted]; an unclosed one hides the rest.
+  # (Cutting at the first <private> and the first </private> separately loops forever on "</private> … <private>x</private>".)
+  while case "$p" in *'<private>'*) true ;; *) false ;; esac; do
+    o="$o${p%%<private>*}[redacted]"; p="${p#*<private>}"
+    case "$p" in *'</private>'*) p="${p#*</private>}" ;; *) p="" ;; esac
+  done; p="$o$p"
+  if [ "${#p}" -gt 300 ]; then
+    p="${p:0:300}"
+    case "$p" in *\\u|*\\u?|*\\u??|*\\u???) p="${p%\\u*}" ;; esac
+    t="${p##*[!\\]}"; [ $(( ${#t} % 2 )) = 1 ] && p="${p%\\}"
+    # A UTF-8 character cut in half: walk back over continuation bytes to the lead byte, and drop the
+    # sequence only if it is shorter than its lead byte says (C locale: these compare as bytes).
+    k=0
+    while [ "$k" -lt 4 ] && [ "$k" -lt "${#p}" ]; do
+      c="${p: -$((k+1)):1}"
+      [[ "$c" < $'\x80' ]] && break
+      if [[ "$c" > $'\xbf' ]]; then
+        n=2; [[ "$c" > $'\xdf' ]] && n=3; [[ "$c" > $'\xef' ]] && n=4
+        [ $((k+1)) -lt "$n" ] && p="${p:0:$((${#p}-k-1))}"
+        break
+      fi
+      k=$((k+1))
+    done
+    p="$p ...(cut)"
+  fi
+  CLIP="$p"; }
+TP="$(field transcript_path)" || TP=""
+TP="${TP//\\\\//}"; TP="${TP//\\//}"
+SKILLS=""; PROMPTS=""
+if [ -n "$TP" ] && [ -f "$TP" ]; then
+  first=""; p1=""; p2=""; p3=""; sk=" "   # " a b ": a name moves to the end each time it is called again
+  while IFS= read -r l; do
+    case "$l" in
+      *'"name":"Skill","input":{"skill":"'*)
+        s="${l#*\"name\":\"Skill\",\"input\":\{\"skill\":\"}"; s="${s%%\"*}"
+        case "$s" in ''|*[!A-Za-z0-9:._-]*) continue ;; esac
+        sk="${sk// $s / }$s " ;;
+      *'"isMeta":true'*|*'"isSidechain":true'*|*'"isCompactSummary":true'*) ;;
+      *'"type":"user","message":{"role":"user","content":"'*)
+        v="${l#*\"type\":\"user\",\"message\":\{\"role\":\"user\",\"content\":\"}"
+        # Only the first ~300 bytes are kept, so a pasted megabyte is cut to 1200 first: bash's pattern removals
+        # on the whole string grow faster than its length (measured: 1 MB took 8 s, 2 MB passed the 30 s timeout).
+        # A prompt longer than that keeps no end marker and is cut where clip cuts it.
+        long=0; [ "${#v}" -gt 1200 ] && { v="${v:0:1200}"; long=1; }
+        # The string ends where the message object closes: before more record fields, or at the line's end.
+        case "$v" in *'"},"'*) v="${v%%\"\},\"*}"; long=0 ;; *'"}}'*) v="${v%\"\}\}*}"; long=0 ;; *) [ "$long" = 1 ] || continue ;; esac
+        case "$v" in ''|'<'*|'[Request interrupted'*) continue ;; esac
+        if [ "$long" = 0 ]; then t="${v##*[!\\]}"; [ $(( ${#t} % 2 )) = 1 ] && continue; fi   # the end was an escaped quote: not a whole prompt
+        [ -z "$first" ] && { first="$v"; continue; }
+        p1="$p2"; p2="$p3"; p3="$v" ;;
+    esac
+  done < <(LC_ALL=C grep -E '"name":"Skill","input":\{"skill":"|"type":"user","message":\{"role":"user","content":"[^<]' "$TP" 2>/dev/null)
+  sk="${sk# }"; sk="${sk% }"; SKILLS="${sk// /, }"
+  # The four candidates go through the secret patterns in ONE grep; a line it names is dropped whole.
+  BL="$_here/secret-blocklist.txt"; keep=(); bad=" "; i=0
+  # Fails CLOSED: no pattern file, or a grep that errors (rc 2), keeps no prompt at all.
+  hits="$(printf '%s\n' "$first" "$p1" "$p2" "$p3" | LC_ALL=C grep -nE -f <(LC_ALL=C grep -vE '^#|^$' "$BL" 2>/dev/null) 2>/dev/null)"; rc=$?
+  if [ ! -s "$BL" ] || [ "$rc" -gt 1 ]; then bad=" 1 2 3 4 "
+  else while IFS=: read -r n _; do bad="$bad$n "; done <<< "$hits"; fi
+  for v in "$first" "$p1" "$p2" "$p3"; do
+    i=$((i+1))
+    [ -n "$v" ] || continue
+    case "$bad" in *" $i "*) continue ;; esac
+    clip "$v"; keep+=("$CLIP")
+  done
+  for v in "${keep[@]+"${keep[@]}"}"; do PROMPTS="${PROMPTS:+$PROMPTS\\n}- $v"; done
+fi
+[ "${#LINES[@]}" -gt 0 ] || [ -n "$SKILLS$PROMPTS" ] || exit 0
+
+SUM=""; for l in "${LINES[@]+"${LINES[@]}"}"; do SUM="${SUM:+$SUM; }$l"; done
+# Cut at the cap, and say so: a summary that just stops reads as complete.
+[ "${#SUM}" -gt 1800 ] && SUM="${SUM:0:1780} ...(truncated)"
 
 # ---- where it goes ----
 if [ -n "$GD" ] && [ -d "$GD" ]; then OUT="$GD/crewforth-session-snapshot.json"
 else mkdir -p .claude/state 2>/dev/null || exit 0; OUT=".claude/state/session-snapshot.json"; fi
 if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOW '%(%Y-%m-%dT%H:%M:%SZ)T' -1; else NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi
 ESC="$(printf '%s\n' "$SUM" | LC_ALL=C awk -f "$LIB/json-string.awk" 2>/dev/null)" || exit 0
-printf '{"session_id":"%s","trigger":"%s","at":"%s","summary":"%s"}\n' "$SID" "${TRIG//[!a-z]/}" "$NOW" "$ESC" > "$OUT.$$" 2>/dev/null && mv -f "$OUT.$$" "$OUT" 2>/dev/null
+printf '{"session_id":"%s","trigger":"%s","at":"%s","skills":"%s","prompts":"%s","summary":"%s"}\n' "$SID" "${TRIG//[!a-z]/}" "$NOW" "$SKILLS" "$PROMPTS" "$ESC" > "$OUT.$$" 2>/dev/null && mv -f "$OUT.$$" "$OUT" 2>/dev/null
 rm -f "$OUT.$$" 2>/dev/null
 exit 0

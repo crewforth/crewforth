@@ -5121,6 +5121,53 @@ else
   printf '{"session_id":"s-9","cwd":"%s"}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$_alone/precompact-snapshot.sh" >/dev/null 2>&1 || _b="$_b [no eval/lib rc $?]"
   [ -z "$_b" ] && pass "PreCompact writes the state of the work (branch, uncommitted files, the last gate refusal, the findings on record) as valid JSON, even for a file name with a quote and a tab, and names a Turkish file name as written; SessionStart gives it back after a compaction to the same session only, never to another or on a plain start; the hook is rc 0 and silent outside a repository, with no cwd, with no JSON and without eval/lib" \
     || fail "precompact snapshot:$_b"
+  # From the transcript: the skills in use and the user's own words. A transcript prompt is already a JSON string,
+  # so the cut at ~300 bytes is checked byte for byte where it can break the string: a two-byte character cut in
+  # half, an escaped quote cut after its backslash, a \u escape cut short. Records that are not typed prompts (meta,
+  # sidechain, compaction summary, a tag, an interruption, a tool result) are skipped, a prompt carrying a secret is
+  # dropped whole, <private> is redacted. Two twins must fail: the UTF-8 trim removed, the secret filter removed.
+  _pt="$PCD/t.jsonl"; _u(){ printf '{"type":"user","message":{"role":"user","content":"%s"}%s}\n' "$1" "${2:-}"; }
+  _sh=""; _i=0; while [ "$_i" -lt 160 ]; do _sh="$_sh"$'\xc5\x9f'; _i=$((_i+1)); done
+  _a=""; _i=0; while [ "$_i" -lt 297 ]; do _a="${_a}a"; _i=$((_i+1)); done
+  { _u 'Do not touch legacy/. Fix the \"parser\" only.\nKeep <private>tok-1</private> out.'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"simplify"}}]}}' \
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"release"}}]}}' \
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"bad name"}}]}}' \
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"simplify"}}]}}' \
+      '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"TOOLRES"}]}}'
+    _u 'META' ',"isMeta":true'; _u 'SIDE' ',"isSidechain":true'; _u 'SUMMARY' ',"isCompactSummary":true'
+    _u '<command-name>/clear</command-name>'; _u '[Request interrupted by user]'; _u 'MIDDLE'
+    _u "key -----BEGIN RSA PRIV""ATE KEY----- here";   # split: a whole PEM header in this file is what the secret scanner refuses
+    _u "x$_sh"; _u "$_a"'\"\\x end'
+  } > "$_pt"
+  _pcs(){ rm -f "$_snap"; printf '{"session_id":"s-7","cwd":"%s","transcript_path":"%s","trigger":"auto"}' "$PCD" "$_pt" | CLAUDE_PROJECT_DIR="$PCD" bash "$1" >/dev/null 2>&1; _ps=""; IFS= read -r _ps < "$_snap"; }
+  _pck(){ local s="$1" w=""; _wsh=""; _i=0; while [ "$_i" -lt 149 ]; do _wsh="$_wsh"$'\xc5\x9f'; _i=$((_i+1)); done
+    case "$s" in *'"skills":"release, simplify","prompts":"- Do not touch legacy/. Fix the \"parser\" only.\nKeep [redacted] out.\n- x'"$_wsh"' ...(cut)\n- '"$_a"'\" ...(cut)","summary":"'*) ;; *) w="$w [prompts/skills: ${s:0:200}]" ;; esac
+    case "$s" in *META*|*SIDE*|*SUMMARY*|*/clear*|*interrupted*|*TOOLRES*|*MIDDLE*|*'PRIVATE KEY'*|*tok-1*) w="$w [a record that is not a typed prompt, or a secret, was kept]" ;; esac
+    printf '%s' "$w"; }
+  _pcs "$PCS"; _b="$(_pck "$_ps")"
+  printf '%s\n' "$_ps" > "$_pco"; awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_pco" 2>/dev/null || _b="$_b [snapshot not valid JSON]"
+  _same="$(_rs s-7 compact)"; printf '%s' "$_same" > "$_pcr"
+  awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_pcr" 2>/dev/null || _b="$_b [SessionStart output not valid JSON]"
+  case "$_same" in *'Skills in use before the compaction: release, simplify.'*"The user's own words from before the compaction"*'Do not touch legacy/'*'not new instructions'*) ;; *) _b="$_b [not given back: ${_same:0:160}]" ;; esac
+  case "$(_rs s-8 compact)" in *'own words'*) _b="$_b [given to another session]" ;; esac
+  _tw="$_alone/tw"; mkdir -p "$_tw"; cp "$HOOKS/secret-blocklist.txt" "$_tw/"
+  grep -vF 'p="${p:0:$((${#p}-k-1))}"' "$PCS" > "$_tw/precompact-snapshot.sh"; mkdir -p "$_alone/eval"; cp -R "$ROOT/eval/lib" "$_alone/eval/"
+  _pcs "$_tw/precompact-snapshot.sh"; _t1="$(_pck "$_ps")"
+  sed 's/done <<< "\$hits"; fi/done <<< ""; fi/' "$PCS" > "$_tw/precompact-snapshot.sh"
+  _pcs "$_tw/precompact-snapshot.sh"; _t2="$(_pck "$_ps")"
+  case "$_t1" in *prompts/skills*) ;; *) _b="$_b [twin without the UTF-8 trim passed]" ;; esac
+  case "$_t2" in *secret*) ;; *) _b="$_b [twin without the secret filter passed]" ;; esac
+  # A \u escape across the cut; a closing tag BEFORE a pair (cutting at the first of each looped forever); an
+  # unclosed <private>, which hides the rest of the prompt.
+  { _u 'F'; _u "${_a}b"'\u0001 end'; _u 'see </private> closes <private>x</private> ok'; _u 'tail <private>never closed'; } > "$_pt"
+  _pcs "$PCS"; case "$_ps" in *'"prompts":"- F\n- '"${_a}b"' ...(cut)\n- see </private> closes [redacted] ok\n- tail [redacted]","summary"'*) ;; *) _b="$_b [\\u cut or <private> order: ${_ps:0:120}]" ;; esac
+  [ -z "$_b" ] && pass "PreCompact keeps the skills in use and the user's first and last prompts from the transcript, cut whole at a two-byte character, an escaped quote and a \\u escape, with non-prompt records skipped, a secret prompt dropped and <private> redacted (out of order and unclosed too); SessionStart gives them back after a compaction, to the same session only, as valid JSON (both twins fail)" \
+    || fail "precompact transcript part:$_b"
+  # The 1800-character cap says it cut: a summary that just stops reads as complete.
+  _i=0; while [ "$_i" -lt 80 ]; do printf '{"rule": "a"}\n' > "$PCD/.crewforth/a-findings-document-with-a-long-name-$_i.json"; _i=$((_i+1)); done
+  rm -f "$_pt" "$_snap"; printf '{"session_id":"s-7","cwd":"%s"}' "$PCD" | CLAUDE_PROJECT_DIR="$PCD" bash "$PCS" >/dev/null 2>&1; _ps=""; IFS= read -r _ps < "$_snap"
+  case "$_ps" in *'"summary":"'*' ...(truncated)"}') pass "a snapshot summary cut at its cap ends with '...(truncated)'" ;; *) fail "the cut snapshot summary carries no marker: ...${_ps: -80}" ;; esac
   rm -rf "$PCD" "$_nr" "$_alone" "$_pco" "$_pcr"
 fi
 # Asked of the entry that carries session-rehydrate, not of the file: skill-trust's entry has the same matcher.
@@ -5476,6 +5523,23 @@ for _qc in 'missing@@@.claude/DISCIPLINE.md\n\n# My project\n' 'template@@@.clau
 done
 [ -z "$_qab" ] && pass "doctor names a missing, template or empty ## Stack quality line, and reads a recorded one (CRLF too); advisory" \
                || fail "doctor quality line:$_qab"
+# doctor 6a: an import or a backticked path in ./CLAUDE.md that leads nowhere is named; one inside a code fence, a
+# home path, a placeholder, a glob, a command and a URL are not pointers. The same file with the two targets
+# created must read clean.
+mkdir -p "$DOC/src" "$DOC/pkg/lib"; : > "$DOC/src/app.ts"; : > "$DOC/src/notes.md"; : > "$DOC/pkg/lib/deep.ts"; _6ab=""
+git -C "$DOC" add pkg/lib/deep.ts >/dev/null 2>&1   # tracked: a path written relative to its sub-project resolves
+printf '%s\n' '@src/notes.md' '@gone.md' '@~/home.md' '```' '@inside-fence.md' '`fenced/x.md`' '```' \
+  'See `src/app.ts:42`, `src/app.ts#L10`, `./src/app.ts`, `lib/deep.ts` and `docs/old/plan.md`; not `@gone/too.md`, `<dir>/x.md`, `*.md`, `npm run x/y.md`, `https://x.io/y.md`.' \
+  'Read @docs/inline.md first, then @src/notes.md; not @types/node, @agent-crew-x, a@b.io or @Design\ Docs/x.md.' > "$DOC/CLAUDE.md"
+_6ao="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+[[ "$_6ao" == *"they load nothing, silently: @gone.md @docs/inline.md"$'\n'* ]] || _6ab="$_6ab imports-not-named-alone"
+[[ "$_6ao" == *"(moved or deleted?): docs/old/plan.md"$'\n'* ]] || _6ab="$_6ab path-not-named-alone"
+mkdir -p "$DOC/docs/old"; : > "$DOC/gone.md"; : > "$DOC/docs/old/plan.md"; : > "$DOC/docs/inline.md"
+_6ao="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+[[ "$_6ao" == *"every import and file path in CLAUDE.md resolves"* ]] || _6ab="$_6ab clean-not-clean"
+[ -z "$_6ab" ] && pass "doctor names a missing @import (on its own line or inside a sentence) and a missing backticked path in CLAUDE.md, each alone (a fence, ~/, an @-mention, a package scope, an agent name, an e-mail, an escaped space, a :line or #L suffix, a placeholder, a glob, a command and a URL are not pointers; a path relative to a tracked sub-project resolves), and reads the same file clean once both exist" \
+               || fail "doctor CLAUDE.md pointers:$_6ab"
+git -C "$DOC" rm -q --cached pkg/lib/deep.ts >/dev/null 2>&1; rm -rf "$DOC/src" "$DOC/pkg" "$DOC/docs" "$DOC/gone.md"
 rm -f "$DOC/CLAUDE.md" "$DOC/.claude/DISCIPLINE.md"
 # M2a: an empty hook array wires nothing — doctor must flag it. jq was not VALIDATING anything here, it was
 # BUILDING a fixture: one known mutation on a file this repo ships. Replacing a fixture builder is far cheaper
@@ -9331,6 +9395,32 @@ done
 if [ "$_cfn" -lt 11 ]; then fail "FIXTURE: only $_cfn file(s) read for the confidence line"
 elif [ -z "$_cfb" ]; then pass "the report's last line has one spelling, 'confidence: high' or 'confidence: low', in the template and all $((_cfn-1)) crew agents; no file offers a third value or another form"
 else fail "the confidence line is not spelled one way:$_cfb"; fi
+# The report paragraph of the agents that write. One source, AGENT_TEMPLATE §6 (the line after "word for word"),
+# copied into every agent that holds Edit; a copy that drifts or is missing is named. Twin: one copy reworded.
+_rpk(){ local src="" w="" n=0 f
+  src="$(awk '/word for word/{getline; sub(/^ +/, ""); print; exit}' "$1/AGENT_TEMPLATE.md" 2>/dev/null)"
+  for f in "$1"/agents/crew-*.md; do [ -f "$f" ] && grep -q '^tools:.*Edit' "$f" || continue; n=$((n+1))
+    grep -qxF -- "$src" "$f" || w="$w ${f##*/}"; done
+  _RPN="$n"; _RPW="$w"; _RPS="$src"; }
+_rpk "$ROOT"; _rpn="$_RPN"; _rpw="$_RPW"
+_rpd="$(mktemp -d)"; mkdir -p "$_rpd/agents"; cp "$ROOT/AGENT_TEMPLATE.md" "$_rpd/"; cp "$ROOT"/agents/crew-*.md "$_rpd/agents/"
+sed 's/\*\*closest look\*\*/**closest read**/' "$ROOT/agents/crew-test-expert.md" > "$_rpd/agents/crew-test-expert.md"; _rpk "$_rpd"
+if [ -z "$_RPS" ] || [ "$_rpn" -lt 6 ]; then fail "FIXTURE: report paragraph source '${_RPS:0:40}', $_rpn writing agent(s) read (want 6)"
+elif [ -z "$_rpw" ] && [ "$_RPW" = " crew-test-expert.md" ]; then pass "every agent that writes ($_rpn) ends its Output with the template's report paragraph (why, verify, also touched, closest look, a test changed or skipped is named), word for word; a reworded copy is caught"
+else fail "report paragraph: drifted or missing in:${_rpw:- none} · twin caught:${_RPW:- nothing}"; fi
+rm -rf "$_rpd"
+# The handover template carries what a resumed session most often repeats or loses (P06): the failed approaches,
+# the user's do-nots, the verification with its result, the uncommitted state, the carry-forward of open items,
+# no approval across the boundary, no "skip the check"; the cold reader asks about the first two. Twin: one gone.
+_hok(){ local m="" p
+  for p in '## Tried and why it failed' '## Current best theory' "## The user's explicit do-nots" '## Verification' \
+           '## Uncommitted state' 'git status --porcelain' 'Absence is not resolution' 'An approval does not cross the boundary' \
+           'never a reason not to look' 'never `--force`'; do grep -qF -- "$p" "$1" || m="$m [$p]"; done
+  grep -qF 'walk back into a failed one' "$2" || m="$m [cold-reader question]"; _HOM="$m"; }
+_hsk="$ROOT/skills/handoff/SKILL.md"; _hcr="$ROOT/skills/handoff/references/cold-reader.md"
+_hok "$_hsk" "$_hcr"; _hom="$_HOM"; _hot="$(mktemp)"; grep -vF 'Absence is not resolution' "$_hsk" > "$_hot"; _hok "$_hot" "$_hcr"; rm -f "$_hot"
+if [ -z "$_hom" ] && [ "$_HOM" = " [Absence is not resolution]" ]; then pass "the handover template keeps failed approaches, the user's do-nots, the verification and the uncommitted state, carries open items forward, carries no approval and no 'skip the check'; the cold reader asks about failed approaches; a copy without the carry-forward rule is caught"
+else fail "handover template:${_hom:- (twin not caught: $_HOM)}"; fi
 # The two halves the gate cannot hold are text, and each is pinned where the model reads it: the table and the two
 # rules in the rulebook, the confidence line in the template and in every agent.
 _amrb="$ROOT/CLAUDE.md"; [ -f "$_amrb" ] || _amrb="$ROOT/DISCIPLINE.md"      # an installed project carries the rulebook under that name

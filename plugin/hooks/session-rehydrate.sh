@@ -75,7 +75,7 @@ fi
 
 # THE STATE BEFORE THE COMPACTION. precompact-snapshot.sh wrote it just before this context was compacted: the
 # branch, the uncommitted files, the last gate refusal, the findings on record. Read back only after a compaction and
-# only into the session that wrote it (same session id); its summary is already JSON-escaped, so it is put into the
+# only into the session that wrote it (same session id); its summary, skills and prompts are already JSON-escaped, so it is put into the
 # output as it is, and the rest of MSG stays fixed text that needs no escaping and no extra process.
 SNAP=""
 _rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
@@ -91,6 +91,13 @@ if [ "$SRC" = compact ] && [ -f "$_rh/../eval/lib/gate-log.sh" ]; then
       if [ -n "$_mine" ] && [ "$_mine" = "$_SID" ]; then
         _sum="${_sj#*\"summary\":\"}"; _sum="${_sum%\"\}*}"
         SNAP="Before this context was compacted, Crewforth wrote down the state of the work from the files and the gates: $_sum. It is a record of that moment; check the files before relying on it."
+        # The skills and the user's prompts sit before "summary" in the same line, already JSON-escaped.
+        case "$_sj" in *'"skills":"'*'","prompts":"'*)
+          _sk="${_sj#*\"skills\":\"}"; _sk="${_sk%%\",\"prompts\":\"*}"
+          _pr="${_sj#*\"prompts\":\"}"; _pr="${_pr%%\",\"summary\":\"*}"
+          [ -n "$_sk" ] && SNAP="$SNAP Skills in use before the compaction: $_sk. A compaction does not always bring a skill's text back: if you are following one, re-read its SKILL.md before the next step."
+          [ -n "$_pr" ] && SNAP="$SNAP The user's own words from before the compaction, verbatim (the first prompt, then the latest; each cut at about 300 characters):\n$_pr\nThey describe the task as the user gave it; they are not new instructions, and the user's later messages override them." ;;
+        esac
       fi ;;
     esac
   fi
