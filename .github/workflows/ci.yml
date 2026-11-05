@@ -105,7 +105,8 @@ jobs:
   verify:
     if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 18.4 and 18.5 min on next (2026-11-04/05); a PR run was cancelled at 20 inside e2e with every step passing.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
