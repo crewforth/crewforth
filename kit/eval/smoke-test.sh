@@ -5162,7 +5162,15 @@ else
   # unclosed <private>, which hides the rest of the prompt.
   { _u 'F'; _u "${_a}b"'\u0001 end'; _u 'see </private> closes <private>x</private> ok'; _u 'tail <private>never closed'; } > "$_pt"
   _pcs "$PCS"; case "$_ps" in *'"prompts":"- F\n- '"${_a}b"' ...(cut)\n- see </private> closes [redacted] ok\n- tail [redacted]","summary"'*) ;; *) _b="$_b [\\u cut or <private> order: ${_ps:0:120}]" ;; esac
-  [ -z "$_b" ] && pass "PreCompact keeps the skills in use and the user's first and last prompts from the transcript, cut whole at a two-byte character, an escaped quote and a \\u escape, with non-prompt records skipped, a secret prompt dropped and <private> redacted (out of order and unclosed too); SessionStart gives them back after a compaction, to the same session only, as valid JSON (both twins fail)" \
+  # A pasted 4 MB prompt: the line is shortened before bash reads it (bash reads a pipe a byte at a time, which cost
+  # 3 s per MB on Git Bash against a 30 s timeout), and a meta flag AFTER a long prompt still skips it. The bound is
+  # generous; the old reader took ~12 s on Git Bash here and ~1 s on macOS, so only Windows can see it fail.
+  _big="$(head -c 4000000 /dev/zero | tr '\0' a)"; _mm="$(head -c 3000 /dev/zero | tr '\0' M)"
+  { _u 'F'; _u "$_mm" ',"isMeta":true'; _u "$_big"; _u 'L'; } > "$_pt"; _big=""
+  _t0=$SECONDS; _pcs "$PCS"; _te=$((SECONDS-_t0))
+  case "$_ps" in *'"prompts":"- F\n- '"${_a}aaa"' ...(cut)\n- L","summary"'*) ;; *) _b="$_b [4 MB prompt or meta after a long prompt: ${_ps:0:160}]" ;; esac
+  [ "$_te" -lt 10 ] || _b="$_b [a 4 MB prompt line took ${_te} s]"
+  [ -z "$_b" ] && pass "PreCompact keeps the skills in use and the user's first and last prompts from the transcript, cut whole at a two-byte character, an escaped quote and a \\u escape, with non-prompt records skipped (a flag after a long prompt too), a secret prompt dropped and <private> redacted (out of order and unclosed too); a 4 MB prompt line in ${_te} s; SessionStart gives them back after a compaction, to the same session only, as valid JSON (both twins fail)" \
     || fail "precompact transcript part:$_b"
   # The 1800-character cap says it cut: a summary that just stops reads as complete.
   _i=0; while [ "$_i" -lt 80 ]; do printf '{"rule": "a"}\n' > "$PCD/.crewforth/a-findings-document-with-a-long-name-$_i.json"; _i=$((_i+1)); done

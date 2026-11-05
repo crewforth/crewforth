@@ -122,7 +122,20 @@ if [ -n "$TP" ] && [ -f "$TP" ]; then
         [ -z "$first" ] && { first="$v"; continue; }
         p1="$p2"; p2="$p3"; p3="$v" ;;
     esac
-  done < <(LC_ALL=C grep -E '"name":"Skill","input":\{"skill":"|"type":"user","message":\{"role":"user","content":"[^<]' "$TP" 2>/dev/null)
+  # ONE awk picks the lines AND shortens them before bash sees them: bash's `read` takes a pipe one byte at a time,
+  # so a pasted 8 MB prompt cost 24 s on Git Bash (3 s per MB; PreCompact's timeout is 30 s) even though only the
+  # first 1200 bytes are kept. A Skill call becomes its own short piece; a prompt keeps 1400 bytes from where its
+  # record names it (more than the 1200 used, so an end marker in reach is kept), and the record flags that come
+  # after a long prompt are carried behind it, where the skip above still reads them.
+  done < <(LC_ALL=C awk '
+    { i = index($0, "\"name\":\"Skill\",\"input\":{\"skill\":\""); if (i) print substr($0, i, 300)
+      j = index($0, "\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"")
+      if (j && substr($0, j + 50, 1) != "<") {
+        f = ""
+        if (index($0, "\"isMeta\":true")) f = f " \"isMeta\":true"
+        if (index($0, "\"isSidechain\":true")) f = f " \"isSidechain\":true"
+        if (index($0, "\"isCompactSummary\":true")) f = f " \"isCompactSummary\":true"
+        print substr($0, j, 1400) f } }' "$TP" 2>/dev/null)
   sk="${sk# }"; sk="${sk% }"; SKILLS="${sk// /, }"
   # The four candidates go through the secret patterns in ONE grep; a line it names is dropped whole.
   BL="$_here/secret-blocklist.txt"; keep=(); bad=" "; i=0
