@@ -7,6 +7,14 @@ versioning follows [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **A first `adopt` no longer runs a hook it found in the project.** It keeps files it finds, so a
+  `.claude/hooks/pre-commit` (or any file under a gate's name) that arrived with a clone became the project's git
+  hook, and adopt ran it as its own proof, as the user. A first adopt now stops before any change when
+  `.claude/hooks` holds a file under a name Crewforth installs, names the files and changes nothing. An update is
+  not affected: it refreshes every gate file from the payload.
+
 ### Added
 
 - **`/crew-audit` audits the whole project, not a diff.** It starts from the Crew Map (and says when the map no longer

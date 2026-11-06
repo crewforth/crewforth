@@ -131,7 +131,7 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 # The map is checked against the blocks in this file on EVERY run, sharded or not: a block in no shard, or in two,
 # stops the run before anything is rehearsed. A skipped block is never a passed one.
 E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
-2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep install-count
+2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep install-count planted-hooks
 3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename'
 E2E_SHARDS=3
 _e2e_blocks="$(grep -E '^if _e2e_mine [a-z0-9.-]+; then$' "${BASH_SOURCE[0]}" | awk '{print $3}' | tr -d ';' | LC_ALL=C sort)"
@@ -394,6 +394,32 @@ rm -f "$G/.claude/.legacy-backup"; cp kit/AGENT_TEMPLATE.md "$G/.claude/"
 echo "[owned-files] README, AGENT_TEMPLATE, DISCIPLINE written on adopt · each edited one kept byte for byte in one .legacy-backup and named, then refreshed · this version's content and its CRLF copy: no backup · no place for a backup: left as it is, and said"
 
 fi
+# ---- a first adopt never runs a hook it found in .claude/hooks ----
+if _e2e_mine planted-hooks; then
+# A cloned repository can carry .claude/hooks/pre-commit. A first adopt keeps files it finds, and then pointed git at
+# .claude/hooks and ran pre-commit as its proof: the repository's code, run by the user. It must stop before any
+# change instead, name the file, and run nothing. The twin moves the file away and the same adopt goes through, so
+# the stop is the file's and not some other refusal.
+PH="$WORK/planted-hooks"; rm -rf "$PH"; mkdir -p "$PH/.claude/hooks"
+cp adopt.sh "$PH/"; cp -R kit "$PH/"; cp VERSION "$PH/"; printf '{"name":"x"}' > "$PH/package.json"
+printf '#!/bin/sh\n: > "$(git rev-parse --show-toplevel)/PLANTED-RAN"\n' > "$PH/.claude/hooks/pre-commit"; chmod +x "$PH/.claude/hooks/pre-commit"
+( cd "$PH" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
+_phhead="$(git -C "$PH" rev-parse HEAD)"
+run_adopt "$PH" --yes
+[ "$ADOPT_RC" != 0 ]                                       || die "a first adopt went ahead over a .claude/hooks/pre-commit it did not write" planted-hooks "$PH"
+case "$ADOPT_OUT" in *"STOP: .claude/hooks already holds files"*" pre-commit"*) ;; *) die "the stop did not name the planted pre-commit" planted-hooks "$PH" ;; esac
+[ ! -e "$PH/PLANTED-RAN" ]                                 || die "the planted pre-commit RAN during adopt" planted-hooks "$PH"
+[ -z "$(git -C "$PH" config --get core.hooksPath)" ]       || die "core.hooksPath was set although adopt stopped" planted-hooks "$PH"
+[ ! -d "$PH/.claude/agents" ] && [ "$(git -C "$PH" rev-parse HEAD)" = "$_phhead" ] \
+  && [ -z "$(git -C "$PH" status --porcelain -- .claude)" ]  || die "adopt changed the project before it stopped" planted-hooks "$PH"
+# Twin: the file moved out of .claude/hooks, the same first adopt completes.
+mv "$PH/.claude/hooks/pre-commit" "$PH/planted-pre-commit"; ( cd "$PH" && git add -A && git commit -qm moved )
+cp adopt.sh "$PH/"; cp -R kit "$PH/"; run_adopt "$PH" --yes
+[ "$ADOPT_RC" = 0 ] && [ -d "$PH/.claude/agents" ]         || die "twin: with the file moved away the first adopt still did not complete (rc $ADOPT_RC)" planted-hooks/twin "$PH"
+[ ! -e "$PH/PLANTED-RAN" ]                                 || die "twin: the moved file ran" planted-hooks/twin "$PH"
+echo "[planted-hooks] a first adopt over a .claude/hooks/pre-commit it did not write stops before any change, names it, runs nothing; moved away, the same adopt completes"
+fi
+
 # ---- a project with a hook chain of its own keeps it through every update ----
 if _e2e_mine hook-chain; then
 # The first run puts .claude/git-shim in front of the project's chain and points git at it. The SECOND run then read
