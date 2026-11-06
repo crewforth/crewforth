@@ -1,5 +1,12 @@
 # Topology A — self-managed host (phases 1-5)
 
+## Contents
+- Phase 1 (A) — Surface: method and runtime
+- Phase 2 (A) — Preparation: config, SSH, proxy, SSL
+- Phase 3 (A) — Swap: keep the old, put the new
+- Phase 4 (A) — Health gate
+- Phase 5 (A) — Rollback
+
 Read this only when Phase 0 answered **A**: you have SSH to a machine you own or rent, a release is a directory on
 that host, and rollback means moving a pointer back. On topology B read `references/topology-b.md` instead — never
 both, because mixing them is where deploys go wrong.

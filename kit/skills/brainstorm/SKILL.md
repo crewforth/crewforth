@@ -1,8 +1,8 @@
 ---
 name: brainstorm
 description: |
-  Divergent discovery BEFORE planning: turn a fuzzy ask into 2–4 scoped options + named unknowns, pick a
-  direction, hand to spec-planning. Bounded; converges to explicit choices, never guesses.
+  Use when the ask is still fuzzy and no direction is chosen yet: "not sure what we want", several ways to go,
+  or a scope to settle before any plan is written.
 ---
 
 # Brainstorm — diverge before you converge
