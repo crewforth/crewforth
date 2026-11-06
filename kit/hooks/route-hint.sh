@@ -36,11 +36,12 @@
 # nothing works" report from Windows users, and it is not a Claude Code bug: Crewforth was spending the budget.
 #
 # Everything below is therefore one awk invocation over the component files, with the normalisation and the
-# matching done inside awk. Total external processes: FIVE — cat, sed, sed, head, awk. (The count said four
-# until it was traced with `bash -x` on Windows; the `cat` on the next line reads stdin and had been read
-# past.) Measured end to end here: 5 spawns, ~328 ms per prompt idle. eval/smoke-test.sh §7y pins the shape.
+# matching done inside awk. Total external processes: FOUR — sed, sed, head, awk; stdin is read with the `read`
+# builtin (it was a `cat`, the fifth). eval/smoke-test.sh §7y pins the shape. With no awk or sed on PATH there is
+# nothing to match with, so the hook says nothing and exits 0 rather than printing "command not found" into a session.
 set -uo pipefail
-IN="$(cat)"
+command -v awk >/dev/null 2>&1 && command -v sed >/dev/null 2>&1 && command -v head >/dev/null 2>&1 || exit 0
+IN=""; IFS= read -r -d '' IN || true
 case "$IN" in *'"hook_event_name"'*UserPromptSubmit*) ;; *) exit 0 ;; esac
 
 # Two editions, two layouts: a full install puts the components under .claude/, the plugin ships them beside the

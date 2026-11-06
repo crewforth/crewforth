@@ -15,6 +15,7 @@ Loaded on demand — the SKILL.md loop is the method; this is the toolbox for a 
 - **Debugger/breakpoint** — best for a reliable, local repro where you want to inspect live state and step. Conditional breakpoints (`x == badValue`) skip the noise.
 - **Assertions/invariants** — add a check that *should* always hold; the point it fires is upstream of the symptom.
 - **Bisect on values** — binary-search *when* a value goes wrong: log at start/middle/end of the pipeline, then narrow.
+- **Boundary logging** — when a value crosses several layers (config → loader → service → handler), log what enters and what leaves each layer, run once, and read where the value first differs from what was sent. The layer where it changes owns the bug.
 
 ## Intermittent / heisenbugs (can't reliably reproduce)
 
@@ -40,5 +41,9 @@ Root cause: <the confirmed chain>  Fix: <change at cause>  Test: <regression tes
 ```
 
 ## When to stop and get a second pair of eyes
+
+**Three fixes that each moved the failure somewhere else** is a different stop: the defect is in the design, not in
+any one line. Stop patching and put the design question to the user with AskUserQuestion, with the log of the three
+fixes and where each one moved the failure.
 
 After ~3 disproved hypotheses with no new information, or when you've been staring at the same 20 lines — you likely hold a wrong assumption you can't see. Escalate: hand over the hypothesis log (not "it's broken") so the next person starts from what's *already ruled out*, not from zero. In Crewforth, that handover is the `handoff` skill.

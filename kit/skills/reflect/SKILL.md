@@ -21,7 +21,8 @@ Run **`bash .claude/hooks/session-stats.sh`** (Bash tool, not PowerShell) before
 reports. A retro built only on recall is an interview with the least reliable witness in the room: the model
 reconstructs a tidy story from a context that has already been summarised, and the stretches where it span on a
 failing approach are exactly the ones it remembers least. The script counts what actually happened — prompts,
-tool calls, failing loops, near-duplicate prompts, interrupts, auto-compactions.
+tool calls, failing loops, near-duplicate prompts, interrupts, auto-compactions, a done/fixed claim with no command
+behind it, and a component the prompt triggered that never ran.
 
 Treat each ⚠️ as a **question to answer in the pass**, not a verdict: a runaway loop asks *what assumption kept
 failing*; a re-fetch loop asks *what the first truncated look hid*; an error loop asks *what the error said

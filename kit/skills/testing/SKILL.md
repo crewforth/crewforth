@@ -34,9 +34,16 @@ Green is evidence only if the test could have gone red. Shapes that check nothin
   both sides still matches.
 - **A double asserted against its own stub:** the fake is told to return X and the test asserts X; only the fake runs.
 - **No assertion:** it passes because nothing threw. If *not throwing* is the behavior under test, assert that.
+- **Synthetic input:** the test hands the function a value its real callers never produce, so it passes on a path the
+  bug never takes. Reproduce through the entry point the bug came in by (the CLI, the handler, the parser's output).
 
 **Prove it can fail:** break what the test covers — invert a condition, return a wrong constant — confirm it goes red,
 then restore. Still green means the test is documentation, not a gate: fix it or delete it, never count it as coverage.
+For a bug fix the same proof is the fix itself: the new test fails with the fix reverted and passes with it.
+- Before writing a test, name the production change that would make it fail. If only a deliberate edit of the test's
+  own expectation can fail it, it is a change detector, not a test.
+- A fake mirrors the real thing's whole shape (fields, errors, ordering), not only the part this test reads.
+- Cleanup and setup used only by tests live in test helpers, not as test-only branches in production code.
 
 ## Flaky triage
 An intermittent failure gets exactly one outcome, decided the day it is seen: **fix** it, **quarantine** it (out of

@@ -16,6 +16,8 @@
 # EXACT pattern line below. Each entry ends in its reason, `  # <why, 20+ characters>`: an entry without one exempts
 # nothing, and a staged allowlist with a bare entry or a reason copied word for word is refused. The allowlist change
 # sits in the same diff as the code it excuses, where review sees it; gate-report.sh counts the entries per rule.
+# An allowlist line written to get one commit through is not an exception, it is the rule turned off; a `rule:` line
+# turns a rule off for the whole repository and is a decision for an ADR, not for a commit message.
 #
 # `path:` IS A SHELL PATTERN, NOT A .gitignore GLOB, and it is wider than it reads. `*` also matches `/`, so
 # `path:*.cs` exempts EVERY C# file in the repository, not the ones at the root; and `**` means nothing special, so
@@ -104,6 +106,20 @@ Stryker disable
 #test-clean: it('rejects an expired token', async () => {
 #test-clean: const exit = await shell.exec('npm test');
 
+# rule: lint-baseline-widened
+# A path or rule added to a linter's ignore list switches the checker off for it, the same move as a suppression
+# comment, made in a config file instead. Read line by line, so it sees the key being added; an entry appended to a
+# list that already exists is on a line of its own and is not recognisable without the lines around it.
+ignorePatterns["']?[[:space:]]*:
+#test:   "ignorePatterns": ["src/legacy/**"],
+#test: module.exports = { ignorePatterns: ["dist/"] };
+per-file-ignores
+#test: [tool.ruff.lint.per-file-ignores]
+#test: per-file-ignores = src/legacy/*.py:E501
+ignore_errors[[:space:]]*=[[:space:]]*[Tt]rue
+#test: ignore_errors = true
+#test-clean: ignoreCase: true,
+#test-clean: errors_ignored_total = 0
 # rule: unfinished-work
 throw[[:space:]]+new[[:space:]]+NotImplementedException
 #test: public Task Handle() => throw new NotImplementedException();
