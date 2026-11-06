@@ -114,5 +114,17 @@
   ],
   "notMeasured": [
     "routes registered with a run-time path (1)"
+  ],
+  "tests": {
+    "mod:node:@demo/api": {
+      "files": [
+        "packages/api/src/server.test.js"
+      ],
+      "total": 1
+    }
+  },
+  "absentTests": [
+    "mod:node:@demo/web",
+    "mod:node:@demo/shared"
   ]
 }

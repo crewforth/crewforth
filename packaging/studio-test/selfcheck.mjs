@@ -1794,6 +1794,21 @@ check('prose without a notice yields nothing', none.size === 0);
         ins.layer === 'API' && ins.domain === 'orders' && ins.inside.folders[0].folder === 'src' && ins.inside.folders[0].files === 4 && ins.inside.tests === 2
         && mpl.inspectOf(mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared'), ws, mpl.edgesOf(ws), []).layer === null,
         JSON.stringify([ins.layer, ins.domain, ins.inside]));
+      // P11-04/-05/-07: where its tests are, how often it changed, and the WHY/HACK/FIXME lines the scan cited.
+      const tw = JSON.parse(JSON.stringify(lw));
+      const tN = tw.nodes.find((n) => n.id === apiN.id);
+      tN.tests = { files: ['packages/api/src/server.test.js'], total: 3, modules: ['mod:node:api-e2e'] };
+      tN.commits = 7; tw.source = { commit: 'a'.repeat(40), commitsRead: 120 };
+      tN.markers = { evidence: [{ file: 'packages/api/src/server.js', line: 4, text: 'WHY: one pool per process' }], evidenceTotal: 6 };
+      const ti = mpl.inspectOf(mpl.nodesOf(tw).find((n) => n.id === apiN.id), tw, mpl.edgesOf(tw), []);
+      const bare = mpl.inspectOf(mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared'), ws, mpl.edgesOf(ws), []);
+      check('the inspector names a module\'s test files, how often it changed in the commits the scan read, and the notes in its code',
+        ti.testFiles.join() === 'packages/api/src/server.test.js' && ti.testTotal === 3 && ti.changed === 'Changed in 7 of the last 120 commits'
+        && ti.notes.length === 1 && ti.notes[0].at === 'packages/api/src/server.js:4' && ti.notesTotal === 6,
+        JSON.stringify([ti.testFiles, ti.testTotal, ti.changed, ti.notes, ti.notesTotal]));
+      check('a module the scan found no tests, commits or notes for says none of them (a map scanned outside git has no count)',
+        bare.testFiles.length === 0 && bare.testTotal === 0 && bare.changed === null && bare.notes.length === 0,
+        JSON.stringify([bare.testFiles, bare.changed, bare.notes]));
     }
     const t = mpl.taskOf(fwAll.shown.find((f) => !f.proven));
     check('a finding copied as a task says what, where, and, for an inferred one, to check it first',

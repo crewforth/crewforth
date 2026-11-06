@@ -315,6 +315,14 @@ export function inspectOf(node, doc, edges, findings) {
       other: node.structure?.otherFiles ?? 0,
       tests: node.structure?.testFiles ?? 0,
     } : null,
+    // Where its tests are (its own test files and a test project named for it), how often it changed in the commits
+    // the scan read, and the WHY/HACK/FIXME lines in its code: what someone about to change it asks first.
+    testFiles: Array.isArray(node.tests?.files) ? node.tests.files.filter((f) => typeof f === 'string') : [],
+    testTotal: Number.isInteger(node.tests?.total) ? node.tests.total : 0,
+    changed: Number.isInteger(node.commits) && Number.isInteger(doc?.source?.commitsRead) && doc.source.commitsRead > 0
+      ? `Changed in ${node.commits} of the last ${doc.source.commitsRead} ${doc.source.commitsRead === 1 ? 'commit' : 'commits'}` : null,
+    notes: (node.markers?.evidence ?? []).filter((e) => e && typeof e.file === 'string').map((e) => ({ at: `${e.file}:${e.line}`, text: String(e.text ?? '') })),
+    notesTotal: node.markers?.evidenceTotal ?? (node.markers?.evidence ?? []).length,
     connectsTo: out,
     connections: { out, in: into },
     byKind: Object.entries(byKind).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),

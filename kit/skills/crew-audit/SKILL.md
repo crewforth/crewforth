@@ -24,6 +24,8 @@ more than one that sounds complete.
    - data writes: persistence, migrations, deletes, imports, anything that changes stored data;
    - secrets and egress: keys, tokens, outbound calls, webhooks;
    - then entry points and everything a user's input reaches.
+   Between two of equal cost, go first where the map says more happened: a higher `commits` count, and `markers`
+   (the code's own WHY/HACK/FIXME lines) point at a debt someone already admitted.
    Take at most **8 modules** for the deep pass and list the rest by name. Say which rank put each one in.
 
 3. **Read deep modules whole.** A Read returns at most 2000 lines and does not say it stopped: page a longer file

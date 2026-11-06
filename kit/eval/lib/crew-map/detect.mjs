@@ -10,7 +10,7 @@
 
 import crypto from 'node:crypto';
 import { canon } from './surface.mjs';
-import { sortEv } from './project.mjs';
+import { sortEv, isTestModule } from './project.mjs';
 
 export const RULES = ['cycle', 'module-orphan', 'version-drift', 'dep-undeclared', 'dep-unused', 'config-missing',
   'config-unread', 'endpoint-missing', 'endpoint-unused', 'external-unowned'];
@@ -85,6 +85,7 @@ export function detect(ctx) {
     for (const m of mods) {
       if (m.dir === '.' || m.entry || m.deployed || incoming.has(m.id)) continue;
       if (m.tech.has('maven:pom')) continue; // an aggregator is a build entry point
+      if (isTestModule(m)) continue; // a test project is run by the test runner, never referenced
       out.push(finding('module-orphan', m.id, `No module references ${m.name}, and it has no entry point`, m.evidence, { module: m.id }));
     }
   }

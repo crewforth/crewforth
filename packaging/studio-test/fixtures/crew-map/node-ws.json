@@ -119,6 +119,12 @@
         ],
         "testFiles": 1
       },
+      "tests": {
+        "files": [
+          "packages/api/src/server.test.js"
+        ],
+        "total": 1
+      },
       "evidence": [
         {
           "file": "packages/api/package.json",

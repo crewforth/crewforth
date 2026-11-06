@@ -24,8 +24,9 @@ export const LAYERS = ['ui', 'api', 'service', 'data', 'infra', 'tool', 'library
 /** The "file:line" a narrative of this node may cite. */
 export function citesOf(node) {
   const out = new Set();
-  // Its evidence, its entry point and what its README says about it: every line the scan read for this node.
-  for (const e of [node?.evidence, node?.entryPoint?.evidence, node?.about?.evidence].flatMap((x) => (Array.isArray(x) ? x : []))) {
+  // Its evidence, its entry point, what its README says about it and the WHY/HACK/FIXME lines in its code: every
+  // line the scan read for this node.
+  for (const e of [node?.evidence, node?.entryPoint?.evidence, node?.about?.evidence, node?.markers?.evidence].flatMap((x) => (Array.isArray(x) ? x : []))) {
     if (e && typeof e.file === 'string' && Number.isInteger(e.line)) out.add(`${e.file}:${e.line}`);
   }
   return out;
@@ -65,6 +66,16 @@ export function problemOf(n, allowed, { max = MAX_NODE, twoSentences = true, mod
 export function strip(doc) {
   if (!doc || typeof doc !== 'object') return doc;
   return { ...doc, nodes: (doc.nodes ?? []).map((n) => ({ ...n, narrative: null })), overview: null, tour: null };
+}
+
+/**
+ * What a later scan of the same tree must reproduce byte for byte: the document without what the model wrote, the
+ * commit it was scanned at, and how often each module changed. The last two move with every commit, the map's own
+ * included, so a committed map is not called stale for them.
+ */
+export function steady(doc) {
+  const { source, ...rest } = strip(doc);
+  return { ...rest, nodes: rest.nodes.map(({ commits, ...n }) => n) };
 }
 
 /** Why a tour is not acceptable, or null when it is (null itself is: not written yet). */
@@ -115,7 +126,7 @@ export function carry(old, fresh) {
  */
 export function validate(file, fresh, serialize) {
   const out = [];
-  const bare = (d) => { const { source, ...rest } = strip(d); return serialize(rest); };
+  const bare = (d) => serialize(steady(d));
   if (bare(file) !== bare(fresh)) {
     out.push({ at: 'scan', message: 'the map\'s scanner fields differ from a scan of this tree: a field was changed by hand, or the tree changed since (scan again first)' });
   }
