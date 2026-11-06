@@ -327,9 +327,13 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
       const d = fs.mkdtempSync(path.join(TMP, 'k1-'));
       spawnSync('git', ['init', '-q', d]);
       fs.writeFileSync(path.join(d, '.gitignore'), list.join('\n') + '\n');
-      return spawnSync('git', ['check-ignore', '-q', '--no-index', '.crewforth/crew-map.json'], { cwd: d }).status;
+      return spawnSync('git', ['check-ignore', '-q', '--no-index', file], { cwd: d }).status;
     };
+    let file = '.crewforth/crew-map.json';
     check(`K1: the ${entries.length} installer ignore entries leave .crewforth/crew-map.json committable`, entries.length >= 6 && ask(entries) === 1, `entries: ${entries.join(' ')} · rc ${ask(entries)}`);
+    file = '.crewforth/crew-map-ignore';
+    check('K1: they leave .crewforth/crew-map-ignore committable too, so a team shares what its map leaves out', ask(entries) === 1, `rc ${ask(entries)}`);
+    file = '.crewforth/crew-map.json';
     check('K1 twin: the same check sees an entry that would hide it', ask([...entries, '.crewforth/']) === 0);
   }
 }
@@ -428,6 +432,27 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   const forced = cli(root, '--force');
   check('--force writes that rescan anyway', forced.status === 0 && fs.readFileSync(file, 'utf8') !== held, `rc ${forced.status}; ${forced.stderr.trim().split('\n').pop()}`);
   fs.rmSync(away, { recursive: true, force: true });
+}
+
+/* -- 8b3. the project's own exclusions, and the ledger a rescan prints ------------------------------------------ */
+{
+  const root = copy('node-ws');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli();
+  const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const same = cli();
+  check('a rescan of an unchanged tree says no node or edge changed', same.status === 0 && /no node or edge changed/.test(same.stderr), same.stderr.trim().split('\n').pop());
+  const gone = before.nodes.find((x) => x.id === 'mod:node:orphan-lib') ?? before.nodes.find((x) => x.kind === 'module' && x.path && x.path !== '.');
+  fs.writeFileSync(path.join(root, '.crewforth', 'crew-map-ignore'), `# generated code\n${gone.path}/\n`);
+  const r = cli();
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  check(`a folder named in .crewforth/crew-map-ignore is left out (${gone.id}), and coverage says how many files`,
+    r.status === 0 && !after.nodes.some((x) => x.id === gone.id) && after.coverage.excluded > 0 && after.coverage.files === before.coverage.files - after.coverage.excluded
+      && !JSON.stringify(after).includes(`"file": "${gone.path}/`),
+    `rc ${r.status}; excluded ${after.coverage.excluded}; files ${before.coverage.files} -> ${after.coverage.files}`);
+  check('the rescan ledger names the module that left, by id', new RegExp(`nodes removed 1: ${gone.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(r.stderr), r.stderr.trim());
+  check('a map with no ignore file carries no excluded count', before.coverage.excluded === undefined);
 }
 
 /* -- 8c. a description may rest on what a module's README says about it ------------------------------------------ */

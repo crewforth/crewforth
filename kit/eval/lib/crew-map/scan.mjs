@@ -168,7 +168,7 @@ export function scan(root = '.', opts = {}) {
     producer: { name: NAME, version: '1' },
     ...(pj.commit ? { source: { commit: pj.commit } } : {}),
     stacks,
-    coverage: { files: pj.files.length, modules: st.modules.length, listing: pj.git ? 'git' : 'walk' },
+    coverage: { files: pj.files.length, modules: st.modules.length, listing: pj.git ? 'git' : 'walk', ...(pj.ignoreRules ? { excluded: pj.excluded } : {}) },
     nodes,
     edges,
     provides: { endpoints: epSort(eps.provides) },
@@ -212,6 +212,25 @@ function summary(doc) {
   return `crew-map: ${mods} module(s) · ${ext} external resource(s) · ${doc.edges.length} edge(s) · `
     + `${doc.provides.endpoints.length} endpoint(s) provided · ${doc.consumes.endpoints.length} called · `
     + `${doc.findings.length} finding(s) (${hidden} hidden by default) · ${doc.notMeasured.length} not measured`;
+}
+
+// What a rescan changed, by stable id, so the reader sees which modules came, went or moved and not only a byte
+// count: nodes added, removed and changed (any scanner field; descriptions are not the scan's), edges added and
+// removed by from → to and kind. At most eight ids are named per list; the count is always whole.
+export function ledger(was, doc) {
+  const bare = (n) => { const { narrative, ...rest } = n; return JSON.stringify(rest); };
+  const before = new Map((was.nodes ?? []).map((n) => [n.id, bare(n)]));
+  const after = new Map(doc.nodes.map((n) => [n.id, bare(n)]));
+  const added = [...after.keys()].filter((k) => !before.has(k));
+  const removed = [...before.keys()].filter((k) => !after.has(k));
+  const changed = [...after.keys()].filter((k) => before.has(k) && before.get(k) !== after.get(k));
+  const ek = (e) => `${e.from} → ${e.to} (${e.kind})`;
+  const eb = new Set((was.edges ?? []).map(ek)); const ea = new Set(doc.edges.map(ek));
+  const eAdded = [...ea].filter((k) => !eb.has(k)); const eRemoved = [...eb].filter((k) => !ea.has(k));
+  if (!added.length && !removed.length && !changed.length && !eAdded.length && !eRemoved.length) return 'crew-map: since the last scan: no node or edge changed';
+  const list = (xs) => (xs.length ? ` ${xs.length}: ${xs.slice(0, 8).join(', ')}${xs.length > 8 ? `, … ${xs.length - 8} more` : ''}` : ' 0');
+  return ['crew-map: since the last scan:', `  nodes added${list(added)}`, `  nodes removed${list(removed)}`, `  nodes changed${list(changed)}`,
+    `  edges added${list(eAdded)}`, `  edges removed${list(eRemoved)}`].join('\n');
 }
 
 export function main(argv) {
@@ -277,6 +296,7 @@ export function main(argv) {
   }
   const r = write(carried.doc, root, NAME);
   if (!r.ok) { for (const p of r.problems) console.error(`  FAIL ${p.at}: ${p.code} — ${p.message}`); return 1; }
+  if (was) console.error(ledger(was, doc));
   console.error(summary(doc) + (carried.kept || carried.dropped ? ` · ${carried.kept} description(s) kept, ${carried.dropped} dropped (they cited lines this scan no longer reads)` : ''));
   console.log(r.file);
   return 0;

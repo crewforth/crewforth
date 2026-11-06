@@ -35,6 +35,10 @@ versioning follows [SemVer](https://semver.org/).
 - **A rescan that would lose most of the map writes nothing.** When described nodes would mostly vanish, or the
   module count would fall by more than half (a wrong `--root`, a damaged checkout), the scanner exits 1 with both
   counts and keeps the old map; `--force` writes it anyway.
+- **The Crew Map can leave out what the project names, and says what a rescan changed.** Patterns in
+  `.crewforth/crew-map-ignore` (a name at any depth, a path from the root, `*` and `**`) are not scanned, and
+  `coverage.excluded` counts the files left out. A rescan prints the nodes and edges it added, removed and changed,
+  by id, so `/crew-map` reports which modules came or went instead of a byte count.
 - **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
   object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
   (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is
