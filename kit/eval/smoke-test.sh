@@ -13687,7 +13687,10 @@ if [ -f "$_EVR" ]; then
   elif [ "$_calr" = 0 ]; then
     pass "evals: every grader is calibrated ($_caln) — known-good passes, known-bad fails, free and without a model"
   elif [ "$_calr" = 3 ] && [ -z "$(printf '%s\n' "$_cal" | sed -n 's/^ *NOT CALIBRATED://p' | sed 's/[a-z-]*(needs[^)]*)//g' | tr -d ' ')" ]; then
-    skip tool "evals calibration: a case needs a tool this machine lacks ($(printf '%s' "$_cal" | grep 'NOT CALIBRATED' | cut -c1-120))"
+    # A language runtime a case declares (REQUIRES=, e.g. go) is a property of the runner. Linux CI has them and must
+    # calibrate every case, so there the skip is a broken runner; on macOS and Windows the Linux leg already covered it.
+    case "$(uname -s)" in Linux) _calk=tool ;; *) _calk=platform ;; esac
+    skip "$_calk" "evals calibration: a case needs a tool this machine lacks ($(printf '%s' "$_cal" | grep 'NOT CALIBRATED' | cut -c1-120))"
   else
     fail "evals calibration rc $_calr: $(printf '%s\n' "$_cal" | grep -E 'MISGRADED|NOT CALIBRATED' | head -3 | tr '\n' ' ')"
   fi
