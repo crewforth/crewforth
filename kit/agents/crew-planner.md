@@ -38,7 +38,8 @@ decision — the main thread asks and records the answer.
   Your task says what the map's `--check` answered. "Differs from the tree": the plan says so in one line and treats
   the map's module facts as unverified, confirmed from the code before a task rests on them. "Did not run" or
   nothing said: the plan says the map's freshness was not checked. A module's `tests` lists its test files: a task
-  that changes the module names those as its verify.
+  that changes the module names those as its verify. Modules and their evidence are located; the map's `notMeasured`
+  list and a module whose `narrative` is null are unknown: search there before a task rests on them.
 - Define the problem in a single sentence; clarify what is in scope and out of scope.
 - Break tasks into atomic steps; derive the dependency order.
 - For each step, write acceptance criteria (how "done" is judged).
@@ -70,6 +71,10 @@ Every task of the plan that a crew agent will run carries its card, ready to ope
 files or globs it touches), `change:` (text · feature · fix-known · fix-unknown · refactor · migration · security ·
 architecture · test-run · test-write · audit) and `verify:` (the command that proves it, or `none`). Name a real
 command wherever one exists: work with `verify: none` cannot go to the cheapest model and is checked by a reader only.
+Copy the commands from `CLAUDE.md` `## Verify` (and the module's `tests` on the Crew Map) instead of guessing one.
+`verify:` stays a command: a UI change only a person can judge adds a `look:` line after the card, for the reviewer.
+The plan carries the `commit:` it was written at; a card may quote the current code it changes, and a task whose
+quote no longer matches the file stops and reports instead of improvising.
 
 ## Confidence
 The LAST line of every report is exactly `confidence: high` or exactly `confidence: low`: lower case, nothing else
