@@ -201,7 +201,7 @@ export function scan(root = '.', opts = {}) {
 
 function usage(msg) {
   if (msg) console.error(`crew-map: ${msg}`);
-  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate]');
+  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate | --force]');
   return 2;
 }
 
@@ -215,10 +215,11 @@ function summary(doc) {
 }
 
 export function main(argv) {
-  let root = '.'; let mode = 'write';
+  let root = '.'; let mode = 'write'; let force = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--root') { root = argv[++i]; if (root === undefined) return usage('--root needs a directory'); }
+    else if (a === '--force') force = true;
     else if (a === '--stdout' || a === '--check' || a === '--validate') { if (mode !== 'write') return usage('--stdout, --check and --validate do not go together'); mode = a.slice(2); }
     else return usage(`no such option: ${a}`);
   }
@@ -257,6 +258,23 @@ export function main(argv) {
   }
   // The descriptions /crew-map wrote are kept where they still cite only lines this scan cites; the rest are dropped.
   const carried = was ? carry(was, doc) : { doc, kept: 0, dropped: 0 };
+  // A rescan that would lose most of what the map held is far more often a wrong --root or a damaged checkout than a
+  // project that halved: /crew-map never commits, so the descriptions it drops exist nowhere else. Write nothing and
+  // say both counts; --force writes it anyway. Only descriptions whose NODE is gone count here: one whose cited line
+  // moved is dropped by design on an ordinary edit, and that rescan must still write.
+  const modsOf = (d) => (d?.nodes ?? []).filter((n) => n.kind === 'module').length;
+  const shrank = [];
+  if (was) {
+    const ids = new Set(doc.nodes.map((n) => n.id));
+    const described = (was.nodes ?? []).filter((n) => n.narrative != null);
+    const orphaned = described.filter((n) => !ids.has(n.id)).length;
+    if (orphaned * 2 > described.length) shrank.push(`${orphaned} of ${described.length} described node(s) would be gone, with their descriptions`);
+    if (modsOf(doc) * 2 < modsOf(was)) shrank.push(`modules would fall from ${modsOf(was)} to ${modsOf(doc)}`);
+  }
+  if (shrank.length && !force) {
+    console.error(`crew-map: nothing written — ${shrank.join('; ')}. A wrong --root or a damaged checkout does this; if the project really changed, run again with --force`);
+    return 1;
+  }
   const r = write(carried.doc, root, NAME);
   if (!r.ok) { for (const p of r.problems) console.error(`  FAIL ${p.at}: ${p.code} — ${p.message}`); return 1; }
   console.error(summary(doc) + (carried.kept || carried.dropped ? ` · ${carried.kept} description(s) kept, ${carried.dropped} dropped (they cited lines this scan no longer reads)` : ''));

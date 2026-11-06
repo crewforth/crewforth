@@ -7108,6 +7108,81 @@ _PLANT="$(printf x | grep -c x)"
 else
   fail "loop-guard.sh missing or not executable"
 fi
+sec "== 7y3) map-stale: an edit to a file the Crew Map cites is said once per agent, as a fact =="
+# map-stale.sh runs after every Edit/Write call. When .crewforth/crew-map.json exists and cites the edited file (a
+# "file" or "manifest" value), it says once, for this session and agent, that the map was scanned before the edit.
+# No map, a file it does not cite, a file outside the project, CREW_MAP_STALE=off: silence. Each case drives real
+# payloads through the hook; the once-only case is proven able to go red by cutting the marker from a copy.
+MS="$ROOT/hooks/map-stale.sh"
+if [ -x "$MS" ]; then
+  _msd="$(mktemp -d)"; _msd="$(cd -P "$_msd" && pwd)"
+  # $1 project, $2 session, $3 tool, $4 path as it goes into the JSON, $5 extra fields ("" for none)
+  msj(){ printf '{"session_id":"%s","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"%s","tool_input":{"file_path":"%s","old_string":"a","new_string":"b"}%s,"tool_use_id":"t"}' "$2" "$1" "$3" "$4" "$5"; }
+  msmap(){ mkdir -p "$1/.crewforth"; printf '%s\n' '{' '  "nodes": [' '    {' '      "id": "mod:node:api",' \
+    '      "manifest": "api/package.json",' '      "evidence": [' '        {' '          "file": "api/src/pay.ts",' \
+    '          "line": 3' '        }' '      ]' '    }' '  ]' '}' > "$1/.crewforth/crew-map.json"; }
+  # $1 project, $2 hook, $3 env value ("" unset), then payloads on stdin, one per line -> _MSA additionalContext lines, _MSR non-zero rcs
+  msrun(){ local l; : > "$1/out"; : > "$1/rc"
+    while IFS= read -r l; do [ -n "$l" ] || continue
+      if [ -n "$3" ]; then ( cd "$1" && printf '%s' "$l" | CREW_MAP_STALE="$3" CLAUDE_PROJECT_DIR="$1" bash "$2" >> "$1/out" 2>>"$1/err" ); echo "$?" >> "$1/rc"
+      else ( unset CREW_MAP_STALE; cd "$1" && printf '%s' "$l" | CLAUDE_PROJECT_DIR="$1" bash "$2" >> "$1/out" 2>>"$1/err" ); echo "$?" >> "$1/rc"; fi
+    done
+    _MSA="$(grep -c '"additionalContext":"Crew Map: .crewforth/crew-map.json cites lines in this file' "$1/out" 2>/dev/null)"; _MSA="${_MSA:-0}"
+    _MSR="$(grep -cvx 0 "$1/rc" 2>/dev/null)"; _MSR="${_MSR:-0}"; }
+  # (1) a cited file, twice in one session: one line. The same file from a subagent: its own one line.
+  msonce(){ msj "$1" s1 Edit "$1/api/src/pay.ts" ""; echo; msj "$1" s1 Write "$1/api/src/pay.ts" ""; echo
+    msj "$1" s1 Edit "$1/api/src/pay.ts" ',"agent_id":"a1"'; echo; msj "$1" s1 Edit "$1/api/src/pay.ts" ',"agent_id":"a1"'; echo; }
+  _MSP="$_msd/once"; mkdir -p "$_MSP"; msmap "$_MSP"; msonce "$_MSP" > "$_msd/once.in"
+  msrun "$_MSP" "$MS" "" < "$_msd/once.in"
+  if [ "$_MSA" = 2 ] && [ "$_MSR" = 0 ]; then
+    grep -qiE 'MUST|MANDATORY|IMPORTANT' "$_MSP/out" \
+      && fail "map-stale: the note is worded as an order — a PostToolUse note is weighed as a fact, an order derails the turn" \
+      || pass "map-stale: a cited file edited twice says it once, and a subagent editing it is told once on its own"
+  else fail "map-stale: four edits of a cited file (2 by the session, 2 by a subagent) gave $_MSA note(s) (want 2), $_MSR non-zero exit(s)"; fi
+  # (2) ...and the once can go red: without the marker check, the same four edits speak four times.
+  grep -v '^\[ -e "\$MK" \] && exit 0$' "$MS" > "$_msd/mut.sh"
+  if cmp -s "$MS" "$_msd/mut.sh"; then fail "map-stale must-fail: the mutation changed nothing — the marker check moved, so the once-only case proves nothing"
+  else _MSP="$_msd/mut"; mkdir -p "$_MSP"; msmap "$_MSP"; msonce "$_MSP" > "$_msd/mut.in"; msrun "$_MSP" "$_msd/mut.sh" "" < "$_msd/mut.in"
+    [ "$_MSA" = 4 ] && pass "map-stale must-fail: without the marker check the same edits speak 4 times, so the once above is the marker's" \
+                    || fail "map-stale must-fail: the mutated copy gave $_MSA note(s) (want 4) — the once-only case cannot go red"; fi
+  # (3) a manifest the map names, and a path written with backslashes (as on Windows): both are cited.
+  _MSP="$_msd/forms"; mkdir -p "$_MSP"; msmap "$_MSP"
+  _msbs="$(printf '%s' "$_MSP/api/src/pay.ts" | sed 's#/#\\\\#g')"
+  { msj "$_MSP" s1 Write "$_MSP/api/package.json" ""; echo; msj "$_MSP" s2 Edit "$_msbs" ""; echo; } > "$_msd/forms.in"; msrun "$_MSP" "$MS" "" < "$_msd/forms.in"
+  [ "$_MSA" = 2 ] && [ "$_MSR" = 0 ] \
+    && pass "map-stale: a cited manifest and a backslash-written path are both recognised" \
+    || fail "map-stale: manifest + backslash path gave $_MSA note(s) (want 2), $_MSR non-zero exit(s)"
+  # (4) silence: a file the map does not cite, one outside the project with the same tail, a path that only starts
+  # like a cited one, no map at all, and CREW_MAP_STALE=off.
+  _MSP="$_msd/quiet"; mkdir -p "$_MSP"; msmap "$_MSP"
+  { msj "$_MSP" s1 Edit "$_MSP/api/src/other.ts" ""; echo; msj "$_MSP" s1 Edit "/elsewhere/api/src/pay.ts" ""; echo
+    msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts.bak" ""; echo; msj "$_MSP" s1 Edit "$_MSP/x/api/src/pay.ts" ""; echo; } > "$_msd/quiet.in"; msrun "$_MSP" "$MS" "" < "$_msd/quiet.in"
+  _msq1="$_MSA/$_MSR"
+  _MSP="$_msd/nomap"; mkdir -p "$_MSP"; msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" "" > "$_msd/q.in"; msrun "$_MSP" "$MS" "" < "$_msd/q.in"; _msq2="$_MSA/$_MSR"
+  _MSP="$_msd/off"; mkdir -p "$_MSP"; msmap "$_MSP"; msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" "" > "$_msd/q.in"; msrun "$_MSP" "$MS" off < "$_msd/q.in"; _msq3="$_MSA/$_MSR"
+  [ "$_msq1" = 0/0 ] && [ "$_msq2" = 0/0 ] && [ "$_msq3" = 0/0 ] && [ ! -e "$_msd/off/.claude/state" ] && [ ! -e "$_msd/nomap/.claude" ] \
+    && pass "map-stale: silent on an uncited file, a file outside the project, a look-alike path, no map, and CREW_MAP_STALE=off" \
+    || fail "map-stale: should be silent — uncited/outside/look-alike $_msq1, no map $_msq2, off $_msq3 (notes/non-zero exits; want 0/0 each)"
+  # Cost: an edit that does not fire starts no process (counter from §4.5's gate cost table, when it calibrated).
+  if declare -F _gcost >/dev/null 2>&1 && [ "${_gc1:-}" = 5 ] && [ "${_gc2:-}" = 7 ]; then
+    _MSP="$_msd/cost"; mkdir -p "$_MSP"; msmap "$_MSP"
+    msj "$_MSP" s1 Edit "$_MSP/api/src/other.ts" "" > "$_msd/c1.json"
+    ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$MS" "$_msd/c1.json" "$_msd/t1" && printf '%s' "$_GCN" > "$_msd/n1" )
+    _msn1="$(cat "$_msd/n1" 2>/dev/null)"
+    sed '/^IFS= read -r -d .. INPUT || true$/a\
+_PLANT="$(printf x | grep -c x)"
+' "$MS" > "$_msd/twin.sh"
+    ( cd "$_MSP" && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$_msd/twin.sh" "$_msd/c1.json" "$_msd/t3" && printf '%s' "$_GCN" > "$_msd/n3" )
+    _msn3="$(cat "$_msd/n3" 2>/dev/null)"
+    if [ "${_msn3:-0}" -lt 2 ]; then fail "map-stale cost: a planted \$( ) + grep read ${_msn3:-nothing} — the counter sees nothing here, so a zero proves nothing"
+    elif [ "$_msn1" = 0 ]; then pass "map-stale cost: an edit that does not fire starts 0 processes, with a map to read (planted twin read $_msn3)"
+    else fail "map-stale cost: an edit cost ${_msn1:-?} processes, want 0 — it runs after every Edit/Write call, and on Git Bash a process is 20-130 ms"; fi
+  elif [ "$IS_KIT" != 1 ]; then skip scope "map-stale cost: the process counter is calibrated in Crewforth's source checkout, not in an install"
+  else skip fixture "map-stale cost: the process counter of the gate cost table did not calibrate on this bash, so no cost is claimed"; fi
+  rm -rf "$_msd"
+else
+  fail "map-stale.sh missing or not executable"
+fi
 sec "== 7z) No kit name shadows a Claude Code bundled skill/command =="
 # Skills and commands share one namespace: a SKILL.md and a commands/*.md both create `/name`, and per the
 # official docs a project skill "also overrides a bundled skill with the same name" — silently. Crewforth shipped a

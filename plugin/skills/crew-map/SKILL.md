@@ -24,6 +24,9 @@ the scan itself read, and a gate holds it to that. **Never commit.** Show the di
 2. **Scan:** `bash MAP` at the project root (Bash tool, not PowerShell). It writes the map and keeps the
    descriptions of an earlier run that still cite only lines this scan cites; it says how many it kept and dropped.
    rc 3 is no usable Node: say so and stop, it is not a pass.
+   rc 1 with "nothing written" means the rescan would lose most described nodes or half the modules: usually a
+   wrong `--root` or a damaged checkout. Show the user its line and stop; run again with `--force` only when they
+   say the project really changed.
 
 3. **Describe.** Read `.crewforth/crew-map.json`, and as much of the cited source as you need. Then edit that
    file, changing ONLY these fields:

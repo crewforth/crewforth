@@ -402,6 +402,34 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
     moved.stderr.trim().split('\n').pop());
 }
 
+/* -- 8b2. a rescan that would lose most of the map writes nothing (a wrong --root, a damaged checkout) ------------- */
+{
+  const root = copy('node-ws');
+  const cli = (r, ...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', r, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli(root);
+  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const mods = d.nodes.filter((x) => x.kind === 'module' && (x.evidence ?? []).length);
+  for (const m of mods) m.narrative = { text: 'A module.', cites: [`${m.evidence[0].file}:${m.evidence[0].line}`] };
+  const held = `${JSON.stringify(d, null, 2)}\n`;
+  fs.writeFileSync(file, held);
+  // The same project with every package but one taken away: what a --root one level too deep, or a checkout that
+  // lost its files, looks like to the scanner.
+  const pk = path.join(root, 'packages');
+  const keep = fs.readdirSync(pk).sort()[0];
+  const away = path.join(root, '..', `away-${path.basename(root)}`);
+  fs.mkdirSync(away);
+  for (const x of fs.readdirSync(pk)) if (x !== keep) fs.renameSync(path.join(pk, x), path.join(away, x));
+  const refused = cli(root);
+  const after = fs.readFileSync(file, 'utf8');
+  check(`a rescan that would drop most modules (${mods.length} described) writes nothing, exits 1 and says why`,
+    mods.length >= 2 && refused.status === 1 && after === held && /nothing written/.test(refused.stderr) && /--force/.test(refused.stderr),
+    `rc ${refused.status}; unchanged ${after === held}; ${refused.stderr.trim().split('\n').pop()}`);
+  const forced = cli(root, '--force');
+  check('--force writes that rescan anyway', forced.status === 0 && fs.readFileSync(file, 'utf8') !== held, `rc ${forced.status}; ${forced.stderr.trim().split('\n').pop()}`);
+  fs.rmSync(away, { recursive: true, force: true });
+}
+
 /* -- 8c. a description may rest on what a module's README says about it ------------------------------------------ */
 {
   const root = copy('flutter-app');
