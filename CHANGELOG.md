@@ -21,6 +21,12 @@ versioning follows [SemVer](https://semver.org/).
   it for an explicit yes and writes `docs/BRIEF.md` for `/crew-plan`. With nobody to answer (unattended runs) it
   writes the brief with its guesses marked as assumptions. The rules for asking live in
   `brainstorm/references/asking.md`, which `brainstorm` and `spec-planning` now point to.
+- **`/crew-pr` takes a branch to a merged pull request.** `open` checks the DoD first, fills the repository's own
+  PR template in order, writes the body to a file outside the tree and pushes only on "push". `status` reads the
+  checks, the merge state and the review decision once, with a table for what each merge state asks for; it waits
+  for CI only when asked to. `threads` judges review comments the way `crew-code-review` does, replies after the
+  fixing push lands and names the commit, and resolves only threads really addressed. `merge` runs only when the
+  user says so, on a clean state and the head commit that was checked.
 - **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
   object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
   (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is

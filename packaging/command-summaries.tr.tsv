@@ -17,3 +17,4 @@ crew-map	Projenin haritasını çıkarır (modüller, dokundukları ve araların
 crew-allow-verify	Hook'un koşturmadığı bir verify komutuna izin verir ya da reddedilenleri listeler (yalnız kullanıcı yazar).
 crew-audit	Diff değil bütün projeyi denetler: Crew Map'ten başlar, hatanın en pahalı olduğu yerlere (para, erişim, veri yazımı) derin iner, okumadığı yeri söyler.
 crew-interview	Planlamadan önce sizinle mülakat yapar: her seferinde tek soru, önce önerdiği cevap; hedef, kullanıcı ve bitti tanımı netleşince kısa bir brief yazar.
+crew-pr	Pull request açar, durumunu okur ve inceleme yorumlarını yanıtlar: deponun şablonunu korur, siz istemedikçe CI'ı beklemez, düzeltme push'lanmadan yorumu kapatmaz.
