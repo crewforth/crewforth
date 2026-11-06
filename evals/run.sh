@@ -45,6 +45,7 @@
 # a control arm that could see a crew- component, makes the run exit 3: the comparison did not hold.
 #
 # A case may declare REQUIRES="tool ..." in its case.env; when one is missing the case is skipped before anything is built.
+# `posix-modes` in that list is not a tool: it asks for a filesystem where chmod sets the mode stat reads back.
 #
 # Exit 0 the report printed · 1 a case is malformed or the CLI is unusable · 3 INCOMPLETE: a run was not measured (a usage
 # limit, a stream that ended in an error, or a case skipped for a missing tool), so the totals printed are not a result ·
@@ -52,6 +53,22 @@
 set -uo pipefail
 ROOT="${CREW_EVAL_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CASES="${CREW_EVAL_CASES:-$ROOT/evals/cases}"
+
+# A REQUIRES entry is a command on PATH, or `posix-modes`: a filesystem where chmod sets the mode stat reads back. Git
+# Bash on NTFS reports a mode chmod did not set, so a case graded on file modes measures nothing there; say so instead.
+posix_modes_ok() {
+  local d m; d="$(mktemp -d 2>/dev/null)" || return 1
+  chmod 700 "$d" 2>/dev/null; m="$(stat -c '%a' "$d" 2>/dev/null || stat -f '%Lp' "$d" 2>/dev/null)"
+  rmdir "$d" 2>/dev/null; [ "$m" = 700 ]
+}
+req_missing() { # REQUIRES words -> the ones this machine lacks, each with a leading space
+  local t; for t in "$@"; do
+    case "$t" in
+      posix-modes) posix_modes_ok || printf ' %s' "$t" ;;
+      *) command -v "$t" >/dev/null 2>&1 || printf ' %s' "$t" ;;
+    esac
+  done
+}
 
 RUNS=1; ONLY=""; KEEP=0; CALIB=0
 while [ $# -gt 0 ]; do
@@ -100,7 +117,8 @@ if [ "$CALIB" = 1 ]; then
     if [ ! -f "$cdir/calibrate.sh" ]; then CAL_NONE="$CAL_NONE $cname"; continue; fi
     # A case that declares a tool its grader needs is not calibrated without it either: say so, do not guess.
     REQUIRES=""; REQUIRES="$(sed -n 's/^REQUIRES="\(.*\)"/\1/p' "$cdir/case.env" | head -1)"
-    miss=""; for t in $REQUIRES; do command -v "$t" >/dev/null 2>&1 || miss="$miss $t"; done
+    # shellcheck disable=SC2086
+    miss="$(req_missing $REQUIRES)"
     if [ -n "$miss" ]; then CAL_NONE="$CAL_NONE $cname(needs$miss)"; continue; fi
     og="$(cal_one "$cdir" good)"; ob="$(cal_one "$cdir" bad)"
     why=""
@@ -496,9 +514,10 @@ for cdir in "$CASES"/*/; do
   [ -n "${DESC:-}" ] && echo "   $DESC"
   # A case whose grader needs a tool this machine lacks is skipped BEFORE anything is built or paid for. Run anyway, it
   # fails in every arm for a reason that has nothing to do with the kit, and a tie of failures reads like a result.
-  missing=""; for t in $REQUIRES; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
+  # shellcheck disable=SC2086
+  missing="$(req_missing $REQUIRES)"
   if [ -n "$missing" ]; then
-    printf '   ! SKIPPED, NOT MEASURED — needs%s, not on PATH; nothing was built or run\n\n' "$missing"
+    printf '   ! SKIPPED, NOT MEASURED — needs%s, not on this machine; nothing was built or run\n\n' "$missing"
     SKIPPED=$((SKIPPED+1)); continue
   fi
 
