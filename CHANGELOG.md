@@ -77,6 +77,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **Plans say what they rest on, and stop when the code moves under them.** `docs/PLAN.md` now records the commit it
+  was written at, a size per task (S/M/L, never a date), the one test level that proves each criterion, the
+  constraints copied word for word from the request, `Interfaces:` between tasks that feed each other, a checkpoint
+  every two or three tasks, and up to five inputs no test covers, each assigned to a task. A task may quote the code
+  it changes; when the file no longer matches, the task stops and reports. A plan with unchecked work for something
+  else is not overwritten. The planner copies `verify:` from `## Verify` and the Crew Map's `tests` instead of
+  guessing, and treats the map's `notMeasured` areas as unknown. `confidence-check` gains a seventh check, "What must
+  it reach?" (every caller, test and export a change breaks), and looks for existing code in a fixed order before
+  writing new; `iterate` builds one slice at a time and lists what it noticed but did not touch.
 - **The quality gate reads one line, `## Stack` → `Quality analysis:`** (`sonarqube-local`, `sonarqube-server` or
   `declined`), in place of six "(if SonarQube is in use)" clauses that a project with no server read as false every
   time. `declined` is reported as "no analysis ran — unverified". The doctor's readiness section says when the line

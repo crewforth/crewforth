@@ -27,7 +27,8 @@ This skill is the discipline that turns "try things until it works" into "unders
 3. **Hypothesize** — state ONE falsifiable cause: "X fails because Y." Write it down. A vague hunch is not a hypothesis. (`hooks/loop-guard.sh` points back here when a turn repeats one failure.)
 4. **Test the hypothesis** — the cheapest observation that would *disprove* it (a log, a breakpoint, a probe). If it survives, you have the cause; if not, back to 3.
 5. **Confirm the root cause** — you can explain the full chain symptom←…←cause, and you can turn the bug on and off by touching the cause.
-6. **Fix** — the smallest change at the cause (not the symptom). Consider what else shares that cause.
+6. **Fix** — the smallest change at the cause (not the symptom). Consider what else shares that cause: grep every
+   caller of the function you fix, and fix it once in the shared code rather than at each caller.
 7. **Verify** — the original repro now passes, a regression test locks it, and nothing nearby broke. The regression
    test is shown **failing with the fix reverted and passing with it**: one that is green on both sides proves
    nothing. Reproduce through the entry point the bug came in by (the CLI, the handler, the parser's real output),
