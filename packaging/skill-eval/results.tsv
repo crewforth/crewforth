@@ -1,6 +1,6 @@
 # Written by packaging/skill-eval/run.mjs; read by check.mjs. One line per case: does the description pick the
-# skill (kind is) or keep away from a neighbour's request (kind not). claude 2.1.318 · model sonnet ·
-# cost ~$3.30 at list price · complete
+# skill (kind is) or keep away from a neighbour's request (kind not). claude 2.1.319 · model sonnet ·
+# cost ~$3.39 at list price · complete
 case	skill	kind	source	description	score	worst	runs
 holdout-is-a11y-5f4c0d38	a11y	is	holdout	22aa9b00ec710b1f	1.000	1.000	3
 holdout-is-adr-46301897	adr	is	holdout	46cfbae699cb4b02	1.000	1.000	3
@@ -19,7 +19,7 @@ holdout-is-privacy-compliance-d2d94d73	privacy-compliance	is	holdout	90a0b21f06b
 holdout-is-release-ad77f22d	release	is	holdout	41e9f5274a8d1779	1.000	1.000	3
 holdout-is-security-scan-d46e56a4	security-scan	is	holdout	da43825fbf508967	1.000	1.000	3
 holdout-is-teamboard-aa27c535	teamboard	is	holdout	0fd5c7940cecfda9	1.000	1.000	3
-holdout-is-testing-88e6c95a	testing	is	holdout	c361144ea87f7fda	1.000	1.000	3
+holdout-is-testing-88e6c95a	testing	is	holdout	29e9cfaf7f173cf6	1.000	1.000	3
 working-is-a11y-169d4db1	a11y	is	working	22aa9b00ec710b1f	1.000	1.000	3
 working-is-a11y-71d3bfd4	a11y	is	working	22aa9b00ec710b1f	1.000	1.000	3
 working-is-a11y-f2fa0aef	a11y	is	working	22aa9b00ec710b1f	1.000	1.000	3
@@ -30,12 +30,12 @@ working-is-backend-architecture-51767401	backend-architecture	is	working	b4cda17
 working-is-backend-architecture-52f5b7cf	backend-architecture	is	working	b4cda17c9ea8df0b	1.000	1.000	3
 working-is-backend-architecture-a5f85bc6	backend-architecture	is	working	b4cda17c9ea8df0b	1.000	1.000	3
 working-is-backend-architecture-f8fecd51	backend-architecture	is	working	b4cda17c9ea8df0b	0.000	0.000	3
-working-is-brainstorm-7707f09c	brainstorm	is	working	10ead3b1432793a6	1.000	1.000	3
+working-is-brainstorm-7707f09c	brainstorm	is	working	5b5fbaf6a5bb645d	1.000	1.000	3
 working-is-ci-pipeline-c3af3bfd	ci-pipeline	is	working	92058089820d15cc	0.000	0.000	3
 working-is-commit-message-d4ecd786	commit-message	is	working	02761b54040a1408	0.000	0.000	3
 working-is-confidence-check-dee759c9	confidence-check	is	working	59d87922a98635e8	1.000	1.000	3
-working-is-crew-code-review-35f66095	crew-code-review	is	working	e23c34da4b6a0292	1.000	1.000	3
-working-is-crew-code-review-57a6eab5	crew-code-review	is	working	e23c34da4b6a0292	1.000	1.000	3
+working-is-crew-code-review-35f66095	crew-code-review	is	working	8b6418ddbbe9ea48	1.000	1.000	3
+working-is-crew-code-review-57a6eab5	crew-code-review	is	working	8b6418ddbbe9ea48	1.000	1.000	3
 working-is-db-migration-c589a917	db-migration	is	working	f7f1563b304e8434	1.000	1.000	3
 working-is-dependency-audit-7eb4a1f6	dependency-audit	is	working	d388060d126956a5	1.000	1.000	3
 working-is-dependency-audit-ab240ff6	dependency-audit	is	working	d388060d126956a5	1.000	1.000	3
@@ -70,14 +70,14 @@ working-is-release-60c0852c	release	is	working	41e9f5274a8d1779	1.000	1.000	3
 working-is-release-ce0afd66	release	is	working	41e9f5274a8d1779	1.000	1.000	3
 working-is-security-scan-78d744ca	security-scan	is	working	da43825fbf508967	1.000	1.000	3
 working-is-sonarqube-check-65f231f5	sonarqube-check	is	working	7e95177885d115c2	1.000	1.000	3
-working-is-spec-planning-252419ae	spec-planning	is	working	c0f36d780ec84fda	0.000	0.000	3
-working-is-systematic-debugging-25ff8b56	systematic-debugging	is	working	15125be8fedd8c0f	1.000	1.000	3
-working-is-systematic-debugging-2c0b5208	systematic-debugging	is	working	15125be8fedd8c0f	1.000	1.000	3
-working-is-systematic-debugging-800d8acc	systematic-debugging	is	working	15125be8fedd8c0f	1.000	1.000	3
+working-is-spec-planning-252419ae	spec-planning	is	working	b2e437d62b3fb1cb	0.333	0.000	3
+working-is-systematic-debugging-25ff8b56	systematic-debugging	is	working	2a791ebbe948de3d	1.000	1.000	3
+working-is-systematic-debugging-2c0b5208	systematic-debugging	is	working	2a791ebbe948de3d	1.000	1.000	3
+working-is-systematic-debugging-800d8acc	systematic-debugging	is	working	2a791ebbe948de3d	1.000	1.000	3
 working-is-teamboard-82a7a2ad	teamboard	is	working	0fd5c7940cecfda9	1.000	1.000	3
-working-is-testing-2515e220	testing	is	working	c361144ea87f7fda	0.000	0.000	3
+working-is-testing-2515e220	testing	is	working	29e9cfaf7f173cf6	0.333	0.000	3
 working-is-threat-model-359cd18f	threat-model	is	working	7600df2fd71aecfd	1.000	1.000	3
-working-is-token-budget-7d3cdcfa	token-budget	is	working	69fd3a0d42774117	1.000	1.000	3
+working-is-token-budget-7d3cdcfa	token-budget	is	working	61cca6afc29e5c04	1.000	1.000	3
 working-is-trace-scan-95845e50	trace-scan	is	working	ae2667a66a3355a3	1.000	1.000	3
 working-is-worktree-13fee13a	worktree	is	working	02a8939da7e4a68e	1.000	1.000	3
 working-not-a11y-141fb055	a11y	not	working	22aa9b00ec710b1f	1.000	1.000	3
@@ -154,13 +154,13 @@ working-not-security-scan-1c7e301a	security-scan	not	working	da43825fbf508967	1.
 working-not-security-scan-a23e0e2b	security-scan	not	working	da43825fbf508967	1.000	1.000	3
 working-not-security-scan-bb02d01e	security-scan	not	working	da43825fbf508967	1.000	1.000	3
 working-not-security-scan-d2e78b90	security-scan	not	working	da43825fbf508967	1.000	1.000	3
-working-not-systematic-debugging-01be3c48	systematic-debugging	not	working	15125be8fedd8c0f	1.000	1.000	3
+working-not-systematic-debugging-01be3c48	systematic-debugging	not	working	2a791ebbe948de3d	1.000	1.000	3
 working-not-teamboard-599b0ef4	teamboard	not	working	0fd5c7940cecfda9	1.000	1.000	3
 working-not-teamboard-7df8d940	teamboard	not	working	0fd5c7940cecfda9	1.000	1.000	3
 working-not-teamboard-832eba2d	teamboard	not	working	0fd5c7940cecfda9	1.000	1.000	3
 working-not-teamboard-ac6831a5	teamboard	not	working	0fd5c7940cecfda9	1.000	1.000	3
-working-not-testing-1c38245f	testing	not	working	c361144ea87f7fda	1.000	1.000	3
-working-not-testing-d2f939e1	testing	not	working	c361144ea87f7fda	1.000	1.000	3
-working-not-testing-ea26bae1	testing	not	working	c361144ea87f7fda	1.000	1.000	3
-working-not-token-budget-7d1eade3	token-budget	not	working	69fd3a0d42774117	1.000	1.000	3
-working-not-token-budget-a706699d	token-budget	not	working	69fd3a0d42774117	1.000	1.000	3
+working-not-testing-1c38245f	testing	not	working	29e9cfaf7f173cf6	1.000	1.000	3
+working-not-testing-d2f939e1	testing	not	working	29e9cfaf7f173cf6	1.000	1.000	3
+working-not-testing-ea26bae1	testing	not	working	29e9cfaf7f173cf6	1.000	1.000	3
+working-not-token-budget-7d1eade3	token-budget	not	working	61cca6afc29e5c04	1.000	1.000	3
+working-not-token-budget-a706699d	token-budget	not	working	61cca6afc29e5c04	1.000	1.000	3

@@ -1,5 +1,13 @@
 # Review fronts
 
+## Contents
+- Front 0 — Discovery (map the surface)
+- Front 1 — Dependencies
+- Front 2 — Code (source→sink tracing)
+- Front 3 — Configuration
+- Front 4 — Authentication + session + authorization
+- Front 5 — AI, agent and MCP code
+
 The scan applies the **source → gate → sink** model on these fronts. Read the fronts you're scanning.
 
 ## Front 0 — Discovery (map the surface)

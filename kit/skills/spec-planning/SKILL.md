@@ -1,9 +1,8 @@
 ---
 name: spec-planning
 description: |
-  Spec-first planning: task breakdown, measurable acceptance criteria, dependency order, risk priority.
-  crew-planner applies it; the plan goes to docs/PLAN.md.
-  Use when the scope is unclear or the work spans more than one change.
+  Use when work needs a plan before code: the user asks how to split it into tasks or what the acceptance
+  criteria are, or the scope spans more than one change.
 ---
 
 # Spec-First Planning

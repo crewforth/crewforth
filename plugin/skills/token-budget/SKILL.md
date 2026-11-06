@@ -1,7 +1,8 @@
 ---
 name: token-budget
 description: |
-  Context/token discipline: subagent isolation, output = summary, move-to-file, delegation threshold, lean skills.
+  Use when the context is filling up or a token budget comes up, before a large read or a long delegated
+  task, and when a skill or prompt grows too long.
 ---
 
 # Token & Context Discipline

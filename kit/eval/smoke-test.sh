@@ -356,6 +356,28 @@ printf -- '---\nname: a\ndescription: plain start\n  when: the user asks\nmetada
 rm -rf "$_fmd"
 [ -z "$_fmbad" ] && pass "frontmatter lint tells its five fixtures apart (long metadata 5 B passes · 1025 B fails · plain ': ', a bare boolean, a continued ': ' and a date named · a version string and the quoted twin clean)" \
                  || fail "frontmatter lint misreads its fixtures:$_fmbad"
+# A description that summarises the method gets acted on instead of the body (crew-skill §2: say WHEN, not HOW).
+# Warn level first, because a third of the catalogue still has that shape and each rewrite needs a skill-eval
+# measurement before it lands. The shape: an arrow, or three or more comma-separated items of one to three words.
+desc_method(){ # SKILL.md -> the description's method-summary shape, if any: an arrow, or 3+ comma-separated items of 1-3 words
+  LC_ALL=C awk 'NR==1{next} {sub(/\r$/,"")} $0=="---"{exit}
+    /^description:/{d=1; v=$0; sub(/^description:[ \t]*/,"",v); if (v !~ /^[|>]/) t=v; next}
+    d && /^[ \t]/{t=t" "$0; next} {d=0}
+    END{gsub(/[ \t]+/," ",t); print t}' "$1" |
+  grep -oE '(->|→|=>)|([A-Za-z/+-]+( [A-Za-z/+-]+){0,2}, ){2,}[A-Za-z/+-]+( [A-Za-z/+-]+){0,2}[.;:]' | head -n 1; }
+_dmd="$(mktemp -d)"
+printf -- '---\nname: a\ndescription: |\n  Plan, then build, then ship -> done.\n---\n' > "$_dmd/arrow.md"
+printf -- '---\nname: a\ndescription: |\n  Pyramid, AAA, isolation, risk coverage.\n---\n' > "$_dmd/nouns.md"
+printf -- '---\nname: a\ndescription: |\n  Use when a test is flaky, slow, or green for the wrong reason, and when one is written.\n---\n' > "$_dmd/when.md"
+if [ -z "$(desc_method "$_dmd/arrow.md")" ] || [ -z "$(desc_method "$_dmd/nouns.md")" ] || [ -n "$(desc_method "$_dmd/when.md")" ]; then
+  fail "description method-summary lint misreads its fixtures (arrow:'$(desc_method "$_dmd/arrow.md")' nouns:'$(desc_method "$_dmd/nouns.md")' when:'$(desc_method "$_dmd/when.md")')"
+else
+  _dmh=""; for f in "$SKILLS"/*/SKILL.md; do _sn="${f%/SKILL.md}"; _sn="${_sn##*/}"; is_cmd "$_sn" && continue
+    _r="$(desc_method "$f")"; [ -n "$_r" ] && _dmh="$_dmh $_sn"; done
+  [ -z "$_dmh" ] && pass "no skill description summarises its method (an arrow or a run of three short comma-separated items)" \
+                 || note "skill descriptions that summarise the method instead of saying when:$_dmh (warn level; rewrite with a skill-eval run)"
+fi
+rm -rf "$_dmd"
 pass "$(ls -d "$SKILLS"/*/ | wc -l | tr -d ' ') skills scanned (name==dir · name≤64 · name charset · strict YAML · parsed description≤1024, no < >)"
 
 sec "== 3) Orphan skill reference (agent -> nonexistent skill) =="
@@ -461,6 +483,29 @@ printf 'nobody sent you\n'  > "$REFT/orphan/skills/a/references/lost.md"
 refs_audit "$REFT/orphan/skills" > "$REFLOG" 2>&1
 [ "$REFS_BAD" = 1 ] && pass "refs_audit: an orphan reference file fails" \
                     || fail "refs_audit: orphan tree reported $REFS_BAD, expected 1"
+# A long reference is read top-down and abandoned halfway. One over 100 lines (counted after CRLF->LF) opens with a
+# `## Contents` list in its first 20 lines, so the reader can see what is further down before deciding to stop.
+ref_toc_audit(){ # dir... (each holds */references/*.md) -> "skill/references/file(N lines)" per long file with no list
+  local d f n
+  for d in "$@"; do
+    for f in "$d"/*/references/*.md; do
+      [ -f "$f" ] || continue
+      n="$(tr -d '\r' < "$f" | wc -l | tr -d ' ')"
+      [ "$n" -gt 100 ] || continue
+      tr -d '\r' < "$f" | head -n 20 | grep -q '^## Contents$' && continue
+      printf ' %s(%s lines)' "${f#"${f%/*/references/*}"/}" "$n"
+    done
+  done; }
+mkdir -p "$REFT/toc/a/references"
+{ printf '# A\n\n## Contents\n- B\n'; i=0; while [ $i -lt 100 ]; do echo x; i=$((i+1)); done; } > "$REFT/toc/a/references/listed.md"
+{ printf '# A\n'; i=0; while [ $i -lt 100 ]; do echo x; i=$((i+1)); done; } > "$REFT/toc/a/references/long.md"
+{ i=0; while [ $i -lt 100 ]; do echo x; i=$((i+1)); done; } > "$REFT/toc/a/references/edge.md"
+_rt="$(ref_toc_audit "$REFT/toc")"
+_rk="$(ref_toc_audit "$SKILLS")"
+if [ "$_rt" != " a/references/long.md(101 lines)" ]; then fail "ref_toc_audit calibration: expected only long.md (101 lines) flagged, got:${_rt:- nothing}"
+elif [ -z "$_rk" ]; then pass "every reference over 100 lines opens with a ## Contents list (a 101-line one without it fails, 100 lines and a listed one pass)"
+elif [ "$IS_KIT" = 1 ]; then fail "reference over 100 lines with no '## Contents' in its first 20 lines:$_rk"
+else pass "some references over 100 lines have no ## Contents list:$_rk (your project's own skills, not gated)"; fi
 rm -rf "$REFT"
 
 sec "== 3b) Orphan component: every skill & agent must be ROUTED (kit invariant, no idle components) =="
@@ -2914,6 +2959,15 @@ for f in "$SKILLS"/*/SKILL.md; do [ -e "$f" ] || continue; fb="$(fm_bytes "$f")"
 if   [ -z "$SKILL_FAT" ]; then pass "each skill's frontmatter ≤ ${MAX_SKILL_FM} B (per-skill ratchet)"
 elif [ "$IS_KIT" = 1 ]; then fail "skill frontmatter over the per-skill cap:$SKILL_FAT (>${MAX_SKILL_FM} B — tighten the description, keep the triggers)"
 else pass "some skill frontmatter over ${MAX_SKILL_FM} B:$SKILL_FAT (your project's own skills, not gated)"; fi
+# Per-skill ratchet on the WHOLE file, counted after CRLF->LF: an invoked skill is re-attached after compaction cut
+# to 20,000 characters, so a body past that loses its end exactly when the session is longest. The cap sits at
+# today's largest (crew-code-review, 12,814 B) plus 10%; it is a ratchet, and it may never be raised to 20,000.
+MAX_SKILL_BYTES=14100; SKILL_BIG=""
+for f in "$SKILLS"/*/SKILL.md; do [ -e "$f" ] || continue; sb="$(tr -d '\r' < "$f" | wc -c | tr -d ' ')"; [ "$sb" -le "$MAX_SKILL_BYTES" ] || SKILL_BIG="$SKILL_BIG $(basename "$(dirname "$f")")(${sb}B)"; done
+if   [ "$MAX_SKILL_BYTES" -ge 20000 ]; then fail "MAX_SKILL_BYTES=$MAX_SKILL_BYTES: at or past 20,000 a skill re-attached after compaction is cut — split it into references/ instead"
+elif [ -z "$SKILL_BIG" ]; then pass "each SKILL.md ≤ ${MAX_SKILL_BYTES} B (per-skill ratchet, under the 20,000 compaction cut)"
+elif [ "$IS_KIT" = 1 ]; then fail "SKILL.md over the per-skill cap:$SKILL_BIG (>${MAX_SKILL_BYTES} B — move depth to references/)"
+else pass "some SKILL.md over ${MAX_SKILL_BYTES} B:$SKILL_BIG (your project's own skills, not gated)"; fi
 # CACHE-STABLE ORDERING (maintainer note): the discipline + agent + skill descriptions above form a large, byte-stable
 # prompt PREFIX that prompt-caching rewards at 0.1× on reads. Keep it stable and never inject volatile content (a
 # timestamp, a per-turn counter) AHEAD of it — a change busts that cache level and everything after it. Crewforth's

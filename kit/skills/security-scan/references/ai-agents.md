@@ -1,5 +1,11 @@
 # Front 5 — AI, agent and MCP code
 
+## Contents
+- The rule that decides what counts
+- Where it breaks
+- How to hunt it
+- Before a finding here leaves the verifier
+
 Read this front when the code under review builds on a model: it assembles prompts, retrieves context, stores
 memory, exposes or calls tools, delegates to sub-agents, or speaks MCP. It is about the CODE around the model. For
 testing whether a deployed agent's defences hold under attack, that is `red-team`.

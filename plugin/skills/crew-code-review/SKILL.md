@@ -1,9 +1,8 @@
 ---
 name: crew-code-review
 description: |
-  Code review discipline: review only what changed, rank each finding by severity and category, and
-  fact-check it first. crew-review-agent applies it.
-  Use when reviewing a change set, and when acting on a review someone else wrote.
+  Use when asked to review a change, a PR, or code just written before a push, and when acting on review
+  comments someone else left.
 ---
 
 # Code Review
@@ -129,6 +128,15 @@ finding, and the deleted test is restored rather than a new one written.
 ## Panel mode (high-stakes decisions only)
 For hard-to-reverse calls (architecture, public API, security boundary), run several independent adversarial
 lenses then synthesize. Full method: **`references/panel-mode.md`**.
+
+## Excuses that end a review early
+
+| Excuse | Reality |
+|---|---|
+| "The tests pass." | Tests cover what the author thought of; the review is for what they did not. |
+| "It is a small diff." | Small diffs change auth checks, defaults and error paths. Read every line. |
+| "CI would have caught it." | Name the check that would have; if you cannot, it would not. |
+| "I already flagged something in this file." | One finding does not clear the rest of the file. |
 
 ## When you and the author disagree
 Settle it with the code's behaviour and a check that can be run. If that does not settle it, take it to the user

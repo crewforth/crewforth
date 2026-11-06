@@ -1,8 +1,8 @@
 ---
 name: systematic-debugging
 description: |
-  Root-cause a bug before touching a fix: reproduce, isolate, form and test a hypothesis, confirm the cause,
-  then fix and verify. Stops guess-driven patching. For persistent, intermittent, or "already tried a few things" bugs.
+  Use when a bug's cause is unknown: something is broken, crashes, or fails only sometimes, or a few fixes
+  have already been tried. Use before changing code to make a failure go away.
 ---
 
 # Systematic Debugging

@@ -1,9 +1,8 @@
 ---
 name: testing
 description: |
-  The how of testing: pyramid, AAA, isolation, risk coverage, determinism. Guarantees the DoD's "tests are
-  green". crew-test-expert applies it.
-  Use when writing or changing tests, or when a suite is flaky, slow or green for the wrong reason.
+  Use when writing or changing tests, when asked whether the tests are green after a change, or when a suite
+  is flaky, slow, or green for the wrong reason.
 ---
 
 # Testing Discipline
@@ -24,6 +23,15 @@ Goal: **behavior correctness** — test real behavior without breaking product c
 ## Watch out
 - **Flaky = bug:** an occasionally failing test is not tolerated; it is fixed at the root.
 - In snapshot/golden-file tests, avoid needless brittleness (assert only the meaningful output).
+
+## Excuses that skip a test
+
+| Excuse | Reality |
+|---|---|
+| "It is too simple to break." | Simple code breaks at its boundaries; the boundary test is the cheap one. |
+| "I'll add the test after it works." | After it works, the test is written to pass, not to catch. |
+| "I ran it by hand." | A hand check is not repeated on the next change. |
+| "The old test fails, so I updated the expected value." | Find out first whether the code or the expectation is wrong. |
 
 ## Tests that cannot fail
 
