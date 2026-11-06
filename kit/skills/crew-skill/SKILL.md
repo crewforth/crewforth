@@ -70,7 +70,7 @@ CREW_NO_STAR=1 bash .claude/eval/doctor.sh               # the live install stil
 ```
 
 **Rule text.** A change to the discipline file or to an agent's rule text ships a measured A/B: `evals/run.sh` with
-the `kit` and `kitb` arms (`CREW_EVAL_DISCIPLINE_B`, `CREW_EVAL_OVERLAY_B`), at least 3 runs per arm, on one case the
+the two arms of `CREW_EVAL_ARMS` (the second set by `CREW_EVAL_DISCIPLINE_B`, `CREW_EVAL_OVERLAY_B`), at least 3 runs per arm, on one case the
 change should move and one it could break *(Crewforth repository only)*. When you probe wording by hand: one fresh
 session per sample, a control with no guidance, 5 or more repetitions, and report the spread, not only the mean.
 
