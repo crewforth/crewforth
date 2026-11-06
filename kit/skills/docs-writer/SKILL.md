@@ -51,3 +51,6 @@ questions, outline-first, section-by-section drafting, revision loop): **`refere
 3. **Leave no stale/dead docs.**
 4. **No secret/real credential** — use a placeholder (aligned with §4).
 5. **Don't repeat the code** — don't just copy the signature; explain the usage.
+6. **An external fact carries its date** — a version, limit, price or behaviour of a product this repository does not
+   own is written with `checked: YYYY-MM-DD` and the URL it was read from. Older than 90 days, it is re-checked
+   before it is quoted as current (the `confidence-check` skill says how: its source-check reference).
