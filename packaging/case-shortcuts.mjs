@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -58,7 +58,8 @@ function bestWordRule(rows) {
 }
 
 async function benchSet() {
-  const bench = await import(path.join(ROOT, 'kit', 'eval', 'lib', 'review-bench', 'bench.mjs'));
+  // import() takes a URL: a bare Windows path (D:\…) is read as the scheme "d:".
+  const bench = await import(pathToFileURL(path.join(ROOT, 'kit', 'eval', 'lib', 'review-bench', 'bench.mjs')).href);
   const cases = bench.loadCases(path.join(ROOT, 'packaging', 'review-bench', 'cases'), { split: 'all' });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-shortcuts-'));
   try {
