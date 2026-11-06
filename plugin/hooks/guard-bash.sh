@@ -2639,16 +2639,30 @@ _gate_written(){
     case "$_psid" in ''|*[!A-Za-z0-9._-]*) _psid="" ;; esac
     if [ -n "$_psid" ] && mkdir -p "$_pd" 2>/dev/null; then
       if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _pn '%(%s)T' -1; else _pn="$(date +%s)"; fi
-      _po=""; _ps=""; _pt=""
+      _po=""; _ps=""; _pt=""; _pot=""
       if [ -f "$_pd/crew-approval-pending" ]; then
-        while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; esac; done < "$_pd/crew-approval-pending"
+        while IFS= read -r _pl || [ -n "$_pl" ]; do case "$_pl" in sid=*) _ps="${_pl#sid=}" ;; op=*) _po="${_pl#op=}" ;; ts=*) _pt="${_pl#ts=}" ;; tree=*) _pot="${_pl#tree=}" ;; esac; done < "$_pd/crew-approval-pending"
       fi
+      # HEAD, the branch, and for a commit the tree the index writes: the bare /crew-approve then holds however long the
+      # user takes (a refusal at night, approved in the morning), as long as all three are unchanged. Three processes,
+      # on a refusal only. A commit whose tree cannot be written (an unresolved merge) gets none of them, so it keeps
+      # the 30 minutes: a head without its tree would let any tree staged later through.
+      _phd="$(git -C "${_CWD:-.}" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"; _ptr=""
+      _pbr="$(git -C "${_CWD:-.}" symbolic-ref --short -q HEAD 2>/dev/null)" || _pbr=""; [ -n "$_pbr" ] || _pbr=-
+      case "$_aps:$_po" in commit:*|*:commit*) _ptr="$(git -C "${_CWD:-.}" -c core.fsmonitor= write-tree 2>/dev/null)" ;; esac
+      case "$_phd$_ptr" in *[!0-9a-fNOE]*) _phd=""; _ptr="" ;; esac
+      case "$_pbr" in *[!A-Za-z0-9._/+@-]*) _phd=""; _ptr="" ;; esac
       _pw="$_aps"
       case "$_pt" in ''|*[!0-9]*) _pt=0 ;; esac
-      if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ]; then
+      # One thing waiting, commit+push: the same session, within 30 minutes, and the same tree as the commit refused.
+      if [ "$_ps" = "$_psid" ] && [ $((_pn - _pt)) -ge 0 ] && [ $((_pn - _pt)) -le 1800 ] && { [ -z "$_pot" ] || [ "$_pot" = "$_ptr" ]; }; then
         case "$_po:$_aps" in commit:push|push:commit|commit+push:*) _pw="commit+push" ;; esac
       fi
-      { printf 'sid=%s\nop=%s\nts=%s\n' "$_psid" "$_pw" "$_pn" > "$_pd/crew-approval-pending"; } 2>/dev/null || _pw=""
+      case "$_pw" in commit*) [ -n "$_ptr" ] || _phd="" ;; esac
+      _pbody="sid=$_psid"$'\n'"op=$_pw"$'\n'"ts=$_pn"$'\n'
+      [ -n "$_phd" ] && _pbody="$_pbody""head=$_phd"$'\n'"branch=$_pbr"$'\n'
+      [ -n "$_phd" ] && [ -n "$_ptr" ] && _pbody="$_pbody""tree=$_ptr"$'\n'
+      printf '%s' "$_pbody" > "$_pd/crew-approval-pending" 2>/dev/null || _pw=""
     fi
   fi
   # ONE WAY TO ASK. With the question open, the refusal used to print it and then the typed way as an equal choice,

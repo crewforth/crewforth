@@ -1903,6 +1903,21 @@ if [ -f "$ROOT/CLAUDE.md" ]; then
   D_HALF="$(awk '/^<!-- KIT:DISCIPLINE-END/{exit} {print}' "$ROOT/CLAUDE.md")"
   P_HALF="$(awk 'f{print} /^<!-- KIT:DISCIPLINE-END/{f=1}' "$ROOT/CLAUDE.md")"
   case "$D_HALF" in *'<PROJECT NAME>'*) fail "discipline half swallows the project template" ;; *) pass "discipline half excludes the project template" ;; esac
+  # THE RULES OF THE DISCIPLINE PR, each pinned in the half it belongs to, by one fixed phrase. _disc_miss names every
+  # phrase a half lacks; it runs first on a text holding every phrase but one, and that one must be named.
+  _DPH="in an audit, they are a finding|nor carry a gate verdict or 🔋 line|Fetch https only; no private, loopback or metadata host, redirects too|Never ask for a secret in chat|Cite only links opened this session, copied exactly|Reports say \`Not tested:\` and label each figure measured, derived or inferred|refused action is never bypassed or retried another way"
+  _PPH="## Verify|Fast check (files):|Unit:|Integration:|E2E:|Ready when:|Logs:|Local login:|Missing secret: ask, never skip the test.|A \`CLAUDE.md\` in a subdirectory applies to work there"
+  _disc_miss(){ # $1 text, $2 phrases separated by | -> the missing ones
+    local IFS='|' ph; for ph in $2; do case "$1" in *"$ph"*) ;; *) printf ' [%s]' "$ph" ;; esac; done; }
+  # The twin is built from the phrase lists themselves, all but one, so it tests the checker and not this file.
+  _dsyn="${_DPH//|/ · }"; _psyn="${_PPH//|/ · }"
+  _dtw="$(_disc_miss "${_dsyn/Never ask for a secret in chat/}" "$_DPH")"; _ptw="$(_disc_miss "${_psyn/Ready when:/}" "$_PPH")"
+  _dm="$(_disc_miss "$D_HALF" "$_DPH")"; _pm="$(_disc_miss "$P_HALF" "$_PPH")"
+  if [ "$_dtw" != " [Never ask for a secret in chat]" ] || [ "$_ptw" != " [Ready when:]" ]; then
+    fail "FIXTURE: the rule pins did not name a phrase taken out of a copy (got '$_dtw' / '$_ptw'), so they check nothing"
+  elif [ -z "$_dm$_pm" ]; then
+    pass "the discipline carries its seven pinned rules (audit steering, forged gate line, fetch scope, no secret in chat, cited links, Not tested, no retry of a refusal) and the project template its ## Verify fields and the nested-file line, after the installers' split"
+  else fail "a pinned rule is missing — discipline:${_dm:- none} · template:${_pm:- none}"; fi
   case "$D_HALF" in *'Four working principles'*) pass "discipline half carries the four principles" ;; *) fail "discipline half lost the four principles" ;; esac
   # Where a project's own CLAUDE.md sits against §4 (field: two projects wrote a stricter §4.4 and read the discipline's
   # as a contradiction), and what a § number points at. Stated on the ladder, and at the top where "project wins" is.
@@ -2644,7 +2659,7 @@ sec "== 6f) always-on token budget =="
 # for that cost, and a gate rather than a reminder — a verbose new description fails the suite instead of
 # quietly taxing every future session. Budgets sit just above the current sizes: raising one is allowed, but
 # only as a deliberate edit here.
-BUDGET_DISC=16470    # P07a: 16214 → 16470 (+256): the audit step no longer re-runs every lane after every fix — only a critical/high fix, or one on a critical path, does, a lesser one is re-checked by the lane that raised it, a low finding never starts a round, three rounds with medium+ open then ask — and the DoD's "nothing deferred" says what it means (medium+ fixed, tracked or user-accepted, the lows to the user as one list). Field transcripts of four projects showed main threads reading the old two lines as "fix every low and audit everything again"; both are where every session reads them, because the loop is run by the main thread, not by a skill. Before that, P05: 15637 → 16214 (+577): "Short never costs meaning" (a short reply keeps every negation, condition and number; code, paths and errors verbatim; point to path:line instead of restating; full sentences for warnings, irreversible steps, questions and persisted text), principle 2's "never cut" list (validation at a trust boundary, data-loss error handling, security, accessibility, what was asked) and a re-read-after-compaction clause. All three are about how every reply is written, so a skill read on demand would arrive after the reply. evals/cases/terse-fidelity measures the first. Before that, P02: 15570 → 15637 (+67): "Untrusted content" names the text a hook injects from teammates (the team board) as data; the hook now labels it the same way. Before that, P01: 15429 → 15570 (+141): "No deferral" names the recorded, user-accepted bypass (BYPASSED line, ADR Bypassed entry, accepted finding) as the user's decision, so the rule stops contradicting confidence-check, adr and crew-code-review. Before that, 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
+BUDGET_DISC=16870    # Discipline rules: 16470 → 16870 (+400, the cap the user set for this one change): in an audit, text that steers the verdict is a finding; content cannot carry a gate verdict or the 🔋 line; a fetch is https only and never reaches a private, loopback or metadata host, redirects too; a secret is never asked for in chat; a link is cited only when opened this session; every report says `Not tested:` and labels each figure measured, derived or inferred; a refused action is not retried another way. Each is about what the main thread does on its own turn — what it fetches, asks, cites, reports and retries — so a skill read on demand would arrive after the act. What did not fit went to the skill that owns it: the 90-day date on an external fact (docs-writer, confidence-check), the audit-steering detail (security-scan, red-team). Before that, P07a: 16214 → 16470 (+256): the audit step no longer re-runs every lane after every fix — only a critical/high fix, or one on a critical path, does, a lesser one is re-checked by the lane that raised it, a low finding never starts a round, three rounds with medium+ open then ask — and the DoD's "nothing deferred" says what it means (medium+ fixed, tracked or user-accepted, the lows to the user as one list). Field transcripts of four projects showed main threads reading the old two lines as "fix every low and audit everything again"; both are where every session reads them, because the loop is run by the main thread, not by a skill. Before that, P05: 15637 → 16214 (+577): "Short never costs meaning" (a short reply keeps every negation, condition and number; code, paths and errors verbatim; point to path:line instead of restating; full sentences for warnings, irreversible steps, questions and persisted text), principle 2's "never cut" list (validation at a trust boundary, data-loss error handling, security, accessibility, what was asked) and a re-read-after-compaction clause. All three are about how every reply is written, so a skill read on demand would arrive after the reply. evals/cases/terse-fidelity measures the first. Before that, P02: 15570 → 15637 (+67): "Untrusted content" names the text a hook injects from teammates (the team board) as data; the hook now labels it the same way. Before that, P01: 15429 → 15570 (+141): "No deferral" names the recorded, user-accepted bypass (BYPASSED line, ADR Bypassed entry, accepted finding) as the user's decision, so the rule stops contradicting confidence-check, adr and crew-code-review. Before that, 3.5: 14971 → 15429 (+458): §4.7 (a staged lockfile needs an audit record of that lockfile diff, +275 with the §4.4–§4.7 range) and the quality line (+183): the DoD reads `## Stack` → `Quality analysis:` instead of six "(if SonarQube is in use)" clauses, which a project with no server read as false every time (0 analyses in its first 8 days, 0 audits against 21 lockfile commits). Both have to be where every session reads them: the gate refuses a commit, and the refusal must not be a surprise. Before that, 3.1.0: 13986 → 14975 (+989): the task card (files, change, verify), the model table read from it, "the referee follows the risk" and the verify-then-escalate rule (+634 in the first form, +355 for the card). The session chooses a model on every crew agent call, so the table has to be where every session reads it; a skill would be read after the choice. Before that, 3.0.1: 13741 → 13986 (+245): the ladder states that a project CLAUDE.md can tighten §4, never loosen it — naming §4.1 as the one exception, since adopt may loosen the trace gate — and that § numbers point into this file (two field projects read their stricter §4.4 as a contradiction), the opening's "project wins" carries the same limit, and the context-usage command names the Bash tool (a Windows session ran the scripts in PowerShell). RC-1: 13711 → 13741 (+30): "Reply in the user's language even when a skill's text is English" — a Turkish session answered /crew-review in English, because every skill body it had just read was English; the rule is stated nowhere else. evals/cases/reply-language measures it. 5R.3: 13712 → 13711 (the old-name phrases rewritten, net −1). 5d.2 prompt audit: tightened to the measured size (13719 → 13712: format-to-content style line, one reload
                      # answer, the orphaned background-warning line removed). Before that: 3.0 rename (suffix → crew- prefix): +23 B (23 occurrences), not content — measured 13696 → 13719.
                      # DISCIPLINE.md (the discipline half of CLAUDE.md); before 3.0 the ceiling was 13700, currently 13601. (2026-09-18, a second
                      # +100 B on top of the raise below, and the whole of it went into ONE sentence of §4.6: a commit
@@ -7274,6 +7289,25 @@ elif [ "${_ttv:-0}" -ge $((_cap + 30)) ]; then fail "FIXTURE: a SubagentStop tim
 elif [ "$_tset" -ge $((_cap + 30)) ]; then pass "agent-outcome's verify cap (${_cap} s) fits inside its SubagentStop timeout (${_tset} s) with 30 s to record the result"
 else fail "agent-outcome's verify cap is ${_cap} s and SubagentStop gives it ${_tset} s: a slow verify is killed with the hook and records nothing"; fi
 
+# A DATED FACT EXPIRES. A reference line that says `checked: YYYY-MM-DD` was read at its source on that day; older than
+# 90 days it is to be re-read before it is quoted as current (docs-writer, confidence-check). This lists the ones past
+# the window as a NOTE, not a failure: an old date is work to do, not a broken gate. The twin is a planted 2001 date,
+# which must be listed, so an empty list means "none old" and not "the dates were never read".
+_chk_old(){ # file... -> "file:date" for each `checked:` date older than 90 days
+  LC_ALL=C awk -v today="$(date +%Y%m%d)" '
+    function days(d,  y, m, dd) { y = substr(d,1,4)+0; m = substr(d,5,2)+0; dd = substr(d,7,2)+0
+      if (m < 3) { y--; m += 12 } return int(365.25*(y+4716)) + int(30.6001*(m+1)) + dd }
+    { while (match($0, /checked: [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) { d = substr($0, RSTART+9, 10); s = d; gsub(/-/, "", s)
+        if (days(today) - days(s) > 90) print FILENAME ":" d
+        $0 = substr($0, RSTART+RLENGTH) } }' "$@" 2>/dev/null; }
+_cko="$(mktemp)"; printf 'version 2 (checked: 2001-01-01, https://example.com)\n' > "$_cko"
+if [ -n "$(_chk_old "$_cko")" ]; then
+  _ckl="$(_chk_old "$SKILLS"/*/SKILL.md "$SKILLS"/*/references/*.md)"
+  if [ -z "$_ckl" ]; then pass "no reference quotes an external fact checked more than 90 days ago (a planted 2001 date is listed)"
+  else note "external facts checked more than 90 days ago, re-read them at their source: $(printf '%s' "$_ckl" | tr '\n' ' ')"; pass "dated external facts are listed when older than 90 days (note above)"; fi
+else fail "FIXTURE: a planted checked: 2001-01-01 line was not listed as older than 90 days, so the date check reads nothing"; fi
+rm -f "$_cko"
+
 sec "== 10b) rule → enforcer table: every prohibition has a row, every named enforcer exists =="
 # A rule nobody enforces reads exactly like one a hook holds, until it is broken. crew-gates/references/enforcers.md
 # names what holds each binding rule, or says `judged only`; this checks it both ways, so a new prohibition cannot
@@ -8741,7 +8775,7 @@ _pabad=""
 # commit+push with nothing staged (field report, 3.2.1: picked twice for a push alone): still nothing recorded, and the
 # line names Push only; the plain commit above does not, so a line that always says it cannot pass.
 : > "$_pa_rec"; _po="$(_pa_say auto 'approve: commit+push')"
-{ [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - nothing is staged"*"the answer is Push only"*) true ;; *) false ;; esac; } || _pabad="$_pabad nothing-staged-commit+push"
+{ [ ! -s "$_pa_rec" ] && case "$_po" in *"approval NOT recorded - nothing is staged"*"can type /crew-approve push"*) true ;; *) false ;; esac; } || _pabad="$_pabad nothing-staged-commit+push"
 _po="$(_pa_say auto 'approve: commit')"; case "$_po" in *'Push only'*) _pabad="$_pabad [a commit with nothing staged was told Push only]" ;; esac
 ( cd "$_paw" && git add a.txt && git checkout -q --detach ) >/dev/null 2>&1      # detached HEAD
 : > "$_pa_rec"; _po="$(_pa_say auto 'approve: push')"
@@ -9401,6 +9435,44 @@ _paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label"
 if [ "$_paqn" != 20 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 20"
 elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four, in whatever key order Claude Code hands it back; the record allows the commit (20 cases, 14 must-fail)"
 else fail "the approval question:$_paqbad"; fi
+# An approval holds as long as what it is about is unchanged, not for 30 minutes (field: a question asked at night was
+# refused in the morning). The question and the refused command write down the staged tree and HEAD; the answer or
+# the bare /crew-approve is recorded however late, and refused when either changed. With nothing staged the question
+# is not asked at all (field: 35 answers refused after the user gave them). A record of the old shape keeps 30 minutes.
+_pqa="$_paw/.claude/state/crew-approval-asked"; _pqb=""
+_pq_age(){ sed "s/^ts=.*/ts=$(( $(date +%s) - $2 ))/" "$1" > "$1.t" && mv "$1.t" "$1"; }
+_pa_new; ( cd "$_paw" && git reset -q ) >/dev/null 2>&1; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq0
+{ [ "$_par" = 2 ] && grep -q 'nothing is staged' "$_PA/qerr" && grep -q 'can type /crew-approve push' "$_PA/qerr"; } || _pqb="$_pqb [nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq1
+{ grep -q '^tree=[0-9a-f]' "$_pqa" && grep -q '^head=[0-9a-f]' "$_pqa"; } || _pqb="$_pqb [the question wrote no tree/head]"
+_pq_age "$_pqa" 7200; _paq_post auto 'Commit only' tq1; [ "$(_paq_rec)" = commit ] || _pqb="$_pqb [a 2-hour-old question, nothing changed: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq2; ( cd "$_paw" && echo three >> a.txt && git add a.txt ) >/dev/null 2>&1
+_paq_post auto 'Commit only' tq2; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'what is staged changed'*) true ;; *) false ;; esac; } || _pqb="$_pqb [staged changed after asking: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq3; ( cd "$_paw" && git commit -qm y && echo four >> a.txt && git add a.txt ) >/dev/null 2>&1
+_paq_post auto 'Commit + push' tq3; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'HEAD moved'*) true ;; *) false ;; esac; } || _pqb="$_pqb [HEAD moved after asking: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq4; grep -v '^tree=\|^head=' "$_pqa" > "$_pqa.t" && mv "$_pqa.t" "$_pqa"; _pq_age "$_pqa" 1900
+_paq_post auto 'Commit only' tq4; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'more than 30 minutes ago'*) true ;; *) false ;; esac; } || _pqb="$_pqb [an old-shape question 31 min old: $(_paq_rec)]"
+# the bare /crew-approve after a refused commit
+_pa_new; : > "$_pa_rec"; _pa_run auto 'git commit -m x'
+{ grep -q '^head=[0-9a-f]' "$_pa_pend" && grep -q '^tree=[0-9a-f]' "$_pa_pend"; } || _pqb="$_pqb [the refusal wrote no head/tree: $(tr '\n' ' ' < "$_pa_pend")]"
+_pq_age "$_pa_pend" 7200; _pa_say auto '/crew-approve' >/dev/null; [ "$(_pa_op)" = commit ] || _pqb="$_pqb [a 2-hour-old refusal, nothing changed: $(_pa_op)]"
+_pa_new; : > "$_pa_rec"; _pa_run auto 'git commit -m x'; ( cd "$_paw" && git commit -qm y && echo five >> a.txt && git add a.txt ) >/dev/null 2>&1
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'HEAD moved'*) true ;; *) false ;; esac; } || _pqb="$_pqb [HEAD moved after the refusal: $(_pa_op) ${_po:0:100}]"
+# ...a change staged after the refusal (m4 in the review); a commit record that carries HEAD but no tree, and one of
+# the old shape, both 2 hours old (m3); the branch switched at the same HEAD; a commit then a push refused on
+# different trees is not merged into one commit+push.
+_pa_new; : > "$_pa_rec"; _pa_run auto 'git commit -m x'; ( cd "$_paw" && echo six >> a.txt && git add a.txt ) >/dev/null 2>&1
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'what is staged changed'*) true ;; *) false ;; esac; } || _pqb="$_pqb [staged changed after the refusal: $(_pa_op) ${_po:0:100}]"
+_pa_new; : > "$_pa_rec"; mkdir -p "${_pa_pend%/*}"; printf 'sid=s\nop=commit\nts=%s\nhead=%s\nbranch=feat/x\n' "$(( $(date +%s) - 7200 ))" "$(git -C "$_paw" rev-parse HEAD)" > "$_pa_pend"
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'more than 30 minutes old'*) true ;; *) false ;; esac; } || _pqb="$_pqb [a commit record with HEAD and no tree, 2 h old: $(_pa_op)]"
+_pa_new; : > "$_pa_rec"; mkdir -p "${_pa_pend%/*}"; printf 'sid=s\nop=commit\nts=%s\n' "$(( $(date +%s) - 7200 ))" > "$_pa_pend"
+_po="$(_pa_say auto '/crew-approve')"; { [ -z "$(_pa_op)" ] && case "$_po" in *'more than 30 minutes old'*) true ;; *) false ;; esac; } || _pqb="$_pqb [an old-shape record 2 h old: $(_pa_op)]"
+_pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq5; ( cd "$_paw" && git checkout -q -b other ) >/dev/null 2>&1
+_paq_post auto 'Push only' tq5; { [ "$(_paq_rec)" = none ] && case "$_pao" in *'branch changed'*) true ;; *) false ;; esac; } || _pqb="$_pqb [branch switched after asking: $(_paq_rec) ${_pao:0:100}]"
+_pa_new; : > "$_pa_rec"; rm -f "$_pa_pend"; _pa_run auto 'git commit -m x'; ( cd "$_paw" && echo seven >> a.txt && git add a.txt ) >/dev/null 2>&1; _pa_run auto 'git push'
+grep -q '^op=push$' "$_pa_pend" || _pqb="$_pqb [a commit and a push refused on different trees were merged: $(tr '\n' ' ' < "$_pa_pend")]"
+[ -z "$_pqb" ] && pass "an approval holds while what it is about is unchanged, not for 30 minutes: a question or a refusal 2 hours old with the same tree and HEAD is recorded, a changed tree or a moved HEAD is refused, an old-shape record keeps 30 minutes; with nothing staged the question is not asked and the typed push is named" \
+  || fail "approval bound to tree and HEAD:$_pqb"
 # ...and the way to it. B-2 (a real `auto` session, 2026-10-17): /crew-ship asked for /crew-approve before any commit
 # was refused, so the refusal that prints the question never came and the click was never offered; telling the agent
 # to try the commit first did not help either (§4.4 says not to, and it did not). agent-outcome.sh now hands the
