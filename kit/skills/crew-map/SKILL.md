@@ -54,4 +54,4 @@ the scan itself read, and a gate holds it to that. **Never commit.** Show the di
 5. **Hand over:** the scan's summary line, how many modules you described (and gave a layer) and how many you
    left `null` and why, the tour's stops,
    then `git diff --stat .crewforth/crew-map.json`. Studio's **Map** view (`/crew-studio`) draws the result.
-   Committing it is the user's call.
+   Committing it is the user's call. `/crew-audit` audits the project from this map.

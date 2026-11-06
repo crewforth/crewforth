@@ -9,6 +9,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **`/crew-audit` audits the whole project, not a diff.** It starts from the Crew Map (and says when the map no longer
+  matches the tree), ranks modules by what a mistake there costs (money, access, data writes, secrets and egress),
+  reads at most eight of them whole, and runs the security, review, performance and privacy lanes on those in
+  parallel. Each finding names a concrete case, code called unused is grepped for dynamic references first, and a
+  `medium`-or-higher finding is checked by `crew-refuter` before it is reported. The report holds at most 20
+  findings and says which modules were read deep, skimmed or not read. It changes no code.
 - **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
   object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
   (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is
