@@ -30,6 +30,34 @@ export function run(cmd, args, cwd) {
 
 const skipped = (rel) => rel.split('/').some((seg) => SKIP_DIRS.has(seg));
 
+// The project's own exclusions: `.crewforth/crew-map-ignore`, one pattern a line, `#` for a comment. A pattern with
+// no `/` but a trailing one matches a name at any depth (`fixtures/`, `*.generated.ts`); one with a `/` inside is
+// anchored at the root (`docs/legacy/`, `/tools/gen.js`). `*` stays inside one segment, `**` crosses them, and a
+// trailing `/` matches the folder and everything in it. No negation: a map that leaves a file out says so in
+// `coverage.excluded`, and a rule that could bring it back is one more thing to read wrong.
+export const IGNORE_FILE = '.crewforth/crew-map-ignore';
+export function ignoreRules(text) {
+  const out = [];
+  for (const raw of String(text).split('\n')) {
+    let p = raw.replace(/\r$/, '').trim();
+    if (!p || p.startsWith('#') || p.startsWith('!')) continue;
+    const dir = p.endsWith('/'); p = p.replace(/\/+$/, '');
+    const anchored = p.startsWith('/') || p.includes('/'); p = p.replace(/^\/+/, '');
+    if (!p) continue;
+    let re = '';
+    for (let i = 0; i < p.length; i++) {
+      const c = p[i];
+      if (c === '*' && p[i + 1] === '*') { i++; if (p[i + 1] === '/') { re += '(.*/)?'; i++; } else re += '.*'; }
+      else if (c === '*') re += '[^/]*';
+      else if (c === '?') re += '[^/]';
+      else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+    out.push(new RegExp(`${anchored ? '^' : '(^|/)'}${re}${dir ? '/' : '(/|$)'}`));
+  }
+  return out;
+}
+const excludedBy = (rules, rel) => rules.some((re) => re.test(rel));
+
 export function openProject(root) {
   const real = fs.realpathSync(root);
   let files = null; let commit = null;
@@ -52,7 +80,10 @@ export function openProject(root) {
     };
     walk(real, '');
   }
-  files = [...new Set(files)].sort();
+  let ignore = []; try { ignore = ignoreRules(fs.readFileSync(path.join(real, IGNORE_FILE), 'utf8')); } catch { /* none */ }
+  const listed = [...new Set(files)];
+  files = listed.filter((f) => !excludedBy(ignore, f)).sort();
+  const excluded = listed.length - files.length;
   const cache = new Map();
   const tooBig = []; const unreadable = []; const binary = [];
   // { text, lines } or null (unreadable, binary or over the size limit). Each null lands in a list, so a file the
@@ -76,7 +107,7 @@ export function openProject(root) {
     cache.set(rel, r);
     return r;
   };
-  return { root: real, files, commit, read, tooBig, unreadable, binary, git: git.ok };
+  return { root: real, files, commit, read, tooBig, unreadable, binary, git: git.ok, excluded, ignoreRules: ignore.length };
 }
 
 // A citation. `anchor` must be a piece of the cited line (the validator checks it, collapsing whitespace); the

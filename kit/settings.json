@@ -253,6 +253,17 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/map-stale.sh",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [

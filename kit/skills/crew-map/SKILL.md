@@ -24,6 +24,12 @@ the scan itself read, and a gate holds it to that. **Never commit.** Show the di
 2. **Scan:** `bash MAP` at the project root (Bash tool, not PowerShell). It writes the map and keeps the
    descriptions of an earlier run that still cite only lines this scan cites; it says how many it kept and dropped.
    rc 3 is no usable Node: say so and stop, it is not a pass.
+   rc 1 with "nothing written" means the rescan would lose most described nodes or half the modules: usually a
+   wrong `--root` or a damaged checkout. Show the user its line and stop; run again with `--force` only when they
+   say the project really changed.
+   Folders or files the project wants left out (generated code, vendored copies, fixtures) go in
+   `.crewforth/crew-map-ignore`, one pattern a line: `name/` at any depth, `path/inside/` from the root, `*` and `**`.
+   The map's `coverage.excluded` says how many files that left out.
 
 3. **Describe.** Read `.crewforth/crew-map.json`, and as much of the cited source as you need. Then edit that
    file, changing ONLY these fields:
@@ -52,6 +58,6 @@ the scan itself read, and a gate holds it to that. **Never commit.** Show the di
    Fix what it names, in the descriptions only, until it holds.
 
 5. **Hand over:** the scan's summary line, how many modules you described (and gave a layer) and how many you
-   left `null` and why, the tour's stops,
-   then `git diff --stat .crewforth/crew-map.json`. Studio's **Map** view (`/crew-studio`) draws the result.
+   left `null` and why, the tour's stops, and on a rescan the ledger it printed (nodes and edges added, removed,
+   changed, by id). Studio's **Map** view (`/crew-studio`) draws the result.
    Committing it is the user's call. `/crew-audit` audits the project from this map.

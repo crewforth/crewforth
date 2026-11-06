@@ -27,6 +27,18 @@ versioning follows [SemVer](https://semver.org/).
   for CI only when asked to. `threads` judges review comments the way `crew-code-review` does, replies after the
   fixing push lands and names the commit, and resolves only threads really addressed. `merge` runs only when the
   user says so, on a clean state and the head commit that was checked.
+- **The Crew Map says when an edit has made it old.** A new hook, `map-stale.sh`, notes once per agent, as a fact,
+  when a file the map cites is edited: the map was scanned before the edit, and `crew-map.sh --check` says whether
+  it still matches the tree. It is silent with no map, for files the map does not cite, and with
+  `CREW_MAP_STALE=off`; it never blocks, and an edit that does not fire starts no process. `/crew-plan` runs the
+  check before it calls the planner, and the plan says when the map differs from the tree or was not checked.
+- **A rescan that would lose most of the map writes nothing.** When described nodes would mostly vanish, or the
+  module count would fall by more than half (a wrong `--root`, a damaged checkout), the scanner exits 1 with both
+  counts and keeps the old map; `--force` writes it anyway.
+- **The Crew Map can leave out what the project names, and says what a rescan changed.** Patterns in
+  `.crewforth/crew-map-ignore` (a name at any depth, a path from the root, `*` and `**`) are not scanned, and
+  `coverage.excluded` counts the files left out. A rescan prints the nodes and edges it added, removed and changed,
+  by id, so `/crew-map` reports which modules came or went instead of a byte count.
 - **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
   object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
   (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is
