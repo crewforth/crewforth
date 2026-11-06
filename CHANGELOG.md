@@ -15,6 +15,9 @@ versioning follows [SemVer](https://semver.org/).
   parallel. Each finding names a concrete case, code called unused is grepped for dynamic references first, and a
   `medium`-or-higher finding is checked by `crew-refuter` before it is reported. The report holds at most 20
   findings and says which modules were read deep, skimmed or not read. It changes no code.
+  After its first real run: it checks a `critical` or `high` candidate with `crew-refuter` before reading further,
+  so a run that runs short reads fewer modules instead of reporting unchecked blockers, and it runs the scanner
+  itself when no map exists.
 - **`/crew-interview` asks before it plans.** It reads the code, docs and Crew Map first, so it only asks what
   they cannot answer, then puts one question per turn with its recommended answer first: the outcome, the user,
   why now, what done means, the constraints and what is out of scope. It stops when the answer is clear, restates

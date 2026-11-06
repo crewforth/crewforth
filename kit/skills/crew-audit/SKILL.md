@@ -11,8 +11,9 @@ A review checks a change; this checks what is already there. **Read-only:** no f
 nothing is committed, and every fix goes to its owner afterwards. An audit that says what it did not read is worth
 more than one that sounds complete.
 
-1. **The map.** Resolve `MAP` exactly as `/crew-map` step 1 does. No `.crewforth/crew-map.json` → run `/crew-map`
-   first and tell the user, because without the map this is a guess at where the risk is. Then `bash MAP --check`
+1. **The map.** Resolve `MAP` exactly as `/crew-map` step 1 does. No `.crewforth/crew-map.json` → run the scanner
+   yourself (`bash MAP`, /crew-map step 2; `/crew-map` is the user's to type) and say the map has no descriptions
+   yet, because without the map this is a guess at where the risk is. Then `bash MAP --check`
    (Bash tool, not PowerShell): rc 0 → the map matches the tree; rc 1 → say "the map differs from the tree" in the
    report and treat its module facts as leads, not facts; rc 3 → say the check did not run.
 
@@ -41,6 +42,10 @@ more than one that sounds complete.
 5. **Hold every finding to a case.** Each one names a concrete input or state and the wrong result it leads to;
    without that it is a note, not a finding. Code called unused is checked first for dynamic references (a name
    in a string, a route or config table, reflection, a plugin registry); the grep you ran goes in the finding.
+   **Verification comes before breadth.** Send a `critical` or `high` candidate to crew-refuter as soon as a lane
+   returns it, before any further reading; when the run may not cover both, read fewer modules rather than skip
+   the check, and list the modules left out under coverage. A finding the refuter did not see is reported as
+   **not verified**, never as a finding.
    Each `medium`-or-higher finding goes to **crew-refuter** (@agent-crew-refuter; claim + `file:line`, one call per
    lens, in parallel) before it is reported. Store them with
    `bash <findings dir>/findings.sh write --verified audit <file>` (`eval/lib/findings/` in either edition): rule
