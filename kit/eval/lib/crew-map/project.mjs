@@ -149,6 +149,8 @@ export function bearsValues(rel) {
 
 // A test, a fixture or an example: its routes, URLs and environment reads describe a fake system, not this one.
 export const isTestPath = (rel) => /(^|\/)(tests?|__tests__|spec|specs|fixtures?|e2e|testdata|examples?|[\w-]*-test)(\/|$)|\.(test|spec)\.[\w]+$|(^|\/)test_[^/]*\.py$|_test\.go$|Tests?\.cs$|Tests?\.(java|kt)$/i.test(rel);
+// A module whose every source file is a test (Api.Tests, a tests package): nothing references it, by design.
+export const isTestModule = (m) => m.files.length > 0 && m.files.every((f) => isTestPath(f));
 // A host that is this machine or a name reserved for tests and documentation is not an external resource.
 export const isLocalHost = (h) => !h || /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1)(:\d*)?$/.test(h) || /\.(invalid|example|test|localhost)(:\d*)?$/.test(h);
 

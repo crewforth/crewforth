@@ -8,8 +8,8 @@
     "dotnet"
   ],
   "coverage": {
-    "files": 8,
-    "modules": 4,
+    "files": 11,
+    "modules": 5,
     "listing": "walk"
   },
   "nodes": [
@@ -113,12 +113,81 @@
       "entry": false,
       "dependencies": 1,
       "structure": {
-        "folders": [],
+        "folders": [
+          {
+            "folder": ".",
+            "files": 1
+          }
+        ],
         "testFiles": 0
+      },
+      "tests": {
+        "files": [
+          "Core.Tests/OrdersTests.cs"
+        ],
+        "total": 1,
+        "modules": [
+          "mod:dotnet:Core.Tests"
+        ]
+      },
+      "markers": {
+        "evidence": [
+          {
+            "file": "Core/Orders.cs",
+            "line": 5,
+            "text": "WHY: totals are rounded once, at the end, so a split order adds up to th",
+            "sha256": "c8cba6278f3cb5d1116fdc3251dce4e4e8661c884a017ca1c5931253d3d00881"
+          },
+          {
+            "file": "Core/Orders.cs",
+            "line": 8,
+            "text": "HACK: the legacy importer sends negative quantities for returns; clamp u",
+            "sha256": "f7a7a59b3afbb76fc279af0ba930fab20e2688bc908819630fd596dd66d2dee7"
+          },
+          {
+            "file": "Core/Orders.cs",
+            "line": 9,
+            "text": "FIXME(#12): remove with the importer",
+            "sha256": "f3e560f79096ec2d35cc326178b16f6b8fbddb3f4e06041888ec3890e15dc58c"
+          }
+        ]
       },
       "evidence": [
         {
           "file": "Core/Core.csproj",
+          "line": 1,
+          "text": "Project",
+          "sha256": "81590f63c7cc75247d3bf84dbe30d990110122d8c0945ceb3004bd1cef662703"
+        }
+      ],
+      "narrative": null
+    },
+    {
+      "id": "mod:dotnet:Core.Tests",
+      "kind": "module",
+      "name": "Core.Tests",
+      "stack": "dotnet",
+      "path": "Core.Tests",
+      "manifest": "Core.Tests/Core.Tests.csproj",
+      "tech": [
+        "Microsoft.NET.Sdk",
+        "net8.0"
+      ],
+      "entry": false,
+      "dependencies": 0,
+      "structure": {
+        "folders": [],
+        "testFiles": 1
+      },
+      "tests": {
+        "files": [
+          "Core.Tests/OrdersTests.cs"
+        ],
+        "total": 1
+      },
+      "evidence": [
+        {
+          "file": "Core.Tests/Core.Tests.csproj",
           "line": 1,
           "text": "Project",
           "sha256": "81590f63c7cc75247d3bf84dbe30d990110122d8c0945ceb3004bd1cef662703"
@@ -264,6 +333,24 @@
           "line": 11,
           "text": "Core.csproj",
           "sha256": "229aff279b374d5eb33a294a4659f9c627604178bfe0dd43f0ff3996ecd73167"
+        }
+      ]
+    },
+    {
+      "from": "mod:dotnet:Core.Tests",
+      "to": "mod:dotnet:Core",
+      "kind": "references",
+      "confidence": "evidence",
+      "source": "scanner",
+      "via": [
+        "code"
+      ],
+      "evidence": [
+        {
+          "file": "Core.Tests/Core.Tests.csproj",
+          "line": 7,
+          "text": "Core.csproj",
+          "sha256": "b97e26ee3a6f5ab4b724c604cc0c611dd21e6e9da8e349676a4b05a94c108fa9"
         }
       ]
     },

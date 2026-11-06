@@ -43,6 +43,14 @@ versioning follows [SemVer](https://semver.org/).
   it still matches the tree. It is silent with no map, for files the map does not cite, and with
   `CREW_MAP_STALE=off`; it never blocks, and an edit that does not fire starts no process. `/crew-plan` runs the
   check before it calls the planner, and the plan says when the map differs from the tree or was not checked.
+- **The Crew Map says where a module's tests are, how often it changes and what its code admits.** Each module now
+  lists its test files (its own, and a test project named for it such as `Api.Tests`), how many of the last 500
+  commits changed a file in its folder (one `git log` per scan, none of the repository's own programs run), and up to
+  five `WHY`, `HACK` and `FIXME` comment lines from its code, each cited by `file:line`. Studio's inspector shows all
+  three; `/crew-map` may cite the comment lines in a description or a tour stop, the planner names a module's tests
+  as the verify of a task that changes it, and `/crew-audit` reads the counts and comments to break a tie. The commit
+  counts move with every commit, so `--check` and the rescan summary leave them out. A test project is no longer
+  reported as a module nobody references.
 - **A rescan that would lose most of the map writes nothing.** When described nodes would mostly vanish, or the
   module count would fall by more than half (a wrong `--root`, a damaged checkout), the scanner exits 1 with both
   counts and keeps the old map; `--force` writes it anyway.

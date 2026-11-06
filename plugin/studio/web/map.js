@@ -495,6 +495,17 @@ export class MapView {
           if (v.inside.other) sec.append(mk('p', 'sub', `${v.inside.other} more files in other folders`));
           if (v.inside.tests) sec.append(mk('p', 'sub', `${v.inside.tests} test ${v.inside.tests === 1 ? 'file' : 'files'}`));
         }
+        if (v.changed) sec.append(mk('p', 'sub', v.changed));
+        if (v.testFiles.length) {
+          sec.append(mk('span', 'lbl', `Tests · ${v.testTotal}`));
+          for (const f of v.testFiles) { const r = mk('div', 'mp-conn mp-inside'); r.append(mk('span', 'mp-file', f)); sec.append(r); }
+          if (v.testTotal > v.testFiles.length) sec.append(mk('p', 'sub', `${v.testTotal - v.testFiles.length} more in the map file`));
+        }
+        if (v.notes.length) {
+          sec.append(mk('span', 'lbl', `Notes in the code · ${v.notesTotal}`));
+          for (const x of v.notes) { const r = mk('div', 'mp-conn mp-inside'); r.append(this.#cite(x.at), mk('span', 'mp-ev', x.text)); sec.append(r); }
+          if (v.notesTotal > v.notes.length) sec.append(mk('p', 'sub', `${v.notesTotal - v.notes.length} more in the map file`));
+        }
         sec.append(mk('span', 'lbl', 'Connects to'));
         if (!v.connectsTo.length) sec.append(mk('p', 'sub', 'Nothing on this map.'));
         for (const c of v.connectsTo) sec.append(this.#conn(c));
