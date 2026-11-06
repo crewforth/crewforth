@@ -15,6 +15,12 @@ versioning follows [SemVer](https://semver.org/).
   parallel. Each finding names a concrete case, code called unused is grepped for dynamic references first, and a
   `medium`-or-higher finding is checked by `crew-refuter` before it is reported. The report holds at most 20
   findings and says which modules were read deep, skimmed or not read. It changes no code.
+- **`/crew-interview` asks before it plans.** It reads the code, docs and Crew Map first, so it only asks what
+  they cannot answer, then puts one question per turn with its recommended answer first: the outcome, the user,
+  why now, what done means, the constraints and what is out of scope. It stops when the answer is clear, restates
+  it for an explicit yes and writes `docs/BRIEF.md` for `/crew-plan`. With nobody to answer (unattended runs) it
+  writes the brief with its guesses marked as assumptions. The rules for asking live in
+  `brainstorm/references/asking.md`, which `brainstorm` and `spec-planning` now point to.
 - **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
   object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
   (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is

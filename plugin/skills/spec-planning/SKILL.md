@@ -17,7 +17,8 @@ Before writing code: what will be done, how it counts as "done", and in what ord
 2. **Split into vertical slices:** the smallest end-to-end working pieces (not horizontal layers). Each slice delivers value on its own.
 3. **A contract for every task:** input · output · **measurable acceptance criterion** (testable) · estimated risk.
 4. **Dependency graph:** which task waits on what; no cycles. **Bring the riskiest/most-unknown to the front** (fail-fast).
-5. **Uncertainties:** assumption list + open questions; do not fill ambiguous spots with a guess, ask with explicit options.
+5. **Uncertainties:** assumption list + open questions; do not fill ambiguous spots with a guess, ask with explicit options
+   (how to ask, and what an unanswered question becomes: `brainstorm/references/asking.md`).
 
 ## Output (docs/PLAN.md)
 ```
