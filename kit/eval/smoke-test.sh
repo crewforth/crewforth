@@ -7186,7 +7186,8 @@ if [ -x "$MS" ]; then
   # Cost: an edit that does not fire starts no process (counter from §4.5's gate cost table, when it calibrated).
   if declare -F _gcost >/dev/null 2>&1 && [ "${_gc1:-}" = 5 ] && [ "${_gc2:-}" = 7 ]; then
     _MSP="$_msd/cost"; mkdir -p "$_MSP"; msmap "$_MSP"; mscon "$_MSP"
-    msj "$_MSP" s1 Edit "$_MSP/api/src/other.ts" "" > "$_msd/c1.json"
+    # An edit to a file nothing cites: other.ts is cited by the contracts fixture, so editing it fires a note.
+    msj "$_MSP" s1 Edit "$_MSP/api/src/plain.ts" "" > "$_msd/c1.json"
     ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$MS" "$_msd/c1.json" "$_msd/t1" && printf '%s' "$_GCN" > "$_msd/n1" )
     _msn1="$(cat "$_msd/n1" 2>/dev/null)"
     mstop "$_MSP" s1 > "$_msd/c2.json"
