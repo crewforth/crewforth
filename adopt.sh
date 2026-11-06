@@ -359,6 +359,8 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "%s written") s='%s yazıldı' ;;
       "%s written (persistent handover decision)") s='%s yazıldı (devralmanın kalıcı karar kaydı)' ;;
       "%s already exists — untouched (never-overwrite)") s='%s zaten var — dokunulmadı (üzerine asla yazılmaz)' ;;
+      "STOP: .claude/hooks already holds files under names Crewforth installs as its gates:%s") s="DUR: .claude/hooks içinde Crewforth'un kapı olarak kurduğu adlarla dosyalar zaten var:%s" ;;
+      "Crewforth did not write them. A first adopt would keep them, make them your git hooks and run them during the install. Nothing was changed. Look at them, move them out of .claude/hooks, then run adopt again.") s="Bunları Crewforth yazmadı. İlk kurulum onları olduğu gibi bırakır, git hook'larınız yapar ve kurulum sırasında çalıştırırdı. Hiçbir şey değişmedi. Dosyalara bakın, .claude/hooks dışına taşıyın, sonra adopt'u yeniden çalıştırın." ;;
       "+ .gitattributes: eol pins so the shared hooks stay LF on a Windows checkout") s="+ .gitattributes: paylaşılan hook'lar Windows checkout'unda LF kalsın diye eol sabitlendi" ;;
       "Review in your editor — nothing committed yet") s='Editörünüzde inceleyin — henüz hiçbir şey commit edilmedi' ;;
       "staged") s='stage edilen' ;;
@@ -706,6 +708,22 @@ KIT_PRESENT=0; KIT_VER=""
 # not make a never-installed project look installed — that turns on the force-refresh and overwrites its files.
 if [ "$KIT_PRESENT" = 0 ]; then for n in $KIT_OLD; do [ -f ".claude/agents/$n.md" ] && { KIT_PRESENT=1; break; }; done; fi
 [ -f .claude/VERSION ] && KIT_VER="$(head -1 .claude/VERSION 2>/dev/null)"
+# A FRESH adopt keeps a file it finds (never-overwrite), and then makes .claude/hooks the git hooks directory, runs
+# pre-commit there as its proof, runs guard-bash.sh and skill-trust.sh, and wires the rest into settings.json. So a
+# file already sitting in .claude/hooks under a name Crewforth ships would be run as Crewforth, by the user, during
+# the install and on every commit after it. Git never runs hooks that arrive with a clone; a cloned repository that
+# carries .claude/hooks/pre-commit would make this installer do exactly that. Nothing has changed yet at this
+# point, so the run stops here and names the files. An update (KIT_PRESENT=1) refreshes every one of them from
+# the payload instead, so it is not affected.
+if [ "$KIT_PRESENT" = 0 ] && [ -d .claude/hooks ]; then
+  _planted=""
+  for _hf in "$SRC"/hooks/*; do [ -f "$_hf" ] || continue; _hn="${_hf##*/}"; [ -e ".claude/hooks/$_hn" ] || [ -L ".claude/hooks/$_hn" ] && _planted="$_planted $_hn"; done
+  if [ -n "$_planted" ]; then
+    _mt 'STOP: .claude/hooks already holds files under names Crewforth installs as its gates:%s' "$_planted"; printf '%s\n' "$_M"
+    _mt 'Crewforth did not write them. A first adopt would keep them, make them your git hooks and run them during the install. Nothing was changed. Look at them, move them out of .claude/hooks, then run adopt again.'; printf '%s\n' "$_M"
+    exit 1
+  fi
+fi
 # Backend pattern of the existing install. Since 3.0 there is ONE shape (generic) and this only answers a
 # migration question: was this a pre-3.0 .NET install? If so its pattern skill stays, as the project's own.
 # LEGACY_PROFILE is a pre-2.0 leftover of the same kind: it selects nothing, it only drives a notice.
