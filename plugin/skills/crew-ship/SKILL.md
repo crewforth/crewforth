@@ -12,6 +12,7 @@ Closure flow — in order:
 3. Commit runs ONLY if the user says "commit" (§4.4). "Done" is not approval, and neither is a hedged "looks reasonable" / "probably fine". In `auto`, Crewforth hands the session the
    one-click approval question when crew-commit-agent is called: ask it with the message; the typed `/crew-approve` is
    for when no question is offered.
+   A pull request after the commit is `/crew-pr open`: it keeps the repository's template and pushes only on "push".
 4. **Close the board item too** (`teamboard`), when one is held. Closing work is one movement: ask what shipped,
    run `board.sh done <id> "<note>"`, name the items it unblocked, and offer the next one as options. Do not
    leave this to the user to remember — a claim nobody closes reads to the whole team as still in progress, and
