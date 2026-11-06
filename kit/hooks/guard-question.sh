@@ -14,7 +14,8 @@
 #
 # A GATE, so an error of its own refuses the call (CREW-FAILCLOSED): a question let through with no `ask` is one a
 # hook can answer.
-# COST. Builtins on every AskUserQuestion; on the approval question the scan reads files and starts no process.
+# COST. Builtins on every AskUserQuestion; on the approval question the scan reads files, and git is asked four
+# times (HEAD, the branch, the index tree, HEAD's tree) to write down what the question is about.
 set -uo pipefail
 # ---- CREW-LOCALE -----------------------------------------------------------------------------------------
 # Everything this gate matches with runs in the C locale, whatever the session's own is. Under a Turkish locale
