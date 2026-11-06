@@ -530,6 +530,39 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   check('twin: one citing a plain line of the same file is refused', w.status === 1 && /Core\/Orders\.cs:6/.test(w.stdout), w.stdout.trim());
 }
 
+/* -- 8e. the project's own rules: .crewforth/contracts.md, held to the tree by --contracts and --validate --------- */
+{
+  const root = copy('dotnet-sln');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'contracts.md');
+  const none = cli('--contracts');
+  check('contracts: with no contracts.md there is nothing to hold (rc 0, said)', none.status === 0 && /does not exist/.test(none.stdout), none.stdout + none.stderr);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const good = ['# Order rules', '', '## totals-round-once', 'Order totals are rounded once, at the end.', 'A split order adds up to the whole.', '- Core/Orders.cs:Total', '',
+    '## returns-clamped', 'Negative quantities from the importer are clamped to zero.', '- Core/Orders.cs:Quantity', '- Core.Tests/OrdersTests.cs:Total_rounds_once', ''].join('\n');
+  fs.writeFileSync(file, good);
+  const ok = cli('--contracts');
+  check('contracts: two rules, each citing a name that appears in a file of the tree, hold', ok.status === 0 && /holds: 2 contract/.test(ok.stdout), ok.stdout + ok.stderr);
+  const bad = [...good.split('\n'), '## totals-round-once', 'Again.', '- Core/Orders.cs:Total', '', '## Not_Kebab', 'Rule.', '- Core/Orders.cs:Total', '',
+    '## too-long', 'One. Two. Three.', '- Core/Orders.cs:Total', '', '## a-line', 'Rule.', '- Core/Orders.cs:8', '', '## gone', 'Rule.', '- Core/Gone.cs:Total', '',
+    '## renamed', 'Rule.', '- Core/Orders.cs:Discount', '', '## part-word', 'Rule.', '- Core/Orders.cs:Tot', '', '## outside', 'Rule.', '- ../secret.txt:x', '',
+    '## bare', 'Rule.', ''].join('\n');
+  fs.writeFileSync(file, bad);
+  const b = cli('--contracts');
+  const said = (re) => re.test(b.stdout);
+  check('contracts twin: a key used twice, one not kebab case, a rule of three sentences, a line number, a missing file, a symbol that is not there, part of a word, a path out of the project and a rule with no cite are each refused',
+    b.status === 1 && said(/totals-round-once: the key is used twice/) && said(/Not_Kebab: the key is not kebab/) && said(/too-long: the rule runs past two sentences/)
+    && said(/a-line: Core\/Orders\.cs:8 names no symbol/) && said(/gone: Core\/Gone\.cs:Total: Core\/Gone\.cs is not a file/) && said(/renamed: .*Discount does not appear/)
+    && said(/part-word: .*Tot does not appear/) && said(/outside: .*is not a file of this project/) && said(/bare: cites nothing/) && said(/9 problem\(s\)/), b.stdout);
+  fs.writeFileSync(file, good);
+  cli();
+  check('contracts: --validate holds them too, beside the descriptions', cli('--validate').status === 0);
+  const src = path.join(root, 'Core', 'Orders.cs');
+  fs.writeFileSync(src, fs.readFileSync(src, 'utf8').replaceAll('Total(', 'Sum('));
+  const r = cli('--contracts');
+  check('contracts: a rename in the code breaks the rule that names it, and --contracts says which', r.status === 1 && /totals-round-once: Core\/Orders\.cs:Total: Total does not appear/.test(r.stdout) && !/returns-clamped/.test(r.stdout), r.stdout);
+}
+
 /* -- 9. the rules files ---------------------------------------------------------------------------------------- */
 {
   const rules = JSON.parse(fs.readFileSync(path.join(LIB, 'rules', 'packages.json'), 'utf8'));

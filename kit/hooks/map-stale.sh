@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# map-stale.sh - says, once per agent, that the Crew Map was scanned before an edit to a file it cites.
+# map-stale.sh - says, once per agent, that the Crew Map was scanned before an edit to a file it cites, and which of
+# the project's own rules (.crewforth/contracts.md) live in the edited file; at Stop, tells the user which rules the
+# session's edits touched.
 #
 # WHY. .crewforth/crew-map.json describes modules from lines the scan read. Its module facts are true of the tree
 # it was scanned from; after an edit to a cited file they may not be. A planner that reads a stale map plans
 # against code that has moved. `crew-map.sh --check` can tell, but only when someone thinks to run it; this hook
 # says, at the moment it becomes true, that the question is now open.
 #
-# WIRING (settings.json / hooks.json): PostToolUse, matcher Edit|Write|MultiEdit|NotebookEdit.
+# WIRING (settings.json / hooks.json): PostToolUse, matcher Edit|Write|MultiEdit|NotebookEdit; and Stop.
 #
 # FIRES when ALL of these hold: .crewforth/crew-map.json exists in the project; the edited file is inside the
 # project; the map cites that file (a `"file"` or `"manifest"` value); and this session and agent have not been
 # told yet. Then one line of additionalContext, and a marker so the same agent is not told again. A subagent
 # (`agent_id`) is told on its own: it did not see what the main session was told.
+#
+# CONTRACTS. When .crewforth/contracts.md cites the edited file (`- path:symbol` under a `## key`), the rules that
+# live there are added to the same note, each key once per session and agent, and the key joins the session's list.
+# At Stop, keys on that list the user has not been told yet go to the user as one systemMessage; a session that
+# touched no rule is silent. Both the agent's and the user's text are facts: a rule that still holds needs no edit.
 #
 # WORDING. A fact, not an order: what happened and which command answers it. Measured elsewhere in Crewforth and in
 # the hook-wording lessons it adopted: an imperative in a PostToolUse note is read as a task and derails the turn;
@@ -21,7 +28,7 @@
 #
 # NOT A GATE. It never blocks and never asks: every path out is exit 0, and a failure of its own is silence.
 #
-# COST. It runs after every Edit and Write call. A call that does not fire starts no process: the payload and the
+# COST. It runs after every Edit and Write call and at every Stop. A call that does not fire starts no process: the payload and the
 # map are read with the builtin `read`, the match is a `case`, the marker is a redirection. The first firing in a
 # project may pay one `mkdir`.
 MS_NOTE="Crew Map: .crewforth/crew-map.json cites lines in this file and was scanned before this edit, so its facts about the module may no longer hold. crew-map.sh --check (the scanner /crew-map runs) says whether the map still matches the tree, and the user can type /crew-map to rescan it. (Said once per agent.)"
@@ -320,21 +327,38 @@ _ms_path(){  # $1 = a path, JSON-escaped or not -> _MSP: forward slashes, a driv
   _MSP="${p%/}"; }
 
 # ---- the payload -----------------------------------------------------------------------------------------
-_json_slice "$INPUT" hook_event_name >/dev/null; [ "$_JS" = PostToolUse ] || exit 0
-_json_slice "$INPUT" tool_name >/dev/null
-case "$_JS" in Edit|Write|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
+_json_slice "$INPUT" hook_event_name >/dev/null; EV="$_JS"
+case "$EV" in PostToolUse|Stop) ;; *) exit 0 ;; esac
 _json_slice "$INPUT" session_id >/dev/null; _ms_id "$_JS"; SID="$_MSI"; [ -n "$SID" ] || exit 0
-_json_slice "$INPUT" agent_id >/dev/null;   _ms_id "$_JS"; AG="$_MSI"
-
 # The project: the hook is started in it (settings.json cds there); the plugin edition reads it from the env or the payload.
 P="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$P" ]; then _json_slice "$INPUT" cwd >/dev/null; P="$_JS"; fi
 [ -n "$P" ] || exit 0
 _ms_path "$P"; P="$_MSP"
-M="$P/.crewforth/crew-map.json"
-[ -f "$M" ] || exit 0
-MK="$P/.claude/state/map-stale-$SID${AG:+-$AG}"
-[ -e "$MK" ] && exit 0
+M="$P/.crewforth/crew-map.json"; C="$P/.crewforth/contracts.md"; ST="$P/.claude/state"
+
+# ---- Stop: the user hears which of the project's rules this session's edits touched, each key once ------------
+if [ "$EV" = Stop ]; then
+  S="$ST/contracts-$SID"
+  [ -f "$S" ] || exit 0
+  LIST=""; IFS= read -r -d '' LIST < "$S" || true
+  SAID=""; [ -f "$S-said" ] && { IFS= read -r -d '' SAID < "$S-said" || true; }
+  NEW=""; rest="$LIST"
+  while [ -n "$rest" ]; do
+    rest="${rest#|}"; k="${rest%%|*}"; rest="${rest#"$k"}"; rest="${rest#|}"
+    [ -n "$k" ] || continue
+    case "$SAID" in *"|$k|"*) ;; *) NEW="$NEW${NEW:+, }$k"; SAID="$SAID|$k|" ;; esac
+  done
+  [ -n "$NEW" ] || exit 0
+  printf '%s' "$SAID" > "$S-said" 2>/dev/null || exit 0
+  printf '{"systemMessage":"Contracts: this session edited files that .crewforth/contracts.md cites for %s. A review gives a verdict per key (the user can type /crew-review); a rule that still holds needs no change to the file."}\n' "$NEW"
+  exit 0
+fi
+
+_json_slice "$INPUT" tool_name >/dev/null
+case "$_JS" in Edit|Write|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
+_json_slice "$INPUT" agent_id >/dev/null;   _ms_id "$_JS"; AG="$_MSI"
+[ -f "$M" ] || [ -f "$C" ] || exit 0
 
 _json_slice "$INPUT" file_path >/dev/null; FP="$_JS"
 [ -n "$FP" ] || { _json_slice "$INPUT" notebook_path >/dev/null; FP="$_JS"; }
@@ -349,6 +373,53 @@ case "$FP" in
 esac
 case "$REL" in ''|../*|*/../*) exit 0 ;; esac
 
+# Whatever is said below leaves through one line of JSON, written on the way out, so an early exit of the map's
+# part still delivers the contracts' part. The map's note comes first.
+MN=""; CN=""
+_ms_out(){ [ -n "$MN$CN" ] || return 0
+  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s%s%s"}}\n' "$MN" "${MN:+${CN:+ }}" "$CN"; }
+trap '_ms_out; exit 0' EXIT
+
+# ---- the project's rules: .crewforth/contracts.md (eval/lib/crew-map/contracts.mjs) ------------------------
+# A section is `## key`, its rule (the first paragraph) and `- path:symbol` cites. An edit to a cited file brings
+# the rules that live there into the agent's context, each key once per session and agent; the session's list of
+# touched keys is what Stop tells the user. At most 1 MB of the file is read, line by line, with builtins only.
+if [ -f "$C" ]; then
+  CT=""; IFS= read -r -d '' -n 1048576 CT < "$C" || true
+  case "$CT" in *"$REL:"*)
+    TK="$ST/contracts-told-$SID${AG:+-$AG}"; TOLD=""; [ -f "$TK" ] && { IFS= read -r -d '' TOLD < "$TK" || true; }
+    SL="$ST/contracts-$SID"; LIST=""; [ -f "$SL" ] && { IFS= read -r -d '' LIST < "$SL" || true; }
+    key=""; rule=""; para=0; told0="$TOLD"; list0="$LIST"
+    while IFS= read -r l || [ -n "$l" ]; do
+      l="${l%$'\r'}"
+      case "$l" in "## "*) _ms_id "${l#"## "}"; key="$_MSI"; rule=""; para=1; continue ;; esac
+      [ -n "$key" ] || continue
+      t="${l#"${l%%[![:space:]]*}"}"
+      case "$t" in
+        "- $REL:"?*|"* $REL:"?*)
+          case "$LIST" in *"|$key|"*) ;; *) LIST="$LIST|$key|" ;; esac
+          case "$TOLD" in *"|$key|"*) ;; *)
+            TOLD="$TOLD|$key|"; r="${rule:0:300}"; r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="${r//$'\t'/ }"
+            CN="$CN${CN:+ }$key: $r" ;;
+          esac ;;
+        "- "*|"* "*) para=2 ;;
+        '') [ "$para" = 3 ] && para=2 ;;
+        *) if [ "$para" = 1 ]; then rule="$t"; para=3; elif [ "$para" = 3 ]; then rule="$rule $t"; fi ;;
+      esac
+    done <<< "$CT"
+    if [ "$TOLD" != "$told0" ] || [ "$LIST" != "$list0" ]; then
+      [ -d "$ST" ] || mkdir -p "$ST" 2>/dev/null
+      printf '%s' "$TOLD" > "$TK" 2>/dev/null; printf '%s' "$LIST" > "$SL" 2>/dev/null
+    fi
+    [ -n "$CN" ] && CN="Contracts: .crewforth/contracts.md cites this file for these rules. $CN (Each rule said once per agent; a change that keeps a rule needs no edit to the file.)"
+  ;; esac
+fi
+
+# ---- the map ------------------------------------------------------------------------------------------------
+[ -f "$M" ] || exit 0
+MK="$ST/map-stale-$SID${AG:+-$AG}"
+[ -e "$MK" ] && exit 0
+
 # The map is written by the scanner's serializer: `"file": "<path>"`, one space after the colon, the path relative
 # and in forward slashes. The path is compared in that JSON form, so a quote or backslash in a name cannot widen it.
 J="${REL//\\/\\\\}"; J="${J//\"/\\\"}"
@@ -360,7 +431,7 @@ case "$MAPTXT" in
   *) exit 0 ;;
 esac
 
-[ -d "$P/.claude/state" ] || mkdir -p "$P/.claude/state" 2>/dev/null || exit 0
+[ -d "$ST" ] || mkdir -p "$ST" 2>/dev/null || exit 0
 : > "$MK" 2>/dev/null || exit 0
-printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$MS_NOTE"
+MN="$MS_NOTE"
 exit 0
