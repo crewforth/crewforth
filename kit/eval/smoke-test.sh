@@ -7108,7 +7108,7 @@ _PLANT="$(printf x | grep -c x)"
 else
   fail "loop-guard.sh missing or not executable"
 fi
-sec "== 7y3) map-stale: an edit to a file the Crew Map cites is said once per agent, as a fact =="
+sec "== 7y3) map-stale: an edit to a file the Crew Map or a contract cites is said once per agent, as a fact =="
 # map-stale.sh runs after every Edit/Write call. When .crewforth/crew-map.json exists and cites the edited file (a
 # "file" or "manifest" value), it says once, for this session and agent, that the map was scanned before the edit.
 # No map, a file it does not cite, a file outside the project, CREW_MAP_STALE=off: silence. Each case drives real
@@ -7121,7 +7121,8 @@ if [ -x "$MS" ]; then
   msmap(){ mkdir -p "$1/.crewforth"; printf '%s\n' '{' '  "nodes": [' '    {' '      "id": "mod:node:api",' \
     '      "manifest": "api/package.json",' '      "evidence": [' '        {' '          "file": "api/src/pay.ts",' \
     '          "line": 3' '        }' '      ]' '    }' '  ]' '}' > "$1/.crewforth/crew-map.json"; }
-  # $1 project, $2 hook, $3 env value ("" unset), then payloads on stdin, one per line -> _MSA additionalContext lines, _MSR non-zero rcs
+  # $1 project, $2 hook, $3 env value ("" unset), then payloads on stdin, one per line, each ENDED by a newline (a
+  # last line without one is never read, and a silent case would then pass on no input) -> _MSA notes, _MSR non-zero rcs
   msrun(){ local l; : > "$1/out"; : > "$1/rc"
     while IFS= read -r l; do [ -n "$l" ] || continue
       if [ -n "$3" ]; then ( cd "$1" && printf '%s' "$l" | CREW_MAP_STALE="$3" CLAUDE_PROJECT_DIR="$1" bash "$2" >> "$1/out" 2>>"$1/err" ); echo "$?" >> "$1/rc"
@@ -7158,25 +7159,48 @@ if [ -x "$MS" ]; then
   { msj "$_MSP" s1 Edit "$_MSP/api/src/other.ts" ""; echo; msj "$_MSP" s1 Edit "/elsewhere/api/src/pay.ts" ""; echo
     msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts.bak" ""; echo; msj "$_MSP" s1 Edit "$_MSP/x/api/src/pay.ts" ""; echo; } > "$_msd/quiet.in"; msrun "$_MSP" "$MS" "" < "$_msd/quiet.in"
   _msq1="$_MSA/$_MSR"
-  _MSP="$_msd/nomap"; mkdir -p "$_MSP"; msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" "" > "$_msd/q.in"; msrun "$_MSP" "$MS" "" < "$_msd/q.in"; _msq2="$_MSA/$_MSR"
-  _MSP="$_msd/off"; mkdir -p "$_MSP"; msmap "$_MSP"; msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" "" > "$_msd/q.in"; msrun "$_MSP" "$MS" off < "$_msd/q.in"; _msq3="$_MSA/$_MSR"
+  _MSP="$_msd/nomap"; mkdir -p "$_MSP"; { msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" ""; echo; } > "$_msd/q.in"; msrun "$_MSP" "$MS" "" < "$_msd/q.in"; _msq2="$_MSA/$_MSR"
+  _MSP="$_msd/off"; mkdir -p "$_MSP"; msmap "$_MSP"; { msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" ""; echo; } > "$_msd/q.in"; msrun "$_MSP" "$MS" off < "$_msd/q.in"; _msq3="$_MSA/$_MSR"
   [ "$_msq1" = 0/0 ] && [ "$_msq2" = 0/0 ] && [ "$_msq3" = 0/0 ] && [ ! -e "$_msd/off/.claude/state" ] && [ ! -e "$_msd/nomap/.claude" ] \
     && pass "map-stale: silent on an uncited file, a file outside the project, a look-alike path, no map, and CREW_MAP_STALE=off" \
     || fail "map-stale: should be silent — uncited/outside/look-alike $_msq1, no map $_msq2, off $_msq3 (notes/non-zero exits; want 0/0 each)"
+  # (5) contracts: .crewforth/contracts.md cites the file -> the rule's key and text reach the agent once per session
+  # and agent, behind the map's note when both speak; Stop tells the user each touched key once; a Stop with
+  # nothing touched, and a rule citing another file, stay silent.
+  mscon(){ mkdir -p "$1/.crewforth"; printf '%s\n' '# Rules' '' '## pay-idempotent' 'A payment is charged once per "order" id.' '- api/src/pay.ts:charge' '' \
+    '## other-file' 'Unrelated.' '- api/src/other.ts:x' > "$1/.crewforth/contracts.md"; }
+  mstop(){ printf '{"session_id":"%s","cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$2" "$1"; }
+  _MSP="$_msd/con"; mkdir -p "$_MSP"; mscon "$_MSP"
+  { mstop "$_MSP" s1; echo; msonce "$_MSP"; mstop "$_MSP" s1; echo; mstop "$_MSP" s1; echo; } > "$_msd/con.in"; msrun "$_MSP" "$MS" "" < "$_msd/con.in"
+  _msc1="$(grep -c '"additionalContext":"Contracts: .crewforth/contracts.md cites this file for these rules. pay-idempotent: A payment is charged once per \\"order\\" id. (Each rule' "$_MSP/out")"
+  _msc2="$(grep -c '"systemMessage":"Contracts: this session edited files that .crewforth/contracts.md cites for pay-idempotent\. ' "$_MSP/out")"
+  _msc3="$(grep -c 'other-file' "$_MSP/out")"; _msc4="$(grep -vc '^{.*}$' "$_MSP/out")"
+  [ "$_msc1" = 2 ] && [ "$_msc2" = 1 ] && [ "$_msc3" = 0 ] && [ "$_msc4" = 0 ] && [ "$_MSR" = 0 ] && [ "$(wc -l < "$_MSP/out" | tr -d ' ')" = 3 ] \
+    && pass "map-stale contracts: a cited file brings its rule to the session and to a subagent once each, Stop names the key once, an empty Stop and another file's rule stay silent" \
+    || fail "map-stale contracts: agent notes $_msc1 (want 2), Stop notes $_msc2 (want 1), other rule $_msc3 (want 0), lines not one JSON object $_msc4, non-zero exits $_MSR"
+  _MSP="$_msd/both"; mkdir -p "$_MSP"; msmap "$_MSP"; mscon "$_MSP"
+  { msj "$_MSP" s1 Edit "$_MSP/api/src/pay.ts" ""; echo; } > "$_msd/both.in"; msrun "$_MSP" "$MS" "" < "$_msd/both.in"
+  grep -q '"additionalContext":"Crew Map: .*(Said once per agent.) Contracts: .*pay-idempotent' "$_MSP/out" && [ "$(wc -l < "$_MSP/out" | tr -d ' ')" = 1 ] \
+    && pass "map-stale contracts: with a map too, one JSON line carries both notes, the map's first" \
+    || fail "map-stale contracts: map + contracts did not give one line with both notes: $(head -c 300 "$_MSP/out")"
   # Cost: an edit that does not fire starts no process (counter from §4.5's gate cost table, when it calibrated).
   if declare -F _gcost >/dev/null 2>&1 && [ "${_gc1:-}" = 5 ] && [ "${_gc2:-}" = 7 ]; then
-    _MSP="$_msd/cost"; mkdir -p "$_MSP"; msmap "$_MSP"
-    msj "$_MSP" s1 Edit "$_MSP/api/src/other.ts" "" > "$_msd/c1.json"
+    _MSP="$_msd/cost"; mkdir -p "$_MSP"; msmap "$_MSP"; mscon "$_MSP"
+    # An edit to a file nothing cites: other.ts is cited by the contracts fixture, so editing it fires a note.
+    msj "$_MSP" s1 Edit "$_MSP/api/src/plain.ts" "" > "$_msd/c1.json"
     ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$MS" "$_msd/c1.json" "$_msd/t1" && printf '%s' "$_GCN" > "$_msd/n1" )
     _msn1="$(cat "$_msd/n1" 2>/dev/null)"
+    mstop "$_MSP" s1 > "$_msd/c2.json"
+    ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$MS" "$_msd/c2.json" "$_msd/t2" && printf '%s' "$_GCN" > "$_msd/n2" )
+    _msn2="$(cat "$_msd/n2" 2>/dev/null)"
     sed '/^IFS= read -r -d .. INPUT || true$/a\
 _PLANT="$(printf x | grep -c x)"
 ' "$MS" > "$_msd/twin.sh"
     ( cd "$_MSP" && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$_msd/twin.sh" "$_msd/c1.json" "$_msd/t3" && printf '%s' "$_GCN" > "$_msd/n3" )
     _msn3="$(cat "$_msd/n3" 2>/dev/null)"
     if [ "${_msn3:-0}" -lt 2 ]; then fail "map-stale cost: a planted \$( ) + grep read ${_msn3:-nothing} — the counter sees nothing here, so a zero proves nothing"
-    elif [ "$_msn1" = 0 ]; then pass "map-stale cost: an edit that does not fire starts 0 processes, with a map to read (planted twin read $_msn3)"
-    else fail "map-stale cost: an edit cost ${_msn1:-?} processes, want 0 — it runs after every Edit/Write call, and on Git Bash a process is 20-130 ms"; fi
+    elif [ "$_msn1" = 0 ] && [ "$_msn2" = 0 ]; then pass "map-stale cost: an edit that does not fire and a Stop with nothing touched start 0 processes, with a map and contracts to read (planted twin read $_msn3)"
+    else fail "map-stale cost: an edit cost ${_msn1:-?} processes and a Stop ${_msn2:-?}, want 0 each — it runs after every Edit/Write call and every Stop, and on Git Bash a process is 20-130 ms"; fi
   elif [ "$IS_KIT" != 1 ]; then skip scope "map-stale cost: the process counter is calibrated in Crewforth's source checkout, not in an install"
   else skip fixture "map-stale cost: the process counter of the gate cost table did not calibrate on this bash, so no cost is claimed"; fi
   rm -rf "$_msd"

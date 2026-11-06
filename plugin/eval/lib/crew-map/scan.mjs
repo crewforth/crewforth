@@ -5,6 +5,7 @@
 //   node scan.mjs [--root DIR]            scan, verify, write DIR/.crewforth/crew-map.json, print its path
 //   node scan.mjs [--root DIR] --stdout   scan and verify; print the document, write nothing
 //   node scan.mjs [--root DIR] --check    rc 0 when the file on disk is what a scan writes now, 1 when it is not
+//   node scan.mjs [--root DIR] --contracts  rc 0 when .crewforth/contracts.md is absent or every rule and cite holds
 //       rc 1 = the scan produced a document that does not verify (nothing is written) · rc 2 = usage
 //
 // What it guarantees, each one a gate in packaging/crew-map-test:
@@ -30,6 +31,7 @@ import { externals, configuration, codeUrls, servedCalls, endpoints, containers 
 import { detect } from './detect.mjs';
 import { stamp, write, serialize, validate, OUT_DIR } from '../findings/findings.mjs';
 import { carry, steady, validate as validateNarrative } from './narrative.mjs';
+import { CONTRACTS_FILE, validate as validateContracts } from './contracts.mjs';
 
 // Languages with source the scanner has no reader for, by extension.
 const UNREAD = { swift: 'Swift', rb: 'Ruby', php: 'PHP', rs: 'Rust', scala: 'Scala', ex: 'Elixir', exs: 'Elixir',
@@ -276,12 +278,12 @@ export function scan(root = '.', opts = {}) {
   }
   const report = stamp(doc, pj.root);
   for (const c of cites) if (c.sha256 && (bearsValues(c.file) || risky(lineAt(c), patterns) >= 0)) delete c.sha256;
-  return { doc, report, spawned: spawned.count };
+  return { doc, report, spawned: spawned.count, files: new Set(pj.files), read: pj.read };
 }
 
 function usage(msg) {
   if (msg) console.error(`crew-map: ${msg}`);
-  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate | --force]');
+  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate | --contracts | --force]');
   return 2;
 }
 
@@ -319,12 +321,26 @@ export function main(argv) {
     const a = argv[i];
     if (a === '--root') { root = argv[++i]; if (root === undefined) return usage('--root needs a directory'); }
     else if (a === '--force') force = true;
-    else if (a === '--stdout' || a === '--check' || a === '--validate') { if (mode !== 'write') return usage('--stdout, --check and --validate do not go together'); mode = a.slice(2); }
+    else if (a === '--stdout' || a === '--check' || a === '--validate' || a === '--contracts') { if (mode !== 'write') return usage('--stdout, --check, --validate and --contracts do not go together'); mode = a.slice(2); }
     else return usage(`no such option: ${a}`);
   }
   try { if (!fs.statSync(root).isDirectory()) throw new Error('not a directory'); }
   catch (e) { console.error(`crew-map: --root ${root}: ${e.message}`); return 2; }
-  const { doc, report } = scan(root);
+  const { doc, report, files, read } = scan(root);
+  // The project's own rules (contracts.mjs): every cite must land on a name in a file of this tree.
+  const contracts = () => {
+    let text = null; try { text = fs.readFileSync(path.join(root, CONTRACTS_FILE), 'utf8'); } catch { /* none */ }
+    if (text === null) return { n: 0, problems: [], absent: true };
+    const r = validateContracts(text, files, read);
+    return { n: r.contracts.length, problems: r.problems.map((p) => ({ at: `contracts ${p.at}`, message: p.message })) };
+  };
+  if (mode === 'contracts') {
+    const c = contracts();
+    if (c.absent) { console.log(`crew-map: ${CONTRACTS_FILE} does not exist, so there is nothing to hold`); return 0; }
+    for (const p of c.problems) console.log(`  FAIL ${p.at}: ${p.message}`);
+    console.log(c.problems.length ? `crew-map: ${c.problems.length} problem(s) in ${CONTRACTS_FILE}` : `crew-map: ${CONTRACTS_FILE} holds: ${c.n} contract(s), every cite names a symbol in a file of this tree`);
+    return c.problems.length ? 1 : 0;
+  }
   if (!report.ok) {
     for (const p of report.problems) console.error(`  FAIL ${p.at}: ${p.code} — ${p.message}`);
     console.error('crew-map: the scan produced citations that do not verify, so nothing was written (a scanner defect)');
@@ -336,11 +352,12 @@ export function main(argv) {
   let was = null; try { was = old === null ? null : JSON.parse(old); } catch { /* unreadable: different */ }
   if (mode === 'validate') {
     if (!was) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json ${old === null ? 'does not exist' : 'is not JSON'}`); return 1; }
-    const problems = validateNarrative(was, doc, serialize);
+    const c = contracts();
+    const problems = [...validateNarrative(was, doc, serialize), ...c.problems];
     const written = (was.nodes ?? []).filter((n) => n.narrative != null).length + (was.overview != null ? 1 : 0);
-    if (!problems.length) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json holds: ${written} description(s), each citing lines the scan read; the scanner's fields untouched`); return 0; }
+    if (!problems.length) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json holds: ${written} description(s), each citing lines the scan read; the scanner's fields untouched${c.absent ? '' : `; ${c.n} contract(s) in ${CONTRACTS_FILE}, every cite landing`}`); return 0; }
     for (const p of problems) console.log(`  FAIL ${p.at}: ${p.message}`);
-    console.log(`crew-map: ${problems.length} problem(s); fix the descriptions, never the scanner's fields`);
+    console.log(`crew-map: ${problems.length} problem(s); fix the descriptions or contracts.md, never the scanner's fields`);
     return 1;
   }
   if (mode === 'check') {

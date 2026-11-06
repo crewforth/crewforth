@@ -64,3 +64,12 @@ the scan itself read, and a gate holds it to that. **Never commit.** Show the di
    left `null` and why, the tour's stops, and on a rescan the ledger it printed (nodes and edges added, removed,
    changed, by id). Studio's **Map** view (`/crew-studio`) draws the result.
    Committing it is the user's call. `/crew-audit` audits the project from this map.
+
+**Contracts** (when the user asks for them, or names a rule the code must keep). The project's own rules
+live in `.crewforth/contracts.md`, which the scanner never writes, so a rescan cannot drop one. A section is
+`## key` (kebab case, unique), the rule in one or two sentences, then one `- path:symbol` line per place it lives
+(a file of the project and a name in it: a function, type, key or route; never a line number). Write only rules the
+user stated or confirmed; a rule you inferred is proposed to the user first. `bash MAP --contracts` holds the file
+to the tree (`--validate` includes it): a key used twice, a rule past two sentences, a cite whose file is gone or
+whose symbol no longer appears. From then on an agent editing a cited file is told the rules that live there, the
+user hears at the end of the turn which rules the session touched, and the reviewer gives a verdict per key.

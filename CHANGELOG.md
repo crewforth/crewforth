@@ -51,6 +51,14 @@ versioning follows [SemVer](https://semver.org/).
   as the verify of a task that changes it, and `/crew-audit` reads the counts and comments to break a tie. The commit
   counts move with every commit, so `--check` and the rescan summary leave them out. A test project is no longer
   reported as a module nobody references.
+- **A project can write down the rules its code must keep, and every agent hears them where they apply.**
+  `.crewforth/contracts.md` holds one section per rule: `## key`, the rule in a sentence or two, and the places it
+  lives as `- path:symbol` (a name, not a line number, so the rule outlives edits). The scanner never writes it, so
+  a rescan cannot drop one. `crew-map.sh --contracts` (and `--validate`) refuses a key used twice, a rule past two
+  sentences, and a cite whose file is gone or whose name no longer appears. When an agent edits a cited file,
+  `map-stale.sh` adds the rules that live there to its context, once per rule and agent; at the end of the turn
+  the user is told which rules the session's edits touched; `crew-review-agent` gives each touched rule a verdict:
+  holds, broken (with the line) or cannot tell. `/crew-map` writes a rule only when the user states or confirms it.
 - **A rescan that would lose most of the map writes nothing.** When described nodes would mostly vanish, or the
   module count would fall by more than half (a wrong `--root`, a damaged checkout), the scanner exits 1 with both
   counts and keeps the old map; `--force` writes it anyway.
