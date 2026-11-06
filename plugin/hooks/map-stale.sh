@@ -13,7 +13,7 @@
 # told yet. Then one line of additionalContext, and a marker so the same agent is not told again. A subagent
 # (`agent_id`) is told on its own: it did not see what the main session was told.
 #
-# WORDING. A fact, not an order: what happened and which command answers it. Measured elsewhere in this kit and in
+# WORDING. A fact, not an order: what happened and which command answers it. Measured elsewhere in Crewforth and in
 # the hook-wording lessons it adopted: an imperative in a PostToolUse note is read as a task and derails the turn;
 # a fact is weighed. (UserPromptSubmit is the opposite case; route-hint.sh keeps its instruction wording.)
 #
