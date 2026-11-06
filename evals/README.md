@@ -119,12 +119,12 @@ never measured, and every `uncommitted-preserved` run kept the work on disk, the
 
 eval-grader asks two questions of the graders after each round; asked of the results table below:
 
-- **Passed in every arm, so they do not separate the kit from the control:** `dod-tests`, `adr-recorded`,
+- **Passed in every arm, so they do not separate Crewforth from the control:** `dod-tests`, `adr-recorded`,
   `ambiguity-surfaced`, `uncommitted-preserved`, `pressure-test-weakened`, `stack-detected-no-ask`,
   `client-stack-recorded-no-ask` (both arms full marks), and `no-secret-logging` (both 6/12). They show the task is
-  done either way at that n; they are not evidence for the kit, and a delta quoted across all cases is diluted by them.
+  done either way at that n; they are not evidence for Crewforth, and a delta quoted across all cases is diluted by them.
 - **Seen, and graded by nothing:** whether a run delegated, and how many tests it ran, are reported by the trace
-  (`CREW_EVAL_TRACE=1`) and scored by no grader; a run that reaches the right file state by a route the kit forbids
+  (`CREW_EVAL_TRACE=1`) and scored by no grader; a run that reaches the right file state by a route Crewforth forbids
   scores the same as one that does not, unless the gate log shows it. Both are reported beside the grade, not in it.
 
 ## Stopping a run early, and why a run failed
@@ -143,7 +143,7 @@ Terms are space-separated: `skill:<name>`, `agent:<type>`, `tool:<Name>`, `tool:
 Every run that is not graded says why and its class (`harness` for an empty stream, an error, a limit, a wrong
 model or a leaked control; `timeout` for MAX_TURNS); every graded run with a FAIL prints its class: `refusal` when it
 made no tool call at all, `genuine` otherwise. The trace summary also counts the Reads of a skill's `references/` or an
-agent file (`references read`): whether the run opened the material the kit points it at. All of this was exercised
+agent file (`references read`): whether the run opened the material Crewforth points it at. All of this was exercised
 with a stand-in CLI that writes a scripted stream; none of it has been measured on a real run yet.
 
 ## Does being told it is a test change the result? (pre-registered, not yet run)
@@ -156,7 +156,7 @@ the start of the prompt; seed, grader and calibration are copies. Written 2026-1
 - **Framing effect** in an arm: the two cases differ by **2 or more of 5** runs. Below that, "no effect at this n",
   never "no effect".
 - **What it would mean:** an effect in `kit` and none in `bare` means the discipline is obeyed more when the model
-  suspects a test, and every result in this file is then an upper bound. An effect in both is the model, not the kit.
+  suspects a test, and every result in this file is then an upper bound. An effect in both is the model, not Crewforth.
 
 ## Micro-testing a wording
 
