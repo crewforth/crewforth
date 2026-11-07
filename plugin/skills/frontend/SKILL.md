@@ -48,7 +48,8 @@ also applies `frontend-rn-expo`, a Flutter project `frontend-flutter`.
 
 ## State-complete UI (design it from the start)
 Every data-bound view covers **four states**: **loading · empty · error · full**.
-Don't code only the "full" case; empty/error/loading are part of the experience.
+Don't code only the "full" case; empty/error/loading are part of the experience. "Full" means the worst realistic
+data too (a long unbreakable name, 0, 1 and 1000 items, extreme numbers, RTL): `references/worst-data.md`.
 
 ## i18n & accessibility (default, not decoration)
 - User-visible text comes from the language file (project languages); no hard-coded strings (`i18n-integrity`).
@@ -57,7 +58,9 @@ Don't code only the "full" case; empty/error/loading are part of the experience.
 ## Visual & UX quality
 This skill covers *structure*; the **visual/UX design layer** — hierarchy, spacing rhythm, typographic scale, a
 restrained color system, and polished states — lives in **`frontend-design`**. Apply it when the work is about how the
-interface *looks and feels*, not just how it's wired.
+interface *looks and feels*, not just how it's wired. Building from a design file or a mock ("match this design",
+a Figma link): `references/from-design.md`. A page others will find or share (title, description, canonical, Open
+Graph, structured data): `references/page-metadata.md`.
 
 ## Responsive & performance
 - Works across the target screen/device matrix (responsive/adaptive).

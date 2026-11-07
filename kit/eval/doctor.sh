@@ -156,6 +156,7 @@ _mt() {
       'CLAUDE.md (or a referenced doc) names pull-only agent(s) by their old bare id — invoked explicitly, so delegation still works; rename for consistency:%s') s='CLAUDE.md (ya da başvurduğu bir belge) yalnız açıkça çağrılan ajan(lar)ı eski çıplak kimliğiyle anıyor — açıkça çağrıldıkları için devretme yine çalışır; tutarlılık için yeniden adlandırın:%s' ;;
       'CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s') s='CLAUDE.md var olmayan dosya(lar)ı içe aktarıyor — hiçbir şey yüklenmiyor ve bu söylenmiyor:%s' ;;
       'CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s') s='CLAUDE.md var olmayan yol(lar)ı gösteriyor (taşındı ya da silindi mi?):%s' ;;
+      '%s points at path(s) that do not exist (moved or deleted?):%s') s='%s var olmayan yol(lar)ı gösteriyor (taşındı ya da silindi mi?):%s' ;;
       'every import and file path in CLAUDE.md resolves') s="CLAUDE.md'deki her içe aktarma ve dosya yolu çözülüyor" ;;
       'agent references resolve to installed agents (CLAUDE.md + referenced docs)') s='ajan anmaları kurulu ajanlara çözülüyor (CLAUDE.md ve başvurduğu belgeler)' ;;
       'CLAUDE.md missing — .claude/DISCIPLINE.md is never loaded (routing / DoD / session rules absent)') s='CLAUDE.md yok — .claude/DISCIPLINE.md hiç yüklenmiyor (yönlendirme / DoD / oturum kuralları yok)' ;;
@@ -719,8 +720,14 @@ fi
 #     nor is a path with an escaped space. A backticked path counts when it is shaped like one (a `/`, an extension, no
 #     placeholder, glob or space); a `:42` or `#L10` after it is a location in the file, not part of its name. An
 #     example path in prose that is shaped like a real one is still named: doctor cannot tell an example from a pointer.
-if [ -f CLAUDE.md ]; then
-  _imp=""; _btp=""; _fen=0
+#     Nested instruction files (a CLAUDE.md or AGENTS.md below the root, and an AGENTS.md at it) are read the same
+#     way: Claude Code loads a subdirectory's CLAUDE.md when it works there, and AGENTS.md is the file other tools
+#     read. A path in one resolves against its own folder first, then the root. Found by find, not git ls-files: an
+#     install gitignores CLAUDE.md, and the pattern hides the nested ones too. Dependency and build folders are not
+#     walked, and at most 20 files are read, so a monorepo does not make the doctor slow. Information only.
+# _ptrs FILE BASE: the imports and backticked paths in FILE that resolve neither under BASE nor at the root.
+_ptrs() {
+  _imp=""; _btp=""; local _fen=0 _l _r _p _t _own _w _ws _b="$2"
   while IFS= read -r _l || [ -n "$_l" ]; do
     _l="${_l%$'\r'}"
     case "$_l" in '```'*|'~~~'*) _fen=$((1-_fen)); continue ;; esac
@@ -731,7 +738,7 @@ if [ -f CLAUDE.md ]; then
       _p="$_p ${_r%%\`*}"; _r="${_r#*\`}"; _t="${_r%%\`*}"; _r="${_r#*\`}"
       _t="${_t%%#*}"; case "$_t" in *:[0-9]*) _t="${_t%%:[0-9]*}" ;; esac
       case "$_t" in *[[:space:]\<\>\*\{\}\$\|]*|'~'*|@*|/*|http*|-*|*://*) continue ;; */*.[A-Za-z]*) ;; *) continue ;; esac
-      _t="${_t#./}"; [ -e "$_t" ] || case "$_btp" in *" $_t"*) ;; *) _btp="$_btp $_t" ;; esac
+      _t="${_t#./}"; [ -e "$_b/$_t" ] || [ -e "$_t" ] || case "$_btp" in *" $_t"*) ;; *) _btp="$_btp $_t" ;; esac
     done
     _p="$_p $_r"
     case "$_l" in @*) _own=1 ;; *) _own=0 ;; esac
@@ -742,20 +749,33 @@ if [ -f CLAUDE.md ]; then
       case "$_t" in ''|'~/'*|/*|*\\*) continue ;; esac
       [ "$_own" = 1 ] || case "$_t" in *.[A-Za-z]*) ;; *) continue ;; esac
       _own=0
-      [ -e "$_t" ] || case "$_imp" in *" @$_t"*) ;; *) _imp="$_imp @$_t" ;; esac
+      [ -e "$_b/$_t" ] || case "$_imp" in *" @$_t"*) ;; *) _imp="$_imp @$_t" ;; esac
     done
-  done < CLAUDE.md
+  done < "$1"
   # A path written relative to a sub-project (`services/x.py` for backend/app/services/x.py) is not missing: one
   # `git ls-files`, asked only when something looked missing, and a tracked file that ends with the path resolves it.
-  if [ -n "$_btp" ] && _ls="$(git ls-files 2>/dev/null)" && [ -n "$_ls" ]; then
-    _nl=$'\n'; _ls="$_nl$_ls$_nl"; _k=""
-    for _t in $_btp; do case "$_ls" in *"/$_t$_nl"*|*"$_nl$_t$_nl"*) ;; *) _k="$_k $_t" ;; esac; done
+  if [ -n "$_btp" ] && [ -n "${_ls:=$(git ls-files 2>/dev/null)}" ]; then
+    local _nl=$'\n' _k=""
+    for _t in $_btp; do case "$_nl$_ls$_nl" in *"/$_t$_nl"*|*"$_nl$_t$_nl"*) ;; *) _k="$_k $_t" ;; esac; done
     _btp="$_k"
   fi
+}
+_ls=""
+if [ -f CLAUDE.md ]; then
+  _ptrs CLAUDE.md .
   [ -n "$_imp" ] && warn "CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s" "$_imp"
   [ -n "$_btp" ] && warn "CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s" "$_btp"
   [ -z "$_imp$_btp" ] && ok "every import and file path in CLAUDE.md resolves"
 fi
+_nst=0
+while IFS= read -r _nf; do
+  _nf="${_nf#./}"; [ "$_nf" = CLAUDE.md ] && continue
+  _nst=$((_nst+1)); [ "$_nst" -gt 20 ] && break
+  _ptrs "$_nf" "$(dirname "$_nf")"
+  [ -n "$_imp$_btp" ] && warn "%s points at path(s) that do not exist (moved or deleted?):%s" "$_nf" "$_imp$_btp"
+done < <(find . -maxdepth 6 \( -name .git -o -name .claude -o -name node_modules -o -name vendor -o -name dist \
+           -o -name build -o -name target -o -name .venv -o -name venv -o -name Pods \) -prune \
+           -o \( -name CLAUDE.md -o -name AGENTS.md \) -type f -print 2>/dev/null | LC_ALL=C sort)
 
 # 8b) The shell matcher. Claude Code's hooks reference is explicit: inspect shell commands with
 #     `Bash|PowerShell`, because wherever the PowerShell tool is enabled it IS the shell — and it is on by

@@ -17,6 +17,9 @@ Goal: no missing/broken text in any language. Languages: the set the project dec
 - **No hardcoded strings:** user-facing text is not embedded in code, it comes from the language file.
 - **Placeholder consistency:** `{name}`, `%s`, ICU `{count, plural, ...}` are identical in every language.
 - **Plural rules:** language-specific plural forms (especially RU) are correct.
+- **Assembled sentences:** a sentence built by concatenating pieces around a variable (`t('hello') + name + t('welcome')`),
+  or a plural chosen by hand (`n === 1 ? … : …`), is a finding: word order and plural forms differ by language, so
+  the whole sentence is one message with a placeholder (ICU / `Intl.PluralRules`).
 - **Empty/identical value:** an untranslated (identical to the source) placeholder value is flagged.
 
 ## Check (key-set comparison)

@@ -23,6 +23,9 @@ Not used in web/desktop projects (delete it if needed).
   Via Expo prebuild / config plugin; mind the platform difference (iOS/Android).
 - **Render by capability:** do **not** promise in the UI a capability the device lacks; show it conditionally.
 - **Assets:** image size/resolution, `expo-image` cache, splash/icon prebuild compatibility.
+- **Motion and gestures:** the rules in `frontend-design/references/motion.md` (a drag can be grabbed again
+  mid-animation, release velocity carries into the finish, rubber-band at the bounds) on top of the project's
+  gesture and animation library.
 
 ## DoD (in addition to the generic `frontend` DoD)
 - Works across the target iOS/Android version matrix; native bridge error paths are tested.
