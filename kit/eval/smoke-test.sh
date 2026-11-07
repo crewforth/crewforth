@@ -1416,7 +1416,8 @@ else
       *) fail "branch-fresh: a 5-day-old fork point was not reported: '$(printf '%s' "$_o3" | head -c 300)'" ;; esac
     printf 'c\n' > "$_bf/w/f"; _bfg commit -qam mine
     _o4="$(_bfr CREW_BRANCH_FRESH_DAYS=30)"
-    if git merge-tree --write-tree HEAD HEAD >/dev/null 2>&1 || [ "$?" = 1 ]; then
+    # Asked of the fixture repository, not the cwd: an installed project under test may not be a git repository.
+    if git -C "$_bf/w" merge-tree --write-tree HEAD HEAD >/dev/null 2>&1 || [ "$?" = 1 ]; then
       case "$_o4" in *'would conflict in: f.'*) pass "branch-fresh: a merge that would conflict names the file (git merge-tree)" ;;
         *) fail "branch-fresh: a conflicting base was not reported: '$(printf '%s' "$_o4" | head -c 300)'" ;; esac
     else skip tool "branch-fresh conflict case not checked (git older than 2.38 has no merge-tree --write-tree)"; fi
