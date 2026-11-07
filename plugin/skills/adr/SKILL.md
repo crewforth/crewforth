@@ -2,7 +2,6 @@
 name: adr
 description: |
   Architecture Decision Record: context-decision-consequences, for decisions that are expensive to reverse.
-  Written under docs/adr/.
 ---
 
 # Architecture Decision Record (ADR)
@@ -34,7 +33,14 @@ every teammate's next session opening, and it travels even when the board lives 
 file stays the long form; the board entry is the part that has to reach people, so it must be readable on its
 own — a title nobody can act on ("auth decided") is not a record.
 
-## Format (docs/adr/NNNN-short-title.md, ~1 page)
+## Where it goes: the project's scheme first
+Before writing, look for records that already exist: a decisions folder (`docs/adr/`, `doc/adr/`,
+`docs/decisions/`, `Documentation/Decisions/`, `architecture/decisions/`), an `.adr-dir` file (adr-tools), or files
+named like `ADR-004-…` or `0004-…`. Found: continue it, same folder, extension (.md, .rst, .adoc), numbering and
+heading style, next number. Not found: `docs/adr/NNNN-short-title.md` below. Never start a second scheme beside one
+that exists; two numbering lines make every "see ADR 12" ambiguous.
+
+## Format (fallback: docs/adr/NNNN-short-title.md, ~1 page)
 ```
 # NNNN. <Decision title>
 Status: proposed | accepted | rejected | superseded (by NNNN)
@@ -52,6 +58,9 @@ Verified against: <package>@<version> · <docs or source> · <date> — or "none
 ## Principles
 - **Invariant:** a new decision marks the old ADR as `superseded`; an ADR is **never deleted** (decision history is preserved).
 - Numbered and dated; keep it short.
+- **A number a test enforces moves with its ADR.** When a test or gate pins a figure an ADR set (a cap, a count, a
+  budget), the change that moves the figure amends that ADR in the same commit; a figure that drifts from its record
+  leaves the next reader two answers.
 
 ## Deliberately bypassing a rule is a decision too
 A gate the user knowingly overrode — a deferred DoD item, an accepted known gap, a trimmed scope — belongs here

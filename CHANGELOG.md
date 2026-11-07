@@ -86,6 +86,14 @@ versioning follows [SemVer](https://semver.org/).
   guessing, and treats the map's `notMeasured` areas as unknown. `confidence-check` gains a seventh check, "What must
   it reach?" (every caller, test and export a change breaks), and looks for existing code in a fixed order before
   writing new; `iterate` builds one slice at a time and lists what it noticed but did not touch.
+- **Docs are grounded, and decisions continue the project's own records.** `docs-writer` reads each fact from where
+  it lives (behaviour from the code and its test, flags from `--help`, config from its loader, API shapes from the
+  schema, labels from the i18n source, versions from the tags) and deletes what it cannot check instead of flagging
+  it; a business or legal statement goes to its owner as a question. A doc is scored 0-2 on five points before it
+  ships, and a new "Diagrams" section caps a diagram at 9 boxes and 12 arrows and treats every box as a claim. `adr`
+  first looks for an existing decisions folder, `.adr-dir` or numbering and continues it; `docs/adr/` is only the
+  fallback. `/crew-doctor` now also names missing paths in a nested `CLAUDE.md` and in `AGENTS.md`, and the suite
+  checks that every `§N.M` cited in agents, skills, hooks and scripts is a heading of the discipline.
 - **The quality gate reads one line, `## Stack` → `Quality analysis:`** (`sonarqube-local`, `sonarqube-server` or
   `declined`), in place of six "(if SonarQube is in use)" clauses that a project with no server read as false every
   time. `declined` is reported as "no analysis ran — unverified". The doctor's readiness section says when the line
