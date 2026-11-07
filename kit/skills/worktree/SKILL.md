@@ -26,11 +26,18 @@ tree (with your in-progress edits) is physically untouched. Throw the worktree a
 - Skip it for a single, in-place edit on a clean tree — a worktree is overhead there.
 
 ## How
-1. **Detect** — are you already in a worktree? `[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]` is true inside one; don't nest.
-2. **Create** — `git worktree add ../wt-<name> -b <branch>` (new branch) or `git worktree add ../wt-<name> <existing>`. It shares the object store, so it's cheap.
-3. **Work there** — cd into it; edits, builds, and agent runs stay local to that copy.
-4. **Fold back or discard** — keep: commit on its branch, then merge. Discard: `git worktree remove ../wt-<name>` (add `--force` only if you mean to drop its changes).
-5. **Clean up** — `git worktree prune` removes stale entries. Never leave orphaned worktrees around.
+1. **Detect** — are you already in a worktree? `[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]` is true inside one; don't nest. A submodule answers true as well: when `git rev-parse --show-superproject-working-tree` prints a path, you are in a submodule, not a worktree.
+2. **Create** — `git worktree add ../wt-<name> -b <branch>` (new branch) or `git worktree add ../wt-<name> <existing>`. It shares the object store, so it's cheap. Before `-b <branch>`, check `git show-ref --verify --quiet refs/heads/<branch>`: if the branch exists, do not reuse the name silently; ask whether to work on that existing branch. A branch you adopted that way is the user's, and cleanup never deletes it.
+3. **Work there** — cd into it; edits, builds, and agent runs stay local to that copy. Run the project's test command once before the first edit and note the result, so a failure you see later is yours or was already there. `.claude/` is gitignored in most installs, so a worktree made with `git worktree add` has none: entering it with the EnterWorktree tool copies it in, and `/crew-doctor` names a worktree that still lacks it.
+4. **Fold back or discard** — keep: commit on its branch, then merge. Discard: first look at what would be lost, `git -C ../wt-<name> status --porcelain` and `git log <upstream-or-base>..<branch> --oneline`. Uncommitted files or commits that exist nowhere else mean you list them and ask the user; `git worktree remove ../wt-<name>` only when both are empty, and `--force` only after the user has seen that list and said to drop it.
+5. **Clean up** — `git worktree prune` removes stale entries. Never leave orphaned worktrees around. Delete only a branch you created for the worktree (`git branch -d`, which refuses an unmerged one), never one you adopted in step 2.
+
+## Shared services
+A database, dev server or queue the worktrees all use is shared state, not part of your copy.
+- Reuse a service that is already up and healthy; start one only when none answers.
+- Never stop or kill a process you did not start. Two worktrees share one machine, so the other one may be using it.
+- Read the port the tool reports when it starts; don't assume the default, since the other worktree may already hold it.
+- A test that destroys data (drops tables, clears a queue) gets its own database or namespace, never the shared one.
 
 ## Invariant rules
 1. **Isolate before risk, don't revert after** — a worktree replaces "run `checkout -- .` to undo"; the undo is `worktree remove`.
@@ -38,3 +45,4 @@ tree (with your in-progress edits) is physically untouched. Throw the worktree a
 3. **Don't nest** — creating a worktree from inside a worktree; detect first.
 4. **Commit or isolate before delegating file-mutating work** — a subagent must never be able to discard the main tree's unsaved changes.
 5. **Remove what you add** — no orphaned worktrees; `remove` + `prune` when done.
+6. **Never remove what you have not looked at** — dirty files or unpushed commits in a worktree are the user's to drop, not yours; no `--force` and no `branch -D` without their word.
