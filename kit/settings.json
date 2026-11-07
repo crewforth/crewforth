@@ -152,6 +152,12 @@
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/route-hint.sh",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/turn-check.sh",
+            "timeout": 30
           }
         ]
       }
@@ -176,6 +182,12 @@
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/map-stale.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/turn-check.sh",
+            "timeout": 180
           }
         ]
       }

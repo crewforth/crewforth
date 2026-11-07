@@ -47,7 +47,7 @@ chmod +x "$OUT/studio/ensure-node.sh" "$OUT/studio/server/hooks/"*.sh 2>/dev/nul
 # would carry the board's session-start awareness and none of its claim gate — the exact one-channel-is-weaker
 # asymmetry the git hooks below were added to close.
 for h in guard-bash.sh guard-write.sh context-usage.sh session-guard.sh session-rehydrate.sh session-stats.sh \
-         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-question.sh guard-schedule.sh guard-agent-model.sh agent-outcome.sh refuter-ledger.sh precompact-snapshot.sh loop-guard.sh map-stale.sh branch-fresh.sh; do
+         guard-commit-scan.sh route-hint.sh session-update-check.sh board.sh board-sync.sh guard-powershell.sh prompt-approval.sh guard-question.sh guard-schedule.sh guard-agent-model.sh agent-outcome.sh refuter-ledger.sh precompact-snapshot.sh loop-guard.sh map-stale.sh turn-check.sh branch-fresh.sh; do
   cp "$SRC/hooks/$h" "$OUT/hooks/$h"
   chmod +x "$OUT/hooks/$h"
 done
@@ -150,7 +150,8 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 },
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/context-usage.sh\"", "timeout": 60 },
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/route-hint.sh\"", "timeout": 60 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/route-hint.sh\"", "timeout": 60 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/turn-check.sh\"", "timeout": 30 }
         ]
       }
     ],
@@ -159,7 +160,8 @@ cat > "$OUT/hooks/hooks.json" <<'HOOKS'
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-guard.sh\"", "timeout": 60 },
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/prompt-approval.sh\"", "timeout": 60 },
-          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/map-stale.sh\"", "timeout": 30 }
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/map-stale.sh\"", "timeout": 30 },
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/turn-check.sh\"", "timeout": 180 }
         ]
       }
     ],

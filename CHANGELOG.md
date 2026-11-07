@@ -105,6 +105,19 @@ versioning follows [SemVer](https://semver.org/).
   Bundler, Composer, Mix, pub, NuGet, Gradle, SwiftPM and CocoaPods.
 - **The route hint names `dependency-audit` beside the owner** when a request adds a package ("add a new dependency for
   the date picker component", "pdf için bağımlılık ekle"), instead of losing to the agent that owns the request.
+- **The main thread's own edits get the project's fast check before a turn ends.** A new hook, `turn-check.sh`
+  (UserPromptSubmit + Stop), runs the `Fast check (files):` command `CLAUDE.md` declares on the files the turn changed:
+  its edits and its own commits (an amend counts only what it changed), never a file that was already dirty or a
+  commit a pull brought in. A red check hands its output back once, so the turn fixes it. The command is judged
+  the way a crew agent's verify command is; one the permission rules do not allow is not run, and the user is told
+  once. A project that declares nothing pays nothing. `CREW_TURN_CHECK=off` turns it off.
+- **`security-scan` reviews CI/CD.** A new front for pipeline definitions: actions pinned to a commit, no
+  attacker-written text in `run:`, no `pull_request_target` that runs a pull request's code, least-privilege
+  `permissions:`, OIDC scoped to the repository, no secrets for forks, no self-hosted runner on a public repository.
+- **`dependency-upgrade` lands bot PRs.** Renovate and Dependabot PRs are sorted into green, mechanical, needs
+  diagnosis, conflicting and superseded, with one question per bucket; majors and `0.x` minors stay single.
+- **`sonarqube-check` keeps a ratchet when no server can run**: a committed baseline of coverage, lint findings,
+  size and warnings that fails only on a regression, with an owner and expiry for every accepted one.
 - **A session opens told when its branch has fallen behind in a way that matters.** A new SessionStart hook,
   `branch-fresh.sh`, compares the branch with `origin/<base>` as last fetched (`Base branch:` in `CLAUDE.md`, else
   origin's default branch) and speaks only when merging the base would conflict, the branch was cut more than three
@@ -129,6 +142,18 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **`dependency-audit` asks which registry answers an internal name** (scope mappings, `--index-url` against
+  `--extra-index-url`, NuGet source mapping, `GOPRIVATE`, image digests), names a registry config committed in the
+  repository, and checks each new package against the popular name one edit away.
+- **`dependency-upgrade` reports a failed lookup as `could not check`**, never as up to date, and installs a new
+  package with its scripts off first.
+- **A test run read through a pipe is not evidence.** `npm test | tail` exits with tail's status; the DoD, the
+  reviewer and `token-budget` now ask for `set -o pipefail` or a redirect, and the reviewer does not cite a piped run
+  without it.
+- **The reviewer has Crewforth's own simplify passes** for when `/simplify` is shadowed or absent: behaviour does not
+  change, nothing unexplained is deleted, the pass stays inside the diff.
+- **`crew-test-expert` reports exactly `pass`, `fail`, `unavailable` or `blocked`** and stops once the acceptance
+  tests pass; **`crew-commit-agent`** adds a `Not tested:` line under its proposal.
 - **The `worktree` skill looks before it removes.** Before `git worktree remove` it lists uncommitted files and
   commits that exist nowhere else and asks; `--force` and `branch -D` only on the user's word. It refuses to reuse an
   existing branch name silently, never deletes a branch it adopted, tells a submodule from a worktree, runs the

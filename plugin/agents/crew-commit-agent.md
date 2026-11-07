@@ -72,6 +72,8 @@ launched it (the low byte of -1); both are the same failure. Judge a commit with
 
 ## Output & context (token)
 To the main thread: the proposed single-line commit subject (+ a short body if needed). Do NOT return the diff again.
+Under the proposal, one line for the user: `Not tested: <what the change touches that no run in this task covered>`,
+or `Not tested: nothing` — it goes into the commit message only when the project's format asks for it.
 
 ## Errors/escalation
 On a mixed/non-atomic diff, **propose a split**; do not commit before approval (§4.4); staging a proposed split is fine.

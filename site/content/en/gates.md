@@ -7,10 +7,10 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | **Agents** | {{AGENT_COUNT}} | Thin triggers — *who* owns a domain and *when* they fire |
 | **Skills** | {{SKILL_COUNT}} | The method, written once, applied by whoever needs it |
 | **Commands** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hooks** | 24 | The gates, plus session measurement and routing |
+| **Hooks** | 25 | The gates, plus session measurement and routing |
 | **Discipline** | 1 | Principles, workflow, Definition of Done, prohibitions — imported by your `CLAUDE.md` |
 
-## All 24 hooks
+## All 25 hooks
 
 | Hook | Role |
 |:--|:--|
@@ -22,6 +22,7 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | `refuter-ledger.sh` | When a `crew-refuter` agent stops, records its verdict on a finding in `.claude/state/crew-refuter.tsv`, from the agent's own task and answer, and only when the two name the same finding and lens. `findings.sh write --verified` holds a findings document to that ledger; the session cannot write it |
 | `loop-guard.sh` | After each Bash, Edit and Write call, counts the turn: calls, edits per file, failures and how often one failure repeats. When 20 calls, 4 edits to one file or edits to 3 files, 6 failures and one failure making up at least a fifth of them all hold, it fires once per prompt. In this release it only records that: one line of counters (no command, path or error text) in `.claude/state/loop-guard.jsonl`, and nothing reaches the session. `CREW_LOOP_GUARD=on` sends the session back to one falsifiable hypothesis instead; `off` turns it off. Never blocks |
 | `map-stale.sh` | After an Edit or Write to a file `.crewforth/crew-map.json` cites, says once per agent, as a fact, that the map was scanned before the edit and which check tells whether it still matches the tree. When `.crewforth/contracts.md` cites the file, it adds the project's rules that live there, once per rule and agent, and at Stop tells the user which rules the session's edits touched. Silent with no map, for a file the map does not cite, and with `CREW_MAP_STALE=off`. Never blocks |
+| `turn-check.sh` | When the main thread's turn ends, runs the `Fast check (files):` command `CLAUDE.md` declares on the files that turn changed: edits made in the turn and the turn's own commits, not files that were already dirty and not commits a pull brought in. Red hands the output back once so the turn fixes it; a command the permission rules do not allow is not run, and you are told once. Nothing declared: nothing runs. `CREW_TURN_CHECK=off` turns it off |
 | `route-hint.sh` | Names the owning agent alongside every prompt, so specialists run without you asking |
 | `guard-bash.sh` | Tool-level command gate: commit/push approval, review-before-commit, dependency-audit-before-a-lockfile-commit, destructive ops, remote-code-exec, hook tampering |
 | `guard-write.sh` | The same protection on the Write/Edit side — a gate you can silently delete is not a gate. It normalises the target path before matching it, so a gate file cannot be reached under a different spelling. |

@@ -101,6 +101,7 @@ the settings screen needs a state management fix|frontend
 we need a consent flow before we store any of this|privacy-compliance
 let us step back and see what we missed this week|reflect
 scan for vulnerabilities in the auth flow|security-scan
+review our github actions security before we add pull_request_target|security-scan
 how do we split this into tasks with acceptance criteria|spec-planning
 are the tests green after that change|testing
 check for AI trace before the commit|trace-scan
@@ -159,6 +160,7 @@ isolate this work in a git worktree before the parallel agents run|worktree
 remove the worktree once the experiment is done|worktree
 before I start, am I sure enough to implement this|confidence-check
 upgrade dependencies to current versions|dependency-upgrade
+land the open dependabot PRs|dependency-upgrade
 is this endpoint fast enough on the hot path|crew-performance-expert
 who is working on which sprint item right now|teamboard
 audit this against ccpa and lgpd for data protection regulation|crew-privacy-agent

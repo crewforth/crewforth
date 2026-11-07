@@ -129,6 +129,10 @@ finding, and the deleted test is restored rather than a new one written.
 For hard-to-reverse calls (architecture, public API, security boundary), run several independent adversarial
 lenses then synthesize. Full method: **`references/panel-mode.md`**.
 
+## Simplify passes (when `/simplify` is shadowed or absent)
+Behaviour does not change, nothing is deleted that you cannot explain, and the pass stays inside the diff:
+**`references/simplify.md`**.
+
 ## Excuses that end a review early
 
 | Excuse | Reality |

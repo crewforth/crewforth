@@ -7,10 +7,10 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 24 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 25 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 24 hook'un tamamı
+## 25 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
@@ -22,6 +22,7 @@
 | `refuter-ledger.sh` | Bir `crew-refuter` ajanı durduğunda, bir bulgu hakkındaki kararını ajanın kendi görevinden ve cevabından okuyup `.claude/state/crew-refuter.tsv`'ye yazar; yalnız ikisi aynı bulguyu ve aynı açıyı adlandırıyorsa. `findings.sh write --verified` bir bulgu belgesini bu deftere tutar; oturum defteri yazamaz |
 | `loop-guard.sh` | Her Bash, Edit ve Write çağrısından sonra turu sayar: çağrılar, dosya başına düzenlemeler, hatalar ve tek bir hatanın ne sıklıkla tekrarlandığı. 20 çağrı, tek dosyaya 4 düzenleme ya da 3 dosyaya düzenleme, 6 hata ve hataların en az beşte birini tek bir hatanın oluşturması birlikte tuttuğunda istem başına bir kez tetiklenir. Bu sürümde yalnız kaydeder: `.claude/state/loop-guard.jsonl`'ye bir satır sayaç (komut, yol ya da hata metni yok); oturuma hiçbir şey ulaşmaz. `CREW_LOOP_GUARD=on` oturumu bunun yerine tek bir yanlışlanabilir hipoteze geri gönderir; `off` kapatır. Asla engellemez |
 | `map-stale.sh` | `.crewforth/crew-map.json`'ın andığı bir dosyada Edit ya da Write olunca, haritanın bu düzenlemeden önce tarandığını ve hâlâ ağaçla uyuşup uyuşmadığını hangi denetimin söylediğini ajan başına bir kez, bilgi olarak söyler. `.crewforth/contracts.md` dosyayı anıyorsa orada yaşayan proje kurallarını da kural ve ajan başına bir kez ekler; Stop'ta kullanıcıya oturumun düzenlemelerinin hangi kurallara dokunduğunu söyler. Harita yoksa, dosya haritada geçmiyorsa ya da `CREW_MAP_STALE=off` ise sessizdir. Hiçbir şeyi engellemez |
+| `turn-check.sh` | Ana oturumun turu biterken `CLAUDE.md` içindeki `Fast check (files):` komutunu o turun değiştirdiği dosyalarda koşturur: turda yapılan düzenlemeler ve turun kendi commit'leri; önceden kirli olan dosyalar ve bir pull'un getirdiği commit'ler sayılmaz. Kırmızı olursa çıktıyı bir kez geri verir ki tur onu düzeltsin; izin kurallarının izin vermediği bir komut koşturulmaz ve size bir kez söylenir. Hiçbir şey tanımlı değilse hiçbir şey koşmaz. `CREW_TURN_CHECK=off` kapatır |
 | `route-hint.sh` | Her isteğin yanına o işin sahibi ajanı yazar; uzmanlar siz istemeden devreye girer |
 | `guard-bash.sh` | Araç seviyesinde komut kapısı: commit/push onayı, commit öncesi inceleme, lockfile commit'i öncesi bağımlılık denetimi, yıkıcı işlemler, uzaktan kod çalıştırma, hook kurcalama |
 | `guard-write.sh` | Aynı korumanın Write/Edit tarafı. Sessizce silinebilen bir kapı, kapı değildir. Hedef yolu eşleştirmeden önce sadeleştirir, böylece bir kapı dosyasına farklı bir yazımla ulaşılamaz. |
