@@ -2,6 +2,7 @@
 name: adr
 description: |
   Architecture Decision Record: context-decision-consequences, for decisions that are expensive to reverse.
+  Written under docs/adr/.
 ---
 
 # Architecture Decision Record (ADR)
