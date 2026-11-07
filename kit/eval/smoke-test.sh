@@ -2444,7 +2444,7 @@ if [ "$IS_KIT" = 1 ]; then
   elif [ -f "$KR/packaging/gen-diagrams.mjs" ]; then
     _dgo="$(cd "$KR" && node packaging/gen-diagrams.mjs --check 2>&1)" && pass "diagrams: ${_dgo#gen-diagrams: }" \
       || fail "diagrams are stale or overflow: $_dgo"
-    _dgs="$(cd "$KR" && node packaging/gen-diagrams.mjs --selftest 2>&1)" && pass "diagram overflow gate: an over-long label stops the build" \
+    _dgs="$(cd "$KR" && node packaging/gen-diagrams.mjs --selftest 2>&1)" && pass "diagram gates: an over-long label stops the build, and each diagram has a title and a description under its own ids" \
       || fail "diagram overflow twin: $_dgs"
     _dgt="$(mktemp -d)"; cp "$KR"/assets/stages-*.svg "$KR"/assets/flow-*.svg "$KR"/assets/handover-*.svg "$KR"/assets/network-*.svg "$_dgt/" 2>/dev/null
     printf ' ' >> "$_dgt/network-en-light.svg"
@@ -2454,10 +2454,10 @@ if [ "$IS_KIT" = 1 ]; then
     rm -rf "$_dgt"
     _dgm=""
     for _svg in "$KR"/assets/network-*-*.svg; do
-      _tt="$(sed -n 's/.*<title[^>]*>\([^<]*\)<\/title>.*/\1/p' "$_svg" | head -1)"
+      _tt="$(sed -n 's/.*<desc[^>]*>\([^<]*\)<\/desc>.*/\1/p' "$_svg" | head -1)"
       for a in "$AGENTS"/*.md; do n="$(basename "$a" .md)"; case "$_tt" in *"$n"*) ;; *) _dgm="$_dgm ${_svg##*/}:$n" ;; esac; done
     done
-    [ -z "$_dgm" ] && pass "every agent is named in each network diagram's <title> ($TA agents × 4 files)" || fail "network diagrams do not name:$_dgm"
+    [ -z "$_dgm" ] && pass "every agent is named in each network diagram's <desc> ($TA agents × 4 files)" || fail "network diagrams do not name:$_dgm"
   fi
   # The agent→skill map the network diagram draws is declared in each agent's frontmatter (metadata.skills) and
   # must stand on the body: an agent that lists a skill its instructions never mention is drawing a claim.
