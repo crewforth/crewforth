@@ -89,8 +89,8 @@ and report. Commit/push and destructive commands are gated (§4.4/§4.5).
   **crew-review-agent** clean + triggered skills + nothing deferred (medium+ fixed, tracked or user-accepted; the
   lows go to the user as one list).
 - **Tests green = one run of the suite on the final code.** Whoever makes the last edit runs it and reports the command,
-  the exit code and the pass/fail counts; that report is the evidence the main thread and the reviewer cite. Run the suite
-  again only after a further edit, or when a report has no exit code — a second run on code nobody touched verifies nothing new.
+  the exit code (pipefail if piped) and the pass/fail counts; that report is the evidence the main thread and reviewer cite.
+  Rerun it only after a further edit, or when a report has no exit code — a rerun of untouched code verifies nothing new.
 - Reports say `Not tested:` and label each figure measured, derived or inferred; unchecked is not a pass.
 - Quality gate: 0 build warnings/errors (a test run that compiles is that build) + what `## Stack` → `Quality analysis:`
   names: `sonarqube-local`/`-server` → a real analysis clean (`sonarqube-check`); `declined` → report "no analysis ran —

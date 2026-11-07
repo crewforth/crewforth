@@ -67,7 +67,8 @@ to Sonar's own rules) and **say what that is worth**, in these words rather than
 rating: *"the local rule engine reports N issues, none open; the SonarQube rating and the gate were not produced —
 no analysis ran."* Then list what stays unverified: taint/injection, hotspot review state, coverage, duplication,
 files outside the compiled language, and the project's own quality profile. Offer branch (b) — a local server, with
-or without Docker — as the way to close it.
+or without Docker — as the way to close it. Until one runs, a committed baseline keeps the numbers the project can
+measure from getting worse: **`references/ratchet.md`**.
 
 **Never invent the verdict.** A rating exists only where an analysis produced one; without it the honest output is
 "unverified", and that is the sentence that saves the user from promising a clean report they cannot back.
