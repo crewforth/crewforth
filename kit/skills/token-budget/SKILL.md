@@ -51,6 +51,9 @@ for **isolation / parallelism / a clean window**, or when the isolated work woul
    one, and a redirect to a file plus a pointer when the output is genuinely needed later (rule 2). When the first
    bounded look was not enough, redirect the full output to a file and grep it; never re-run the command with a
    bigger head/tail, which pays for the same output again and again.
+   **A test or build run keeps its own status.** `npm test | tail -20` exits with tail's status, which is 0 when the
+   suite failed. Use `set -o pipefail` before the pipe, or `cmd > .crewforth/run.log 2>&1; echo "exit=$?"; tail -20
+   .crewforth/run.log`. An exit code read through a pipe without pipefail is the pipe's, not the suite's.
 11. **Cut what nothing reaches — with evidence, not a hunch.** Every installed skill spends its name and
    description in EVERY session, forever. `bash .claude/eval/utilization.sh` (Bash tool, not PowerShell; a file install only) reports which skills actually fired
    in this project's transcripts and how many bytes the cold ones cost, which is the list `doctor.sh` §4a's

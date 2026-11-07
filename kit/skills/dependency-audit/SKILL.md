@@ -52,6 +52,16 @@ this one safe to run any time, on any branch, including one you are only inspect
    versus a long-lived API token. A widely-used
    package whose registry ACL is one unprotected account is a single compromised credential away from every
    build that installs it, whatever the contributor graph looks like.
+9. **Resolution order and namespace:** which registry answers an internal name? An internal package that a public
+   registry can also serve is installed from whichever source the client asks first, and an attacker can publish
+   that name. Check, for the ecosystem in use: npm, every internal scope mapped to its registry (`@corp:registry=`)
+   and no unscoped internal name; pip, `--index-url` (one source) rather than `--extra-index-url` (both, highest
+   version wins); NuGet, `<clear/>` plus `packageSourceMapping`; Maven/Gradle, the order of the repositories; Go,
+   `GOPRIVATE` covering the private module paths; Docker, a fully qualified image name with a digest, not a bare
+   `node:20`. A registry config committed in the repository (`.npmrc`, `bunfig.toml`, `pip.conf`, `nuget.config`)
+   is read as part of this axis and named in the report: it changes where every install on every machine resolves.
+   For each NEW dependency, also check its name against the popular package one edit away (a dropped, doubled or
+   swapped letter, `-` against `_`): a typosquat is a name that looks right in a diff.
 
 ## Output
 Severity-sorted list: `package · version · issue (CVE/license/maintenance) · upgrade path`.

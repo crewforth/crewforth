@@ -7,6 +7,7 @@
 - Front 3 — Configuration
 - Front 4 — Authentication + session + authorization
 - Front 5 — AI, agent and MCP code
+- Front 6 — CI/CD (workflows and runners)
 
 The scan applies the **source → gate → sink** model on these fronts. Read the fronts you're scanning.
 
@@ -132,3 +133,24 @@ protects nothing. Answer each with the line that does it:
 
 Only when the code under review builds on a model. The classes, the rule that decides what counts, and the extra
 checks a finding must pass before it leaves the verifier are in **`ai-agents.md`**.
+
+## Front 6 — CI/CD (workflows and runners)
+
+Only when the repository carries pipeline definitions (`.github/workflows/`, `.gitlab-ci.yml`, `azure-pipelines.yml`,
+a `Jenkinsfile`). A pipeline runs with the repository's secrets and its write token, so each question below is a gate:
+a "no" is a finding, not a style note. Written for GitHub Actions; the same questions apply to the others.
+1. **Pinned actions:** every third-party action is pinned to a full commit SHA (`uses: owner/action@<40 hex>`, with
+   the version in a comment). A tag or branch can be moved under you to code that reads every secret.
+2. **No untrusted text in `run:`:** no `${{ github.event.issue.title }}`, `…pull_request.body`, `…head_ref`,
+   `…comment.body` or other attacker-written field interpolated into a shell line. Pass it through `env:` and quote
+   the variable; interpolation is script injection with the workflow's token.
+3. **`pull_request_target`:** never checks out and runs the pull request's code (`actions/checkout` with the PR head
+   ref, then a build or test). That trigger runs with secrets and a write token on code a stranger wrote.
+4. **Least privilege:** `permissions:` is set at the top (`{}` or `contents: read`) and widened per job only where a
+   job needs it; `persist-credentials: false` on a checkout whose job does not push.
+5. **Short-lived credentials:** cloud and registry access through OIDC whose trust policy is scoped to this
+   repository, branch or environment, not a long-lived key in a secret. A trust policy that accepts any branch, or
+   any repository of the organisation, is a finding.
+6. **Forks cannot reach secrets:** a workflow a fork's pull request can trigger gets no secret and no write token;
+   anything that needs them runs after a maintainer's approval or on the base repository's own events.
+7. **Runners:** no self-hosted runner serves a public repository: a fork's pull request runs on that machine.

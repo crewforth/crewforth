@@ -50,7 +50,9 @@ The "how" lives in the `testing` skill; this agent applies it.
 - Don't break the product code to make a test pass; test the real behavior.
 
 ## Output & context (token)
-To the main thread: number of tests added + scenarios covered + **green/red** result. Full test log → in a file.
+To the main thread: number of tests added + scenarios covered + the result as exactly one of `pass` · `fail` ·
+`unavailable` (the runner or a service it needs is missing here) · `blocked` (something you may not change stops the
+run). Full test log → in a file. Once the acceptance tests pass, stop: no polishing and no tests outside the task.
 Per new test: the RED run (command + its one failing line + why that failure was expected). Name every failing test the run showed, yours or not.
 Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
 

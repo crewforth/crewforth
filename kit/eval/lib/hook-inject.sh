@@ -23,7 +23,8 @@
 # NO LASTING SIDE EFFECT. Every hook runs with a throwaway HOME, TMPDIR, XDG_CACHE_HOME and CLAUDE_CONFIG_DIR, a
 # fixture transcript, and a session id no real session has (real ones are UUIDs). What each Crewforth hook writes was
 # read from its source (grep for `> "`, `mkdir`, `.claude/state`) and each is placed in one of three rows:
-#   read-only for these payloads ............ run against the project (route-hint, session-rehydrate, skill-trust)
+#   read-only for these payloads ............ run against the project (route-hint, session-rehydrate, skill-trust,
+#     turn-check: the fixture declares no fast check, so it writes no snapshot)
 #   writes only under TMPDIR ................ run against the project, TMPDIR thrown away (context-usage)
 #   board-sync: its detached half fetches over the network when the cache is stale; CREW_BOARD_MAX_AGE[_NOBOARD]
 #     set beyond any age keeps it on the cached read, which writes nothing
@@ -96,7 +97,7 @@ measure(){  # $1 = event, $2 = hook file name -> one run/skip line; adds to TOT_
   local ev="$1" h="$2" pl proj="$PWD" rc n ac
   case "$ev" in UserPromptSubmit) pl="$T/ups.json" ;; *) pl="$T/ss.json" ;; esac
   case "$h" in
-    context-usage.sh|route-hint.sh|session-rehydrate.sh|skill-trust.sh|board-sync.sh) ;;
+    context-usage.sh|route-hint.sh|session-rehydrate.sh|skill-trust.sh|board-sync.sh|turn-check.sh) ;;
     prompt-approval.sh)
       [ "$SCRATCH_OK" = 1 ] || { printf 'skip\t%s\t%s\t%s\n' "$ev" "$h" scratch-in-repo; return 0; }
       proj="$T/proj"; pl="$T/ups-scratch.json" ;;

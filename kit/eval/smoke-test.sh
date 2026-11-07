@@ -7108,6 +7108,65 @@ _PLANT="$(printf x | grep -c x)"
 else
   fail "loop-guard.sh missing or not executable"
 fi
+sec "== 7y4) turn-check: the files a turn changed get the project's declared fast check once, before the turn ends =="
+# UserPromptSubmit writes a snapshot into the git directory; Stop works out the turn's files from it and runs the
+# `Fast check (files):` line of CLAUDE.md on them, judged like a verify command. Each case is a state of a throwaway
+# repository; the fast check is a stand-in that logs the files it was given and fails on a file that says BAD.
+TCH="$HOOKS/turn-check.sh"
+if ! command -v git >/dev/null 2>&1; then skip tool "turn-check not checked (no git)" 7
+elif [ ! -f "$TCH" ]; then fail "turn-check.sh missing"
+else
+  _tc="$(mktemp -d)"; _tc="$(cd -P "$_tc" && pwd)"; _tcl="$_tc/ran.log"
+  git init -q --bare "$_tc/o.git" >/dev/null 2>&1; git clone -q "$_tc/o.git" "$_tc/p" >/dev/null 2>&1
+  _tcg(){ git -C "$_tc/p" -c user.email=t@example.test -c user.name=t "$@" >/dev/null 2>&1; }
+  _tcg config core.hooksPath /dev/null
+  mkdir -p "$_tc/p/.claude"; cp -R "$HOOKS" "$ROOT/eval" "$_tc/p/.claude/" 2>/dev/null; printf '.claude/\n' > "$_tc/p/.gitignore"
+  printf '{"permissions":{"allow":["Bash(bash check.sh:*)"]}}\n' > "$_tc/p/.claude/settings.json"
+  printf '#!/bin/bash\nprintf "%%s\\n" "$@" >> "%s"\nfor f in "$@"; do grep -q BAD "$f" && { echo "lint: $f has BAD"; exit 1; }; done\nexit 0\n' "$_tcl" > "$_tc/p/check.sh"
+  printf '# p\n\n## Verify\nFast check (files): `bash check.sh <file>`\n' > "$_tc/p/CLAUDE.md"
+  echo old > "$_tc/p/dirty.txt"; echo a > "$_tc/p/a.txt"; _tcg add .; _tcg commit -qm init; _tcg branch -M main; _tcg push -q origin main
+  echo "pre-existing BAD" > "$_tc/p/dirty.txt"
+  _tcu(){ ( cd "$_tc/p" && printf '{"hook_event_name":"UserPromptSubmit","session_id":"tc1","prompt":"x"}' | CLAUDE_PROJECT_DIR="$_tc/p" bash .claude/hooks/turn-check.sh >/dev/null 2>&1 ); }
+  _tcs(){ ( cd "$_tc/p" && printf '{"hook_event_name":"Stop","session_id":"tc1","permission_mode":"default","stop_hook_active":%s}' "${1:-false}" \
+            | CLAUDE_PROJECT_DIR="$_tc/p" bash .claude/hooks/turn-check.sh > "$_tc/out" 2> "$_tc/err" ); echo $?; }
+  _tcr(){ tr '\n' ' ' < "$_tcl" 2>/dev/null; }
+  : > "$_tcl"; _tcu; _r1="$(_tcs)"; _l1="$(_tcr)"
+  : > "$_tcl"; _tcu; echo BAD > "$_tc/p/a.txt"; _r2="$(_tcs)"; _l2="$(_tcr)"; _e2="$(cat "$_tc/err")"; _r2b="$(_tcs true)"
+  { [ "$_r1" = 0 ] && [ -z "$_l1" ]; } && pass "turn-check: a file dirty before the turn and untouched in it is not checked" \
+    || fail "turn-check: the pre-existing dirty file was checked (rc $_r1, ran: '$_l1')"
+  case "$_r2|$_l2|$_e2|$_r2b" in "2|a.txt |"*"failed on the files this turn changed (exit 1): bash check.sh 'a.txt'"*"lint: a.txt has BAD"*"|0")
+      pass "turn-check: a file the turn edited is checked alone; red stops the turn once with the output, and the next Stop passes" ;;
+    *) fail "turn-check: red edit gave rc $_r2 / ran '$_l2' / second stop rc $_r2b: $(printf '%s' "$_e2" | head -c 200)" ;; esac
+  echo a > "$_tc/p/a.txt"
+  : > "$_tcl"; _tcu; echo x > "$_tc/p/c.txt"; _tcg add c.txt; _tcg commit -qm c; _r3="$(_tcs)"; _l3="$(_tcr)"
+  : > "$_tcl"; _tcu; echo y > "$_tc/p/d.txt"; _tcg add d.txt; _tcg commit -q --amend --no-edit; _r4="$(_tcs)"; _l4="$(_tcr)"
+  { [ "$_r3|$_l3" = "0|c.txt " ] && [ "$_r4|$_l4" = "0|d.txt " ]; } && pass "turn-check: a commit made in the turn counts its files, and an amend counts only what it changed" \
+    || fail "turn-check: commit gave '$_r3|$_l3' (want 0|c.txt), amend gave '$_r4|$_l4' (want 0|d.txt)"
+  _tcg push -q origin main
+  git clone -q -b main "$_tc/o.git" "$_tc/q" >/dev/null 2>&1 && echo z > "$_tc/q/z.txt" && git -C "$_tc/q" add z.txt \
+    && git -C "$_tc/q" -c user.email=t@example.test -c user.name=t commit -qm z >/dev/null 2>&1 && git -C "$_tc/q" push -q origin main >/dev/null 2>&1
+  : > "$_tcl"; _tcu; _tcg pull -q --no-rebase origin main; _r5="$(_tcs)"; _l5="$(_tcr)"
+  { [ -f "$_tc/p/z.txt" ] && [ "$_r5" = 0 ] && [ -z "$_l5" ]; } && pass "turn-check: a clean pull in the turn counts nothing: someone else's commit is not the turn's" \
+    || fail "turn-check: a pull was counted (pulled: $([ -f "$_tc/p/z.txt" ] && echo yes || echo no), rc $_r5, ran '$_l5')"
+  : > "$_tcl"; _tcu; echo BAD > "$_tc/p/a.txt"; _r6="$( CREW_TURN_CHECK=off _tcs )"; _l6="$(_tcr)"; echo a > "$_tc/p/a.txt"
+  printf '# p\nFast check (files): <one changed file in seconds>\n' > "$_tc/p/CLAUDE.md"; rm -rf "$_tc/p/.git/crewforth-turn"
+  : > "$_tcl"; _tcu; echo BAD > "$_tc/p/a.txt"; _r7="$(_tcs)"; _l7="$(_tcr)"
+  { [ "$_r6|$_l6" = "0|" ] && [ "$_r7|$_l7" = "0|" ] && [ ! -e "$_tc/p/.git/crewforth-turn" ]; } \
+    && pass "turn-check: CREW_TURN_CHECK=off and an undeclared fast check (the template's placeholder) run nothing and write nothing" \
+    || fail "turn-check: off gave '$_r6|$_l6', placeholder gave '$_r7|$_l7', snapshot dir $([ -e "$_tc/p/.git/crewforth-turn" ] && echo written || echo absent)"
+  printf 'Fast check (files): `bash other.sh <file>`\n' > "$_tc/p/CLAUDE.md"
+  _tcu; echo r > "$_tc/p/a.txt"; _r8="$(_tcs)"; _o8="$(cat "$_tc/out")"; _tcu; echo s > "$_tc/p/a.txt"; _r9="$(_tcs)"; _o9="$(cat "$_tc/out")"
+  case "$_r8|$_o8|$_r9|$_o9" in '0|{"systemMessage":"crew: the fast check of this turn was not run: '*'|0|')
+      pass "turn-check: a fast check the permission rules do not allow is not run, and the user is told once per session" ;;
+    *) fail "turn-check: an unallowed check gave rc $_r8 '$(printf '%s' "$_o8" | head -c 120)' then rc $_r9 '$(printf '%s' "$_o9" | head -c 80)'" ;; esac
+  # Twin: the snapshot is what keeps earlier work out. Without it, the turn has no baseline and checks nothing.
+  : > "$_tcl"; printf 'Fast check (files): `bash check.sh <file>`\n' > "$_tc/p/CLAUDE.md"; echo t > "$_tc/p/a.txt"; rm -rf "$_tc/p/.git/crewforth-turn"
+  _r10="$(_tcs)"; _l10="$(_tcr)"
+  [ "$_r10|$_l10" = "0|" ] && pass "turn-check: a Stop with no snapshot of its turn guesses nothing and checks nothing" \
+    || fail "turn-check: a Stop with no snapshot checked '$_l10' (rc $_r10)"
+  rm -rf "$_tc"
+fi
+
 sec "== 7y3) map-stale: an edit to a file the Crew Map or a contract cites is said once per agent, as a fact =="
 # map-stale.sh runs after every Edit/Write call. When .crewforth/crew-map.json exists and cites the edited file (a
 # "file" or "manifest" value), it says once, for this session and agent, that the map was scanned before the edit.

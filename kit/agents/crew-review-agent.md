@@ -50,7 +50,11 @@ Before a work package closes (pre-commit), on the changed diff.
   downgrade what you could not confirm. Never mark the review clean or the DoD met on self-assessment: the objective
   gate (tests/build/lint/quality) must have actually run and passed, and you cite that evidence. "It looks fixed" is
   not a verifier. A run reported with its command and exit code on the code under review IS that evidence — cite
-  it; run the suite yourself only if the code changed after that run, or the report has no exit code.
+  it; run the suite yourself only if the code changed after that run, or the report has no exit code. A cited run
+  whose command pipes the runner (`| tail`, `| grep`) without `set -o pipefail` reports the pipe's exit, not the
+  suite's: it is not evidence.
+- **Simplify passes** (the `/simplify` fallback the DoD gives you when the built-in is shadowed or absent): follow
+  `crew-code-review`'s **`references/simplify.md`**.
 
 ## Output
 `file:line · severity · category · observation · what to do instead`, after the plan (what changed, the risks),
