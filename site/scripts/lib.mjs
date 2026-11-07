@@ -104,14 +104,14 @@ export function gateRules(root) {
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
-// The two counts the network diagrams print ("12 agents · 40 skills"), read from each SVG's <title>, which carries
+// The two counts the network diagrams print ("12 agents · 40 skills"), read from each SVG's <desc>, which carries
 // the diagram's words as text (the drawing itself is outlines). A stale picture is the claim a reader never checks.
 export function checkNetworkSvgs(root, nAgents, nSkills) {
   for (const loc of ['en', 'tr']) for (const theme of ['dark', 'light']) {
     const n = `network-${loc}-${theme}`, f = path.join(root, 'assets', `${n}.svg`);
     if (!fs.existsSync(f)) fail(`assets/${n}.svg is missing — the skills page embeds it`);
-    const m = (read(f).match(/<title[^>]*>[^<]*?(\d+) (?:agents|ajan) · (\d+) skills?/) || []);
-    if (!m[1]) fail(`assets/${n}.svg has no readable count in its <title>`);
+    const m = (read(f).match(/<desc[^>]*>[^<]*?(\d+) (?:agents|ajan) · (\d+) skills?/) || []);
+    if (!m[1]) fail(`assets/${n}.svg has no readable count in its <desc>`);
     if (Number(m[1]) !== nAgents || Number(m[2]) !== nSkills) fail(`assets/${n}.svg says ${m[1]} / ${m[2]} but the payload is ${nAgents} / ${nSkills} — rerun: node packaging/gen-diagrams.mjs`);
   }
 }

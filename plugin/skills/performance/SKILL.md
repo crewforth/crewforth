@@ -29,6 +29,16 @@ Catalog of common bottlenecks + fixes to consult: **`references/bottlenecks.md`*
 - Measure **under load** (a single request misleads); with a realistic data volume.
 - **Not p50, but p95/p99** — tail latency is what burns the user.
 - Don't trust micro-benchmarks; an end-to-end profile is more honest.
+- A web page: the Core Web Vitals thresholds, field against lab data, and what makes up LCP: `references/web-vitals.md`.
+
+## Symptom → cause → fix
+| Symptom | Usual cause | Fix |
+|---|---|---|
+| List page gets slower as data grows | N+1 queries, or no pagination | one query with a join or batch load; paginate |
+| Fast locally, slow in production | the data volume, or a missing index | measure with production-sized data; `EXPLAIN` the query |
+| Typing or scrolling stutters | work on every keystroke or render | debounce, memoize, virtualize long lists |
+| Memory grows until a restart | listeners, timers or caches never released | remove them on teardown; bound every cache |
+| First load slow, later loads fine | a large bundle or an unoptimised hero image | split the bundle, lazy-load below the fold, size the image |
 
 ## Invariant rules
 1. **Don't optimize without measuring** — a change without a profile = a guess.

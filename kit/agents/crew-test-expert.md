@@ -3,7 +3,7 @@ name: crew-test-expert
 color: yellow
 description: |
   Test expert. Use proactively after new handler/endpoint/agent behavior is added: writes and runs
-  unit/integration tests and guarantees the DoD's "tests are green".
+  unit/integration tests and owns the DoD's "tests are green".
 tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell
 metadata:
   stage: audit

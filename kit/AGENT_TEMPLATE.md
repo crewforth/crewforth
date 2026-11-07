@@ -126,5 +126,11 @@ until it passes. Crewforth's evals ARE those tests.
    (`packaging/skill-summaries.tr.tsv`; agents and commands have their own `.tr.tsv`) — the site build fails without it.
 4. **Only then** write `SKILL.md` (+ `references/` for depth) until all three go green. Red → green, never green-by-assertion-weakening (that's the Verifier-integrity anti-pattern the review skill itself flags).
 
+## Shipped text states mechanism, not effect
+A hook header, an agent or a skill says what it does and what was measured: "prints the handoff line once at 75%
+and once at 90%", "0 of 42 vs 3 of 3 in the routing eval". It does not promise an outcome it cannot see: "guarantees
+the user is told", "saves tokens", "catches every leak". A promise reads as a gate to the next author and to the
+model; a mechanism can be checked, and a measured run says how far it was.
+
 ## Reference example
 `crew-backend-expert.md` is this contract applied verbatim; when creating a new agent, copy it and fill it in.

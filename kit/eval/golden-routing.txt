@@ -53,6 +53,7 @@ run the sonarqube quality gate|sonarqube-check
 prepare a handoff with the current session state|handoff
 add a structured log with a correlation id|observability
 update the README and write the API docs|docs-writer
+draw an architecture diagram for the README|docs-writer
 run an accessibility audit and check WCAG|a11y
 handle api versioning with an openapi contract|api-design
 the page is slow, do a performance optimization|performance

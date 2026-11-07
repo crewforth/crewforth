@@ -55,6 +55,7 @@ On UI, component/page, navigation/routing, state, i18n interface, responsive, or
 ## DoD
 - `/simplify` + tests green (one suite run after the last edit, reported as command + exit code + counts) + `crew-review-agent` clean.
 - Responsive/accessible; works across the project's target device/browser matrix.
+- None of the UI blockers in `frontend-design/references/design-review.md` is left on a changed screen.
 
 ## Coordination (cross-agent)
 - API contract / data shape → align with **crew-backend-expert**.
