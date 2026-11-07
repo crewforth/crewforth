@@ -24,7 +24,8 @@
 # fixture transcript, and a session id no real session has (real ones are UUIDs). What each Crewforth hook writes was
 # read from its source (grep for `> "`, `mkdir`, `.claude/state`) and each is placed in one of three rows:
 #   read-only for these payloads ............ run against the project (route-hint, session-rehydrate, skill-trust,
-#     turn-check: the fixture declares no fast check, so it writes no snapshot)
+#     turn-check: the fixture declares no fast check, so it writes no snapshot;
+#     branch-fresh with CREW_BRANCH_FRESH_FETCH=off: no fetch; its merge-tree check leaves only unreachable objects)
 #   writes only under TMPDIR ................ run against the project, TMPDIR thrown away (context-usage)
 #   board-sync: its detached half fetches over the network when the cache is stale; CREW_BOARD_MAX_AGE[_NOBOARD]
 #     set beyond any age keeps it on the cached read, which writes nothing
@@ -97,7 +98,7 @@ measure(){  # $1 = event, $2 = hook file name -> one run/skip line; adds to TOT_
   local ev="$1" h="$2" pl proj="$PWD" rc n ac
   case "$ev" in UserPromptSubmit) pl="$T/ups.json" ;; *) pl="$T/ss.json" ;; esac
   case "$h" in
-    context-usage.sh|route-hint.sh|session-rehydrate.sh|skill-trust.sh|board-sync.sh|turn-check.sh) ;;
+    context-usage.sh|route-hint.sh|session-rehydrate.sh|skill-trust.sh|board-sync.sh|turn-check.sh|branch-fresh.sh) ;;
     prompt-approval.sh)
       [ "$SCRATCH_OK" = 1 ] || { printf 'skip\t%s\t%s\t%s\n' "$ev" "$h" scratch-in-repo; return 0; }
       proj="$T/proj"; pl="$T/ups-scratch.json" ;;
@@ -110,7 +111,7 @@ measure(){  # $1 = event, $2 = hook file name -> one run/skip line; adds to TOT_
   # compares its own $0 with that spelling and warns about stale wiring when they differ. git keeps reading the
   # user's own global config (GIT_CONFIG_GLOBAL, git 2.32+): session-rehydrate's answer depends on core.hooksPath.
   GIT_CONFIG_GLOBAL="$GCG" HOME="$T/home" TMPDIR="$T/tmp" XDG_CACHE_HOME="$T/cache" CLAUDE_CONFIG_DIR="$T/home/.claude" \
-  CLAUDE_PROJECT_DIR="$proj" CLAUDE_PLUGIN_ROOT="" CREW_BOARD_MAX_AGE=999999999999 CREW_BOARD_MAX_AGE_NOBOARD=999999999999 \
+  CLAUDE_PROJECT_DIR="$proj" CLAUDE_PLUGIN_ROOT="" CREW_BOARD_MAX_AGE=999999999999 CREW_BOARD_MAX_AGE_NOBOARD=999999999999 CREW_BRANCH_FRESH_FETCH=off \
     bash ".claude/hooks/$h" < "$pl" > "$T/out" 2>/dev/null
   rc=$?
   n=0

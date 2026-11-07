@@ -125,15 +125,18 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 
 # ==== shards ====
 # CREW_E2E_SHARD=i/3 runs the blocks this map gives shard i; unset, every block runs, as it always did. ci.yml splits
-# the Windows leg in three because there one run took 48 minutes. The map is balanced on that run's own times, and
+# the Windows leg in four (three until start-legacy split off) because there one run took 48 minutes. The map is balanced on that run's own times, and
 # two pairs sit together because a later block reads what an earlier one left in $WORK: start writes proj-generic
 # (channel-parity and panel-runs read it), adopt-brownfield writes adopt-generic (legacy-sweep reads it).
 # The map is checked against the blocks in this file on EVERY run, sharded or not: a block in no shard, or in two,
 # stops the run before anything is rehearsed. A skipped block is never a passed one.
+# start-legacy has a shard of its own: start ran three installs, each with an install-scope smoke, and on a slow
+# Windows runner that one block reached 35 minutes alone (2026-11-07, 2068 s), past the job's limit.
 E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
 2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep install-count planted-hooks
-3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename'
-E2E_SHARDS=3
+3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename
+4 start-legacy'
+E2E_SHARDS=4
 _e2e_blocks="$(grep -E '^if _e2e_mine [a-z0-9.-]+; then$' "${BASH_SOURCE[0]}" | awk '{print $3}' | tr -d ';' | LC_ALL=C sort)"
 _e2e_mapped="$(printf '%s\n' "$E2E_SHARD_MAP" | awk '{for (i = 2; i <= NF; i++) print $i}' | LC_ALL=C sort)"
 if [ -z "$_e2e_blocks" ] || [ "$_e2e_blocks" != "$_e2e_mapped" ]; then
@@ -167,7 +170,6 @@ _e2e_done(){
 
 
 # ---- start.sh: 2 combinations (one install shape + old command lines) ----
-if _e2e_mine start; then
 # 2.0 removed the profile split and 3.0 removed the backend pattern choice: every install lands the same set on
 # disk. What is still rehearsed is that the set does not vary silently, and that old flags keep installing it.
 # The legacy-flag case is here rather than in the smoke-test because only an end-to-end run proves an old
@@ -211,15 +213,28 @@ combo() {
 KIT_AG=$(ls "$ROOT"/kit/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
 KIT_SK=$(ls -d "$ROOT"/kit/skills/*/ 2>/dev/null | wc -l | tr -d ' ')
 [ "${KIT_AG:-0}" -gt 0 ] && [ "${KIT_SK:-0}" -gt 0 ] || { echo "FAIL: cannot count the payload at $ROOT/kit"; exit 1; }
+if _e2e_mine start; then
 echo "payload: $KIT_AG agents, $KIT_SK skills (expectations derived, not typed)"
 combo generic       'yes\n'  "$KIT_AG" "$KIT_SK"
+grep -qx 'stack=generic' "$WORK/proj-generic/.claude/kit.conf" || { echo "FAIL [generic]: kit.conf does not record stack=generic"; exit 1; }
+[ ! -e "$WORK/proj-generic/.claude/skills/cqrs-aop-module" ] || { echo "FAIL [generic]: the removed .NET pattern skill was installed"; exit 1; }
+[ ! -e "$WORK/proj-generic/backend" ] && [ ! -e "$WORK/proj-generic/frontend" ] || { echo "FAIL [generic]: the installer scaffolded ./backend or ./frontend"; exit 1; }
+# §4.2 on a clean install. The blocklist ships the vendor name COMMENTED; since 3.0 no install arms it, because
+# no install brings the vendor onto the machine. (The one project that still arms it is a MIGRATED .NET install
+# that keeps its pattern skill — asserted, with the real hook, in the legacy-dotnet-migration case below.)
+grep -qx '# DevArchitecture' "$WORK/proj-generic/.claude/hooks/trace-blocklist.txt" \
+  || { echo "FAIL: a clean 3.0 install armed a vendor pattern it has no reason to block"; exit 1; }
+echo "[trace-4.2] a clean install leaves the vendor name commented"
+fi
+
+if _e2e_mine start-legacy; then
 # Old command lines must still install, and must install the FULL set — the flags are accepted, not obeyed.
 # --dotnet is the 3.0 case: it once selected a .NET-only install and now warns and installs the same kit.
 combo legacy-flags  'yes\n'  "$KIT_AG" "$KIT_SK"  --frontend --generic
 combo legacy-dotnet 'yes\n'  "$KIT_AG" "$KIT_SK"  --dotnet
 grep -q 'no effect' "$WORK/proj-legacy-flags/.claude/kit.conf" && { echo "FAIL: notice leaked into kit.conf"; exit 1; }
 [ -f "$WORK/proj-legacy-flags/.claude/agents/crew-backend-expert.md" ] || { echo "FAIL: --frontend still pruned the backend agent"; exit 1; }
-for _p in generic legacy-flags legacy-dotnet; do
+for _p in legacy-flags legacy-dotnet; do
   grep -qx 'stack=generic' "$WORK/proj-$_p/.claude/kit.conf" || { echo "FAIL [$_p]: kit.conf does not record stack=generic"; exit 1; }
   [ ! -e "$WORK/proj-$_p/.claude/skills/cqrs-aop-module" ] || { echo "FAIL [$_p]: the removed .NET pattern skill was installed"; exit 1; }
   [ ! -e "$WORK/proj-$_p/backend" ] && [ ! -e "$WORK/proj-$_p/frontend" ] || { echo "FAIL [$_p]: the installer scaffolded ./backend or ./frontend"; exit 1; }
@@ -231,14 +246,9 @@ grep -q 'the .NET-specific path was removed in 3.0' "$(printf '%s/e2e-step-%02d.
 echo "[legacy-flags] --frontend and --dotnet accepted, not obeyed; --dotnet warns; full set, stack=generic"
 
 
-# §4.2 on a clean install. The blocklist ships the vendor name COMMENTED; since 3.0 no install arms it, because
-# no install brings the vendor onto the machine. (The one project that still arms it is a MIGRATED .NET install
-# that keeps its pattern skill — asserted, with the real hook, in the legacy-dotnet-migration case below.)
-grep -qx '# DevArchitecture' "$WORK/proj-generic/.claude/hooks/trace-blocklist.txt" \
-  || { echo "FAIL: a clean 3.0 install armed a vendor pattern it has no reason to block"; exit 1; }
 grep -qx '# DevArchitecture' "$WORK/proj-legacy-dotnet/.claude/hooks/trace-blocklist.txt" \
   || { echo "FAIL: start.sh --dotnet armed the vendor pattern — the flag is supposed to change nothing"; exit 1; }
-echo "[trace-4.2] clean installs (with and without --dotnet) leave the vendor name commented"
+echo "[trace-4.2] start.sh --dotnet leaves the vendor name commented too"
 
 
 fi

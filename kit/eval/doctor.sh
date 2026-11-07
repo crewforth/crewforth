@@ -125,6 +125,7 @@ _mt() {
       'the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one') s="advisor (%s) kritik seviyenin (opus) altında: Claude Code danışacağı modelin altındaki bir advisor'ı eklemiyor, yani kritik iş advisor'sız koşuyor" ;;
       "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
+      "worktree %s has no .claude/settings.json — a Claude Code session resumed there runs none of Crewforth's hooks (entering it with the EnterWorktree tool copies .claude/ in; otherwise copy it yourself)") s="%s worktree'sinde .claude/settings.json yok — orada sürdürülen bir Claude Code oturumu Crewforth'un hiçbir hook'unu koşmaz (EnterWorktree aracıyla girilince .claude/ oraya kopyalanır; yoksa kendiniz kopyalayın)" ;;
       "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
       "fix the syntax by hand — restoring Crewforth's file would drop any hooks you added") s="sözdizimini elle düzeltin — Crewforth'un dosyasını geri yüklemek eklediğiniz hook'ları siler" ;;
       'settings.json wires hooks through the %s placeholder — on Windows its separators are stripped before bash runs, so NO hook launches and every gate is silently absent') s="settings.json hook'ları %s yer tutucusuyla bağlıyor — Windows'ta ayırıcılar bash çalışmadan silinir, bu yüzden HİÇBİR hook başlamaz ve bütün kapılar sessizce yok olur" ;;
@@ -472,7 +473,12 @@ if [ -f .claude/VERSION ] && git rev-parse --git-dir >/dev/null 2>&1; then
   _wv0="$(head -1 .claude/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.-')"; _wt0="$(git rev-parse --show-toplevel 2>/dev/null)"
   while IFS= read -r _wl; do
     case "$_wl" in "worktree "*) _wp="${_wl#worktree }" ;; *) continue ;; esac
-    [ "$_wp" != "$_wt0" ] && [ -f "$_wp/.claude/VERSION" ] || continue
+    [ "$_wp" != "$_wt0" ] || continue
+    # A linked worktree with no settings.json loads no project hook in a session resumed there (measured, see
+    # worktree-provision.sh). One Claude Code makes under .claude/worktrees/ still runs this checkout's hooks.
+    case "$_wp" in "$_wt0"/.claude/worktrees/*) ;; *)
+      [ -d "$_wp" ] && [ ! -f "$_wp/.claude/settings.json" ] && warn "worktree %s has no .claude/settings.json — a Claude Code session resumed there runs none of Crewforth's hooks (entering it with the EnterWorktree tool copies .claude/ in; otherwise copy it yourself)" "$_wp" ;; esac
+    [ -f "$_wp/.claude/VERSION" ] || continue
     _wv="$(head -1 "$_wp/.claude/VERSION" 2>/dev/null | tr -cd '0-9A-Za-z.-')"
     [ "$_wv" = "$_wv0" ] || warn "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)" "$_wp" "${_wv:-?}" "$_wv0"
   done <<EOF_WT

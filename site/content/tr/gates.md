@@ -7,10 +7,10 @@
 | **Ajan** | {{AGENT_COUNT}} | İnce tetikleyiciler: bir alanın *kimin* olduğu ve *ne zaman* devreye gireceği |
 | **Skill** | {{SKILL_COUNT}} | Yöntemin kendisi; bir kez yazılır, ihtiyacı olan uygular |
 | **Komut** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hook** | 24 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
+| **Hook** | 25 | Kapılar, ayrıca oturum ölçümü ve yönlendirme |
 | **Disiplin** | 1 | İlkeler, akış, Definition of Done, yasaklar. `CLAUDE.md`'niz bu dosyayı import ediyor |
 
-## 24 hook'un tamamı
+## 25 hook'un tamamı
 
 | Hook | Görevi |
 |:--|:--|
@@ -36,6 +36,7 @@
 | `session-stats.sh` | Oturumun gerçekte ne yaptığını raporlar: patlayan araç döngüleri, tekrarlanan istekler, kesintiler. `reflect` ve `handoff` bunu okur, böylece geri dönüş hatırlamaya değil kayda dayanır |
 | `session-update-check.sh` | Yeni bir sürüm yayımlandığında, oturum açılırken bir kez güncellenip güncellenmeyeceğini sorar; her sürüm onu getirecek kanala göre karşılaştırılır. Sorgu ayrık koşar ve en fazla günde bir kez yapılır, dolayısıyla çevrimdışı ya da proxy arkasındaki bir makinede oturum açılışı hiçbir şey ödemez; `CREW_NO_UPDATE_CHECK=1` kapatır |
 | `worktree-provision.sh` | Oturum `.claude/worktrees/` dışında açılmış bir worktree'ye (`git worktree add ../x`) girdiğinde bu checkout'un `.claude/` dizinini oraya kopyalar; tek bir checkout'a ait parçalar (`worktrees/`, `state/`, review kaydı, kapı günlüğü) hariç. `.claude/` gitignore'da olduğu için böyle bir worktree'de hiç yoktur ve orada devam ettirilen bir oturum Crewforth'un hiçbir hook'unu yüklemez. Kopya yapılamazsa geçişi reddeder ve nedenini söyler |
+| `branch-fresh.sh` | Oturum başlarken ya da sürerken dalı en son çekilmiş `origin/<base>` ile karşılaştırır (`CLAUDE.md` içindeki `Base branch:`, yoksa origin'in varsayılan dalı) ve yalnız önemli olduğunda konuşur: tabanı birleştirmek çakışacaksa, dal 3 günden eski bir noktadan açıldıysa ya da taban `.claude/` veya `CLAUDE.md` dosyasını değiştirdiyse. `git merge origin/<base>` komutunu söyler, hiçbir şeyi değiştirmez. Sonraki oturum için çekme arka planda koşar, sizi hiç bekletmez; `CREW_BRANCH_FRESH_FETCH=off` onu, `CREW_BRANCH_FRESH=off` tüm denetimi kapatır |
 
 Diğer iki hook deneysel bir özelliğe hizmet eder ve bir depo onu açana kadar hiçbir şey yapmaz.
 

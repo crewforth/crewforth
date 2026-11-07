@@ -118,6 +118,17 @@ versioning follows [SemVer](https://semver.org/).
   diagnosis, conflicting and superseded, with one question per bucket; majors and `0.x` minors stay single.
 - **`sonarqube-check` keeps a ratchet when no server can run**: a committed baseline of coverage, lint findings,
   size and warnings that fails only on a regression, with an owner and expiry for every accepted one.
+- **A session opens told when its branch has fallen behind in a way that matters.** A new SessionStart hook,
+  `branch-fresh.sh`, compares the branch with `origin/<base>` as last fetched (`Base branch:` in `CLAUDE.md`, else
+  origin's default branch) and speaks only when merging the base would conflict, the branch was cut more than three
+  days ago, or the base changed `.claude/` or `CLAUDE.md`. It names `git merge origin/<base>` and changes nothing; a
+  rebase left in progress is said first. The fetch for the next session runs detached, never while the session
+  waits. `CREW_BRANCH_FRESH=off` turns it off, `CREW_BRANCH_FRESH_FETCH=off` keeps it offline.
+- **Studio shows what a session it started has changed.** The strip above the conversation says how many files
+  changed since the session started (lines added and removed) and how many new files git does not track yet,
+  counted against the commit recorded at the start. It is read without git rewriting the index and kept in memory.
+- **`/crew-doctor` names a linked worktree with no `.claude/settings.json`**, where a resumed session runs none of
+  Crewforth's hooks. One Claude Code makes under `.claude/worktrees/` is not named: it still runs this checkout's.
 - **`npx crewforth remove` takes Crewforth out of a project.** By default it lists what it would change and changes
   nothing; `--apply` does it. It drops the `settings.json` hook entries that run `.claude/hooks/` (yours stay), its
   status line, the blanket `Bash` allow and the skill-listing budget key, and sets `core.hooksPath` back (unset, or the
@@ -143,6 +154,13 @@ versioning follows [SemVer](https://semver.org/).
   change, nothing unexplained is deleted, the pass stays inside the diff.
 - **`crew-test-expert` reports exactly `pass`, `fail`, `unavailable` or `blocked`** and stops once the acceptance
   tests pass; **`crew-commit-agent`** adds a `Not tested:` line under its proposal.
+- **The `worktree` skill looks before it removes.** Before `git worktree remove` it lists uncommitted files and
+  commits that exist nowhere else and asks; `--force` and `branch -D` only on the user's word. It refuses to reuse an
+  existing branch name silently, never deletes a branch it adopted, tells a submodule from a worktree, runs the
+  tests once in a new worktree before the first edit, and has rules for services the worktrees share.
+- **Studio's Map spreads lines that share a side of a card**, so a module with three dependents shows three lines
+  instead of one. Measured first on the crew-map test fixtures and Crewforth's own map: 48 line ends shared a pixel
+  across 46 edges; now none do. Sideways lines between ends at two heights turn square instead of running slanted.
 - **Frontend work checks more of what users hit.** `a11y` separates criteria from conventions (a failed A/AA
   criterion is a finding, AAA or a 44 px target a recommendation), adds a skip link, flashing, an error summary and
   positive `tabindex`, a table of patterns to grep before finishing, and recipes for focus, forms and which

@@ -157,6 +157,7 @@ the docker build is broken in the pipeline|!crew-frontend-expert
 # session-context skill. A one-word trigger for a word that lives in two vocabularies is not a trigger.
 add a dark mode and a design token layer|!token-budget
 isolate this work in a git worktree before the parallel agents run|worktree
+remove the worktree once the experiment is done|worktree
 before I start, am I sure enough to implement this|confidence-check
 upgrade dependencies to current versions|dependency-upgrade
 land the open dependabot PRs|dependency-upgrade

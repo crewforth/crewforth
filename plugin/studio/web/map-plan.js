@@ -393,23 +393,61 @@ export function layoutOf(nodes, { width = 960, chips = {}, rowKey = null } = {})
   return { bands, pos, width: Math.max(width, right + GAP_X), height: y };
 }
 
-/** A line between two cards: out of the bottom of the upper one into the top of the lower, or side to side. */
-export function pathOf(a, b) {
+/**
+ * A line between two cards: out of the bottom of the upper one into the top of the lower, or side to side.
+ * `pa` and `pb` say where along its side the line leaves `a` and enters `b`, as a fraction of that side (½ = the
+ * middle); `routesOf` spreads them so lines that share a side do not share a pixel.
+ */
+export function pathOf(a, b, pa = 0.5, pb = 0.5) {
   if (!a || !b) return null;
   const down = b.y >= a.y + a.h;
   const up = a.y >= b.y + b.h;
   if (down || up) {
-    const [s, t] = down ? [a, b] : [b, a];
-    const x1 = s.x + s.w / 2; const y1 = s.y + s.h; const x2 = t.x + t.w / 2; const y2 = t.y;
+    const [s, t, fs, ft] = down ? [a, b, pa, pb] : [b, a, pb, pa];
+    const x1 = s.x + s.w * fs; const y1 = s.y + s.h; const x2 = t.x + t.w * ft; const y2 = t.y;
     const m = (y1 + y2) / 2;
     return { d: `M${x1} ${y1} C${x1} ${m} ${x2} ${m} ${x2} ${y2}`, mid: [(x1 + x2) / 2, m] };
   }
-  const [s, t] = a.x <= b.x ? [a, b] : [b, a];
-  const x1 = s.x + s.w; const y1 = s.y + s.h / 2; const x2 = t.x; const y2 = t.y + t.h / 2;
-  return { d: `M${x1} ${y1} L${x2} ${y2}`, mid: [(x1 + x2) / 2, (y1 + y2) / 2] };
+  const [s, t, fs, ft] = a.x <= b.x ? [a, b, pa, pb] : [b, a, pb, pa];
+  const x1 = s.x + s.w; const y1 = s.y + s.h * fs; const x2 = t.x; const y2 = t.y + t.h * ft;
+  const mx = (x1 + x2) / 2;
+  // Level ends are one straight line; ends at two heights turn square halfway, so no line runs on a slant.
+  if (y1 === y2) return { d: `M${x1} ${y1} L${x2} ${y2}`, mid: [mx, y1] };
+  return { d: `M${x1} ${y1} H${mx} V${y2} H${x2}`, mid: [mx, (y1 + y2) / 2] };
 }
 
-/** The endpoint chips of a module, as the Endpoints layer lists them: what it provides, then what it calls. */
+/**
+ * Every edge's line, with the lines that leave or enter one side of one card spread along it: the k-th of N at
+ * k/(N+1), ranked by where the other end sits, so neighbours do not cross. Measured on the crew-map-test fixtures and
+ * Crewforth's own map before this: 48 line ends shared a pixel with another across 46 edges, so a card with three
+ * dependents showed one line. A side with one line keeps the middle, as before.
+ */
+export function routesOf(edges, pos) {
+  const sides = new Map();
+  const add = (key, i, c) => { if (!sides.has(key)) sides.set(key, []); sides.get(key).push({ i, c }); };
+  const geo = edges.map((e, i) => {
+    const a = pos[e.from]; const b = pos[e.to];
+    if (!a || !b) return null;
+    const vertical = b.y >= a.y + a.h || a.y >= b.y + b.h;
+    if (vertical) {
+      const aBelow = a.y >= b.y + b.h;
+      const ka = `${e.from}:${aBelow ? 'top' : 'bottom'}`; const kb = `${e.to}:${aBelow ? 'bottom' : 'top'}`;
+      add(ka, i, b.x + b.w / 2); add(kb, i, a.x + a.w / 2);
+      return { a, b, ka, kb };
+    }
+    const aLeft = a.x <= b.x;
+    const ka = `${e.from}:${aLeft ? 'right' : 'left'}`; const kb = `${e.to}:${aLeft ? 'left' : 'right'}`;
+    add(ka, i, b.y + b.h / 2); add(kb, i, a.y + a.h / 2);
+    return { a, b, ka, kb };
+  });
+  const at = new Map();
+  for (const [key, list] of sides) {
+    list.sort((p, q) => p.c - q.c || p.i - q.i);
+    list.forEach((p, k) => at.set(`${key}|${p.i}`, (k + 1) / (list.length + 1)));
+  }
+  return geo.map((g, i) => (g ? pathOf(g.a, g.b, at.get(`${g.ka}|${i}`), at.get(`${g.kb}|${i}`)) : null));
+}
+
 export function chipsOf(node, doc) {
   const p = (doc.provides?.endpoints ?? []).filter((e) => e.module === node.id).map((e) => `${e.method} ${e.path}`);
   const c = (doc.consumes?.endpoints ?? []).filter((e) => e.module === node.id).map((e) => `→ ${e.method} ${e.path}`);
