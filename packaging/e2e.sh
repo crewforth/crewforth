@@ -132,8 +132,9 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 # stops the run before anything is rehearsed. A skipped block is never a passed one.
 # start-legacy has a shard of its own: start ran three installs, each with an install-scope smoke, and on a slow
 # Windows runner that one block reached 35 minutes alone (2026-11-07, 2068 s), past the job's limit.
-E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
-2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep install-count planted-hooks
+# migrate-dotnet sits in shard 1: shard 2 measured 1990 s on Windows against the 35-minute limit, shard 1 820 s.
+E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf migrate-dotnet
+2 adopt-brownfield legacy-sweep wizard star-line trace-gate-keep install-count planted-hooks
 3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename
 4 start-legacy'
 E2E_SHARDS=4
