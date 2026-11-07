@@ -5742,7 +5742,10 @@ printf '@.claude/DISCIPLINE.md\n\n# My project\n' > "$DOC/CLAUDE.md"
 # files beside it, this one included.
 _9fu="CREW_ZZ""_NOT_A_SWITCH"
 _9fo="$(env "$_9fu=1" CREW_VERIFY_TIMEOUT=abc CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"; _9fr=$?; _9fb=""
-[[ "$_9fo" == *"read by no Crewforth file (a typo?): $_9fu"* ]] || _9fb="$_9fb unknown-not-named"
+# The line lists every unknown name in this environment, sorted: a runner that sets one of its own (CI sets
+# the e2e shard name) puts it before the planted one, so the name is looked for on that line, not right after the colon.
+_9fl="$(printf '%s\n' "$_9fo" | grep 'read by no Crewforth file (a typo?):')"
+[[ "$_9fl " == *" $_9fu "* ]] || _9fb="$_9fb unknown-not-named"
 [[ "$_9fo" == *"set to something else: CREW_VERIFY_TIMEOUT=abc"* ]] || _9fb="$_9fb word-not-named"
 [ "$_9fr" = 0 ] || _9fb="$_9fb changed-the-verdict(rc=$_9fr)"
 _9fo="$(CREW_VERIFY_TIMEOUT=300 CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
