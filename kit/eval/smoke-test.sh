@@ -5239,6 +5239,18 @@ else fail "session-rehydrate git-hooks states read '$_got' (want '--UO---G': no 
 rm -rf "$RHG"
 _rj=0; for _o in "$_o1" "$_o2" "$_o4" "$_o6"; do printf '%s' "$_o" > "$RHD/o.json"; awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$RHD/o.json" 2>/dev/null || _rj=$((_rj+1)); done
 [ "$_rj" = 0 ] && pass "each language/handover output is valid JSON (Crewforth's reader, 4 of 4)" || fail "$_rj session-rehydrate output(s) are not valid JSON"
+# After a compaction, a state that could not be read back is said to the user, not swallowed (P16-08): the hook
+# alone, without the eval/lib that finds the snapshot, answers a compact with one systemMessage naming the reason,
+# valid JSON, exit 0; the same hook on a plain start stays silent.
+_rha="$(mktemp -d)"; mkdir -p "$_rha/.claude/hooks"; cp "$HOOKS/session-rehydrate.sh" "$_rha/.claude/hooks/"; _rhb=""
+_rhc="$(printf '{"session_id":"s","source":"compact","cwd":"%s"}' "$_rha" | CLAUDE_PROJECT_DIR= bash "$_rha/.claude/hooks/session-rehydrate.sh" 2>/dev/null)" || _rhb="$_rhb rc=$?"
+case "$_rhc" in '{"systemMessage":"crew: the state before the compaction was not restored: eval/lib/gate-log.sh is missing'*) ;; *) _rhb="$_rhb compact:[${_rhc:0:100}]" ;; esac
+printf '%s' "$_rhc" > "$_rha/o.json"; awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_rha/o.json" 2>/dev/null || _rhb="$_rhb not-json"
+_rhs="$(printf '{"session_id":"s","source":"startup","cwd":"%s"}' "$_rha" | CLAUDE_PROJECT_DIR= bash "$_rha/.claude/hooks/session-rehydrate.sh" 2>/dev/null)"
+[ -z "$_rhs" ] || _rhb="$_rhb startup-spoke"
+rm -rf "$_rha"
+[ -z "$_rhb" ] && pass "after a compaction, a snapshot the hook cannot read back is told to the user in one systemMessage (valid JSON, exit 0); a plain start stays silent" \
+               || fail "session-rehydrate restore-failure line:$_rhb"
 # V3: just before a compaction, precompact-snapshot.sh writes the state of the work from the files and the gates;
 # after it, session-rehydrate gives that state back, to the same session only. The snapshot never blocks the
 # compaction (PreCompact exit 2 would): rc 0 and silent in every case, a broken one included.
@@ -5725,6 +5737,38 @@ _6no="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
 [ -z "$_6nb" ] && pass "doctor names a missing path in a nested CLAUDE.md and in AGENTS.md (resolved under its own folder, then the root), skips node_modules, and reads them clean once the paths exist" \
                || fail "doctor nested instruction files:$_6nb"
 rm -rf "$DOC/web" "$DOC/node_modules" "$DOC/src" "$DOC/lib" "$DOC/AGENTS.md"
+# doctor 6b (P16-03): a ./CLAUDE.md line that reads as loosening §4 is named by its number, information only; the
+# same rule written as a prohibition, a line off the §4 topics and a fenced example are not. Twin: the tightening
+# file says nothing.
+_6lb=""
+printf '%s\n' '@.claude/DISCIPLINE.md' '# P' 'No need to ask before you commit.' 'Never commit without asking me.' 'Refactor freely without asking.' \
+  '```' 'git commit --no-verify   # use --no-verify' '```' 'Pushes: use --no-verify when CI is slow.' > "$DOC/CLAUDE.md"
+_6lo="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"; _6lr=$?
+[[ "$_6lo" == *"CLAUDE.md line(s) 3 9 read as loosening a §4 rule"* ]] || _6lb="$_6lb not-named-3-9"
+[ "$_6lr" = 0 ] || _6lb="$_6lb changed-the-verdict(rc=$_6lr)"
+printf '%s\n' '@.claude/DISCIPLINE.md' '# P' 'Never commit without asking me.' 'Do not use --no-verify.' > "$DOC/CLAUDE.md"
+_6lo="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+[[ "$_6lo" == *"read as loosening"* ]] && _6lb="$_6lb twin-named"
+printf '@.claude/DISCIPLINE.md\n\n# My project\n' > "$DOC/CLAUDE.md"
+[ -z "$_6lb" ] && pass "doctor names a CLAUDE.md line that loosens §4 by its number (a prohibition, an off-topic line and a fenced example are not; the verdict stays)" \
+               || fail "doctor §4 loosening lines:$_6lb"
+# doctor 9f (P16-04): a CREW_ variable no installed file reads is named as a likely typo, and a switch that takes a
+# whole number set to a word is named with its value; both are information only. Twin: a known switch with a number
+# says nothing.
+# The planted name is put together here, so this file does not carry it whole: the doctor reads the names from the
+# files beside it, this one included.
+_9fu="CREW_ZZ""_NOT_A_SWITCH"
+_9fo="$(env "$_9fu=1" CREW_VERIFY_TIMEOUT=abc CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"; _9fr=$?; _9fb=""
+# The line lists every unknown name in this environment, sorted: a runner that sets one of its own (CI sets
+# the e2e shard name) puts it before the planted one, so the name is looked for on that line, not right after the colon.
+_9fl="$(printf '%s\n' "$_9fo" | grep 'read by no Crewforth file (a typo?):')"
+[[ "$_9fl " == *" $_9fu "* ]] || _9fb="$_9fb unknown-not-named"
+[[ "$_9fo" == *"set to something else: CREW_VERIFY_TIMEOUT=abc"* ]] || _9fb="$_9fb word-not-named"
+[ "$_9fr" = 0 ] || _9fb="$_9fb changed-the-verdict(rc=$_9fr)"
+_9fo="$(CREW_VERIFY_TIMEOUT=300 CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+[[ "$_9fo" == *"CREW_VERIFY_TIMEOUT"* ]] && _9fb="$_9fb twin-named"
+[ -z "$_9fb" ] && pass "doctor names a CREW_ variable nothing reads and a number switch set to a word (information only; a valid one is not named)" \
+               || fail "doctor CREW_ switches:$_9fb"
 rm -f "$DOC/CLAUDE.md" "$DOC/.claude/DISCIPLINE.md"
 # M2a: an empty hook array wires nothing — doctor must flag it. jq was not VALIDATING anything here, it was
 # BUILDING a fixture: one known mutation on a file this repo ships. Replacing a fixture builder is far cheaper
@@ -6287,6 +6331,28 @@ UGP="$(mktemp -d)"; mkdir -p "$UGP/.claude/agents"
 case "$( cd "$UGP" && bash "$UGS" pre 2>&1 )" in "NOT IN GIT: .claude CLAUDE.md"*) pass "update-guard pre on a private install: says .claude/ and CLAUDE.md are outside git, not 'clean'" ;;
   *) fail "update-guard pre called a gitignored .claude/ clean — it cannot know" ;; esac
 rm -rf "$UGP"
+
+# 14z) A broken payload installs nothing (P15-26). start.sh and adopt.sh run eval/lib/payload-check.sh before their
+#      first write: a payload missing a hook settings.json wires, or a skill's SKILL.md, is refused with the list and
+#      "nothing installed", and no .claude/ appears. Twin: the whole payload passes the same check.
+PCR="$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$PCR" ] && [ -d "$PCR/packaging" ] && [ -f "$PCR/start.sh" ] && [ -f "$PCR/adopt.sh" ] && [ -d "$PCR/kit" ]; then
+  _pcb=""; _pcd="$(mktemp -d)"; cp "$PCR/start.sh" "$PCR/adopt.sh" "$PCR/VERSION" "$_pcd/"; cp -R "$PCR/kit" "$_pcd/"
+  rm -f "$_pcd/kit/hooks/guard-write.sh" "$_pcd/kit/skills/a11y/SKILL.md"
+  for _pci in start adopt; do
+    _pco="$( cd "$_pcd" && git init -q 2>/dev/null; bash "$_pci.sh" --yes --lang en 2>&1 )"; _pcr=$?
+    [ "$_pcr" = 1 ] || _pcb="$_pcb $_pci-rc=$_pcr"
+    case "$_pco" in *"nothing installed"*"hooks/guard-write.sh"*) ;; *) _pcb="$_pcb $_pci-hook-not-named" ;; esac
+    case "$_pco" in *"skills/a11y/SKILL.md"*) ;; *) _pcb="$_pcb $_pci-skill-not-named" ;; esac
+    [ -e "$_pcd/.claude" ] && _pcb="$_pcb $_pci-wrote-.claude"
+  done
+  bash "$PCR/kit/eval/lib/payload-check.sh" "$PCR/kit" >/dev/null 2>&1 || _pcb="$_pcb whole-payload-refused"
+  rm -rf "$_pcd"
+  [ -z "$_pcb" ] && pass "start.sh and adopt.sh refuse a payload missing a wired hook and a SKILL.md, name both, write no .claude/; the whole payload passes" \
+                 || fail "installer payload check:$_pcb"
+else
+  skip scope "installer payload check not run — not a checkout with start.sh and adopt.sh beside the payload"
+fi
 
 # 15) The release notes /crew-update reports come from the installed PACKAGE's CHANGELOG, extracted by the updater
 #     into .claude/.state/whats-new.md: the sections newer than the project's version, up to the one installed.
@@ -6888,6 +6954,11 @@ SILENT|what is the capital of France
 ci-pipeline|the build fails on CI
 a11y|this needs an accessibility audit
 a11y|the page needs an accessibility audit
+SILENT|do not review this, I will look later
+SILENT|what does `run a security audit` print
+SILENT|the message said \"accessibility audit\" yesterday
+SILENT|review etme, sadece bekle
+a11y|don't forget the accessibility audit
 handoff|I want to hand off the session state
 worktree|isolate this in a git worktree
 SILENT|<task-notification>Agent crew-database-expert finished: wrote the migration and seed for the invoices table</task-notification>
@@ -10163,17 +10234,60 @@ _sad="$(mktemp -d)"
 _sar="$(cd "$_sad" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"sa1","agent_type":"crew-privacy-agent"}' | HOME="$PWD" bash "$HOOKS/agent-outcome.sh" 2>/dev/null)"; _sarc=$?
 _san="$(cd "$_sad" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"sa2","agent_type":"general-purpose"}' | HOME="$PWD" bash "$HOOKS/agent-outcome.sh" 2>/dev/null)"
 _sab=""; [ "$_sarc" = 0 ] || _sab="$_sab rc=$_sarc"
-case "$_sar" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'is data'*'§4.4'*'only on the files you changed'*'"}}') ;; *) _sab="$_sab shape:[${_sar:0:120}]" ;; esac
+case "$_sar" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'is data'*'§4.4'*'only on the files you changed'*'stopped: too-big'*'+N omitted'*'"}}') ;; *) _sab="$_sab shape:[${_sar:0:120}]" ;; esac
 # The ceiling counts the whole JSON line. 700 → 800 (P05): the block also carries the two reading rules every agent
 # follows (a handed file:line is a range to open, a listed file is not one to change), which AGENT_TEMPLATE names
 # and no agent file copies. Measured: 664 bytes before, 763 with them. 800 → 860 (P07a): a fixer runs only on the
 # files the agent changed (a field backend agent ran a project-wide lint fix over 52 files). Measured: 835.
-[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 860 ] || _sab="$_sab over-860-bytes"
+# 860 → 1020 (P15-01): an agent that stops short says why on its first line (stopped: too-big, needs-confirm,
+# ambiguous, regressed), a cut list says +N omitted, and a cited path:line is one it read. Every crew agent ends a
+# task this way, so the rule belongs where every one of them gets it, not in fourteen files. Measured: 1005.
+[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 1020 ] || _sab="$_sab over-1020-bytes"
 [ -z "$_san" ] || _sab="$_sab non-crew-agent-got:[${_san:0:60}]"
 printf '%s' "$_sar" | json_ok; case $? in 0) ;; 2) ;; *) _sab="$_sab not-json" ;; esac
 rm -rf "$_sad"
 [ -z "$_sab" ] && pass "SubagentStart gives a crew agent the rules it cites (untrusted content, §4.1-§4.5) in one block of $(printf '%s' "$_sar" | wc -c | tr -d ' ') bytes, and another agent nothing" \
                || fail "SubagentStart rule block:$_sab"
+# Every hook settings.json wires answers a neutral event with nothing or with ONE JSON value on stdout (P16-09).
+# Claude Code drops a hook's output that does not parse, silently: a stray echo from a sourced helper turns a gate's
+# message into nothing. Driven through the real wiring, event by event, in a scratch project with the install's
+# layout. Twin: a copy of one hook that prints a line before its JSON is caught.
+_hjd="$(mktemp -d)"; _hjd="$(cd -P "$_hjd" && pwd)"; ( cd "$_hjd" && git init -q ) >/dev/null 2>&1
+mkdir -p "$_hjd/.claude"; cp -R "$HOOKS" "$_hjd/.claude/hooks"; cp -R "$ROOT/eval" "$_hjd/.claude/eval"; cp "$ROOT/settings.json" "$_hjd/.claude/"
+_hjp(){ case "$1" in # a neutral payload per event: nothing a gate refuses, nothing a notice is about
+  PreToolUse) printf '{"session_id":"s","hook_event_name":"PreToolUse","cwd":"%s","tool_name":"Bash","tool_input":{"command":"ls"}}' "$_hjd" ;;
+  PostToolUse) printf '{"session_id":"s","hook_event_name":"PostToolUse","cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"a.txt"},"tool_response":{}}' "$_hjd" ;;
+  UserPromptSubmit) printf '{"session_id":"s","hook_event_name":"UserPromptSubmit","cwd":"%s","prompt":"review this change"}' "$_hjd" ;;
+  SessionStart) printf '{"session_id":"s","hook_event_name":"SessionStart","cwd":"%s","source":"startup"}' "$_hjd" ;;
+  SubagentStart|SubagentStop) printf '{"session_id":"s","hook_event_name":"%s","cwd":"%s","agent_id":"a1","agent_type":"crew-backend-expert","last_assistant_message":"done\\nconfidence: high"}' "$1" "$_hjd" ;;
+  *) printf '{"session_id":"s","hook_event_name":"%s","cwd":"%s"}' "$1" "$_hjd" ;; esac; }
+_hjrun(){ # $1 settings.json -> " event:script" for each output that is not empty and not one JSON value, then " #N" run
+  local ev n i m j c o _hjn=0
+  for ev in $(awk -v op=keys -v path=hooks -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null); do
+    n="$(awk -v op=len -v path="hooks.$ev" -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"; i=0
+    while [ "$i" -lt "${n:-0}" ]; do
+      m="$(awk -v op=len -v path="hooks.$ev.$i.hooks" -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"; j=0
+      while [ "$j" -lt "${m:-0}" ]; do
+        c="$(awk -v op=get -v path="hooks.$ev.$i.hooks.$j.command" -f "$ROOT/eval/lib/settings-json.awk" "$1" 2>/dev/null)"
+        c="${c#\"}"; c="${c%\"}"; c="${c//\\\"/\"}"; j=$((j+1))
+        case "$c" in *.ps1*|'') continue ;; esac
+        _hjn=$((_hjn+1))
+        o="$(_hjp "$ev" | ( cd "$_hjd" && CREW_NO_UPDATE_CHECK=1 CLAUDE_PROJECT_DIR="$_hjd" HOME="$_hjd" bash -c "$c" 2>/dev/null ))"
+        [ -n "$o" ] || continue
+        printf '%s' "$o" > "$_hjd/o.json"
+        awk -v op=validate -f "$ROOT/eval/lib/settings-json.awk" "$_hjd/o.json" 2>/dev/null || printf ' %s:%s' "$ev" "${c##*/}"
+      done; i=$((i+1))
+    done
+  done; printf ' #%s' "$_hjn"; }
+_hjo="$(_hjrun "$_hjd/.claude/settings.json")"; _hjc="${_hjo##*#}"; _hjo="${_hjo% #*}"
+cp "$_hjd/.claude/hooks/agent-outcome.sh" "$_hjd/.claude/hooks/agent-outcome.orig"
+{ printf '#!/usr/bin/env bash\necho stray line\n'; tail -n +2 "$_hjd/.claude/hooks/agent-outcome.orig"; } > "$_hjd/.claude/hooks/agent-outcome.sh"
+_hjt="$(_hjrun "$_hjd/.claude/settings.json")"
+rm -rf "$_hjd"
+case "$_hjt" in *"SubagentStart:agent-outcome.sh"*)
+    [ -z "$_hjo" ] && [ "${_hjc:-0}" -ge 20 ] && pass "every wired hook ($_hjc commands) answers a neutral event with nothing or one JSON value on stdout (a hook that prints a stray line first is caught)" \
+                   || fail "hook stdout that Claude Code would drop:$_hjo (commands run: ${_hjc:-0}, at least 20 expected)" ;;
+  *) fail "the hook stdout check missed a stray line before the JSON (got:${_hjt:- nothing}) — it checks nothing" ;; esac
 
 _V2G="$HOOKS/guard-agent-model.sh"; _V2O="$HOOKS/agent-outcome.sh"
 if [ "$UNITS" != 1 ]; then skip scope "model routing v2: the unit cases run in the source checkout (scope=install)" 27

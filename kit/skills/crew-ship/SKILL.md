@@ -8,6 +8,8 @@ metadata:
 Closure flow — in order:
 1. **DoD gate:** was `/simplify` applied · are tests green (@agent-crew-test-expert) · `sonarqube-check` per the DoD quality line (`## Stack` → `Quality analysis:`) · a staged lockfile → `dependency-audit` record (§4.7).
    If any one is red, **STOP**, report what is missing; no deferral.
+   A risky change (auth, data, payments, a migration) names its rollback step in the commit proposal before it is
+   committed: how it is undone and what that loses.
 2. If clean, @agent-crew-commit-agent (commit-message) **proposes** an atomic Conventional Commit from the staged diff.
 3. Commit runs ONLY if the user says "commit" (§4.4). "Done" is not approval, and neither is a hedged "looks reasonable" / "probably fine". In `auto`, Crewforth hands the session the
    one-click approval question when crew-commit-agent is called: ask it with the message; the typed `/crew-approve` is

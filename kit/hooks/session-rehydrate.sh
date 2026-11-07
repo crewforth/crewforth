@@ -19,12 +19,18 @@
 #   - CLAUDE.md itself reloads on /compact and /clear on its own, so this hook does NOT re-inject the discipline —
 #     only the session-specific state the reload can't recover.
 #   - THE GIT HOOKS LINE. Where the hooks are installed but git is not pointed at them, the session is told (below).
-#   - Fails OPEN and SILENT: no handover file, no output. It never blocks the session (always exits 0).
+#   - Fails OPEN: no handover file, no output. It never blocks the session (always exits 0). The one failure that is
+#     not silent: after a compaction, the state written before it could not be read back (the library that finds
+#     it is missing, or the file is there and unreadable). Then the user gets one line, "crew: the state before the
+#     compaction was not restored: <reason>", because the model would otherwise carry on as if nothing was lost.
 set -uo pipefail
 # stdin and the cwd are read with builtins: the hook then needs no external command to decide what to say, so it
 # answers the same with an empty PATH (smoke §7c). With `cat`, an empty PATH left IN empty, the event's `source` was
 # lost, and a fresh session was handed the previous one's handover.
-IN=""; IFS= read -r -d '' IN || true
+# Bounded (CREW_STDIN_TIMEOUT, 2 s): a pipe that closes late (seen on Windows) must not hold the session start. A
+# read that runs out of time keeps no source, and is then treated as a plain start: no handover, no snapshot, only
+# the lines that do not depend on the boundary (language, git hooks).
+IN=""; IFS= read -r -d '' -t "${CREW_STDIN_TIMEOUT:-2}" IN; _rhrc=$?
 
 # Project root: CLAUDE_PROJECT_DIR (set for hooks) → cwd from the stdin JSON → PWD.
 ROOT="${CLAUDE_PROJECT_DIR:-}"
@@ -40,6 +46,7 @@ ROOT="${ROOT//\\\\//}"; ROOT="${ROOT//\\//}"
 
 SRC=""
 case "$IN" in *'"source"'*) SRC="${IN#*\"source\"}"; SRC="${SRC#*\"}"; SRC="${SRC%%\"*}" ;; esac
+[ "$_rhrc" -gt 128 ] && SRC=startup
 
 LANGMSG=""
 if [ -f "$ROOT/.claude/kit.conf" ]; then
@@ -80,15 +87,18 @@ fi
 # branch, the uncommitted files, the last gate refusal, the findings on record. Read back only after a compaction and
 # only into the session that wrote it (same session id); its summary, skills and prompts are already JSON-escaped, so it is put into the
 # output as it is, and the rest of MSG stays fixed text that needs no escaping and no extra process.
-SNAP=""
+SNAP=""; SKIP=""
 _rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+[ "$SRC" = compact ] && [ ! -f "$_rh/../eval/lib/gate-log.sh" ] && SKIP="eval/lib/gate-log.sh is missing (update Crewforth: npx crewforth update)"
 if [ "$SRC" = compact ] && [ -f "$_rh/../eval/lib/gate-log.sh" ]; then
   . "$_rh/../eval/lib/gate-log.sh"
   _sf=""
   if crew_git_dir "$ROOT" && [ -f "$_CREW_GD/crewforth-session-snapshot.json" ]; then _sf="$_CREW_GD/crewforth-session-snapshot.json"
   elif [ -f "$ROOT/.claude/state/session-snapshot.json" ]; then _sf="$ROOT/.claude/state/session-snapshot.json"; fi
   _sid(){ _SID=""; local v="${1#*\"session_id\"}"; [ "$v" = "$1" ] && return 0; v="${v#*\"}"; _SID="${v%%\"*}"; }
-  if [ -n "$_sf" ] && IFS= read -r _sj < "$_sf" 2>/dev/null; then
+  _sj=""
+  [ -n "$_sf" ] && { IFS= read -r _sj < "$_sf" 2>/dev/null || [ -n "$_sj" ]; } || { [ -n "$_sf" ] && SKIP="the snapshot file could not be read"; }
+  if [ -n "$_sf" ] && [ -n "$_sj" ]; then
     _sid "$IN"; _mine="$_SID"; _sid "$_sj"
     case "$_sj" in *'"summary":"'*)
       if [ -n "$_mine" ] && [ "$_mine" = "$_SID" ]; then
@@ -105,11 +115,14 @@ if [ "$SRC" = compact ] && [ -f "$_rh/../eval/lib/gate-log.sh" ]; then
     esac
   fi
 fi
-[ -n "$MSG$SNAP" ] || exit 0   # nothing to offer -> stay silent
+# The user's line when the state was lost: fixed text and a fixed reason, so it needs no escaping either.
+[ -n "$SKIP" ] && SKIP="\"systemMessage\":\"crew: the state before the compaction was not restored: $SKIP.\","
+[ -n "$MSG$SNAP$SKIP" ] || exit 0   # nothing to offer -> stay silent
+[ -n "$MSG$SNAP" ] || { printf '{%s}\n' "${SKIP%,}"; exit 0; }
 
 # hookSpecificOutput.additionalContext is the documented channel that injects text into the model's context.
 # ONE PATH, no jq: MSG is built from fixed constants with no quote, backslash, control character or newline, so it needs no
 # escaping and every machine emits the same bytes. If you ever make MSG dynamic, escape it the way board-sync.sh
 # does (jq-identical, measured) — a raw quote or tab here makes JSON the CLI silently drops.
-printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s%s%s"}}\n' "$MSG" "${MSG:+${SNAP:+ }}" "$SNAP"
+printf '{%s"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s%s%s"}}\n' "$SKIP" "$MSG" "${MSG:+${SNAP:+ }}" "$SNAP"
 exit 0

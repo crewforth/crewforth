@@ -151,7 +151,24 @@ function readonly(   w, n, f, l) {
       w[l] !~ /^(oku|okur|okuyun|okuyabilir|anlat|anlatir|anlatin|acikla|aciklar|aciklayin|ozetle|ozetler|ozetleyin)$/) return 0
   return !hasw("and|then|ve|sonra|(fix|add|updat|writ|wrote|chang|implement|creat|remov|delet|refactor|build|buil|mak|renam|edit|migrat|mov|deploy|ship|instal|upgrad|review|audit|check|test|debug|investigat|optimi[sz]|improv|translat|draft|generat|setup|set|harden|resolv|run|merg|publish|configur|propos|analy[sz])[a-z]?[a-z]?[a-z]?[a-z]?|why|bug|bugs|crash[a-z]*|fail[a-z]*|error[a-z]*|broken|duzelt[a-z]*|ekle[a-z]*|guncelle[a-z]*|yaz[a-z]*|degistir[a-z]*|olustur[a-z]*|sil[a-z]*|kaldir[a-z]*|yap[a-z]*|kur[a-z]*|tasi[a-z]*|incele[a-z]*|denetle[a-z]*|cevir[a-z]*|duzenle[a-z]*|iyilestir[a-z]*|yayinla[a-z]*|cikar[a-z]*|hizlandir[a-z]*|uygula[a-z]*|coz[a-z]*|gelistir[a-z]*|sadelestir[a-z]*|analiz[a-z]*|neden|hata[a-z]*|cokuyor|bozuk[a-z]*")
 }
-BEGIN { np = " " norm(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; bestX=0; nameA=""; nameS=""; nameX=""
+# What the user QUOTES or turns DOWN is not the request. A pasted error, a command in backticks or a quoted label can
+# carry a trigger word ("the log says `run a security audit` failed"), and "do not review this, just push" names
+# the reviewer it declines. So before scoring: fenced blocks, backtick spans and double-quoted spans (escaped in the
+# payload as \") become a space, and a clause that opens with a negator (do not, dont, never, not, without, no need
+# to; not "do not forget/skip/miss/ignore", which asks for the thing) or closes with a Turkish one (degil, yapma,
+# etme, gerek yok) is dropped. Clauses end at . , ; ! ? or a newline. Still one awk, no process.
+function asked(raw,   n, c, i, out, x) {
+  gsub(/```[^`]*```/, " ", raw); gsub(/`[^`]*`/, " ", raw); gsub(/\\"[^"]*\\"/, " ", raw)
+  n = split(raw, c, /[.,;!?]|\\n/); out = ""
+  for (i = 1; i <= n; i++) {
+    x = norm(c[i]); if (x == "") continue
+    if (x ~ /^(don t|dont|do not|never|not|without|no need to)( |$)/ && x !~ /^(don t|dont|do not|never) (forget|skip|miss|ignore)( |$)/) continue
+    if (x ~ /(^| )(degil|yapma|etme|gerek yok)$/) continue
+    out = out " " x
+  }
+  return out
+}
+BEGIN { np = asked(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; bestX=0; nameA=""; nameS=""; nameX=""
   ALSO["dependency-audit"] = 1
   if (readonly()) exit }
 seen[FILENAME] { next }                                    # one Trigger-phrases line per component, the first

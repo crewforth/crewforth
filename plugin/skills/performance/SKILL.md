@@ -18,7 +18,21 @@ wrong place and adds complexity. Stack-agnostic; do a web search when you need t
 1. **Set a target** — what is "acceptable"? (p95 latency, throughput, memory ceiling). Numeric.
 2. **Measure** — find the real bottleneck with a profiler/APM/benchmark; don't start from a guess.
 3. **Fix the single most expensive thing** — Amdahl: speeding up a 5% path by 2x is wasted; target the hot path.
-4. **Measure again** — did it actually improve, is there a regression.
+4. **Measure again** — did it actually improve, is there a regression. Run each side enough times to see the
+   run-to-run noise, then decide:
+
+   | Result against the noise | Decision |
+   |---|---|
+   | Better by more than the noise | Keep |
+   | Within the noise | Revert: no measured gain is no gain |
+   | Worse, or a test went red | Revert |
+
+   A reverted attempt is written down (in the PR, or the doc that holds the measurements) with its number, so a
+   discarded idea stays discarded.
+   **4b. Same answers before same speed.** An optimisation of a pure function is kept only after a differential
+   check: the original and the new version run on generated inputs (empty, one item, repeated values, sorted,
+   reverse-sorted, extreme sizes, typical) and return the same results. Then time the new one on its own worst input
+   shape, not only the benchmark's.
 5. **Stop** — once you hit the target, finish; no endless micro-optimization.
 
 ## Common bottlenecks
