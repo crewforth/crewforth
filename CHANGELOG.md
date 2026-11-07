@@ -77,6 +77,16 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **Frontend work checks more of what users hit.** `a11y` separates criteria from conventions (a failed A/AA
+  criterion is a finding, AAA or a 44 px target a recommendation), adds a skip link, flashing, an error summary and
+  positive `tabindex`, a table of patterns to grep before finishing, and recipes for focus, forms and which
+  announcement channel to use. `frontend-design` plans in two passes against the generic default, measures contrast
+  on the rendered pair, lists the UI blockers that are always high, and gains references for motion (durations,
+  easing, interruption, gestures), UI copy (buttons, errors, confirm or undo, empty states) and greppable layout,
+  type, colour and motion patterns. `frontend` gains worst-realistic-data probes, building from a design file, and
+  page metadata; `performance` gains Core Web Vitals; `testing` gains a headless path for the verify contract when
+  no browser tool is attached; `i18n-integrity` flags sentences assembled around a variable and hand-written plurals.
+  The README diagrams carry a title and a description under ids of their own.
 - **Plans say what they rest on, and stop when the code moves under them.** `docs/PLAN.md` now records the commit it
   was written at, a size per task (S/M/L, never a date), the one test level that proves each criterion, the
   constraints copied word for word from the request, `Interfaces:` between tasks that feed each other, a checkpoint
