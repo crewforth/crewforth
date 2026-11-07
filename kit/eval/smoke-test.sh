@@ -1387,6 +1387,63 @@ crew_nojq_path(){   # $@ = the tools the code under test needs on PATH
 }
 # ---- /CREW-NOJQ-PATH --------------------------------------------------------------------------------------
 
+sec "== 6b1) branch-fresh: a session opens told when its branch has fallen behind the base in a way that matters =="
+# SessionStart startup|resume. Read against refs/remotes/origin/<base> as already fetched; a detached fetch refreshes
+# it for the next session. Each case below is a state of a throwaway repository with a bare origin.
+BFH="$HOOKS/branch-fresh.sh"
+if ! command -v git >/dev/null 2>&1; then skip tool "branch-fresh not checked (no git)" 8
+elif [ ! -f "$BFH" ]; then fail "branch-fresh.sh missing"
+else
+  _bf="$(mktemp -d)"; _bf="$(cd -P "$_bf" && pwd)"
+  _bfg(){ git -C "$_bf/w" -c user.email=b@example.test -c user.name=b "$@" >/dev/null 2>&1; }
+  _bfr(){ ( cd "$_bf/w" && printf '{"hook_event_name":"SessionStart","source":"startup"}' \
+            | env -u CI -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CREW_BRANCH_FRESH_FETCH="${_bff:-off}" "$@" bash "$BFH" 2>/dev/null ); }
+  git init -q --bare "$_bf/o.git" >/dev/null 2>&1; git clone -q "$_bf/o.git" "$_bf/w" >/dev/null 2>&1
+  _bfg config core.hooksPath /dev/null
+  printf 'a\n' > "$_bf/w/f"; _bfg add f
+  GIT_COMMITTER_DATE="@$(( $(date +%s) - 5*86400 )) +0000" _bfg commit -qm init
+  _bfg branch -M main; _bfg push -q origin main; _bfg remote set-head origin main; _bfg checkout -q -b feat
+  if [ "$(git -C "$_bf/w" rev-parse --abbrev-ref HEAD 2>/dev/null)" != feat ] || ! git -C "$_bf/w" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
+    fail "FIXTURE: the branch-fresh repository was not built — nothing below would be measured"
+  else
+    _o1="$(_bfr)"
+    _bfg checkout -q main; printf 'b\n' > "$_bf/w/f"; _bfg commit -qam base; _bfg push -q origin main; _bfg checkout -q feat
+    _o2="$(_bfr CREW_BRANCH_FRESH_DAYS=30)"
+    { [ -z "$_o1" ] && [ -z "$_o2" ]; } && pass "branch-fresh: silent on a branch level with its base, and on one behind it with no conflict, recent, no rule changed" \
+      || fail "branch-fresh: spoke on a fresh branch: '$(printf '%s' "$_o1$_o2" | head -c 200)'"
+    _o3="$(_bfr)"
+    case "$_o3" in *'"systemMessage":"crew: feat is 1 commit(s) behind origin/main'*'cut from origin/main 5 days ago'*'"additionalContext":"Branch check:'*'git merge origin/main'*) pass "branch-fresh: a fork point older than 3 days is said, with the merge command, to the user and the model" ;;
+      *) fail "branch-fresh: a 5-day-old fork point was not reported: '$(printf '%s' "$_o3" | head -c 300)'" ;; esac
+    printf 'c\n' > "$_bf/w/f"; _bfg commit -qam mine
+    _o4="$(_bfr CREW_BRANCH_FRESH_DAYS=30)"
+    if git merge-tree --write-tree HEAD HEAD >/dev/null 2>&1 || [ "$?" = 1 ]; then
+      case "$_o4" in *'would conflict in: f.'*) pass "branch-fresh: a merge that would conflict names the file (git merge-tree)" ;;
+        *) fail "branch-fresh: a conflicting base was not reported: '$(printf '%s' "$_o4" | head -c 300)'" ;; esac
+    else skip tool "branch-fresh conflict case not checked (git older than 2.38 has no merge-tree --write-tree)"; fi
+    _bfg checkout -q main; mkdir -p "$_bf/w/.claude"; printf '{}\n' > "$_bf/w/.claude/settings.json"; _bfg add .claude; _bfg commit -qm own; _bfg push -q origin main
+    _bfg checkout -q feat; _bfg reset -q --hard HEAD~1
+    _o5="$(_bfr CREW_BRANCH_FRESH_DAYS=30)"
+    case "$_o5" in *'changed Crewforth'*'(.claude/settings.json)'*) pass "branch-fresh: a change to .claude/ on the base is named" ;;
+      *) fail "branch-fresh: a .claude/ change on the base was not named: '$(printf '%s' "$_o5" | head -c 300)'" ;; esac
+    _o6="$(_bfr CREW_BRANCH_FRESH=off)"; _gd="$(git -C "$_bf/w" rev-parse --absolute-git-dir)"; mkdir -p "$_gd/rebase-merge"
+    _o7="$(_bfr)"; rmdir "$_gd/rebase-merge"
+    { [ -z "$_o6" ] && case "$_o7" in *'a rebase is in progress'*'git rebase --abort'*) true ;; *) false ;; esac; } \
+      && pass "branch-fresh: CREW_BRANCH_FRESH=off is silent, and a rebase left in progress is said before anything else" \
+      || fail "branch-fresh: off spoke ('$_o6') or the rebase in progress was not said ('$(printf '%s' "$_o7" | head -c 200)')"
+    _bfg remote set-url origin "$_bf/nowhere.git"; _o8="$(_bff=on _bfr CREW_BRANCH_FRESH_DAYS=30)"; _bfg remote set-url origin "$_bf/o.git"
+    case "$_o8" in *'changed Crewforth'*) pass "branch-fresh: with origin unreachable it still reads what was fetched before, and does not wait" ;;
+      *) fail "branch-fresh: an unreachable origin changed the answer: '$(printf '%s' "$_o8" | head -c 200)'" ;; esac
+    # The detached fetch: the base moves on the remote, the hook returns at once, and the ref catches up behind it.
+    git clone -q -b main "$_bf/o.git" "$_bf/x" >/dev/null 2>&1 && printf 'z\n' > "$_bf/x/z" && git -C "$_bf/x" add z && git -C "$_bf/x" -c user.email=b@example.test -c user.name=b commit -qm moved >/dev/null 2>&1 && git -C "$_bf/x" push -q origin main >/dev/null 2>&1
+    _want="$(git -C "$_bf/x" rev-parse HEAD 2>/dev/null)"; rm -f "$_gd/FETCH_HEAD"; _bff=on _bfr >/dev/null; _i=0
+    while [ "$_i" -lt 50 ] && [ "$(git -C "$_bf/w" rev-parse refs/remotes/origin/main 2>/dev/null)" != "$_want" ]; do sleep 0.1; _i=$((_i+1)); done
+    [ -n "$_want" ] && [ "$(git -C "$_bf/w" rev-parse refs/remotes/origin/main 2>/dev/null)" = "$_want" ] \
+      && pass "branch-fresh: a stale fetch starts a detached git fetch of the base for the next session" \
+      || fail "branch-fresh: origin/main did not catch up within 5 s of the hook — the detached fetch did not run"
+  fi
+  rm -rf "$_bf"
+fi
+
 sec "== 6b2) a worktree the session enters carries .claude/ =="
 # .claude/ is gitignored, so `git worktree add ../x` makes a worktree with none, and a session resumed there loads no
 # hook at all (measured on Claude Code 2.1.309: a resumed session in such a worktree ran no project hook; the same
@@ -7783,6 +7840,16 @@ GBCP
       # The path is git's own spelling (`C:/…` on Windows, where this script says `/tmp/…`), so only its last part is read.
       case "$_d3" in *"/old carries Crewforth 3.0.4, this one 3.1.0"*) pass "doctor: a worktree on another Crewforth is named with both versions; one on the same version is not" ;;
                      *) fail "doctor did not name a worktree that carries Crewforth 3.0.4 beside this 3.1.0" ;; esac ;; esac
+    # A linked worktree with no settings.json runs no hook in a session resumed there; one under .claude/worktrees/
+    # still runs this checkout's, so it is not named.
+    ( cd "$DAP/p" && git worktree add -q .claude/worktrees/inner -b inner ) >/dev/null 2>&1
+    cp "$DAP/p/.claude/settings.json" "$DAP/old/.claude/settings.json"; _d6="$(_dap)"; rm -f "$DAP/old/.claude/settings.json"
+    case "$_d1|$_d6" in *"/old has no .claude/settings.json"*"|"*"/old has no .claude/settings.json"*|*"inner has no .claude/settings.json"*)
+        fail "doctor: the worktree warning fired where settings.json exists, or named a worktree under .claude/worktrees/" ;;
+      *"/old has no .claude/settings.json — a Claude Code session resumed there runs none of Crewforth's hooks"*"|"*)
+        [ -d "$DAP/p/.claude/worktrees/inner" ] && pass "doctor: a linked worktree with no settings.json is named; with one, or under .claude/worktrees/, it is not" \
+          || fail "FIXTURE: the worktree under .claude/worktrees/ was not created" ;;
+      *) fail "doctor did not name a linked worktree that has no .claude/settings.json" ;; esac
     mv "$DAP/p/.claude/hooks/prompt-approval.sh" "$DAP/pa.sh"; _d4="$(_dap)"; mv "$DAP/pa.sh" "$DAP/p/.claude/hooks/prompt-approval.sh"
     case "$_d4" in *"wires prompt-approval.sh but the script is missing"*) pass "doctor: wired with the script missing is a warning that names the two ways that still work" ;;
                    *) fail "doctor did not warn when prompt-approval.sh is wired and missing" ;; esac

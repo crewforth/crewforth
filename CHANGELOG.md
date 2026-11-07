@@ -74,9 +74,27 @@ versioning follows [SemVer](https://semver.org/).
   Bundler, Composer, Mix, pub, NuGet, Gradle, SwiftPM and CocoaPods.
 - **The route hint names `dependency-audit` beside the owner** when a request adds a package ("add a new dependency for
   the date picker component", "pdf için bağımlılık ekle"), instead of losing to the agent that owns the request.
+- **A session opens told when its branch has fallen behind in a way that matters.** A new SessionStart hook,
+  `branch-fresh.sh`, compares the branch with `origin/<base>` as last fetched (`Base branch:` in `CLAUDE.md`, else
+  origin's default branch) and speaks only when merging the base would conflict, the branch was cut more than three
+  days ago, or the base changed `.claude/` or `CLAUDE.md`. It names `git merge origin/<base>` and changes nothing; a
+  rebase left in progress is said first. The fetch for the next session runs detached, never while the session
+  waits. `CREW_BRANCH_FRESH=off` turns it off, `CREW_BRANCH_FRESH_FETCH=off` keeps it offline.
+- **Studio shows what a session it started has changed.** The strip above the conversation says how many files
+  changed since the session started (lines added and removed) and how many new files git does not track yet,
+  counted against the commit recorded at the start. It is read without git rewriting the index and kept in memory.
+- **`/crew-doctor` names a linked worktree with no `.claude/settings.json`**, where a resumed session runs none of
+  Crewforth's hooks. One Claude Code makes under `.claude/worktrees/` is not named: it still runs this checkout's.
 
 ### Changed
 
+- **The `worktree` skill looks before it removes.** Before `git worktree remove` it lists uncommitted files and
+  commits that exist nowhere else and asks; `--force` and `branch -D` only on the user's word. It refuses to reuse an
+  existing branch name silently, never deletes a branch it adopted, tells a submodule from a worktree, runs the
+  tests once in a new worktree before the first edit, and has rules for services the worktrees share.
+- **Studio's Map spreads lines that share a side of a card**, so a module with three dependents shows three lines
+  instead of one. Measured first on the crew-map test fixtures and Crewforth's own map: 48 line ends shared a pixel
+  across 46 edges; now none do. Sideways lines between ends at two heights turn square instead of running slanted.
 - **Plans say what they rest on, and stop when the code moves under them.** `docs/PLAN.md` now records the commit it
   was written at, a size per task (S/M/L, never a date), the one test level that proves each criterion, the
   constraints copied word for word from the request, `Interfaces:` between tasks that feed each other, a checkpoint

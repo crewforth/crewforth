@@ -333,6 +333,17 @@
         ]
       },
       {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/branch-fresh.sh",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "startup",
         "hooks": [
           {

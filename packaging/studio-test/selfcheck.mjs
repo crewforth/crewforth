@@ -1761,6 +1761,24 @@ check('prose without a notice yields nothing', none.size === 0);
       && lay.bands.every((b, i) => i === 0 || b.y === lay.bands[i - 1].y + lay.bands[i - 1].h),
       lay.bands.map((b) => `${b.key}@${b.y}+${b.h}`).join(' '));
     {
+      // Lines that share a side of a card are spread along it (k/(N+1) by where the other end sits), so a card with
+      // three dependents shows three lines, not one; a side with one line keeps the middle, as before. Measured on
+      // the crew-map-test fixtures and Crewforth's own map first: 48 line ends shared a pixel across 46 edges.
+      const P = { a: { x: 0, y: 0, w: 100, h: 40 }, b: { x: 0, y: 100, w: 100, h: 40 }, c: { x: 200, y: 100, w: 100, h: 40 }, d: { x: 400, y: 0, w: 100, h: 40 } };
+      const two = mpl.routesOf([{ from: 'a', to: 'b' }, { from: 'a', to: 'c' }], P);
+      const ends = two.map((r) => /^M([-\d.]+) ([-\d.]+)/.exec(r.d).slice(1).map((v) => Math.round(Number(v))).join(','));
+      const one = mpl.routesOf([{ from: 'a', to: 'b' }], P)[0];
+      check('two lines out of one side of a card leave it at two points, in the order of their other ends; one line keeps the middle',
+        ends[0] === '33,40' && ends[1] === '67,40' && one.d === mpl.pathOf(P.a, P.b).d,
+        ends.join(' | '));
+      const side = mpl.pathOf(P.a, { x: 300, y: 10, w: 100, h: 40 }, 0.5, 0.75);
+      const level = mpl.pathOf(P.a, { x: 300, y: 0, w: 100, h: 40 });
+      check('a sideways line between ends at two heights turns square halfway, never runs on a slant; level ends stay one line',
+        side.d === 'M100 20 H200 V40 H300' && level.d === 'M100 20 L300 20', `${side.d} | ${level.d}`);
+      const ring = mpl.routesOf([{ from: 'a', to: 'd' }, { from: 'x', to: 'a' }], P);
+      check('a line with an end that is not placed is left out, the rest still drawn', ring[1] === null && ring[0] !== null);
+    }
+    {
       // CM3: the layer /crew-map wrote is the band; without one the scan's band stands. A card says its kind, three of
       // what it is built with and how many more, and the outside services it calls; the tour keeps the stops on this
       // map; a search names nodes by name, folder and what they are built with; the inspector says layer, domain, inside.
@@ -6407,6 +6425,42 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
     check('a session Studio only reads is "Read only" and claims nothing else',
       cv.headerOf({ permissionMode: 'read-only' }, { readOnly: true }).badge === 'Read only'
       && cv.headerOf({}, { readOnly: true }).parts.length === 0);
+    // What a session started here has changed: counted from git against the commit recorded at its start, said in
+    // the strip only when something changed, and read without git rewriting the index (GIT_OPTIONAL_LOCKS=0).
+    check('the strip names files changed and new untracked files, and says nothing when nothing changed or nobody counted',
+      cv.headerOf({ permissionMode: 'plan', turns: 1, gated: true, changes: { measured: true, files: 2, added: 7, removed: 1, untracked: 1 } }).parts.join(' | ')
+        === 'mode: plan | 1 turn | 2 files changed (+7 −1) · 1 new untracked'
+      && cv.changesLine({ measured: true, files: 0, untracked: 0 }) === null
+      && cv.changesLine({ measured: false, reason: 'x' }) === null && cv.changesLine(null) === null);
+    {
+      const wc = await import('../../kit/studio/server/lib/worktree-changes.js');
+      const ns = wc.parseNumstat('3\t1\ta.txt\0-\t-\timg.png\0' + '10\t0\tdir/b c.md\0');
+      check('numstat is read file by file, a binary file counted as a file with no lines',
+        ns.files === 3 && ns.added === 13 && ns.removed === 1 && ns.binary === 1);
+      const gd = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-studio-chg-'));
+      try {
+        const g = (...a) => execFileSync('git', ['-c', 'user.email=s@example.test', '-c', 'user.name=s', ...a], { cwd: gd, stdio: ['ignore', 'pipe', 'ignore'] });
+        g('init', '-q'); fs.writeFileSync(path.join(gd, 'a.txt'), 'one\ntwo\n'); fs.writeFileSync(path.join(gd, 'keep.txt'), 'k\n');
+        g('add', '.'); g('commit', '-qm', 'init');
+        const start = await wc.headOf(gd);
+        fs.writeFileSync(path.join(gd, 'a.txt'), 'one\nTWO\nthree\n');
+        fs.writeFileSync(path.join(gd, 'c.txt'), 'c\n'); g('add', 'c.txt'); g('commit', '-qm', 'second');
+        fs.writeFileSync(path.join(gd, 'new.txt'), 'n\n');
+        // keep.txt's content is the same, its time is not: an index refresh would rewrite the index for it.
+        const later = new Date(Date.now() + 5000); fs.utimesSync(path.join(gd, 'keep.txt'), later, later);
+        const idx = path.join(gd, '.git', 'index'); const before = fs.statSync(idx).mtimeMs;
+        const c = await wc.readChanges(gd, start);
+        const after = fs.statSync(idx).mtimeMs;
+        check('a session\'s changes count its commits and its uncommitted edits against the start, and new untracked files',
+          c.measured === true && c.files === 2 && c.added === 3 && c.removed === 1 && c.untracked === 1, JSON.stringify(c));
+        check('reading the changes leaves the index as it was', after === before, `index mtime ${before} -> ${after}`);
+        execFileSync('git', ['status', '--porcelain'], { cwd: gd, stdio: 'ignore' });
+        check('twin: a plain git status rewrites that same index, so the check above could see a write',
+          fs.statSync(idx).mtimeMs !== before);
+        const none = await wc.readChanges(os.tmpdir(), null);
+        check('no commit recorded at the start is "not measured", never zero', none.measured === false && typeof none.reason === 'string');
+      } finally { fs.rmSync(gd, { recursive: true, force: true }); }
+    }
     check('a session started here without the gate says it has none', cv.headerOf({ gated: false }).ungated === true
       && /No approval gate/.test(chatJs));
     check('a waiting request is said in the conversation, and Review leads to the dock',
