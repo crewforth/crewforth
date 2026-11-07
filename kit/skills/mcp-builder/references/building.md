@@ -2,6 +2,14 @@
 
 Loaded on demand. SKILL.md is the design discipline; this is the concrete how.
 
+## Contents
+- The three primitives
+- Transport — pick by where it runs
+- Skeletons
+- Names, hints and pages
+- Error handling
+- The test loop
+
 ## The three primitives
 
 - **Tools** — actions the model invokes (side effects allowed): `create_ticket`, `search_orders`. This is what most servers are for.
