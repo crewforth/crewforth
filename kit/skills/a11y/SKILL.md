@@ -38,6 +38,38 @@ Commonly missed, all checkable in the markup:
 - [ ] **Submit stays enabled**: a disabled-until-valid button hides why; validate on submit and say what is wrong
 - [ ] **Zoom and reflow** (1.4.4, 1.4.10): usable at 200% text and at 320 CSS px wide; no `maximum-scale=1` or
   `user-scalable=no` in the viewport meta
+- [ ] **Skip link** (2.4.1): the first focusable element jumps past repeated navigation to `main`
+- [ ] **No flashing** (2.3.1): nothing flashes more than three times a second
+- [ ] **Error summary**: a form that fails lists its errors in one focusable block that links to each field
+- [ ] **No positive `tabindex`**: `0` and `-1` only; order comes from the DOM
+
+**Criteria, not conventions.** A failed A or AA criterion, or a task a keyboard or screen-reader user cannot finish,
+is a finding. AAA, an ARIA Authoring Practices pattern, or a 44 px target where 24 px passes is a recommendation:
+say so, and never rank it with a finding.
+
+## Before you finish: grep for these
+| Pattern in the diff | Why it fails |
+|---|---|
+| `outline: none` / `outline: 0` with no `:focus-visible` rule | focus becomes invisible (2.4.7) |
+| `<div onClick` / `<span onClick` with no role and key handler | not reachable by keyboard (2.1.1) |
+| `tabindex="1"` or higher | breaks the reading order (2.4.3) |
+| `disabled={!isValid}` on a submit | hides why the form cannot be sent |
+| a live region rendered together with its text | many readers announce nothing: render it empty first |
+| `maximum-scale=1`, `user-scalable=no` | blocks zoom (1.4.4) |
+| `aria-hidden="true"` on an element that holds something focusable | focus lands on nothing the reader can name |
+| `<img` with no `alt` | no text alternative (1.1.1) |
+| `onDrag`/`draggable` with no button or menu path | no single-pointer alternative (2.5.7) |
+
+## Symptom → cause → fix
+| Symptom | Usual cause | Fix |
+|---|---|---|
+| Reader says "button" and nothing else | icon-only button with no name | `aria-label`, or visually hidden text |
+| Tab skips an element | a `div` handling clicks | a real `button` / `a` |
+| Focus lost after a modal closes | focus not returned | return it to the element that opened the modal |
+| An error appears and nothing is announced | message not tied to the field or a live region | `aria-describedby` on the field; a status region for the summary |
+| Layout breaks at 200% zoom | fixed heights or widths in px | let text boxes grow; `min-width: 0` on flex and grid children |
+
+Recipes for focus, forms and announcements (which channel says what, in order): `references/recipes.md`.
 
 ## How
 1. **Start with semantics** — the right element solves 80%. Use `button` instead of `role="button"`+`div`.

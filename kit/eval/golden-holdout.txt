@@ -51,3 +51,5 @@ we need to put this build on the server tonight|deploy
 # in the same change — so these are weaker held-out evidence than the rows above.
 empty repo, nobody has picked a language or framework for the api yet|backend-architecture
 we cannot agree whether this service should be layered or split per feature|backend-architecture
+# P14 row for the docs-writer "diagram" trigger: same honesty note, written in the change that added it.
+sketch a diagram of how the services call each other|docs-writer
