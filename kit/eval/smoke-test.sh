@@ -2444,7 +2444,7 @@ if [ "$IS_KIT" = 1 ]; then
   elif [ -f "$KR/packaging/gen-diagrams.mjs" ]; then
     _dgo="$(cd "$KR" && node packaging/gen-diagrams.mjs --check 2>&1)" && pass "diagrams: ${_dgo#gen-diagrams: }" \
       || fail "diagrams are stale or overflow: $_dgo"
-    _dgs="$(cd "$KR" && node packaging/gen-diagrams.mjs --selftest 2>&1)" && pass "diagram overflow gate: an over-long label stops the build" \
+    _dgs="$(cd "$KR" && node packaging/gen-diagrams.mjs --selftest 2>&1)" && pass "diagram gates: an over-long label stops the build, and each diagram has a title and a description under its own ids" \
       || fail "diagram overflow twin: $_dgs"
     _dgt="$(mktemp -d)"; cp "$KR"/assets/stages-*.svg "$KR"/assets/flow-*.svg "$KR"/assets/handover-*.svg "$KR"/assets/network-*.svg "$_dgt/" 2>/dev/null
     printf ' ' >> "$_dgt/network-en-light.svg"
@@ -2454,10 +2454,10 @@ if [ "$IS_KIT" = 1 ]; then
     rm -rf "$_dgt"
     _dgm=""
     for _svg in "$KR"/assets/network-*-*.svg; do
-      _tt="$(sed -n 's/.*<title[^>]*>\([^<]*\)<\/title>.*/\1/p' "$_svg" | head -1)"
+      _tt="$(sed -n 's/.*<desc[^>]*>\([^<]*\)<\/desc>.*/\1/p' "$_svg" | head -1)"
       for a in "$AGENTS"/*.md; do n="$(basename "$a" .md)"; case "$_tt" in *"$n"*) ;; *) _dgm="$_dgm ${_svg##*/}:$n" ;; esac; done
     done
-    [ -z "$_dgm" ] && pass "every agent is named in each network diagram's <title> ($TA agents × 4 files)" || fail "network diagrams do not name:$_dgm"
+    [ -z "$_dgm" ] && pass "every agent is named in each network diagram's <desc> ($TA agents × 4 files)" || fail "network diagrams do not name:$_dgm"
   fi
   # The agent→skill map the network diagram draws is declared in each agent's frontmatter (metadata.skills) and
   # must stand on the body: an agent that lists a skill its instructions never mention is drawing a claim.
@@ -5720,6 +5720,23 @@ _6ao="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
 [ -z "$_6ab" ] && pass "doctor names a missing @import (on its own line or inside a sentence) and a missing backticked path in CLAUDE.md, each alone (a fence, ~/, an @-mention, a package scope, an agent name, an e-mail, an escaped space, a :line or #L suffix, a placeholder, a glob, a command and a URL are not pointers; a path relative to a tracked sub-project resolves), and reads the same file clean once both exist" \
                || fail "doctor CLAUDE.md pointers:$_6ab"
 git -C "$DOC" rm -q --cached pkg/lib/deep.ts >/dev/null 2>&1; rm -rf "$DOC/src" "$DOC/pkg" "$DOC/docs" "$DOC/gone.md"
+# ...and the nested ones (P14-06): a CLAUDE.md below the root and an AGENTS.md at it are read the same way, a path
+# resolving under the file's own folder or at the root; a dependency folder is not walked. Twin: the same files
+# with their targets created say nothing.
+mkdir -p "$DOC/web/components" "$DOC/node_modules/dep" "$DOC/src"; : > "$DOC/web/components/Button.tsx"; : > "$DOC/src/root.ts"; _6nb=""
+printf '%s\n' 'Use `components/Button.tsx` and `src/root.ts`, never `src/gone.ts`.' > "$DOC/web/CLAUDE.md"
+printf '%s\n' 'Start at `lib/agents.md`.' > "$DOC/AGENTS.md"
+printf '%s\n' 'See `nowhere/at.md`.' > "$DOC/node_modules/dep/CLAUDE.md"
+_6no="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+[[ "$_6no" == *"web/CLAUDE.md points at path(s) that do not exist (moved or deleted?): src/gone.ts"$'\n'* ]] || _6nb="$_6nb nested-not-named-alone"
+[[ "$_6no" == *"AGENTS.md points at path(s) that do not exist (moved or deleted?): lib/agents.md"$'\n'* ]] || _6nb="$_6nb agents-not-named"
+[[ "$_6no" == *"nowhere/at.md"* ]] && _6nb="$_6nb walked-node_modules"
+mkdir -p "$DOC/web/src" "$DOC/lib"; : > "$DOC/web/src/gone.ts"; : > "$DOC/lib/agents.md"
+_6no="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+[[ "$_6no" == *"web/CLAUDE.md points at"* || "$_6no" == *"AGENTS.md points at"* ]] && _6nb="$_6nb twin-not-clean"
+[ -z "$_6nb" ] && pass "doctor names a missing path in a nested CLAUDE.md and in AGENTS.md (resolved under its own folder, then the root), skips node_modules, and reads them clean once the paths exist" \
+               || fail "doctor nested instruction files:$_6nb"
+rm -rf "$DOC/web" "$DOC/node_modules" "$DOC/src" "$DOC/lib" "$DOC/AGENTS.md"
 # doctor 6b (P16-03): a ./CLAUDE.md line that reads as loosening §4 is named by its number, information only; the
 # same rule written as a prohibition, a line off the §4 topics and a fenced example are not. Twin: the tightening
 # file says nothing.
@@ -7547,6 +7564,31 @@ if [ -f "$_ENT" ] && [ -f "$_END" ]; then
     *) fail "the rule → enforcer check missed a planted gap (got:${_enc:- nothing}) — it checks nothing" ;; esac
 else
   fail "rule → enforcer table or the discipline file is missing ($_ENT, $_END)"
+fi
+# A `§N.M` in shipped text points at a numbered heading of the discipline ("the § numbers in this file refer only to
+# this file"). A heading renumbered or a typo leaves agents and hook messages citing a rule that is not there, and
+# nothing reads it but the model (P14-08). Every one in agents, skills, hooks, the eval scripts and the discipline
+# itself must be a `### N.M` heading there. smoke-test.sh is left out: it plants a §4.8 and a §9.9 on purpose.
+_secx(){ # $1 discipline file, rest: files to read -> the citations with no heading, one per file
+  local d="$1" f c; shift
+  for f in "$@"; do
+    for c in $(grep -oE '§[0-9]+\.[0-9]+' "$f" 2>/dev/null | sort -u); do
+      grep -q "^### ${c#§} " "$d" || printf ' [%s: %s]' "${f#"$ROOT/"}" "$c"
+    done
+  done
+}
+if [ -f "$_END" ]; then
+  _sxf=(); while IFS= read -r _f; do _sxf+=("$_f"); done < <(find "$AGENTS" "$SKILLS" "$HOOKS" "$ROOT/eval" -type f \
+        \( -name '*.md' -o -name '*.sh' -o -name '*.mjs' -o -name '*.awk' -o -name 'pre-commit' -o -name 'commit-msg' \) \
+        ! -name smoke-test.sh 2>/dev/null; echo "$_END")
+  _sxp="$(mktemp)"; printf 'See §4.1 and §4.19.\n' > "$_sxp"
+  _sxc="$(_secx "$_END" "$_sxp")"; rm -f "$_sxp"
+  _sxo="$(_secx "$_END" "${_sxf[@]}")"
+  case "$_sxc" in *"§4.19]"*)
+      case "$_sxc" in *"§4.1]"*) fail "the § citation check named §4.1, a heading that exists — it reads prefixes" ;;
+        *) [ -z "$_sxo" ] && pass "every §N.M in agents, skills, hooks and eval scripts (${#_sxf[@]} files) is a heading of the discipline (a planted §4.19 is caught)" \
+                          || fail "§ citations with no heading in the discipline:$_sxo" ;; esac ;;
+    *) fail "the § citation check missed a planted §4.19 (got:${_sxc:- nothing}) — it checks nothing" ;; esac
 fi
 
 sec "== 10) gate report — the evidence half of the gate claim =="

@@ -32,3 +32,24 @@ Once the scales exist, name them as tokens (CSS custom properties / theme object
 - **Restraint check** — can anything be *removed*? A border that a gap already implies, a color that space already separates, a shadow doing nothing. Subtraction usually improves it.
 
 Report design findings the way `crew-review-agent` expects: concrete (element + which lever + the fix), not "make it prettier".
+
+## UI blockers: always high, never averaged down
+A screen with one of these is not passable however polished the rest is:
+- an interactive element with no accessible name
+- no visible focus
+- a task that only a pointer can finish (drag only, hover only)
+- motion that ignores `prefers-reduced-motion`
+- content clipped or overlapping at 320 px wide or at 200% zoom
+- text that fails its contrast ratio
+- meaning carried by colour alone
+- a destructive action with neither a confirmation nor an undo
+- text truncated with no way to read the rest
+- an error the user cannot recover from on the screen where it happened
+
+**The cheaper fix first.** Before adding anything: can it be deleted? Does the platform already do it (a native
+`<dialog>`, `<details>`, a system font)? Is there a project token or component for it? Is it only a wrong value?
+Only then add something new.
+
+**Say what was looked at.** Name the screens, states and widths you inspected, and mark the rest "not reviewed".
+An area nobody opened is never called clean, and a check that could not run (no browser, no data) is "not
+verified", never a finding.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop hook — when session fill crosses a threshold it GUARANTEES the handoff recommendation reaches the USER.
+# Stop hook — when session fill crosses a threshold it prints the handoff recommendation to the USER (systemMessage).
 # Session management = a gate at the threshold, not a wish. But the gate must not nag or burn tokens:
 #   - It surfaces the recommendation as a neutral `systemMessage` (user-facing warning), NOT a hook error.
 #     (Claude Code renders a BLOCKING Stop hook — exit 2 — as "Stop hook error: ...". We deliberately never block.)
@@ -9,7 +9,7 @@
 #   - It NEVER blocks the stop: every path exits 0. A measurement failure fails open, silently.
 # context-usage.sh does the measurement. No automatic /clear — approval is the user's (§4.4).
 # The model is nudged separately every turn by context-usage.sh (UserPromptSubmit); this hook is the
-# guaranteed USER-facing alert. A new session (or /clear) mints a new session_id and re-arms both thresholds.
+# USER-facing alert, and it is silent when the measurement fails. A new session (or /clear) mints a new session_id and re-arms both thresholds.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # Bounded: a pipe Claude Code keeps open (a Windows pipe can close late) must not hold the stop for the hook's whole
