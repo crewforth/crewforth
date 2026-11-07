@@ -323,6 +323,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "settings.json: %s") s='settings.json: %s' ;;
       "merge failed -> project setting PRESERVED (not overwritten)") s='birleştirme başarısız -> proje ayarı KORUNDU (üzerine yazılmadı)' ;;
       "existing file is INVALID JSON -> merge ABORT (no silent overwrite). Fix it by hand first.") s='mevcut dosya GEÇERSİZ JSON -> birleştirme İPTAL (üzerine sessizce yazılmaz). Önce elle düzeltin.' ;;
+      "existing file has a hook entry Claude Code rejects (it then ignores the whole file) -> merge ABORT. Fix the entries below by hand first.") s="mevcut dosyada Claude Code'un reddettiği bir hook girdisi var (o zaman dosyanın tamamını yok sayar) -> birleştirme İPTAL. Önce aşağıdaki girdileri elle düzeltin." ;;
       "settings.json: retired §4.4 ask rule(s) REMOVED (%s) — guard-bash.sh now asks for these itself; an ask rule would override its CLAUDE_GIT_OK allow. Re-add one only if your project wants that trade.") s='settings.json: emekliye ayrılan §4.4 ask kuralları KALDIRILDI (%s) — bunları artık guard-bash.sh kendisi soruyor; bir ask kuralı onun CLAUDE_GIT_OK iznini ezerdi. Bu bedeli bilerek istiyorsanız geri ekleyin.' ;;
       "Stage 4 — arm the git gates (SHIM via husky) + PROOF") s='Aşama 4 — git kapılarını devreye al (husky üzerinden SHIM) + KANIT' ;;
       "core.hooksPath -> .claude/hooks (no existing hook chain)") s='core.hooksPath -> .claude/hooks (başka hook zinciri yok)' ;;
@@ -1722,10 +1723,16 @@ SET_FRESH=0
 if [ ! -f "$PSET" ]; then
   SET_FRESH=1
   [ -f "$KSET" ] && { cp "$KSET" "$PSET"; say "settings.json: was missing in the project -> Crewforth's was installed"; }
+# The hook entries Claude Code would reject (a hook without "type", a "command" that is not a string, a matcher that
+# is not a string): it ignores the WHOLE settings.json then, so every gate is off and nothing says so. A project file
+# like that is not merged into (the merge would carry the entry along); the problems are named and the file is left.
+elif SET_HC="$(awk -v op=hookcheck -f "$SET_AWK" "$PSET" 2>/dev/null)"; [ "$?" = 1 ]; then
+  SET_NOTE="existing file has a hook entry Claude Code rejects (it then ignores the whole file) -> merge ABORT. Fix the entries below by hand first."
+  _mt "$SET_NOTE"; warnm 'settings.json: %s' "$_M"; printf '%s\n' "$SET_HC" | sed 's/^/      /'
 else
   awk -v op=merge -v retired='Bash(git add:*)|Bash(git commit:*)|Bash(git push:*)|Bash(git checkout -b:*)' -f "$SET_AWK" "$KSET" "$PSET" > "$PSET.tmp" 2>/dev/null
   case "$?" in
-    0) if [ -s "$PSET.tmp" ] && awk -v op=validate -f "$SET_AWK" "$PSET.tmp" 2>/dev/null; then
+    0) if [ -s "$PSET.tmp" ] && awk -v op=validate -f "$SET_AWK" "$PSET.tmp" 2>/dev/null && awk -v op=hookcheck -f "$SET_AWK" "$PSET.tmp" >/dev/null 2>&1; then
          # Written THROUGH the existing file, not swapped in with mv: a symlinked settings.json (a team's shared
          # file) keeps its link and gets the merge, and a 0600 mode survives.
          cat "$PSET.tmp" > "$PSET"; say 'settings.json: hook-aware MERGE (Crewforth hooks refreshed - %s)' "$KEPT"
@@ -1747,8 +1754,9 @@ elif [ "$SET_FRESH" = 1 ]; then HAND_SET="Crewforth's settings.json installed (t
 else HAND_SET="hook-aware merge (Crewforth hooks REFRESHED to current — new events + timeouts land; your own custom hooks/permissions PRESERVED${RET_GONE:+, except the retired §4.4 ask rule(s) REMOVED: $RET_GONE — guard-bash.sh asks for these itself})"; fi
 
 # The status line, only where none is set (a user's own would lose to the project's setting, so it is never
-# replaced). eval/lib/statusline.sh --install decides and writes; this only says what it did.
-if [ -f .claude/eval/lib/statusline.sh ]; then
+# replaced). eval/lib/statusline.sh --install decides and writes; this only says what it did. Not after a refused
+# merge: that file was left as it was on purpose, and the status line is a write to it.
+if [ -z "$SET_NOTE" ] && [ -f .claude/eval/lib/statusline.sh ]; then
   case "$(bash .claude/eval/lib/statusline.sh --install 2>/dev/null)" in
     installed) say "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost)." ;;
     kept) say "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor)." ;;

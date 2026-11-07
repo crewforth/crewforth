@@ -155,6 +155,9 @@ _mt() {
       'CLAUDE.md (or a referenced doc) names pull-only agent(s) by their old bare id — invoked explicitly, so delegation still works; rename for consistency:%s') s='CLAUDE.md (ya da başvurduğu bir belge) yalnız açıkça çağrılan ajan(lar)ı eski çıplak kimliğiyle anıyor — açıkça çağrıldıkları için devretme yine çalışır; tutarlılık için yeniden adlandırın:%s' ;;
       'CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s') s='CLAUDE.md var olmayan dosya(lar)ı içe aktarıyor — hiçbir şey yüklenmiyor ve bu söylenmiyor:%s' ;;
       'CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s') s='CLAUDE.md var olmayan yol(lar)ı gösteriyor (taşındı ya da silindi mi?):%s' ;;
+      'set in this environment, read by no Crewforth file (a typo?):%s — it changes nothing') s="bu ortamda ayarlı ama hiçbir Crewforth dosyası okumuyor (yazım hatası mı?):%s — hiçbir şeyi değiştirmiyor" ;;
+      'Crewforth switch(es) that take a whole number set to something else:%s — a hook may ignore it and use its default') s='tam sayı bekleyen Crewforth anahtar(lar)ı başka bir şeye ayarlı:%s — hook onu yok sayıp varsayılanını kullanabilir' ;;
+      'CLAUDE.md line(s)%s read as loosening a §4 rule (approval, review or hooks) — a project CLAUDE.md can tighten §4, never loosen it, and the gates still apply; reword them so the model and the gates agree') s="CLAUDE.md satır(lar)ı%s bir §4 kuralını (onay, review ya da hook) gevşetiyor gibi okunuyor — proje CLAUDE.md'si §4'ü sıkılaştırabilir, asla gevşetemez, kapılar yine işler; model ile kapılar aynı şeyi söylesin diye bu satırları yeniden yazın" ;;
       'every import and file path in CLAUDE.md resolves') s="CLAUDE.md'deki her içe aktarma ve dosya yolu çözülüyor" ;;
       'agent references resolve to installed agents (CLAUDE.md + referenced docs)') s='ajan anmaları kurulu ajanlara çözülüyor (CLAUDE.md ve başvurduğu belgeler)' ;;
       'CLAUDE.md missing — .claude/DISCIPLINE.md is never loaded (routing / DoD / session rules absent)') s='CLAUDE.md yok — .claude/DISCIPLINE.md hiç yüklenmiyor (yönlendirme / DoD / oturum kuralları yok)' ;;
@@ -751,6 +754,29 @@ if [ -f CLAUDE.md ]; then
   [ -z "$_imp$_btp" ] && ok "every import and file path in CLAUDE.md resolves"
 fi
 
+# 6b) A line in ./CLAUDE.md that reads as loosening §4. The discipline says a project CLAUDE.md can tighten §4, never
+#     loosen it, and the gates hold either way; but a line like "no need to ask before committing" tells the model
+#     the opposite of what the gate will do, and the session then argues with the gate. Information only, and a
+#     phrase list, not a judge: a loosening phrase on a line about commits, pushes, reviews or hooks, with no
+#     "never", "do not", "don't" or "must not" before it. Code fences and the @import line are not read.
+if [ -f CLAUDE.md ]; then
+  _lz="$(LC_ALL=C awk '
+    /^[[:space:]]*(```|~~~)/ { f = !f; next }
+    f || /^@/ { next }
+    { l = tolower($0) }
+    l !~ /commit|push|review|hook|verify|approv|force|reset/ { next }
+    {
+      n = split("no need to ask|no need for approval|no approval needed|without asking|without approval|without confirmation|skip the review|skip review|skip the hook|auto-commit|autocommit|commit directly|push directly|commit freely|push freely|you may commit|you may push|use --no-verify|--no-verify is fine|--no-verify is ok|force-push is fine|force push is fine", ph, "|")
+      for (i = 1; i <= n; i++) {
+        p = index(l, ph[i]); if (!p) continue
+        pre = substr(l, 1, p - 1)
+        if (pre ~ /never|do not|don.t|must not|not allowed|forbidden/) continue
+        printf " %d", NR; break
+      }
+    }' CLAUDE.md 2>/dev/null)"
+  [ -n "$_lz" ] && warn "CLAUDE.md line(s)%s read as loosening a §4 rule (approval, review or hooks) — a project CLAUDE.md can tighten §4, never loosen it, and the gates still apply; reword them so the model and the gates agree" "$_lz"
+fi
+
 # 8b) The shell matcher. Claude Code's hooks reference is explicit: inspect shell commands with
 #     `Bash|PowerShell`, because wherever the PowerShell tool is enabled it IS the shell — and it is on by
 #     default for claude.ai and Console accounts on Windows. An install from before 2.5.0 watches only `Bash`,
@@ -971,6 +997,27 @@ fi
 # The organisation preset in force: the block preset.sh wrote at the top of crew-model-rules, asked of preset.sh itself.
 _pre=""; [ -n "$_DOC_LIB" ] && [ -f "$_DOC_LIB/preset.sh" ] && _pre="$(bash "$_DOC_LIB/preset.sh" --show 2>/dev/null)"
 ok "organisation preset: %s" "${_pre:-none}"
+
+# 9f) Crewforth's own switches, as set in this environment. A CREW_ variable no Crewforth file reads is almost always
+#     a typo (a misspelt routing switch set to off switches nothing off, and nothing says so), and a switch that
+#     takes a number set to something else may be ignored for its default without a word. The names are read from the installed files
+#     themselves, so the list cannot go stale; a value is judged only for names that end like a number (_MAX, _MIN,
+#     _PCT, _N, _TIMEOUT, _AGE, _BYTES, _CHARS, _TURNS, _TOOLS, _ERRORS, _TOLERANCE). Information only.
+# Read where this doctor runs from too (its own eval/ and hooks/ beside it): a suite that drives it sets names of its own.
+_kd="${_DOC_LIB:+${_DOC_LIB%/lib}}"
+_kn="$(grep -rhoE 'CREW_[A-Z0-9_]+' .claude/hooks .claude/eval .claude/skills .claude/studio ${_kd:+"$_kd" "${_kd%/eval}/hooks"} 2>/dev/null | LC_ALL=C sort -u)"
+if [ -n "$_kn" ]; then
+  _nl=$'\n'; _uk=""; _nv=""
+  while IFS='=' read -r _vn _vv; do
+    case "$_vn" in CREW_[A-Z0-9_]*) ;; *) continue ;; esac
+    case "$_nl$_kn$_nl" in *"$_nl$_vn$_nl"*) ;; *) _uk="$_uk $_vn"; continue ;; esac
+    case "$_vn" in *_MAX|*_MIN|*_PCT|*_N|*_TIMEOUT|*_AGE|*_BYTES|*_CHARS|*_TURNS|*_TOOLS|*_ERRORS|*_TOLERANCE|*_MAX_*|*_MIN_*)
+      case "$_vv" in ''|*[!0-9]*) _nv="$_nv $_vn=$_vv" ;; esac ;;
+    esac
+  done < <(env 2>/dev/null | LC_ALL=C sort)
+  [ -n "$_uk" ] && warn "set in this environment, read by no Crewforth file (a typo?):%s — it changes nothing" "$_uk"
+  [ -n "$_nv" ] && warn "Crewforth switch(es) that take a whole number set to something else:%s — a hook may ignore it and use its default" "$_nv"
+fi
 
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has

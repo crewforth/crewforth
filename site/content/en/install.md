@@ -103,6 +103,10 @@ Inside a session, **`/crew-update`** does the version check, runs the updater, v
 
 If a project's `CLAUDE.md` carries the discipline **inline** instead of importing it, updates cannot reach it. The updater detects this, shows the affected lines, and offers to replace them with the single `@.claude/DISCIPLINE.md` import — writing a backup first, on a branch you review. Decline and nothing is touched.
 
+## Removing
+
+`npx crewforth remove` shows what it would take out and changes nothing; `npx crewforth remove --apply` does it. It drops every `settings.json` hook entry that runs `.claude/hooks/` (your own hooks stay), Crewforth's status line and the blanket `Bash` allow that only the gate made safe, and sets `core.hooksPath` back (unset, or the hook chain the shim ran). Crewforth's files move to `.claude/.crewforth-removed-<time>/`; nothing is deleted, and your own agents and skills stay where they are. `CLAUDE.md` is never touched: the command names the `@.claude/DISCIPLINE.md` line for you to delete. A plugin install is removed with `/plugin uninstall crewforth`.
+
 ## Telemetry
 
 After a successful `npx crewforth init`, Crewforth sends one anonymous count, once per project, and prints a line saying so before it does: `GET https://ping.crewforth.com/install?v=<version>`, with the User-Agent `crewforth` and no body.

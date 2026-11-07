@@ -12,7 +12,10 @@
 # guaranteed USER-facing alert. A new session (or /clear) mints a new session_id and re-arms both thresholds.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-IN="$(cat 2>/dev/null || true)"
+# Bounded: a pipe Claude Code keeps open (a Windows pipe can close late) must not hold the stop for the hook's whole
+# timeout. A builtin read with a deadline: the payload is one line with no newline, so it ends at EOF, normally at
+# once. Nothing in time means nothing to measure, and this hook then stays silent, as on any other failure.
+IN=""; IFS= read -r -d '' -t "${CREW_STDIN_TIMEOUT:-2}" IN 2>/dev/null; [ "$?" -gt 128 ] && exit 0
 
 # No `stop_hook_active` guard. The flag says SOME Stop hook blocked this turn — another plugin's, typically, since
 # this one never does — and honouring it silenced the fill warning on exactly those turns. The loop it guards

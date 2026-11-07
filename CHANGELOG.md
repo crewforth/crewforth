@@ -74,6 +74,16 @@ versioning follows [SemVer](https://semver.org/).
   Bundler, Composer, Mix, pub, NuGet, Gradle, SwiftPM and CocoaPods.
 - **The route hint names `dependency-audit` beside the owner** when a request adds a package ("add a new dependency for
   the date picker component", "pdf için bağımlılık ekle"), instead of losing to the agent that owns the request.
+- **`npx crewforth remove` takes Crewforth out of a project.** By default it lists what it would change and changes
+  nothing; `--apply` does it. It drops the `settings.json` hook entries that run `.claude/hooks/` (yours stay), its
+  status line, the blanket `Bash` allow and the skill-listing budget key, and sets `core.hooksPath` back (unset, or the
+  hook chain the shim ran). Its files move to `.claude/.crewforth-removed-<time>/`; nothing is deleted, and your own
+  agents and skills stay. `CLAUDE.md` is not touched: the command names the `@.claude/DISCIPLINE.md` line to delete.
+- **`/crew-doctor` reads two more ways a setup goes quiet.** A line in `CLAUDE.md` that reads as loosening a §4 rule
+  ("no need to ask before committing", "skip the review") is named with its line number, unless a "never" or "do
+  not" precedes it.
+  A `CREW_` variable set in the environment that no Crewforth file reads (a typo) is named, and so is a switch that
+  takes a whole number set to something else.
 
 ### Changed
 
@@ -93,6 +103,18 @@ versioning follows [SemVer](https://semver.org/).
 - **`sonarqube-check` produces coverage before the scan** (the report and the scanner parameter per stack), writes
   "not measured" instead of 0% when no report was passed, and reports the overall ratings when the new-code period is
   empty, where every `new_*` condition reads `OK` with nothing to judge.
+
+### Fixed
+
+- **`adopt` refuses a `settings.json` whose hook entries Claude Code would reject.** Claude Code ignores the whole
+  file when one hook entry has the wrong shape, so merging Crewforth's hooks into it installed gates that never ran.
+  adopt now names the entries and stops the merge, and the merged result is checked the same way before it is
+  written.
+- **The route hint ignores what the request declines or quotes.** "don't run the security review", text in backticks
+  or quotes, and a Turkish clause that ends in "gerek yok" no longer pick an agent.
+- **A session that resumes after compaction says when its state was not restored**, instead of starting as if
+  nothing had been there. The two session-start hooks stop waiting for input after two seconds
+  (`CREW_STDIN_TIMEOUT`), so a client that never closes the input does not hold the session.
 
 ## [3.4.0] — 2026-10-30
 

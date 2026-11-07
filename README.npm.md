@@ -7,6 +7,7 @@ npx crewforth init              # set up a new project
 npx crewforth adopt             # hand it over onto an existing repository, on a branch
 npx crewforth add <agent|skill> # copy one agent or skill into ./.claude
 npx crewforth studio            # open the Studio panel; installs nothing
+npx crewforth remove            # show what removing it would take out (--apply does it)
 ```
 
 Then open Claude Code and run `/crew-doctor` to confirm the setup. Requires bash and git; on Windows, use Git Bash (the gates run only when Claude Code finds it; when it does not, the tools that write or run commands are stopped and `/crew-doctor` names the path to set).
