@@ -33,6 +33,15 @@ if [ "$_HELP_ONLY" = 0 ] && [ ! -d "$SRC" ]; then
   echo "start.sh and kit/ must be in the SAME directory (both come together when you unzip)."
   exit 1
 fi
+# A payload that lost files (a truncated archive, a folder dropped in a copy) is refused before the first write, so
+# a broken download says so instead of installing gates that fail on every call. English, like the check above: it
+# answers before the language is chosen. eval/lib/payload-check.sh says what it reads.
+if [ "$_HELP_ONLY" = 0 ] && [ "${CREW_PAYLOAD_UNCHECKED:-0}" != 1 ] && [ -f "$SRC/eval/lib/payload-check.sh" ]; then
+  _pc="$(bash "$SRC/eval/lib/payload-check.sh" "$SRC" 2>&1)" || {
+    echo "ERROR: the kit/ payload is incomplete — nothing installed:"; printf '%s\n' "$_pc" | sed 's/^/  /'
+    echo "Download it again (npx crewforth@latest, or a fresh archive). CREW_PAYLOAD_UNCHECKED=1 installs it anyway."
+    exit 1; }
+fi
 
 # Refuse to run inside a checkout of the kit's own source repository. This script ends by deleting
 # kit/ and itself, which is correct when the kit has been unpacked into a project and is being

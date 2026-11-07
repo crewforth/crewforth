@@ -103,6 +103,10 @@ Oturum içinde **`/crew-update`** sürüm kontrolünü yapar, güncelleyiciyi ko
 
 Bir projenin `CLAUDE.md` dosyası disiplini import etmek yerine **satır içinde** taşıyorsa güncellemeler oraya ulaşamaz. Güncelleyici bunu fark eder, etkilenen satırları gösterir ve onları tek bir `@.claude/DISCIPLINE.md` import'uyla değiştirmeyi önerir; önce yedek alır, işi de sizin inceleyeceğiniz bir dalda yapar. Reddederseniz hiçbir şeye dokunulmaz.
 
+## Kaldırma
+
+`npx crewforth remove` neyi çıkaracağını gösterir ve hiçbir şeyi değiştirmez; `npx crewforth remove --apply` işi yapar. `settings.json` içinde `.claude/hooks/` koşturan her hook girdisini (sizin hook'larınız kalır), Crewforth'un durum satırını ve yalnız kapı varken güvenli olan genel `Bash` iznini çıkarır, `core.hooksPath` ayarını geri alır (siler ya da shim'in koşturduğu hook zincirine döndürür). Crewforth'un dosyaları `.claude/.crewforth-removed-<zaman>/` altına taşınır; hiçbir şey silinmez, kendi ajan ve skill'leriniz yerinde kalır. `CLAUDE.md` dosyasına hiç dokunulmaz: komut silmeniz için `@.claude/DISCIPLINE.md` satırını gösterir. Eklenti kurulumu `/plugin uninstall crewforth` ile kaldırılır.
+
 ## Telemetri
 
 Başarılı bir `npx crewforth init` sonunda Crewforth proje başına bir kez anonim bir sayım gönderir ve göndermeden önce bunu söyleyen bir satır basar: `GET https://ping.crewforth.com/install?v=<sürüm>`, User-Agent `crewforth`, gövde yok.

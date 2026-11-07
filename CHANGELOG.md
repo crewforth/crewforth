@@ -116,6 +116,16 @@ versioning follows [SemVer](https://semver.org/).
   counted against the commit recorded at the start. It is read without git rewriting the index and kept in memory.
 - **`/crew-doctor` names a linked worktree with no `.claude/settings.json`**, where a resumed session runs none of
   Crewforth's hooks. One Claude Code makes under `.claude/worktrees/` is not named: it still runs this checkout's.
+- **`npx crewforth remove` takes Crewforth out of a project.** By default it lists what it would change and changes
+  nothing; `--apply` does it. It drops the `settings.json` hook entries that run `.claude/hooks/` (yours stay), its
+  status line, the blanket `Bash` allow and the skill-listing budget key, and sets `core.hooksPath` back (unset, or the
+  hook chain the shim ran). Its files move to `.claude/.crewforth-removed-<time>/`; nothing is deleted, and your own
+  agents and skills stay. `CLAUDE.md` is not touched: the command names the `@.claude/DISCIPLINE.md` line to delete.
+- **`/crew-doctor` reads two more ways a setup goes quiet.** A line in `CLAUDE.md` that reads as loosening a §4 rule
+  ("no need to ask before committing", "skip the review") is named with its line number, unless a "never" or "do
+  not" precedes it.
+  A `CREW_` variable set in the environment that no Crewforth file reads (a typo) is named, and so is a switch that
+  takes a whole number set to something else.
 
 ### Changed
 
@@ -161,6 +171,22 @@ versioning follows [SemVer](https://semver.org/).
   guessing, and treats the map's `notMeasured` areas as unknown. `confidence-check` gains a seventh check, "What must
   it reach?" (every caller, test and export a change breaks), and looks for existing code in a fixed order before
   writing new; `iterate` builds one slice at a time and lists what it noticed but did not touch.
+- **Domain skills carry what their field learned the hard way.** `api-design` gains an idempotency reference (a key
+  from the user's intent, claimed atomically, a replay that answers what the first call answered, `422` for the same
+  key with another payload) and says observable behaviour is the contract. `ci-pipeline` gains rules for an
+  unattended agent job (pinned, few tools, an isolated copy, an allowlist for what comes back). `commit-message`
+  requires a body for breaking changes, security fixes, migrations and reverts, covers every staged file and never
+  invents a reason. `deploy` adds an advance / hold / roll back table for staged rollouts and a before/after
+  snapshot of the public contract; `release` checks there is something to release before it creates anything, and
+  reads the version back from the registry and installs it from an empty folder after publishing. `mcp-builder`
+  follows the v2 SDKs (checked 2026-11-07), Streamable HTTP, behaviour hints, paging and service-prefixed tool names,
+  and adds a reference for command-line tools an agent calls. `observability` starts from the questions on-call will
+  ask and keeps metric labels low-cardinality; `performance` keeps a change only when it beats the run-to-run noise
+  and checks an optimised function against the original first. Every crew agent that stops short now opens its report
+  with `stopped:` and why.
+- **A broken payload installs nothing.** `start.sh` and `adopt.sh` check the payload before their first write: a hook
+  that `settings.json` wires but the payload does not carry, a skill without its `SKILL.md` or a missing gate file
+  stops the install with the list and "nothing installed".
 - **Docs are grounded, and decisions continue the project's own records.** `docs-writer` reads each fact from where
   it lives (behaviour from the code and its test, flags from `--help`, config from its loader, API shapes from the
   schema, labels from the i18n source, versions from the tags) and deletes what it cannot check instead of flagging
@@ -179,6 +205,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **`adopt` refuses a `settings.json` whose hook entries Claude Code would reject.** Claude Code ignores the whole
+  file when one hook entry has the wrong shape, so merging Crewforth's hooks into it installed gates that never ran.
+  adopt now names the entries and stops the merge, and the merged result is checked the same way before it is
+  written.
+- **The route hint ignores what the request declines or quotes.** "don't run the security review", text in backticks
+  or quotes, and a Turkish clause that ends in "gerek yok" no longer pick an agent.
+- **A session that resumes after compaction says when its state was not restored**, instead of starting as if
+  nothing had been there. The two session-start hooks stop waiting for input after two seconds
+  (`CREW_STDIN_TIMEOUT`), so a client that never closes the input does not hold the session.
 - **The pre-compaction snapshot no longer times out on a long pasted prompt.** On Git Bash an 8 MB prompt line took
   24 s against PreCompact's 30 s limit; it now takes under a second.
 - **The context-fill warning is no longer silenced by another plugin.** `session-guard.sh` warned nothing on a turn

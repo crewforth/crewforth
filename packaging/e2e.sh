@@ -861,13 +861,20 @@ IOUT="$( cd "$I" && PATH="$STUBS:$PATH" bash adopt.sh --here </dev/null 2>&1 )"
 cmp -s "$I/settings.stale" "$I/.claude/settings.json" || { echo "FAIL: an invalid settings.json was overwritten"; exit 1; }
 case "$IOUT" in *"INVALID JSON -> merge ABORT"*) ;; *) echo "FAIL: an invalid settings.json was not reported as such"; exit 1 ;; esac
 grep -q 'settings.json: NOT merged' "$I/docs/HANDOVER.md" 2>/dev/null || { echo "FAIL: HANDOVER claims a merge that did not run"; exit 1; }
+# (G) A hook entry Claude Code rejects (no "type") makes it ignore the WHOLE file: the merge is refused, the entry is
+#     named by its path, the file stays byte-for-byte, and HANDOVER says it was not merged (P16-01).
+I="$WORK/selfheal-hookshape"; mk_stale_install "$I" '{ "hooks": { "Stop": [ { "hooks": [ { "command": "echo own" } ] } ] } }'
+IOUT="$( cd "$I" && PATH="$STUBS:$PATH" bash adopt.sh --here </dev/null 2>&1 )"
+cmp -s "$I/settings.stale" "$I/.claude/settings.json" || { echo "FAIL: a settings.json with a rejected hook entry was overwritten"; exit 1; }
+case "$IOUT" in *"hook entry Claude Code rejects"*"hooks.Stop.0.hooks.0: no string \"type\""*) ;; *) echo "FAIL: a rejected hook entry was not named"; exit 1 ;; esac
+grep -q 'settings.json: NOT merged' "$I/docs/HANDOVER.md" 2>/dev/null || { echo "FAIL: HANDOVER claims a merge over a rejected hook entry"; exit 1; }
 # (C) FIRST adopt (no kit present) · non-interactive · NO --yes -> declines (a brownfield change still needs consent)
 F="$WORK/firstadopt"; rm -rf "$F"; mkdir -p "$F"
 cp adopt.sh "$F/"; cp -R kit "$F/"; cp VERSION "$F/"; printf '{"name":"x"}' > "$F/package.json"
 ( cd "$F" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
 _slog; ( cd "$F" && bash adopt.sh --here </dev/null ) >"$_L" 2>&1 || _evidence "adopt.sh in $F" "$_L" $?
 [ ! -f "$F/.claude/DISCIPLINE.md" ]                     || { echo "FAIL: first adopt must NOT apply non-interactively without --yes"; exit 1; }
-echo "[adopt-selfheal] update self-heals off a TTY, same file with jq/python failing · $PARITY_NOTE · retired §4.4 ask rules dropped, own rules and hooks kept · invalid JSON refused · CLAUDE.md preserved · first adopt still needs --yes"
+echo "[adopt-selfheal] update self-heals off a TTY, same file with jq/python failing · $PARITY_NOTE · retired §4.4 ask rules dropped, own rules and hooks kept · invalid JSON refused · a rejected hook entry refused and named · CLAUDE.md preserved · first adopt still needs --yes"
 
 # (D) TTY + --yes must NOT hang — the /crew-update regression. adopt.sh once tested `-t 0` BEFORE --yes, so an
 # --yes run that inherited a TTY (Claude Code drives commands under a pty on Windows) blocked on a prompt. Every
@@ -1528,6 +1535,31 @@ if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
   ( cd "$A9b" && node "$CLI" add testing >/dev/null 2>&1 )
   [ -f "$A9b/.claude/skills/code-review-csk/my-notes.md" ] || { echo "FAIL: the migration removed a user's own file from an old skill dir"; exit 1; }
   echo "[add] security-expert + $(printf '%s\n' $DEPS | grep -c .) inferred skill(s) · record matches · rerun unchanged · conflict rc=1 untouched, --force replaces · unknown rc=2, 0 files · full install left alone · --list $NL = catalogue · unprefixed = prefixed = 2.x name · 2.x record moved to crew- names, user file kept"
+  # remove (P16-02): a dry run changes nothing; --apply takes out every hook entry that runs .claude/hooks/ and keeps
+  # the project's own, unsets a core.hooksPath that points at .claude/hooks, moves Crewforth's files aside (never
+  # deletes them), keeps the project's own skill and CLAUDE.md; a second run finds nothing.
+  R1="$WORK/remove-1"; rm -rf "$R1"; mkdir -p "$R1"; cp start.sh VERSION "$R1/"; cp -R kit "$R1/"
+  ( cd "$R1" && git init -q && bash start.sh --yes --lang en ) >/dev/null 2>&1 || { echo "FAIL: FIXTURE — the install for remove did not finish"; exit 1; }
+  mkdir -p "$R1/.claude/skills/my-own"; printf -- '---\nname: my-own\n---\n' > "$R1/.claude/skills/my-own/SKILL.md"
+  node -e 'const f=process.argv[1]+"/.claude/settings.json",fs=require("fs");const s=JSON.parse(fs.readFileSync(f,"utf8"));
+    (s.hooks.Stop=s.hooks.Stop||[]).push({hooks:[{type:"command",command:"echo own-hook"}]});fs.writeFileSync(f,JSON.stringify(s,null,2))' "$R1"
+  _rmc="$(cksum < "$R1/CLAUDE.md")"; H0="$(treehash "$R1")"
+  ( cd "$R1" && node "$CLI" remove >/dev/null 2>&1 ) || { echo "FAIL: remove (dry run) exited non-zero"; exit 1; }
+  [ "$(treehash "$R1")" = "$H0" ] || { echo "FAIL: a remove dry run changed the tree"; exit 1; }
+  ROUT="$( cd "$R1" && node "$CLI" remove --apply 2>&1 )" || { echo "FAIL: remove --apply exited non-zero:"; printf '%s\n' "$ROUT"; exit 1; }
+  ! grep -q '\.claude/hooks/' "$R1/.claude/settings.json" || { echo "FAIL: remove left a .claude/hooks/ entry in settings.json"; exit 1; }
+  grep -q 'echo own-hook' "$R1/.claude/settings.json" || { echo "FAIL: remove dropped the project's own hook"; exit 1; }
+  ! grep -q '"Bash"' "$R1/.claude/settings.json" || { echo "FAIL: remove left the blanket Bash allow without the guard that made it safe"; exit 1; }
+  ( cd "$R1" && git config --get core.hooksPath ) >/dev/null 2>&1 && { echo "FAIL: remove left core.hooksPath set"; exit 1; }
+  [ ! -e "$R1/.claude/hooks" ] && [ ! -e "$R1/.claude/DISCIPLINE.md" ] && [ ! -e "$R1/.claude/agents/crew-backend-expert.md" ] \
+    || { echo "FAIL: remove left Crewforth files in place"; exit 1; }
+  _rmb="$(ls -d "$R1"/.claude/.crewforth-removed-* 2>/dev/null | head -1)"
+  [ -n "$_rmb" ] && [ -f "$_rmb/hooks/guard-bash.sh" ] && [ -f "$_rmb/agents/crew-backend-expert.md" ] || { echo "FAIL: remove did not keep the files it moved"; exit 1; }
+  [ -f "$R1/.claude/skills/my-own/SKILL.md" ] && [ "$(cksum < "$R1/CLAUDE.md")" = "$_rmc" ] || { echo "FAIL: remove touched the project's own skill or CLAUDE.md"; exit 1; }
+  H1="$(treehash "$R1")"; R2OUT="$( cd "$R1" && node "$CLI" remove --apply 2>&1 )"
+  [ "$(treehash "$R1")" = "$H1" ] && case "$R2OUT" in *"nothing of Crewforth is left here"*) true ;; *) false ;; esac \
+    || { echo "FAIL: a second remove was not a no-op: $R2OUT"; exit 1; }
+  echo "[remove] dry run changes nothing · --apply: Crewforth hook entries and the Bash allow out, own hook kept · core.hooksPath unset · files moved aside, not deleted · own skill and CLAUDE.md untouched · second run a no-op"
 
   # studio through the npm entry: the offline self-check, then the real serve probe (listen, 403 without the token,
   # 200 with it, clean exit).
