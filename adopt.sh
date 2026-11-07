@@ -64,6 +64,15 @@ unset _hl _hh _ht
 
 SRC="$HERE/kit"
 [ -d "$SRC" ] || { echo "ERROR: kit/ not found (must be in the same directory as adopt.sh)."; exit 1; }
+# A payload that lost files (a truncated archive, a folder dropped in a copy) is refused before the first write, so
+# a broken download says so instead of installing gates that fail on every call. English, like the check above: it
+# answers before the language is chosen. eval/lib/payload-check.sh says what it reads.
+if [ "${CREW_PAYLOAD_UNCHECKED:-0}" != 1 ] && [ -f "$SRC/eval/lib/payload-check.sh" ]; then
+  _pc="$(bash "$SRC/eval/lib/payload-check.sh" "$SRC" 2>&1)" || {
+    echo "ERROR: the kit/ payload is incomplete — nothing installed:"; printf '%s\n' "$_pc" | sed 's/^/  /'
+    echo "Download it again (npx crewforth@latest, or a fresh archive). CREW_PAYLOAD_UNCHECKED=1 installs it anyway."
+    exit 1; }
+fi
 
 # --- flags (B5 — where a refresh lands) ---  --here: the current branch · --new-branch: a fresh review branch.
 # Left empty, Stage 2 picks a smart default (first adopt -> new; update + untracked .claude -> here; update +

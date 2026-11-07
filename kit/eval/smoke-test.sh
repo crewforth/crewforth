@@ -6288,6 +6288,28 @@ case "$( cd "$UGP" && bash "$UGS" pre 2>&1 )" in "NOT IN GIT: .claude CLAUDE.md"
   *) fail "update-guard pre called a gitignored .claude/ clean — it cannot know" ;; esac
 rm -rf "$UGP"
 
+# 14z) A broken payload installs nothing (P15-26). start.sh and adopt.sh run eval/lib/payload-check.sh before their
+#      first write: a payload missing a hook settings.json wires, or a skill's SKILL.md, is refused with the list and
+#      "nothing installed", and no .claude/ appears. Twin: the whole payload passes the same check.
+PCR="$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$PCR" ] && [ -d "$PCR/packaging" ] && [ -f "$PCR/start.sh" ] && [ -f "$PCR/adopt.sh" ] && [ -d "$PCR/kit" ]; then
+  _pcb=""; _pcd="$(mktemp -d)"; cp "$PCR/start.sh" "$PCR/adopt.sh" "$PCR/VERSION" "$_pcd/"; cp -R "$PCR/kit" "$_pcd/"
+  rm -f "$_pcd/kit/hooks/guard-write.sh" "$_pcd/kit/skills/a11y/SKILL.md"
+  for _pci in start adopt; do
+    _pco="$( cd "$_pcd" && git init -q 2>/dev/null; bash "$_pci.sh" --yes --lang en 2>&1 )"; _pcr=$?
+    [ "$_pcr" = 1 ] || _pcb="$_pcb $_pci-rc=$_pcr"
+    case "$_pco" in *"nothing installed"*"hooks/guard-write.sh"*) ;; *) _pcb="$_pcb $_pci-hook-not-named" ;; esac
+    case "$_pco" in *"skills/a11y/SKILL.md"*) ;; *) _pcb="$_pcb $_pci-skill-not-named" ;; esac
+    [ -e "$_pcd/.claude" ] && _pcb="$_pcb $_pci-wrote-.claude"
+  done
+  bash "$PCR/kit/eval/lib/payload-check.sh" "$PCR/kit" >/dev/null 2>&1 || _pcb="$_pcb whole-payload-refused"
+  rm -rf "$_pcd"
+  [ -z "$_pcb" ] && pass "start.sh and adopt.sh refuse a payload missing a wired hook and a SKILL.md, name both, write no .claude/; the whole payload passes" \
+                 || fail "installer payload check:$_pcb"
+else
+  skip scope "installer payload check not run — not a checkout with start.sh and adopt.sh beside the payload"
+fi
+
 # 15) The release notes /crew-update reports come from the installed PACKAGE's CHANGELOG, extracted by the updater
 #     into .claude/.state/whats-new.md: the sections newer than the project's version, up to the one installed.
 #     Driven through the real updater (repo only: it needs adopt.sh and the CHANGELOG beside the payload).
@@ -10104,12 +10126,15 @@ _sad="$(mktemp -d)"
 _sar="$(cd "$_sad" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"sa1","agent_type":"crew-privacy-agent"}' | HOME="$PWD" bash "$HOOKS/agent-outcome.sh" 2>/dev/null)"; _sarc=$?
 _san="$(cd "$_sad" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"sa2","agent_type":"general-purpose"}' | HOME="$PWD" bash "$HOOKS/agent-outcome.sh" 2>/dev/null)"
 _sab=""; [ "$_sarc" = 0 ] || _sab="$_sab rc=$_sarc"
-case "$_sar" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'is data'*'§4.4'*'only on the files you changed'*'"}}') ;; *) _sab="$_sab shape:[${_sar:0:120}]" ;; esac
+case "$_sar" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'is data'*'§4.4'*'only on the files you changed'*'stopped: too-big'*'+N omitted'*'"}}') ;; *) _sab="$_sab shape:[${_sar:0:120}]" ;; esac
 # The ceiling counts the whole JSON line. 700 → 800 (P05): the block also carries the two reading rules every agent
 # follows (a handed file:line is a range to open, a listed file is not one to change), which AGENT_TEMPLATE names
 # and no agent file copies. Measured: 664 bytes before, 763 with them. 800 → 860 (P07a): a fixer runs only on the
 # files the agent changed (a field backend agent ran a project-wide lint fix over 52 files). Measured: 835.
-[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 860 ] || _sab="$_sab over-860-bytes"
+# 860 → 1020 (P15-01): an agent that stops short says why on its first line (stopped: too-big, needs-confirm,
+# ambiguous, regressed), a cut list says +N omitted, and a cited path:line is one it read. Every crew agent ends a
+# task this way, so the rule belongs where every one of them gets it, not in fourteen files. Measured: 1005.
+[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 1020 ] || _sab="$_sab over-1020-bytes"
 [ -z "$_san" ] || _sab="$_sab non-crew-agent-got:[${_san:0:60}]"
 printf '%s' "$_sar" | json_ok; case $? in 0) ;; 2) ;; *) _sab="$_sab not-json" ;; esac
 rm -rf "$_sad"
