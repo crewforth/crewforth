@@ -281,7 +281,7 @@ jobs:
       - name: i18n audit — the bilingual tables hold their invariants
         run: bash packaging/verify.sh i18n
 
-  # Windows in three shards (packaging/e2e.sh holds the map and checks it holds every block once): one run was 48
+  # Windows in four shards (packaging/e2e.sh holds the map and checks it holds every block once): one run was 48
   # minutes there. macOS runs every block in one job; it took 14.
   verify-cross-e2e:
     needs: changes
@@ -290,9 +290,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, shard: 1/3 }
-          - { os: windows-latest, shard: 2/3 }
-          - { os: windows-latest, shard: 3/3 }
+          - { os: windows-latest, shard: 1/4 }
+          - { os: windows-latest, shard: 2/4 }
+          - { os: windows-latest, shard: 3/4 }
+          - { os: windows-latest, shard: 4/4 }
           - { os: macos-latest, shard: '' }
     name: verify-cross-e2e (${{ matrix.os }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}

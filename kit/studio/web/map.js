@@ -10,7 +10,7 @@
 // nothing; what leaves the page is copied text: a finding as a task, or a file:line.
 import {
   nodesOf, edgesOf, edgeKey, litEdges, findingsOf, findingCounts, cardSub, summaryOf, sourceOf, inspectOf, taskOf,
-  emptyNote, layoutOf, pathOf, chipsOf, inferredOnly, groupsOf, foldView, placed, BANDS, cardOf, tourOf, searchOf, resourceWord,
+  emptyNote, layoutOf, routesOf, chipsOf, inferredOnly, groupsOf, foldView, placed, BANDS, cardOf, tourOf, searchOf, resourceWord,
 } from './map-plan.js';
 import { Viewport, draggable, swallowClick } from './viewport.js';
 
@@ -231,8 +231,9 @@ export class MapView {
     }
     const lines = svg('svg', { class: 'mp-lines', width: lay.width, height: lay.height, 'aria-hidden': 'true' });
     const labels = [];
-    for (const e of edges) {
-      const p = pathOf(lay.pos[e.from], lay.pos[e.to]);
+    const routes = routesOf(edges, lay.pos);
+    for (const [ei, e] of edges.entries()) {
+      const p = routes[ei];
       if (!p) continue;
       const path = svg('path', { d: p.d, class: 'mp-line' });
       path.dataset.solid = String(e.solid);

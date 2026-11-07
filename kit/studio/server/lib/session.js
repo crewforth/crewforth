@@ -17,16 +17,19 @@ import fs from 'node:fs';
 
 import { prepare, pending, watch, cleanup, alwaysList, logApprovals, writeMode } from './permissions.js';
 import { getFleet } from './fleet.js';
+import { headOf, readChanges } from './worktree-changes.js';
 
 export const ALLOWED_MODES = ['plan', 'acceptEdits', 'default'];
 const DEFAULT_MODE = 'plan';
 const MAX_EVENTS = 4000;        // ring buffer per session
 const MAX_MESSAGE_BYTES = 512 * 1024;
+// What the session changed is read again at most this often: the panel's own session poll (app.js SESSION_POLL_MS).
+const CHANGES_EVERY_MS = 5000;
 
 const sessions = new Map();     // sessionId -> OwnedSession
 
 class OwnedSession {
-  constructor({ cwd, model, permissionMode, sessionId, resume, forked = false }) {
+  constructor({ cwd, model, permissionMode, sessionId, resume, forked = false, startHead = null }) {
     this.id = sessionId;
     this.resumedFrom = resume ?? null;
     // Whether this is a copy or the session itself. A copy is not a defeat but
@@ -45,6 +48,11 @@ class OwnedSession {
     this.lastError = null;
     this.turns = 0;
     this.costUsd = 0;
+    // The commit the directory was on before the child existed, and what has changed since (in memory only).
+    this.startHead = startHead;
+    this.changes = startHead ? null : { measured: false, reason: 'not a git repository with a commit' };
+    this.changesAt = 0;
+    this.changesBusy = false;
 
     // The gate is prepared before the child exists, so its very first tool call
     // is already covered. A missing hook is reported, never worked around: a
@@ -252,7 +260,17 @@ class OwnedSession {
     return { ok: true };
   }
 
+  /** Read the changes again when the last read is old enough and none is running. The answer lands on the next poll. */
+  refreshChanges(now = Date.now()) {
+    if (!this.startHead || this.changesBusy || now - this.changesAt < CHANGES_EVERY_MS) return null;
+    this.changesBusy = true; this.changesAt = now;
+    return readChanges(this.cwd, this.startHead)
+      .then((c) => { this.changes = c; return c; })
+      .finally(() => { this.changesBusy = false; });
+  }
+
   summary() {
+    this.refreshChanges();
     return {
       sessionId: this.id,
       cwd: this.cwd,
@@ -279,6 +297,8 @@ class OwnedSession {
       // a viewer on another machine has a different one.
       now: Date.now(),
       gateEvents: this.gateEvents.slice(-40),
+      // Files changed since the session started, against the commit recorded then; null until the first read lands.
+      changes: this.changes,
     };
   }
 }
@@ -323,8 +343,9 @@ export async function createSession({ cwd, model, permissionMode, resume } = {})
   if (sessions.has(sessionId)) {
     return { ok: false, reason: 'the panel is already running that session' };
   }
+  const startHead = await headOf(dir);
   const s = new OwnedSession({
-    cwd: dir, model: model || null, permissionMode: mode, sessionId, resume: resume || null, forked,
+    cwd: dir, model: model || null, permissionMode: mode, sessionId, resume: resume || null, forked, startHead,
   });
   sessions.set(sessionId, s);
   return { ok: true, session: s };

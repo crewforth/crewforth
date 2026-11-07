@@ -148,6 +148,8 @@ export function headerOf(session, { readOnly = false, contextTokens = null } = {
   if (typeof session?.turns === 'number') facts.push(`${session.turns} ${session.turns === 1 ? 'turn' : 'turns'}`);
   if (contextTokens != null) facts.push(`${fmtK(contextTokens)} ctx`);
   if (facts.length) parts.push(facts.join(' · '));
+  const changed = changesLine(session?.changes);
+  if (changed) parts.push(changed);
   return {
     badge: 'Started here',
     tone: 'good',
@@ -157,6 +159,18 @@ export function headerOf(session, { readOnly = false, contextTokens = null } = {
     // A session started here without the gate is running unguarded, and that is said in the strip itself.
     ungated: session ? session.gated === false : false,
   };
+}
+
+/**
+ * What a session started here has changed since it started, as the server read it from git: null when it was not
+ * measured or nothing changed, so a strip never shows a 0 nobody counted.
+ */
+export function changesLine(c) {
+  if (!c?.measured || (!c.files && !c.untracked)) return null;
+  const bits = [];
+  if (c.files) bits.push(`${c.files} ${c.files === 1 ? 'file' : 'files'} changed (+${c.added} −${c.removed})`);
+  if (c.untracked) bits.push(`${c.untracked} new untracked`);
+  return bits.join(' · ');
 }
 
 function fmtK(t) {

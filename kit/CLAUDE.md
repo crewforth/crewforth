@@ -266,6 +266,8 @@ read this section and follow it verbatim; with nothing declared they fall back t
 - Commit format: <Conventional Commits `type(scope): summary` (default) — or your own, e.g. a ticket-prefixed
   smart commit `ABC-123 <subject>` with `#comment` / `#time` trailers. Give a real example; the agent copies
   every literal you write here exactly as written.>
+- Base branch: <the branch this work merges into, e.g. `main` — read by the session-start branch check; left as
+  is, origin's default branch is used>
 
 ## Note
 Behavior · four principles · DoD · Prohibitions (§4) · session management · sources live in

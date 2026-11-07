@@ -7,10 +7,10 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | **Agents** | {{AGENT_COUNT}} | Thin triggers — *who* owns a domain and *when* they fire |
 | **Skills** | {{SKILL_COUNT}} | The method, written once, applied by whoever needs it |
 | **Commands** | {{COMMAND_COUNT}} | `/crew-brainstorm` · `/crew-plan` · `/crew-review` · `/crew-ship` · `/crew-handoff` · `/crew-update` · `/crew-doctor` · `/crew-gates` · `/crew-skill` · `/crew-studio` |
-| **Hooks** | 23 | The gates, plus session measurement and routing |
+| **Hooks** | 24 | The gates, plus session measurement and routing |
 | **Discipline** | 1 | Principles, workflow, Definition of Done, prohibitions — imported by your `CLAUDE.md` |
 
-## All 23 hooks
+## All 24 hooks
 
 | Hook | Role |
 |:--|:--|
@@ -35,6 +35,7 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | `session-stats.sh` | Reports what the session actually did — failing tool loops, repeated prompts, interrupts. `reflect` and `handoff` read it, so a retrospective rests on the record rather than on recollection |
 | `session-update-check.sh` | Asks once, when a session opens, whether to update when a newer version is published — each edition compared against the channel that will deliver it. The lookup runs detached and at most daily, so an offline or proxied machine costs the session opening nothing; `CREW_NO_UPDATE_CHECK=1` turns it off |
 | `worktree-provision.sh` | When a session enters a worktree made outside `.claude/worktrees/` (`git worktree add ../x`), copies this checkout's `.claude/` into it, without the parts that belong to one checkout (`worktrees/`, `state/`, the review record, the gate log). `.claude/` is gitignored, so such a worktree has none, and a session resumed there would load no Crewforth hook at all. When the copy cannot be made it refuses the move and says why |
+| `branch-fresh.sh` | When a session starts or resumes, compares the branch with `origin/<base>` as last fetched (`Base branch:` in `CLAUDE.md`, else origin's default branch) and speaks only when it matters: merging the base would conflict, the branch was cut more than 3 days ago, or the base changed `.claude/` or `CLAUDE.md`. It names `git merge origin/<base>` and changes nothing. A fetch for the next session runs in the background, never while you wait; `CREW_BRANCH_FRESH_FETCH=off` turns it off, `CREW_BRANCH_FRESH=off` the whole check |
 
 The other two hooks serve an experimental feature and do nothing until a repository switches it on.
 
