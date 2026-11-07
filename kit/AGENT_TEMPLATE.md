@@ -30,7 +30,9 @@ Principle: **agent = thin trigger** ("who / when"), **skill = "how"**. Knowledge
 6. **Output & context (token)** — what returns to the main thread: a **short summary**, not raw logs/dumps; heavy output goes to `docs/*.md` (token-budget skill).
    **An agent that writes (holds `Edit`) ends its Output section with this paragraph, word for word** — smoke compares each copy with this one:
    Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
-   Two working rules every agent follows (given to crew agents at SubagentStart, so they are not copied into each file): a `file:line` handed to you is a range to open with offset/limit, not a reason to read the whole file or search again; a file being listed is not a reason to change it.
+   Two working rules every agent follows (given to crew agents at SubagentStart, so they are not copied into each file): a `file:line` handed to you is a range to open with offset/limit, not a reason to read the whole file or search again; a file being listed is not a reason to change it. The same block tells an agent that stops short to open its
+   report with `stopped: too-big`, `needs-confirm`, `ambiguous` or `regressed`, to end a cut list with `+N omitted`,
+   and to cite only a `path:line` range it read.
 7. **Errors/escalation** — when stuck/unsure, **stop and report** or hand off to the relevant expert; do not proceed on a guess.
 8. **Example delegation** — 1 ✅ triggers / 1 ❌ does-not-trigger line (delegation accuracy).
 9. **Constraints** — read-only or not, what it does not do, platform/policy limits.

@@ -52,6 +52,7 @@ check i18n for any missing translation|i18n-integrity
 run the sonarqube quality gate|sonarqube-check
 prepare a handoff with the current session state|handoff
 add a structured log with a correlation id|observability
+add metrics to the checkout service|observability
 update the README and write the API docs|docs-writer
 run an accessibility audit and check WCAG|a11y
 handle api versioning with an openapi contract|api-design

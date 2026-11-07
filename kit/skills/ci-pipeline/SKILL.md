@@ -30,6 +30,8 @@ Trigger phrases: "ci", "pipeline", "github actions", "jenkins", "build pipeline"
   value a fork controls.
 - **PR gate:** quality gate + tests must pass; a red build is not merged.
 - **Branch protection:** direct push to main is disabled; PR + review required.
+- **An agent job in CI** (one that fixes, updates or triages with nobody watching): pinned, few tools, an isolated
+  copy, an allowlist for what comes back: **`references/agent-job.md`**.
 
 ## When a stage fails
 1. **Fetch the failing job's log first** — `gh run view --log-failed`, `glab ci trace`, `jenkins-cli console <job>`,

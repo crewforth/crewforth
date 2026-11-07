@@ -13,22 +13,35 @@ Start with tools. Add resources when the client needs to *read* your data as con
 ## Transport — pick by where it runs
 
 - **stdio** — the server is a local subprocess of the client (desktop app, CLI). Simplest; no network, no auth. Default for local/dev tools.
-- **Streamable HTTP / SSE** — the server is remote (hosted, shared). You now own auth, CORS, and network errors. Use only when the tool must be remote/multi-user.
+  **stdout is the protocol.** Every byte the server prints there must be a protocol message: a stray `console.log`,
+  `print` or a library banner corrupts the stream and the client drops the connection. Logs go to stderr.
+- **Streamable HTTP** — the server is remote (hosted, shared). You now own auth, CORS, and network errors. Use only when the tool must be remote/multi-user.
+  The older HTTP+SSE transport is legacy: serve it only for a client that cannot speak Streamable HTTP.
+  A local HTTP server (a dev server, a desktop helper) binds `127.0.0.1`, never `0.0.0.0`, and validates the `Host`
+  and `Origin` headers: without that a web page the user opens can reach it through DNS rebinding.
 
 ## Skeletons
 
-**TypeScript (`@modelcontextprotocol/sdk`):**
+Checked: 2026-11-07 against https://github.com/modelcontextprotocol/typescript-sdk (README, v2 on `main`,
+`@modelcontextprotocol/server`) and https://github.com/modelcontextprotocol/python-sdk (README and
+docs_src/run/tutorial003.py, v2). Re-check before quoting either as current after 90 days.
+
+**TypeScript (`@modelcontextprotocol/server`, SDK v2):**
 ```ts
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import * as z from "zod/v4";
 
 const server = new McpServer({ name: "orders", version: "1.0.0" });
 
-server.tool(
-  "search_orders",
-  "Search orders by customer email. Returns up to 20 orders, newest first.",
-  { email: z.string().email(), limit: z.number().int().min(1).max(20).default(20) },
+server.registerTool(
+  "orders_search",
+  {
+    title: "Search orders",
+    description: "Search orders by customer email. Returns up to 20 orders, newest first.",
+    inputSchema: z.object({ email: z.string().email(), limit: z.number().int().min(1).max(20).default(20) }),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
   async ({ email, limit }) => {
     const orders = await db.findOrders(email, limit);        // your logic
     if (!orders.length) return { content: [{ type: "text", text: `No orders for ${email}.` }] };
@@ -37,15 +50,17 @@ server.tool(
 );
 await server.connect(new StdioServerTransport());
 ```
+On SDK v1 (`@modelcontextprotocol/sdk`, still maintained on its `v1.x` branch) the imports are
+`@modelcontextprotocol/sdk/server/mcp.js` and `.../server/stdio.js`; follow the project's installed major.
 
-**Python (FastMCP):**
+**Python (`mcp`, SDK v2; v1 called the class `FastMCP`):**
 ```python
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
-mcp = FastMCP("orders")
+mcp = MCPServer("orders")
 
 @mcp.tool()
-def search_orders(email: str, limit: int = 20) -> str:
+def orders_search(email: str, limit: int = 20) -> str:
     """Search orders by customer email. Returns up to 20 orders, newest first."""
     orders = db.find_orders(email, limit)          # your logic
     return f"No orders for {email}." if not orders else json_dumps(orders)
@@ -55,6 +70,17 @@ if __name__ == "__main__":
 ```
 
 Both: the **docstring/description is the model's interface** — write it as the design step demands. Types drive the input schema (zod / Python type hints) — no hand-written JSON-Schema needed with these SDKs.
+
+## Names, hints and pages
+
+- **Prefix tool names with the service**: `orders_search`, `orders_refund`. A client with several servers loaded
+  shows the model one flat list, and two servers' `search` are indistinguishable.
+- **Annotations are hints, never authorisation.** `readOnlyHint`, `destructiveHint`, `idempotentHint` and
+  `openWorldHint` tell the client what to put in front of the user (auto-approve a read, confirm a delete). They
+  change nothing about what the handler allows, and a client is free to ignore them (invariant 6 in SKILL.md).
+- **A list that can grow is paged.** Return a page and an opaque `nextCursor`; accept the cursor back; keep the page
+  size fixed and stated in the description. A tool that returns "all" works in the demo and floods the context in
+  production.
 
 ## Error handling
 

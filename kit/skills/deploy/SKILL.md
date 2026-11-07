@@ -51,6 +51,7 @@ separately and gate each on its own health check. One approval does not cover tw
 - [ ] Running version backed up to `releases/`
 - [ ] User approved the deploy, new version deployed
 - [ ] Health gate passed (otherwise automatic rollback performed)
+- [ ] Public contract snapshot (status codes, key headers, key routes) taken before and diffed after
 - [ ] If requested, single-command scripts (`deploy.sh` / `adopt.sh`) generated
 
 ## Checklist (B · managed platform)
@@ -61,6 +62,7 @@ separately and gate each on its own health check. One approval does not cover tw
 - [ ] User approved the promotion to this environment
 - [ ] Health gate passed from OUTSIDE — not the platform's own status
 - [ ] Previous artefact still addressable, and the migration question settled before the deploy
+- [ ] Public contract snapshot (status codes, key headers, key routes) taken before and diffed after
 
 ---
 
@@ -75,6 +77,20 @@ Phase 0 picked it; loading both is the mistake this skill opens with.
 
 The invariant rules at the end of this file hold on both, and they are the half that must not be read from a
 reference file: they are what an approval is checked against.
+
+## A staged rollout: advance, hold or roll back
+When the platform sends a share of traffic to the new version first (canary, percentage, ring), each step is read
+against the old version's numbers over the same window, not against a feeling:
+
+| Signal, new vs baseline | Decision |
+|---|---|
+| Error rate above 2x the baseline, or p95 latency more than 50% above it | Roll back now |
+| Error rate 1.2x-2x, or p95 20-50% above | Hold at this share and look; do not advance |
+| Within that band, and the error budget for the period is not spent | Advance to the next share |
+| The error budget is spent | Hold every rollout until it recovers |
+
+The numbers are defaults to tune per service, and the user approves the changed ones. A step with too little
+traffic to compare says so and holds; it does not advance on silence.
 
 ## Single-command scripts (optional)
 
@@ -98,3 +114,5 @@ These hold on BOTH branches; where the mechanism differs, the rule does not.
 9. **Never rebuild to roll back** (B) — promote the previous artefact. A rebuild is a different artefact.
 10. **The platform's own status is not the health gate** (B) — verify from where a user stands.
 11. **Rolling back code does not roll back a migration** — settle the schema question before the deploy.
+12. **Check before creating anything outside** — nothing new to deploy (same artefact as the one running, an empty
+    diff) means no release object, no tag, no environment change: say so and stop.

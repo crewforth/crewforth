@@ -86,6 +86,22 @@ versioning follows [SemVer](https://semver.org/).
   guessing, and treats the map's `notMeasured` areas as unknown. `confidence-check` gains a seventh check, "What must
   it reach?" (every caller, test and export a change breaks), and looks for existing code in a fixed order before
   writing new; `iterate` builds one slice at a time and lists what it noticed but did not touch.
+- **Domain skills carry what their field learned the hard way.** `api-design` gains an idempotency reference (a key
+  from the user's intent, claimed atomically, a replay that answers what the first call answered, `422` for the same
+  key with another payload) and says observable behaviour is the contract. `ci-pipeline` gains rules for an
+  unattended agent job (pinned, few tools, an isolated copy, an allowlist for what comes back). `commit-message`
+  requires a body for breaking changes, security fixes, migrations and reverts, covers every staged file and never
+  invents a reason. `deploy` adds an advance / hold / roll back table for staged rollouts and a before/after
+  snapshot of the public contract; `release` checks there is something to release before it creates anything, and
+  reads the version back from the registry and installs it from an empty folder after publishing. `mcp-builder`
+  follows the v2 SDKs (checked 2026-11-07), Streamable HTTP, behaviour hints, paging and service-prefixed tool names,
+  and adds a reference for command-line tools an agent calls. `observability` starts from the questions on-call will
+  ask and keeps metric labels low-cardinality; `performance` keeps a change only when it beats the run-to-run noise
+  and checks an optimised function against the original first. Every crew agent that stops short now opens its report
+  with `stopped:` and why.
+- **A broken payload installs nothing.** `start.sh` and `adopt.sh` check the payload before their first write: a hook
+  that `settings.json` wires but the payload does not carry, a skill without its `SKILL.md` or a missing gate file
+  stops the install with the list and "nothing installed".
 - **The quality gate reads one line, `## Stack` → `Quality analysis:`** (`sonarqube-local`, `sonarqube-server` or
   `declined`), in place of six "(if SonarQube is in use)" clauses that a project with no server read as false every
   time. `declined` is reported as "no analysis ran — unverified". The doctor's readiness section says when the line

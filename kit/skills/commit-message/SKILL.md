@@ -47,9 +47,15 @@ One word, consistent with the project's module name.
   ✅ `feat(auth): one-time code TTL + brute-force limit`
   ❌ `fix: bug` · ❌ `update` · ❌ `changes`
 
-## Body (optional — recommended for meaningful changes)
+## Body (required for some changes, recommended for the rest)
 After a blank line: the **WHY** (motivation) + notable consequences/tradeoffs. Wrap at ~72 characters.
 Leave context for the future reader who opens git-blame — the diff already shows the "what"; you write the "why".
+- **Required** for a breaking change, a security fix, a data or schema migration and a revert (what was reverted,
+  and why). Those are the commits someone reads under pressure later; a subject alone does not carry them.
+- **Cover every staged file**, including changes this session did not make; for those, say only what the diff shows.
+- **Do not write a reason you were not given.** A subject with no body beats an invented why.
+- A discarded alternative worth remembering may go on its own line, `Rejected: <the option> (<why>)`, so a later
+  session does not propose it again.
 
 ## Footer (optional)
 - `BREAKING CHANGE: <description>` — a backward-incompatible breaking change (triggers SemVer MAJOR, `release` skill).

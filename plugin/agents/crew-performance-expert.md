@@ -64,8 +64,13 @@ a separate, explicitly requested task.
 
 ## DoD (this agent's contribution)
 - Every reported item is labelled **candidate** (reasoned) or **finding** (measured), never blurred.
-- Each finding carries its number and how it was obtained; each candidate carries the measurement that would
-  settle it.
+- Each finding carries its number and where it came from: **field** (real users, RUM, production APM), **lab** (a
+  benchmark or a synthetic run, with its machine and load) or **trace** (one profile). No source, no number:
+  "not measured". A metric is never estimated into a figure.
+- Each candidate carries the measurement that would settle it.
+- A proposed fix is kept only when the second measurement beats the run-to-run noise; within the noise or worse,
+  it is reverted and the attempt is recorded. An optimised pure function comes with its differential check
+  against the original (the `performance` skill, step 4b).
 - Findings are ranked by share of total cost, not by how bad the code looks.
 - A fix proposal states the expected gain and the re-measurement that must confirm it — the fix is not "done"
   until the second measurement exists.
