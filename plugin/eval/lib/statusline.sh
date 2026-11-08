@@ -12,11 +12,14 @@
 #   ⚙   crew agents started in this session that have not stopped yet (model routing's records)
 #   🔋  the context fill Claude Code measured (context_window.used_percentage), never an estimate
 #   ~$  what Claude Code puts the session's cost at (cost.total_cost_usd), at API list price
+#   📋  the plan's count of done tasks (docs/PLAN.md, todo.sh); with the panel open (/crew-todo), the panel itself is
+#       drawn under the line instead: phases and tasks, ✓ done, ☐ open, ▸ the phase and the task in work
 #
 # Wired by the installers only where no status line is set already (theirs is never replaced), from
 # statusline.settings.json beside this file.
 # COST. Claude Code runs this after every change, debounced at 300 ms. Measured: awk (the stdin JSON) and tail (the
-# gate log), and on bash older than 4.2 one date; the rest is builtins. No git, no jq, no python.
+# gate log), and on bash older than 4.2 one date; the rest is builtins. No git, no jq, no python. The plan panel
+# adds one awk only when the plan (or its drawing code) changed since the last line; otherwise it reads its cache.
 set -u
 _here="${BASH_SOURCE%[/\\]*}"; [ "$_here" = "${BASH_SOURCE}" ] && _here=.
 
@@ -93,8 +96,22 @@ case "${COST:-}" in ''|null|*[!0-9.]*) ;; *)
   printf -v c '%.2f' "$COST" 2>/dev/null && OUT+=("~\$$c") ;;
 esac
 
-[ "${#OUT[@]}" -gt 0 ] || exit 0
-line="${OUT[0]}"
-for p in "${OUT[@]:1}"; do line="$line · $p"; done
-printf '%s\n' "$line"
+# 📋 The plan: its count on the line, or with the panel open (/crew-todo), the panel under it.
+PANEL=""
+if [ -d .claude ] && [ -f "$_here/todo.sh" ]; then
+  . "$_here/todo.sh"
+  if [ -e .claude/state/todo/open ]; then
+    col=1; [ -n "${NO_COLOR:-}" ] && col=0
+    crew_todo_read "$col"; PANEL="$_CREW_TODO_PANEL"
+  elif [ -f docs/PLAN.md ] || [ -s .claude/state/todo/path ]; then
+    crew_todo_read 1; [ -n "$_CREW_TODO_HINT" ] && OUT+=("$_CREW_TODO_HINT")
+  fi
+fi
+
+if [ "${#OUT[@]}" -gt 0 ]; then
+  line="${OUT[0]}"
+  for p in "${OUT[@]:1}"; do line="$line · $p"; done
+  printf '%s\n' "$line"
+fi
+[ -n "$PANEL" ] && printf '%s\n' "$PANEL"
 exit 0

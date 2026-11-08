@@ -21,5 +21,6 @@ Delegate to the @agent-crew-planner agent (spec-planning skill). For ambiguously
 4. Ask about ambiguities with **explicit options**; write down the assumptions.
 
 crew-planner is read-only and returns the plan; you (the main thread) write it to `docs/PLAN.md` and keep only the
-summary + file pointer in context (token-budget).
+summary + file pointer in context (token-budget). Its tasks carry boxes (`[ ]` open, `[x]` done, `[~]` in work);
+tell the user that `/crew-todo` shows them under the status line.
 Do NOT write code — this is a planning step.
