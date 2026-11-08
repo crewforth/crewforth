@@ -4,6 +4,7 @@
 // A form is built once for a request and kept while the request waits. The dock and the List redraw around it every
 // second; a form rebuilt on each of those would lose what was picked, and what was being typed.
 import { answersOf, PLAN_CHOICES } from './approvals.js';
+import { t } from './i18n.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -44,7 +45,7 @@ export class AskForms {
     const picked = new Map();   // question -> Set of labels
     const typed = new Map();    // question -> the viewer's own text
     const controls = [];
-    const send = mk('button', 'btn sm primary', 'Send answers');
+    const send = mk('button', 'btn sm primary', t('Send answers'));
     const refresh = () => { send.disabled = send.dataset.sent === '1' || answersOf(item.ask, picked, typed) === null; };
 
     for (const q of item.ask.questions) {
@@ -53,7 +54,7 @@ export class AskForms {
       const head = mk('div', 'ask-head');
       if (q.header) head.append(mk('span', 'ask-tag', q.header));
       head.append(mk('span', 'ask-text', q.question));
-      if (q.multiSelect) head.append(mk('span', 'sub', 'choose any'));
+      if (q.multiSelect) head.append(mk('span', 'sub', t('choose any')));
       const opts = mk('div', 'ask-opts');
       opts.setAttribute('role', q.multiSelect ? 'group' : 'radiogroup');
       const buttons = [];
@@ -80,8 +81,8 @@ export class AskForms {
       // The model's options do not always hold the answer: the viewer's own words are an answer too.
       const own = mk('input', 'ask-own');
       own.type = 'text';
-      own.placeholder = q.multiSelect ? 'Something else, as well…' : 'Something else…';
-      own.setAttribute('aria-label', `Your own answer to: ${q.question}`);
+      own.placeholder = q.multiSelect ? t('Something else, as well…') : t('Something else…');
+      own.setAttribute('aria-label', t('Your own answer to: {question}', { question: q.question }));
       own.addEventListener('input', () => {
         typed.set(q.question, own.value);
         if (!q.multiSelect && own.value.trim()) {
@@ -96,9 +97,9 @@ export class AskForms {
     }
 
     const acts = mk('div', 'ask-acts');
-    const dismiss = mk('button', 'btn sm', 'Dismiss');
+    const dismiss = mk('button', 'btn sm', t('Dismiss'));
     dismiss.type = 'button';
-    dismiss.title = 'Refuse the question. The model is told nobody answered and may ask in words instead.';
+    dismiss.title = t('Refuse the question. The model is told nobody answered and may ask in words instead.');
     send.type = 'button';
     send.addEventListener('click', () => {
       const answers = answersOf(item.ask, picked, typed);
@@ -114,12 +115,12 @@ export class AskForms {
 
   #plan(item) {
     const el = mk('div', 'ask');
-    const plan = mk('pre', 'ask-plan', item.ask.plan || 'The plan was not included in the request.');
+    const plan = mk('pre', 'ask-plan', item.ask.plan || t('The plan was not included in the request.'));
     plan.tabIndex = 0;
     const acts = mk('div', 'ask-acts');
-    const keep = mk('button', 'btn sm', 'Keep planning');
+    const keep = mk('button', 'btn sm', t('Keep planning'));
     keep.type = 'button';
-    keep.title = 'Refuse to leave plan mode. The model stays in it and goes on planning.';
+    keep.title = t('Refuse to leave plan mode. The model stays in it and goes on planning.');
     keep.addEventListener('click', () => this.onDecide(item, 'deny', {}));
     const controls = [keep];
     acts.append(keep);

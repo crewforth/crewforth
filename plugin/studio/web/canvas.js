@@ -18,6 +18,7 @@ import { Viewport, draggable, swallowClick } from './viewport.js';
 import { agentStatus } from './nav.js';
 import { roleName, shownType, hoverOf, originOf, orderTag, modelOf, modelMix, modelFamily, modelBadge } from './names.js';
 import { fmtCount, fmtCost, COST_NOTE } from './usage.js';
+import { t } from './i18n.js';
 
 // How long an arriving wire takes to draw itself toward its new card. Short on purpose: this is a status panel,
 // and anything a viewer has to wait through is a cost they pay on every spawn.
@@ -139,7 +140,7 @@ export class Canvas {
 
     // The whole graph, small. The frame is what the pane shows.
     this.mapEl = mk('div', 'cv-minimap');
-    this.mapEl.setAttribute('aria-label', 'Minimap');
+    this.mapEl.setAttribute('aria-label', t('Minimap'));
     this.mapEl.hidden = true;
     this.mapSvg = document.createElementNS(SVG, 'svg');
     this.mapSvg.setAttribute('aria-hidden', 'true');
@@ -161,12 +162,12 @@ export class Canvas {
   /** What the session spent: time, tokens and an estimate of the cost. Closed, it stays closed until asked for. */
   #spend() {
     const box = mk('div', 'cv-legend cv-spend');
-    box.setAttribute('aria-label', 'Session summary');
+    box.setAttribute('aria-label', t('Session summary'));
     const head = mk('div', 'cv-legend-head');
-    head.append(mk('span', 'cv-label', 'Session'));
+    head.append(mk('span', 'cv-label', t('Session')));
     const close = mk('button', 'cv-x');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Close the session summary');
+    close.setAttribute('aria-label', t('Close the session summary'));
     close.innerHTML = MARK.close;
     close.addEventListener('click', () => this.showSpend(false));
     head.append(close);
@@ -217,7 +218,7 @@ export class Canvas {
       const more = Boolean(r.detail?.length);
       p.label.textContent = r.label;
       p.value.textContent = r.value ?? '';
-      p.row.title = more ? `${r.note ?? ''}\nClick for the breakdown` : (r.note ?? '');
+      p.row.title = more ? `${r.note ?? ''}\n${t('Click for the breakdown')}` : (r.note ?? '');
       p.row.classList.toggle('cv-spend-more', more);
       if (more) p.row.setAttribute('aria-expanded', String(this.spendShown.has(r.label))); else p.row.removeAttribute?.('aria-expanded');
       p.detail.hidden = !more || !this.spendShown.has(r.label);
@@ -244,12 +245,12 @@ export class Canvas {
   /** What the lines and the two marks mean. Shown until it is closed, and then not again unless asked for. */
   #legend() {
     const box = mk('div', 'cv-legend');
-    box.setAttribute('aria-label', 'Legend');
+    box.setAttribute('aria-label', t('Legend'));
     const head = mk('div', 'cv-legend-head');
-    head.append(mk('span', 'cv-label', 'Legend'));
+    head.append(mk('span', 'cv-label', t('Legend')));
     const close = mk('button', 'cv-x');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Close the legend');
+    close.setAttribute('aria-label', t('Close the legend'));
     close.innerHTML = MARK.close;
     close.addEventListener('click', () => this.showLegend(false));
     head.append(close);
@@ -262,10 +263,10 @@ export class Canvas {
       return item;
     };
     const rows = mk('div', 'cv-legend-grid');
-    rows.append(line('live', 'working now'), line('waiting', 'needs you'), line('done', 'finished'), line('failed', 'failed'));
+    rows.append(line('live', t('working now')), line('waiting', t('needs you')), line('done', t('finished')), line('failed', t('failed')));
     box.append(rows);
     // The one wire that is not a call: in the Order view, from an agent to the wave called after it reported.
-    const inferred = line('inferred', 'after it reported (inferred, not a call)');
+    const inferred = line('inferred', t('after it reported (inferred, not a call)'));
     inferred.title = INFERRED_NOTE;
     box.append(inferred);
     const marks = mk('div', 'cv-legend-grid');
@@ -273,7 +274,7 @@ export class Canvas {
     const crew = mk('span', 'cv-tile cv-tile-sm');
     crew.innerHTML = MARK.kit;
     const a = mk('span', 'cv-legend-item');
-    a.append(this.legendBuiltin, mk('span', null, 'Claude Code agent'));
+    a.append(this.legendBuiltin, mk('span', null, t('Claude Code agent')));
     const b = mk('span', 'cv-legend-item');
     b.append(crew, mk('span', null, 'Crewforth'));
     marks.append(a, b);
@@ -588,8 +589,8 @@ export class Canvas {
     this.lastGraph = graph;
     if (!graph?.nodes?.length) {
       this.emptyEl.hidden = false;
-      this.emptyEl.replaceChildren(mk('strong', null, 'No agents yet'),
-        mk('div', null, 'This session has not delegated to a subagent. The moment it does, a card appears here.'));
+      this.emptyEl.replaceChildren(mk('strong', null, t('No agents yet')),
+        mk('div', null, t('This session has not delegated to a subagent. The moment it does, a card appears here.')));
       // els must go with the DOM. Leaving stale elements behind made the next render believe they were still
       // mounted, so cards never returned.
       this.nodeLayer.replaceChildren(); this.edgeG.replaceChildren();
@@ -710,7 +711,7 @@ export class Canvas {
       p.tile.innerHTML = MARK.session;
       p.pill = this.#pill();
       const row = mk('div', 'cv-row');
-      row.append(p.tile, mk('span', 'cv-title', 'Session'), mk('span', 'cv-fill'), p.pill.el);
+      row.append(p.tile, mk('span', 'cv-title', t('Session')), mk('span', 'cv-fill'), p.pill.el);
       p.name = mk('div', 'cv-name cv-indent');
       p.sub = mk('div', 'cv-sub cv-indent');
       // What it has running in the background takes a line of its own, when there is any: on the line above it
@@ -786,7 +787,7 @@ export class Canvas {
   /** The word and the colour an agent's status is drawn in. Waiting on the viewer outranks what the transcript
    *  says, because that is what the agent is doing now. */
   #statusOf(n) {
-    if (this.waiting.has(n.id)) return { word: 'Needs you', tone: 'waiting', known: true, state: 'waiting' };
+    if (this.waiting.has(n.id)) return { word: t('Needs you'), tone: 'waiting', known: true, state: 'waiting' };
     const s = agentStatus(n.status);
     // A status this panel has no word for keeps its own, exactly as the transcript wrote it.
     return { word: s.known ? cap(s.word) : s.word, tone: s.tone, known: s.known, state: stateOf(n.status) };
@@ -806,9 +807,9 @@ export class Canvas {
     const type = n?.agentType ?? '';
     if (this.palette.map?.[type]?.source === 'kit') return { source: 'kit', title: 'Crewforth agent' };
     if (this.palette.measured === false && type.startsWith('crew-')) {
-      return { source: 'agent', title: `Agent identity not measured — ${this.palette.reason ?? 'no reason given'}` };
+      return { source: 'agent', title: t('Agent identity not measured — {reason}', { reason: this.palette.reason ?? t('no reason given') }) };
     }
-    return { source: 'agent', title: 'Claude Code agent', where: originOf(type, this.origins) };
+    return { source: 'agent', title: t('Claude Code agent'), where: originOf(type, this.origins) };
   }
 
   #fillTile(tile, n) {
@@ -838,25 +839,25 @@ export class Canvas {
     p.name.textContent = n.gitBranch || shortPath(n.cwd) || n.sessionId || '';
     // Cut to the card's width; hovering says it whole.
     p.name.title = p.name.textContent;
-    const bits = [`${n.turns ?? 0} ${n.turns === 1 ? 'turn' : 'turns'}`];
-    if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} ctx`);
-    if (n.context?.toolShare != null) bits.push(`${n.context.toolShare}% tool output`);
+    const bits = [n.turns === 1 ? t('{n} turn', { n: 1 }) : t('{n} turns', { n: n.turns ?? 0 })];
+    if (n.tokens != null) bits.push(t('{n} ctx', { n: fmtTokens(n.tokens) }));
+    if (n.context?.toolShare != null) bits.push(t('{n}% tool output', { n: n.context.toolShare }));
     p.sub.textContent = bits.join(' · ');
     // The share is of the text since the last compaction, in characters; the compactions are the transcript's own.
     const lc = n.context?.lastCompact;
     p.sub.title = [p.sub.textContent,
-      n.context?.toolShare != null ? `${n.context.toolShare}% of the text in context since the last compaction is tool output (characters, not tokens)` : null,
-      n.context?.compactions ? `compacted ${n.context.compactions}×${lc?.before != null ? `, last ${lc.trigger ?? ''} ${fmtTokens(lc.before)} → ${fmtTokens(lc.after)}` : ''}` : null].filter(Boolean).join('\n');
+      n.context?.toolShare != null ? t('{n}% of the text in context since the last compaction is tool output (characters, not tokens)', { n: n.context.toolShare }) : null,
+      n.context?.compactions ? `${t('compacted {n}×', { n: n.context.compactions })}${lc?.before != null ? `, ${t('last {trigger} {before} → {after}', { trigger: lc.trigger ?? '', before: fmtTokens(lc.before), after: fmtTokens(lc.after) })}` : ''}` : null].filter(Boolean).join('\n');
     // What the session has running that is not an agent: commands sent to the background.
     p.bg.hidden = !bg;
-    p.bg.textContent = bg ? `${bg} in background` : '';
-    p.bg.title = bg ? n.backgroundNow.map((c) => `In the background: ${c.toolName}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
+    p.bg.textContent = bg ? t('{n} in background', { n: bg }) : '';
+    p.bg.title = bg ? n.backgroundNow.map((c) => `${t('In the background: {tool}', { tool: c.toolName })}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
     const refused = n.refusedCalls ?? [];
     p.refused.hidden = !refused.length;
-    p.refused.textContent = refused.length ? `${refused.length} refused by the model gate` : '';
-    p.refused.title = refused.map((r) => `${r.agent ?? 'an agent'}${r.model ? ` (${r.model})` : ''}: ${r.text}`).join('\n');
-    el.title = 'Click to inspect this session';
-    el.setAttribute('aria-label', `Session, ${st?.word ?? 'state not measured'}, ${p.name.textContent}, ${p.sub.textContent}`);
+    p.refused.textContent = refused.length ? t('{n} refused by the model gate', { n: refused.length }) : '';
+    p.refused.title = refused.map((r) => `${r.agent ?? t('an agent')}${r.model ? ` (${r.model})` : ''}: ${r.text}`).join('\n');
+    el.title = t('Click to inspect this session');
+    el.setAttribute('aria-label', `${t('Session')}, ${st?.word ?? t('state not measured')}, ${p.name.textContent}, ${p.sub.textContent}`);
   }
 
   #fillAgent(el, n, compact, after = null) {
@@ -892,9 +893,9 @@ export class Canvas {
     p.model.title = mdl.title;
     p.model.dataset.differs = String(mdl.differs);
     if (!compact) { p.facts.textContent = facts; p.facts.title = factsTitle(n); }
-    p.order.title = tag ? `Called ${orderTag(n, clock)} by the session` : '';
+    p.order.title = tag ? t('Called {order} by the session', { order: orderTag(n, clock) }) : '';
     // In the Order view: what had reported before this wave was called. A reading of the order of events.
-    el.title = after?.length ? `Called after ${after.join(', ')} reported.\n${INFERRED_NOTE}` : '';
+    el.title = after?.length ? `${t('Called after {who} reported.', { who: after.join(', ') })}\n${INFERRED_NOTE}` : '';
     if (compact) {
       p.dot.dataset.tone = st.tone ?? 'none';
       p.word.textContent = st.word;
@@ -923,17 +924,17 @@ export class Canvas {
       el.dataset.aside = String(Boolean(it.open && !it.boxed));
       p.name.textContent = it.label;
       p.name.title = it.real ?? '';
-      if (it.type === 'run') { p.tile.innerHTML = MARK.run; p.tile.title = 'Workflow run'; }
+      if (it.type === 'run') { p.tile.innerHTML = MARK.run; p.tile.title = t('Workflow run'); }
       else this.#fillTile(p.tile, it.type === 'type' ? { agentType: it.agentType } : (it.of ?? {}));
       // Several agents of one type: the number is a badge beside the role. Any other group says how many it holds.
-      const size = it.type === 'type' ? `× ${it.count}` : `${it.members.length} ${it.members.length === 1 ? 'agent' : 'agents'}`;
+      const size = it.type === 'type' ? `× ${it.count}` : (it.members.length === 1 ? t('{n} agent', { n: 1 }) : t('{n} agents', { n: it.members.length }));
       // The group stands where its first member does in the order of the calls.
       p.sub.textContent = [orderTag(it.first), size].filter(Boolean).join(' · ');
       p.sub.classList.toggle('cv-times', it.type === 'type');
       p.fold.innerHTML = it.boxed ? MARK.down : MARK.chevron;
       // Read aloud, the badge is part of the name.
       const said = it.type === 'type' ? `${it.label} × ${it.count}` : it.label;
-      p.fold.setAttribute('aria-label', `${it.open ? 'Fold' : 'Open'} ${said}`);
+      p.fold.setAttribute('aria-label', it.open ? t('Fold {name}', { name: said }) : t('Open {name}', { name: said }));
       p.fold.setAttribute('aria-expanded', String(Boolean(it.open)));
       // The bar: how the group went, in the order the eye wants it.
       const order = ['done', 'running', 'starting', 'failed', 'killed', 'stopped', 'stale', 'ended'];
@@ -948,10 +949,10 @@ export class Canvas {
       // Beside the bar: how the members went — or, at compact density where the card has no line for it, the
       // models they ran on, with how they went left to the bar and its tooltip.
       const mix = modelMix(it.members).replace(/, /g, ' \u00b7 ');
-      if (!it.boxed) { p.count.textContent = it.compact && mix ? `${says} \u00b7 ${mix}` : says; p.count.title = it.compact && mix ? `${says}\nThe models its agents ran on: ${mix}` : ''; }
+      if (!it.boxed) { p.count.textContent = it.compact && mix ? `${says} \u00b7 ${mix}` : says; p.count.title = it.compact && mix ? `${says}\n${t('The models its agents ran on: {mix}', { mix })}` : ''; }
       if (!it.boxed) this.#fillTotals(p, it);
-      el.title = it.boxed ? '' : (it.open ? 'Click to fold' : `Click to show ${it.members.length} agents`);
-      el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? 'open' : 'folded'}`);
+      el.title = it.boxed ? '' : (it.open ? t('Click to fold') : t('Click to show {n} agents', { n: it.members.length }));
+      el.setAttribute('aria-label', `${said}, ${says}, ${it.open ? t('open') : t('folded')}`);
     }
     if (!it.boxed) return;
 
@@ -1018,13 +1019,13 @@ export class Canvas {
     if (it.compact) return;
     p.totals.textContent = [
       s.timed ? fmtDuration(s.durationMs) : null,
-      s.counted ? `${fmtCount(s.fresh)} new` : null,
-      s.counted ? `${fmtCount(s.cacheRead)} cache` : null,
+      s.counted ? t('{n} new', { n: fmtCount(s.fresh) }) : null,
+      s.counted ? t('{n} cache', { n: fmtCount(s.cacheRead) }) : null,
       s.counted ? fmtCost(s.cost) : null,
     ].filter(Boolean).join(' \u00b7 ');
-    p.totals.title = `${it.members.length} calls. Time, new tokens, tokens read from the cache, and cost: ${COST_NOTE}`;
+    p.totals.title = t('{n} calls. Time, new tokens, tokens read from the cache, and cost: {note}', { n: it.members.length, note: COST_NOTE });
     p.mix.textContent = modelMix(it.members);
-    p.mix.title = 'The models its agents ran on';
+    p.mix.title = t('The models its agents ran on');
   }
 
   /** What an inferred wire says: on hover that it is an inference, and once per reporter, in words beside it. */
@@ -1345,14 +1346,14 @@ export class Canvas {
         // What it is doing this moment, for an agent that is doing something.
         if (n.status === 'running' && n.lastTool) bits.push(`\u25b8 ${n.lastTool}`);
         if (n.durationMs != null) bits.push(fmtDuration(n.durationMs));
-        if (n.toolCount) bits.push(`${n.toolCount} ${n.toolCount === 1 ? 'call' : 'calls'}`);
-        if (n.tokens != null) bits.push(`${fmtTokens(n.tokens)} tokens`);
-        if (n.errors) bits.push(`${n.errors} ${n.errors === 1 ? 'error' : 'errors'}`);
+        if (n.toolCount) bits.push(n.toolCount === 1 ? t('{n} call', { n: 1 }) : t('{n} calls', { n: n.toolCount }));
+        if (n.tokens != null) bits.push(t('{n} tokens', { n: fmtTokens(n.tokens) }));
+        if (n.errors) bits.push(n.errors === 1 ? t('{n} error', { n: 1 }) : t('{n} errors', { n: n.errors }));
         this.tipEl.replaceChildren(
           mk('strong', null, shownType(n)),
           mk('div', 'cv-sub cv-real', n.agentType ?? ''),
-          mk('div', null, n.description || 'No task recorded'),
-          mk('div', 'cv-sub', bits.length ? bits.join(' · ') : 'No numbers yet'),
+          mk('div', null, n.description || t('No task recorded')),
+          mk('div', 'cv-sub', bits.length ? bits.join(' · ') : t('No numbers yet')),
         );
         const host = this.root.getBoundingClientRect();
         const r = el.getBoundingClientRect();
@@ -1417,14 +1418,14 @@ function readPref(key, allowed, fallback) {
 function factsOf(n) {
   return [
     n.durationMs != null ? fmtDuration(n.durationMs) : null,
-    n.usage ? `${fmtCount(n.usage.tokens.fresh)} new` : null,
+    n.usage ? t('{n} new', { n: fmtCount(n.usage.tokens.fresh) }) : null,
     n.usage ? fmtCost(n.usage.cost) : null,
   ].filter(Boolean).join(' \u00b7 ');
 }
 function factsTitle(n) {
   if (!n.usage) return '';
-  const t = n.usage.tokens;
-  return `New tokens ${fmtCount(t.fresh)} (input ${fmtCount(t.input)}, output ${fmtCount(t.output)}, cache write ${fmtCount(t.cacheWrite)}); read from cache ${fmtCount(t.cacheRead)}\n${COST_NOTE}`;
+  const k = n.usage.tokens;
+  return `${t('New tokens {fresh} (input {input}, output {output}, cache write {write}); read from cache {read}', { fresh: fmtCount(k.fresh), input: fmtCount(k.input), output: fmtCount(k.output), write: fmtCount(k.cacheWrite), read: fmtCount(k.cacheRead) })}\n${COST_NOTE}`;
 }
 
 function fmtTokens(t) {
@@ -1436,9 +1437,9 @@ function fmtTokens(t) {
 
 function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return t('{n}s', { n: s });
   const m = Math.floor(s / 60);
-  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  return m < 60 ? t('{m}m {s}s', { m, s: s % 60 }) : t('{h}h {m}m', { h: Math.floor(m / 60), m: m % 60 });
 }
 
 function shortPath(p, max = 28) {

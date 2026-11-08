@@ -16,6 +16,8 @@
 //
 // Offline is not a longer silence. It is the last request failing: a refused connection answers at once, so there
 // is nothing to wait for.
+import { t } from './i18n.js';
+
 export const STALE_AFTER_MS = 10000;
 
 /**
@@ -28,16 +30,16 @@ export function liveness(nowMs, lastOkMs, lastFailed) {
   if (lastFailed) {
     return {
       state: 'offline',
-      word: 'Offline',
+      word: t('Offline'),
       tone: 'fail',
-      detail: lastOkMs === null ? 'the server has not answered' : `last update ${clock(lastOkMs)}`,
+      detail: lastOkMs === null ? t('the server has not answered') : t('last update {time}', { time: clock(lastOkMs) }),
     };
   }
-  if (lastOkMs === null) return { state: 'connecting', word: 'Connecting', tone: null, detail: '' };
+  if (lastOkMs === null) return { state: 'connecting', word: t('Connecting'), tone: null, detail: '' };
   const silence = Math.max(0, nowMs - lastOkMs);
-  const said = `${Math.round(silence / 1000)}s ago`;
-  if (silence > STALE_AFTER_MS) return { state: 'stale', word: 'Stale', tone: 'waiting', detail: said };
-  return { state: 'live', word: 'Live', tone: 'good', detail: said };
+  const said = t('{n}s ago', { n: Math.round(silence / 1000) });
+  if (silence > STALE_AFTER_MS) return { state: 'stale', word: t('Stale'), tone: 'waiting', detail: said };
+  return { state: 'live', word: t('Live'), tone: 'good', detail: said };
 }
 
 /**
@@ -53,8 +55,8 @@ export function offlineNote(state, lastOkMs, nextTryMs, nowMs) {
   if (state !== 'offline') return null;
   const left = nextTryMs == null ? null : Math.max(0, Math.ceil((nextTryMs - nowMs) / 1000));
   return {
-    text: lastOkMs === null ? 'The server has not answered yet, so there is nothing to show.' : `Showing the last update from ${clock(lastOkMs)}.`,
-    retry: left == null ? 'Reconnecting' : left === 0 ? 'Reconnecting now' : `Reconnecting in ${left}s`,
+    text: lastOkMs === null ? t('The server has not answered yet, so there is nothing to show.') : t('Showing the last update from {time}.', { time: clock(lastOkMs) }),
+    retry: left == null ? t('Reconnecting') : left === 0 ? t('Reconnecting now') : t('Reconnecting in {n}s', { n: left }),
     stale: lastOkMs !== null,
   };
 }
@@ -72,7 +74,7 @@ function clock(ms) {
  * changed since it started; a server with no `code` at all predates the field, and is older than this page.
  * Returns the sentence to show, or null.
  */
-export const RESTART_NOTE = 'Studio was updated after this server started, so it is running the old code. Restart it: stop it where it runs (Ctrl-C), then /crew-studio.';
+export const RESTART_NOTE = t('Studio was updated after this server started, so it is running the old code. Restart it: stop it where it runs (Ctrl-C), then /crew-studio.');
 export function staleServerNote(health) {
   if (!health || typeof health !== 'object') return null;
   if (!health.code || typeof health.code !== 'object') return RESTART_NOTE;

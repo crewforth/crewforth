@@ -127,6 +127,11 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio shows what a session it started has changed.** The strip above the conversation says how many files
   changed since the session started (lines added and removed) and how many new files git does not track yet,
   counted against the commit recorded at the start. It is read without git rewriting the index and kept in memory.
+- **Studio speaks Turkish.** The **TR** button in the top bar, beside the theme button, puts the panel in Turkish
+  and **EN** puts it back; English stays the default, and the choice is kept per browser. What Studio shows from
+  elsewhere (the conversation, agent and tool names, a reason the server gave) stays as it was written. The Studio
+  gate fails when a sentence on screen has no Turkish, when a translation is left over, or when the two disagree
+  on a `{slot}`.
 - **`/crew-doctor` names a linked worktree with no `.claude/settings.json`**, where a resumed session runs none of
   Crewforth's hooks. One Claude Code makes under `.claude/worktrees/` is not named: it still runs this checkout's.
 - **`npx crewforth remove` takes Crewforth out of a project.** By default it lists what it would change and changes

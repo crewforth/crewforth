@@ -5,6 +5,7 @@
 // approvals.js; this file draws it and hands the three answers back.
 import { remaining, asker, allowSessionLabel, VERDICTS, OUTCOME_WORD } from './approvals.js';
 import { AskForms } from './ask.js';
+import { t } from './i18n.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const RING = 2 * Math.PI * 15;      // the countdown ring's circumference, r = 15
@@ -65,11 +66,11 @@ export class Dock {
 
     const text = mk('div', 'dock-text');
     const head = mk('div', 'dock-head');
-    const word = mk('span', 'dock-word', 'Needs you');
+    const word = mk('span', 'dock-word', t('Needs you'));
     // Who asked is the way to them: it brings that agent's card into view.
     const who = mk('button', 'dock-who');
     who.type = 'button';
-    who.title = 'Show on the canvas';
+    who.title = t('Show on the canvas');
     who.addEventListener('click', () => { if (this.current) this.onLocate(this.current); });
     const tool = mk('span', 'dock-tool');
     const where = mk('span', 'dock-where');
@@ -84,12 +85,12 @@ export class Dock {
     const nav = mk('div', 'dock-nav');
     const prev = mk('button', 'btn icon sm ghost dock-step');
     prev.type = 'button';
-    prev.setAttribute('aria-label', 'Previous request');
+    prev.setAttribute('aria-label', t('Previous request'));
     prev.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 4l-4 4 4 4"/></svg>';
     const count = mk('span', 'dock-count');
     const next = mk('button', 'btn icon sm ghost dock-step');
     next.type = 'button';
-    next.setAttribute('aria-label', 'Next request');
+    next.setAttribute('aria-label', t('Next request'));
     next.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
     prev.addEventListener('click', () => this.step(-1));
     next.addEventListener('click', () => this.step(1));
@@ -192,14 +193,14 @@ export class Dock {
       return;
     }
     this.root.dataset.state = 'waiting';
-    p.word.textContent = 'Needs you';
+    p.word.textContent = t('Needs you');
 
     p.who.textContent = asker(item);
-    p.who.title = item.agentType ? `${item.agentType} — show on the canvas` : 'Show on the canvas';
+    p.who.title = item.agentType ? t('{type} — show on the canvas', { type: item.agentType }) : t('Show on the canvas');
     p.tool.textContent = item.toolName;
     const where = this.where(item);
     p.where.hidden = !where;
-    p.where.textContent = where ? `in ${where}` : '';
+    p.where.textContent = where ? t('in {name}', { name: where }) : '';
     // A question or a plan: its form, in place of the command and the three buttons.
     const form = this.forms.get(item);
     p.ask.hidden = !form;
@@ -207,37 +208,37 @@ export class Dock {
     // Put in once and left there: a form taken out and put back on every tick would lose the caret in it.
     if (this.shownForm !== form) { p.ask.replaceChildren(...(form ? [form] : [])); this.shownForm = form; }
     this.root.dataset.ask = form ? item.ask.kind : '';
-    p.tool.textContent = form ? (item.ask.kind === 'plan' ? 'wants its plan approved' : 'asks') : item.toolName;
+    p.tool.textContent = form ? (item.ask.kind === 'plan' ? t('wants its plan approved') : t('asks')) : item.toolName;
     p.cmd.hidden = !item.detail || Boolean(form);
     p.cmd.textContent = item.detail ?? '';
     p.cmd.classList.toggle('open', this.open);
     p.cmd.setAttribute('aria-expanded', String(this.open));
-    p.cmd.title = this.open ? 'Show on one line' : 'Show the whole command';
+    p.cmd.title = this.open ? t('Show on one line') : t('Show the whole command');
 
     const r = remaining(item, this.now());
     if (r.known) {
       p.ring.style.strokeDasharray = `${(r.fraction * RING).toFixed(1)} ${RING.toFixed(1)}`;
-      p.secs.textContent = `${r.left}s`;
-      p.timer.setAttribute('aria-label', `Auto-deny in ${r.left} seconds`);
-      p.note.textContent = form ? `Refused in ${r.left}s if nobody answers` : `Auto-deny in ${r.left}s if nobody answers`;
+      p.secs.textContent = t('{n}s', { n: r.left });
+      p.timer.setAttribute('aria-label', t('Auto-deny in {n} seconds', { n: r.left }));
+      p.note.textContent = form ? t('Refused in {n}s if nobody answers', { n: r.left }) : t('Auto-deny in {n}s if nobody answers', { n: r.left });
     } else {
       // The server did not say how long the hook waits. No clock is better than an invented one.
       p.ring.style.strokeDasharray = `0 ${RING.toFixed(1)}`;
       p.secs.textContent = '?';
-      p.timer.setAttribute('aria-label', 'Time left not measured');
-      p.note.textContent = 'Time left not measured — it is denied if nobody answers';
+      p.timer.setAttribute('aria-label', t('Time left not measured'));
+      p.note.textContent = t('Time left not measured — it is denied if nobody answers');
     }
 
     p.nav.hidden = this.items.length < 2;
-    p.count.textContent = `${this.at + 1} of ${this.items.length}`;
-    p.nav.setAttribute('aria-label', `Request ${this.at + 1} of ${this.items.length}`);
+    p.count.textContent = t('{at} of {n}', { at: this.at + 1, n: this.items.length });
+    p.nav.setAttribute('aria-label', t('Request {at} of {n}', { at: this.at + 1, n: this.items.length }));
 
     const sent = this.busy.has(item.key);
     p.always.textContent = allowSessionLabel(item.toolName);
-    p.always.title = `Allow this call, and stop asking here about ${item.toolName} for the rest of the session. Later calls are not approved for Claude Code: it still applies its own checks to them.`;
+    p.always.title = t('Allow this call, and stop asking here about {tool} for the rest of the session. Later calls are not approved for Claude Code: it still applies its own checks to them.', { tool: item.toolName });
     for (const b of [p.deny, p.always, p.allow]) b.disabled = sent;
     this.root.setAttribute('aria-label', form
-      ? `Waiting for you: ${asker(item)} ${item.ask.kind === 'plan' ? 'wants its plan approved' : 'asks a question'}`
-      : `Waiting for approval: ${asker(item)} wants to run ${item.toolName}`);
+      ? (item.ask.kind === 'plan' ? t('Waiting for you: {who} wants its plan approved', { who: asker(item) }) : t('Waiting for you: {who} asks a question', { who: asker(item) }))
+      : t('Waiting for approval: {who} wants to run {tool}', { who: asker(item), tool: item.toolName }));
   }
 }

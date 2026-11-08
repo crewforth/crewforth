@@ -7,20 +7,22 @@
 
 // The layers /crew-map may write (eval/lib/crew-map/narrative.mjs LAYERS), set between the bands the scan alone
 // gives, so a map with no layer is drawn in the same order as before.
+import { t } from './i18n.js';
+
 export const LAYER_KEYS = ['ui', 'api', 'service', 'data', 'infra', 'tool', 'library'];
 export const BANDS = [
-  ['ui', 'UI'],
-  ['clients', 'Clients'],
-  ['api', 'API'],
-  ['entry', 'Entry points'],
-  ['service', 'Service'],
-  ['core', 'Core'],
-  ['data', 'Data'],
-  ['infra', 'Infrastructure'],
-  ['library', 'Library'],
-  ['tool', 'Tools'],
-  ['external', 'External'],
-  ['unplaced', 'Unplaced'],
+  ['ui', t('UI')],
+  ['clients', t('Clients')],
+  ['api', t('API')],
+  ['entry', t('Entry points')],
+  ['service', t('Service')],
+  ['core', t('Core')],
+  ['data', t('Data')],
+  ['infra', t('Infrastructure')],
+  ['library', t('Library')],
+  ['tool', t('Tools')],
+  ['external', t('External')],
+  ['unplaced', t('Unplaced')],
 ];
 
 const RESOURCE = { db: 'db', cache: 'cache', queue: 'queue', auth: 'auth', 'http-api': 'api' };
@@ -181,7 +183,7 @@ export function findingsOf(doc, { showHidden = false, compare = null } = {}) {
   for (const c of compare?.clients ?? []) {
     for (const m of c.missing) {
       all.push({
-        id: `cmp:${c.id}:${m.method} ${m.path}`, rule: 'compare-missing', title: `${m.method} ${m.path} is called by ${c.name} and not provided here`,
+        id: `cmp:${c.id}:${m.method} ${m.path}`, rule: 'compare-missing', title: t('{endpoint} is called by {client} and not provided here', { endpoint: `${m.method} ${m.path}`, client: c.name }),
         proven: true, hidden: false, hiddenReason: null, where: m.evidence?.[0] ? `${m.evidence[0].file}:${m.evidence[0].line}` : '', modules: [`cmp:${c.id}`],
         evidence: m.evidence ?? [], from: compare.label,
       });
@@ -204,13 +206,15 @@ export function findingCounts(findings) {
   return out;
 }
 
+const endpoints = (n) => (n === 1 ? t('1 endpoint') : t('{n} endpoints', { n }));
+
 /** What a card says under its name. */
 export function cardSub(node, doc) {
-  if (node.kind === 'client') return `${node.from} · ${node.calls.length} ${node.calls.length === 1 ? 'call' : 'calls'} here`;
-  if (node.kind === 'service') return node.image ? `container · ${node.image}` : 'container';
+  if (node.kind === 'client') return `${node.from} · ${node.calls.length === 1 ? t('1 call here') : t('{n} calls here', { n: node.calls.length })}`;
+  if (node.kind === 'service') return node.image ? `${t('container')} · ${node.image}` : t('container');
   const provided = (doc.provides?.endpoints ?? []).filter((e) => e.module === node.id).length;
   const tech = (node.tech ?? []).slice(0, 2).map((t) => t.replace(/@.*$/, '')).join(' · ');
-  return [tech || node.stack, provided ? `${provided} ${provided === 1 ? 'endpoint' : 'endpoints'}` : null].filter(Boolean).join(' · ');
+  return [tech || node.stack, provided ? endpoints(provided) : null].filter(Boolean).join(' · ');
 }
 
 /**
@@ -220,7 +224,7 @@ export function cardSub(node, doc) {
 export const CARD_CHIPS = 3;
 export function cardOf(node, doc) {
   const provided = (doc.provides?.endpoints ?? []).filter((e) => e.module === node.id).length;
-  const kind = [node.narrative?.domain ?? node.stack ?? null, provided ? `${provided} ${provided === 1 ? 'endpoint' : 'endpoints'}` : null].filter(Boolean).join(' · ');
+  const kind = [node.narrative?.domain ?? node.stack ?? null, provided ? endpoints(provided) : null].filter(Boolean).join(' · ');
   const tech = (node.tech ?? []).map((t) => t.replace(/@.*$/, ''));
   return { kind, chips: tech.slice(0, CARD_CHIPS), more: Math.max(0, tech.length - CARD_CHIPS), outside: outsideOf(node, doc) };
 }
@@ -264,10 +268,10 @@ export function summaryOf(doc, findings) {
   const n = (k) => (doc.nodes ?? []).filter((x) => x.kind === k).length;
   const eps = (doc.provides?.endpoints?.length ?? 0) + (doc.consumes?.endpoints?.length ?? 0);
   return [
-    `${n('module')} ${n('module') === 1 ? 'module' : 'modules'}`,
-    `${n('external')} external`,
-    `${eps} ${eps === 1 ? 'endpoint' : 'endpoints'}`,
-    `${findings.shown.length} ${findings.shown.length === 1 ? 'finding' : 'findings'}`,
+    n('module') === 1 ? t('1 module') : t('{n} modules', { n: n('module') }),
+    t('{n} external', { n: n('external') }),
+    endpoints(eps),
+    findings.shown.length === 1 ? t('1 finding') : t('{n} findings', { n: findings.shown.length }),
   ];
 }
 
@@ -277,10 +281,10 @@ export function sourceOf(data) {
   const behind = data.behind?.count;
   return {
     file: data.file,
-    at: commit ? `scanned at ${commit.slice(0, 7)}` : 'scanned outside git',
-    behind: typeof behind === 'number' && behind > 0 ? `${behind} ${behind === 1 ? 'commit' : 'commits'} behind` : null,
+    at: commit ? t('scanned at {commit}', { commit: commit.slice(0, 7) }) : t('scanned outside git'),
+    behind: typeof behind === 'number' && behind > 0 ? (behind === 1 ? t('1 commit behind') : t('{n} commits behind', { n: behind })) : null,
     behindNote: typeof behind === 'number' ? null : (data.behind?.reason ?? null),
-    rule: 'Nothing is run; files are only read.',
+    rule: t('Nothing is run; files are only read.'),
   };
 }
 
@@ -304,7 +308,7 @@ export function inspectOf(node, doc, edges, findings) {
     // /crew-map's description: { text, cites }, each cite a file:line of this node's evidence (eval/lib/crew-map/narrative.mjs).
     narrative: typeof node.narrative?.text === 'string' ? node.narrative.text : null,
     narrativeCites: Array.isArray(node.narrative?.cites) ? node.narrative.cites.filter((c) => typeof c === 'string') : [],
-    narrativeNote: 'Not written yet: this map holds no description of the module, only what its files show.',
+    narrativeNote: t('Not written yet: this map holds no description of the module, only what its files show.'),
     // /crew-map's layer and domain, when it wrote them; the band is the layer's (bandOf).
     layer: LAYER_KEYS.includes(node.narrative?.layer) ? (BANDS.find(([k]) => k === node.narrative.layer)?.[1] ?? null) : null,
     domain: typeof node.narrative?.domain === 'string' ? node.narrative.domain : null,
@@ -320,7 +324,7 @@ export function inspectOf(node, doc, edges, findings) {
     testFiles: Array.isArray(node.tests?.files) ? node.tests.files.filter((f) => typeof f === 'string') : [],
     testTotal: Number.isInteger(node.tests?.total) ? node.tests.total : 0,
     changed: Number.isInteger(node.commits) && Number.isInteger(doc?.source?.commitsRead) && doc.source.commitsRead > 0
-      ? `Changed in ${node.commits} of the last ${doc.source.commitsRead} ${doc.source.commitsRead === 1 ? 'commit' : 'commits'}` : null,
+      ? (doc.source.commitsRead === 1 ? t('Changed in {n} of the last 1 commit', { n: node.commits }) : t('Changed in {n} of the last {of} commits', { n: node.commits, of: doc.source.commitsRead })) : null,
     notes: (node.markers?.evidence ?? []).filter((e) => e && typeof e.file === 'string').map((e) => ({ at: `${e.file}:${e.line}`, text: String(e.text ?? '') })),
     notesTotal: node.markers?.evidenceTotal ?? (node.markers?.evidence ?? []).length,
     connectsTo: out,
@@ -345,8 +349,8 @@ export function taskOf(f) {
 
 /** What the view says when there is no map to draw. */
 export function emptyNote(data) {
-  if (!data) return 'Reading the map…';
-  if (data.measured === false) return data.missing ? `No map yet — ${data.reason}` : `Not read — ${data.reason}`;
+  if (!data) return t('Reading the map…');
+  if (data.measured === false) return data.missing ? t('No map yet — {reason}', { reason: data.reason }) : t('Not read — {reason}', { reason: data.reason });
   return null;
 }
 
@@ -452,5 +456,5 @@ export function chipsOf(node, doc) {
   const p = (doc.provides?.endpoints ?? []).filter((e) => e.module === node.id).map((e) => `${e.method} ${e.path}`);
   const c = (doc.consumes?.endpoints ?? []).filter((e) => e.module === node.id).map((e) => `→ ${e.method} ${e.path}`);
   const all = [...p, ...c];
-  return all.length > CHIPS_MAX ? [...all.slice(0, CHIPS_MAX), `+${all.length - CHIPS_MAX} more`] : all;
+  return all.length > CHIPS_MAX ? [...all.slice(0, CHIPS_MAX), t('+{n} more', { n: all.length - CHIPS_MAX })] : all;
 }

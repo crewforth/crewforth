@@ -138,6 +138,10 @@ Allow is an answer to Claude Code. It does not go around anything:
 
 Below 640 px the panel is one column. The navigator becomes a drawer, the inspector and the conversation each take the whole stage and stop above the dock, and the panel opens on the List, where a request's three answers sit one under the other. The Graph and the Timeline still open, and say `Best on a wider screen`. This is the layout a phone-sized window gets. It was checked in a narrow desktop browser window and on an Android phone over the same Wi-Fi (below).
 
+## Language
+
+The panel is in English unless you choose otherwise. The **TR** button in the top bar, beside the theme button, switches it to Turkish; in Turkish the same button reads **EN** and switches back. The choice is kept in this browser, and the page reloads to apply it. Words the panel writes itself change language. What it shows from elsewhere does not: the conversation, agent and tool names, and the reasons the server gives when something was not measured or failed stay as they were written.
+
 ## Watching from another device
 
 The panel's link carries the token that starts sessions and answers tool calls, so it is not a link to hand to a phone. A **viewer** is a second token that reads and changes nothing. In the navigator's **Machines** tab, under **Remote viewers**, **Add viewer** makes one and shows its link once, as a **QR code** and as text with **Copy link** beside it. Scan the code with a phone on the same Wi-Fi and the panel opens there. No ssh, no tunnel, no app.

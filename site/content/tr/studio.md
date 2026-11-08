@@ -138,6 +138,10 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 
 640 px'in altında panel tek sütun. Gezgin bir çekmeceye dönüşüyor, inspector ve konuşma sahnenin tamamını alıp dock'un üstünde bitiyor ve panel List ile açılıyor; orada bir isteğin üç cevabı alt alta duruyor. Graph ve Timeline yine açılıyor ve `Best on a wider screen` diyor. Telefon boyutundaki bir pencerenin aldığı düzen bu. Dar bir masaüstü tarayıcı penceresinde ve aynı Wi-Fi'daki bir Android telefonda denendi (aşağıda).
 
+## Dil
+
+Panel, siz değiştirmedikçe İngilizce açılıyor. Üst çubukta, tema düğmesinin yanındaki **TR** düğmesi paneli Türkçeye çeviriyor; Türkçede aynı düğme **EN** yazıyor ve geri döndürüyor. Seçim bu tarayıcıda saklanıyor ve sayfa uygulamak için yeniden yükleniyor. Panelin kendi yazdığı her şey dil değiştiriyor. Başka yerden gösterdikleri değiştirmiyor: konuşma, ajan ve araç adları ve bir şey ölçülemediğinde ya da başarısız olduğunda sunucunun verdiği sebepler yazıldıkları dilde kalıyor.
+
 ## Başka bir cihazdan izlemek
 
 Panelin bağlantısı oturum başlatan ve araç çağrılarını yanıtlayan token'ı taşıyor; bu yüzden bir telefona verilecek bağlantı değil. **Viewer**, okuyan ve hiçbir şeyi değiştirmeyen ikinci bir token. Gezginin **Machines** sekmesinde, **Remote viewers** altında **Add viewer** bir tane oluşturuyor ve bağlantısını bir kez gösteriyor: bir **QR kod** olarak ve yanında **Copy link** ile metin olarak. Kodu aynı Wi-Fi'daki bir telefonla okutun, panel orada açılsın. ssh yok, tünel yok, uygulama yok.

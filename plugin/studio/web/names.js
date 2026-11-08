@@ -6,6 +6,8 @@
 // anywhere but on screen. Keys, ids and comparisons use the type.
 
 // A word that is not written the way capitalising its first letter would write it.
+import { t } from './i18n.js';
+
 const WORD = { devops: 'DevOps' };
 
 /** The type as the transcript has it; an agent with none is said to have none. */
@@ -27,7 +29,7 @@ export function roleName(type) {
 }
 
 /** The name a node is drawn with. */
-export const shownType = (n) => roleName(typeOf(n));
+export const shownType = (n) => (n?.agentType ? roleName(n.agentType) : t('unknown agent'));
 
 /** What hovering an agent says: the type as it is declared, and its task in full, since both are cut on screen. */
 /**
@@ -39,12 +41,13 @@ export const shownType = (n) => roleName(typeOf(n));
 export function originOf(type, origins) {
   if (!origins || typeof type !== 'string' || !type) return null;
   const at = type.indexOf(':');
-  if (at > 0 && at < type.length - 1) return `Defined in the plugin \u201c${type.slice(0, at)}\u201d`;
-  if (origins.project && Object.hasOwn(origins.project, type)) return `Defined in this project: .claude/agents/${origins.project[type]}`;
-  if (origins.user && Object.hasOwn(origins.user, type)) return `Defined in your own agents: ~/.claude/agents/${origins.user[type]}`;
-  const unread = [origins.project ? null : 'the project', origins.user ? null : 'your own'].filter(Boolean);
-  return unread.length === 2 ? 'Where it is defined was not read: no agents directory in the project or your own'
-    : `No definition file found${unread.length ? ` (${unread[0]} agents directory was not read)` : ''}: built in to Claude Code, or defined where Studio does not look`;
+  if (at > 0 && at < type.length - 1) return t('Defined in the plugin \u201c{plugin}\u201d', { plugin: type.slice(0, at) });
+  if (origins.project && Object.hasOwn(origins.project, type)) return t('Defined in this project: .claude/agents/{file}', { file: origins.project[type] });
+  if (origins.user && Object.hasOwn(origins.user, type)) return t('Defined in your own agents: ~/.claude/agents/{file}', { file: origins.user[type] });
+  if (!origins.project && !origins.user) return t('Where it is defined was not read: no agents directory in the project or your own');
+  if (!origins.project) return t('No definition file found (the project agents directory was not read): built in to Claude Code, or defined where Studio does not look');
+  if (!origins.user) return t('No definition file found (your own agents directory was not read): built in to Claude Code, or defined where Studio does not look');
+  return t('No definition file found: built in to Claude Code, or defined where Studio does not look');
 }
 
 export const hoverOf = (n) => [n?.agentType ?? null, n?.description ?? null].filter(Boolean).join('\n');
@@ -96,9 +99,9 @@ export function modelOf(n) {
   const differs = Boolean(n?.model && n?.modelAsked)
     && (modelFamily(n.model) !== modelFamily(n.modelAsked) || (n.modelAsked.includes('-') && n.modelAsked !== n.model));
   const title = [
-    `Ran on: ${n?.model ?? 'not recorded'}`,
-    `Asked for: ${n?.modelAsked ?? 'no model named (the agent\'s default)'}`,
-    differs ? 'The two differ.' : null,
+    t('Ran on: {model}', { model: n?.model ?? t('not recorded') }),
+    t('Asked for: {model}', { model: n?.modelAsked ?? t('no model named (the agent\'s default)') }),
+    differs ? t('The two differ.') : null,
   ].filter(Boolean).join('\n');
   return { ran, asked, differs, title };
 }
