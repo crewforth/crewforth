@@ -30,7 +30,7 @@ npx crewforth studio                              # without installing anything
 
 ## Three views of one session
 
-- **Graph**: the delegation in its own shape. The session is on the left, the agents it started are to its right, and a workflow run is one group that folds. A strip above the canvas names what needs attention, and a click goes to it.
+- **Graph**: the delegation in its own shape. In a window with room the session stands in the middle, the agents that build (Backend, Frontend, Database, Test, DevOps, Performance) to its left and every other agent to its right, so a dozen agents are two short columns rather than one long one. A side is decided by the agent's type, so an agent that arrives never moves one already drawn. In a narrow window the session is on the left and every agent to its right. A workflow run is one group that folds. A strip above the canvas names what needs attention, and a click goes to it.
 - **Timeline**: the same agents against the clock, one row each, and a drawer with the selected agent's last error. The time an agent spent waiting for you is drawn only for a session Studio started, and only since the panel started, because that record is kept in memory. For any other session the Timeline says `Not measured: this session's approvals are not seen by Studio` instead of drawing a session in which nobody waited.
 - **List**: the agents sorted by what needs someone. Requests waiting for you come first, then failed and running; done and ended are folded.
 

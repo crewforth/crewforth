@@ -5269,6 +5269,54 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       /canvas\.setAside\(!railBand\.matches\);\s*railBand\.addEventListener\('change', \(\) => canvas\.setAside\(!railBand\.matches\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   }
 
+  /* -- 9b. two sides: the agents that build to the left of the session ---- */
+
+  {
+    const nodes = screenOne();
+    const flat = gp.plan(nodes, { density: 'comfortable' });
+    const two = gp.plan(nodes, { density: 'comfortable', sides: true });
+    const s = at(two, 'session');
+    const builders = ['b', 'd', 'f', 'p'];
+    const others = ['type:session:Explore', 'g', 'wf:audit'];
+    check('in a window with room the agents that build stand to the left of the session, everything else to its right',
+      builders.every((id) => at(two, id).x + at(two, id).w <= s.x) && others.every((id) => at(two, id).x >= s.x + s.w)
+      && two.sides === true && flat.sides === false,
+      `left: ${builders.filter((id) => at(two, id).x < s.x).join(', ')} · right: ${others.filter((id) => at(two, id).x > s.x).join(', ')}`);
+    check('a branch stays on the side its top stands on: a builder\'s child further left, a run member\'s child further right',
+      at(two, 'k1').x + at(two, 'k1').w <= at(two, 'b').x && at(two, 'k2').x >= at(two, 'wf:audit').x + at(two, 'wf:audit').w);
+    const leftWires = two.edges.filter((e) => e.dir === -1);
+    check('a wire on the left leaves the left edge of what spawned it and enters the right edge of the card',
+      leftWires.length === 5 && leftWires.every((e) => e.to.x < e.from.x)
+      && two.edges.filter((e) => e.dir === 1).every((e) => e.to.x > e.from.x)
+      && Math.abs(two.edges.find((e) => e.target === 'b').from.x - s.x) < 1
+      && Math.abs(two.edges.find((e) => e.target === 'b').to.x - (at(two, 'b').x + at(two, 'b').w)) < 1,
+      `${leftWires.length} wires to the left, ${two.edges.length - leftWires.length} to the right`);
+    const shortest = (p) => Math.max(...p.items.map((it) => it.y + it.h));
+    check('two columns of four are shorter than one of eight, and nothing overlaps',
+      overlap(two).length === 0 && shortest(two) < shortest(flat) && two.drawn === flat.drawn,
+      `${shortest(flat)}px in one column, ${shortest(two)}px on two sides`);
+    check('a side is the type\'s, not the count\'s: a builder that arrives later does not move one already drawn',
+      (() => {
+        const seq = gp.sequence(nodes);
+        const before = gp.plan(nodes, { seq, density: 'comfortable', sides: true });
+        const more = [...nodes, A('t9', 'crew-test-expert', { startedAt: 90 })];
+        gp.sequence(more, seq);
+        const after = gp.plan(more, { seq, density: 'comfortable', sides: true, sessionY: before.sessionY });
+        return ['b', 'd', 'f', 'p', 'type:session:Explore', 'g'].every((id) => at(after, id).y === at(before, id).y) && at(after, 't9').x < at(after, 'session').x;
+      })());
+    check('with nobody that builds the picture is what it was: the session on the left, its agents to the right',
+      (() => {
+        const plain = nodes.filter((n) => !['b', 'd', 'f', 'p', 'k1'].includes(n.id));
+        const a = gp.plan(plain, { density: 'comfortable' });
+        const b = gp.plan(plain, { density: 'comfortable', sides: true });
+        return [...boxes(a)].every(([id, xy]) => boxes(b).get(id) === xy);
+      })());
+    check('"Order" keeps its waves left to right: the sides are the tree\'s',
+      gp.plan(nodes.map((n, i) => (n.kind === 'agent' ? { ...n, order: i, wave: i } : n)), { group: 'order', sides: true }).sides === false);
+    check('the window decides: the canvas asks for two sides where an agent group opens beside itself',
+      /aside: this\.aside, sides: this\.aside,/.test(canvasSrc) && /const k = c \* \(e\.dir \?\? 1\);/.test(canvasSrc));
+  }
+
   /* -- 10. the viewer's own arrangement is kept --------------------------- */
 
   {
