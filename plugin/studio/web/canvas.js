@@ -524,7 +524,7 @@ export class Canvas {
   #plan() {
     return plan(this.#visibleNodes(), {
       group: this.group, density: this.density, seq: this.seq, open: this.open, pinned: this.pinned, sessionY: this.sessionY,
-      aside: this.aside, all: this.all, tallest: this.#tallest(),
+      aside: this.aside, sides: this.aside, all: this.all, tallest: this.#tallest(),
     });
   }
 
@@ -1073,11 +1073,12 @@ export class Canvas {
         this.edgeG.append(path);
       }
 
-      // Out of the right edge of what spawned it, into the left edge of the card. The control points are pushed
-      // along the flow so siblings fan out instead of stacking on one line.
+      // Out of the right edge of what spawned it, into the left edge of the card (mirrored on the left side, where
+      // `dir` is -1). The control points are pushed along the flow so siblings fan out instead of stacking on one line.
       const { from, to } = e;
       const c = Math.max(24, Math.abs(to.x - from.x) * 0.55);
-      const d = `M ${from.x} ${from.y} C ${from.x + c} ${from.y}, ${to.x - c} ${to.y}, ${to.x} ${to.y}`;
+      const k = c * (e.dir ?? 1);
+      const d = `M ${from.x} ${from.y} C ${from.x + k} ${from.y}, ${to.x - k} ${to.y}, ${to.x} ${to.y}`;
       if (path.d !== d) {
         path.d = d;
         path.setAttribute('d', d);
