@@ -23,6 +23,7 @@
 // agent's type, never by how many are on either side, so an agent that arrives does not move one already drawn.
 
 import { typeOf, roleName, shownType } from './names.js';
+import { t } from './i18n.js';
 
 /* ------------------------------------------------------------- measures --- */
 
@@ -230,7 +231,7 @@ function itemsOf(nodes, { group, density, seq, stack, aside }) {
       if (n.kind === 'workflow' && group !== 'none') {
         const members = kids.get(n.id) ?? [];
         const g = groupItem(n.id, 'run', members, anchor, via, depth, seq, {
-          label: n.workflowId ?? 'workflow run', node: n,
+          label: n.workflowId ?? t('workflow run'), node: n,
         });
         g.seq = seq.get(n.id) ?? g.seq;
         items.push(g);
@@ -522,7 +523,7 @@ export function plan(nodes, opts = {}) {
 /* ---------------------------------------------------------------- order --- */
 
 // What the wire from an agent to a later wave is called, and what it is: a reading of the order of events.
-export const INFERRED_NOTE = 'Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.';
+export const INFERRED_NOTE = t('Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.');
 
 /**
  * The same agents by when the session called them.
@@ -607,8 +608,8 @@ function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
       waves[i].members.forEach((m, k) => wire(at.get(r.id), at.get(m.id), {
         kind: 'inferred', state: 'inferred',
         // Said once for a reporter, on the wire to the wave's first agent; the others carry it on hover.
-        label: k === 0 ? `after ${shownType(r)} reported` : null,
-        title: `after ${shownType(r)} reported\n${INFERRED_NOTE}`,
+        label: k === 0 ? t('after {type} reported', { type: shownType(r) }) : null,
+        title: `${t('after {type} reported', { type: shownType(r) })}\n${INFERRED_NOTE}`,
       }));
     }
     for (const m of waves[i].members) at.get(m.id).after = reporters.map((r) => shownType(r));
@@ -698,14 +699,14 @@ export function attention(nodes, waiting = new Set()) {
   const needs = agents.filter((n) => waiting.has(n.id)).sort((a, b) => when(b) - when(a));
   const failed = agents.filter((n) => !waiting.has(n.id) && stateOf(n.status) === 'failed').sort((a, b) => when(b) - when(a));
   return [
-    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: 'waiting for you' })),
+    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: t('waiting for you') })),
     ...failed.map((n) => ({
       id: n.id,
       tone: 'fail',
       name: shownType(n),
       real: typeOf(n),
-      says: [n.status, n.errors ? `${n.errors} ${n.errors === 1 ? 'error' : 'errors'}` : null,
-        n.workflow ? `in ${n.workflow}` : null].filter(Boolean).join(' · '),
+      says: [({ failed: t('failed'), killed: t('killed'), stopped: t('stopped') })[n.status] ?? n.status, n.errors ? (n.errors === 1 ? t('{n} error', { n: 1 }) : t('{n} errors', { n: n.errors })) : null,
+        n.workflow ? t('in {name}', { name: n.workflow }) : null].filter(Boolean).join(' · '),
     })),
   ];
 }

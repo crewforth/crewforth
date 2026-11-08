@@ -8,6 +8,7 @@
 // (`askedAt`) and what time it is now (`now`) all come from the machine the hook runs on, so a viewer whose clock
 // differs — a browser on the far end of a tunnel — still counts down to the moment the hook will really give up.
 import { roleName } from './names.js';
+import { t } from './i18n.js';
 
 /** The server's clock, as seen from this page: the difference is measured each time the server says what time it is. */
 export class ServerClock {
@@ -25,8 +26,8 @@ export class ServerClock {
 
 // A plan is approved into one of these; the words are the buttons'.
 export const PLAN_CHOICES = [
-  { mode: 'acceptEdits', label: 'Approve \u00b7 accept edits', title: 'Approve the plan and go on in acceptEdits: file edits in the project are accepted without asking; every call is still shown here first.' },
-  { mode: 'default', label: 'Approve \u00b7 ask each time', title: 'Approve the plan and go on in default: each call is asked about here.' },
+  { mode: 'acceptEdits', label: t('Approve \u00b7 accept edits'), title: t('Approve the plan and go on in acceptEdits: file edits in the project are accepted without asking; every call is still shown here first.') },
+  { mode: 'default', label: t('Approve \u00b7 ask each time'), title: t('Approve the plan and go on in default: each call is asked about here.') },
 ];
 
 /**
@@ -137,22 +138,22 @@ export function terminalWait(status, session, ownedHere) {
   const call = session?.openCall ?? null;
   const who = call?.agentType ? `${roleName(call.agentType)} · ` : '';
   const what = call ? `${who}${call.toolName}${call.detail ? ` · ${call.detail}` : ''}` : (status.waitingFor ?? null);
-  return { text: 'Waiting for an answer in the terminal', what };
+  return { text: t('Waiting for an answer in the terminal'), what };
 }
 
 export function asker(item) {
-  return item.agentType ? roleName(item.agentType) : 'Session';
+  return item.agentType ? roleName(item.agentType) : t('Session');
 }
 
 export const VERDICTS = {
-  allow: { label: 'Allow once', said: 'Allowed' },
-  always: { label: null, said: 'Allowed for this session' },
-  deny: { label: 'Deny', said: 'Denied' },
+  allow: { label: t('Allow once'), said: t('Allowed') },
+  always: { label: null, said: t('Allowed for this session') },
+  deny: { label: t('Deny'), said: t('Denied') },
 };
 
 /** "Allow Bash this session": the button names the tool it widens the gate for. */
 export function allowSessionLabel(toolName) {
-  return `Allow ${toolName} this session`;
+  return t('Allow {tool} this session', { tool: toolName });
 }
 
 /**
@@ -186,9 +187,9 @@ export function settled(before, after, decided, serverNowMs, slackMs = 2500) {
 }
 
 export const OUTCOME_WORD = {
-  allowed: 'Allowed',
-  'allowed-session': 'Allowed for this session',
-  denied: 'Denied',
-  'timed-out': 'Timed out — denied',
-  'answered-elsewhere': 'Answered elsewhere',
+  allowed: t('Allowed'),
+  'allowed-session': t('Allowed for this session'),
+  denied: t('Denied'),
+  'timed-out': t('Timed out — denied'),
+  'answered-elsewhere': t('Answered elsewhere'),
 };

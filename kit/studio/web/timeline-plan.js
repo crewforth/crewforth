@@ -10,6 +10,7 @@
 // its whole length — the transcript says how it ended, not when it started going wrong.
 import { stateOf, tally } from './graph-plan.js';
 import { typeOf, shownType } from './names.js';
+import { t } from './i18n.js';
 
 export const RANGES = [
   { key: '5m', ms: 5 * 60_000 },
@@ -67,14 +68,14 @@ export function segments(n, approvals, now) {
 
 /** What the right of a row says about one agent. */
 export function agentSub(n, waiting) {
-  if (waiting?.has(n.id)) return { text: 'needs you', tone: 'wait' };
+  if (waiting?.has(n.id)) return { text: t('needs you'), tone: 'wait' };
   const s = stateOf(n.status);
   if (s === 'failed') return { text: n.status, tone: 'fail' };
-  if (s === 'live') return { text: 'running', tone: null };
-  if (s === 'waking') return { text: 'starting', tone: null };
-  if (s === 'done') return { text: 'done', tone: null };
+  if (s === 'live') return { text: t('running'), tone: null };
+  if (s === 'waking') return { text: t('starting'), tone: null };
+  if (s === 'done') return { text: t('done'), tone: null };
   // A status this panel has no word for keeps its own.
-  return { text: String(n.status ?? 'unknown'), tone: null };
+  return { text: String(n.status ?? t('unknown')), tone: null };
 }
 
 /** "12 done · 2 running" for several agents, in the order a reader looks for them. */
@@ -82,8 +83,8 @@ export function countsSub(members, waiting) {
   const need = members.filter((m) => waiting?.has(m.id)).length;
   const counts = tally(members.filter((m) => !waiting?.has(m.id)));
   const parts = [];
-  if (need) parts.push(`${need} need you`);
-  const word = { running: 'running', starting: 'starting', done: 'done', failed: 'failed', killed: 'killed', stopped: 'stopped', ended: 'ended', stale: 'stale' };
+  if (need) parts.push(t('{n} need you', { n: need }));
+  const word = { running: t('running'), starting: t('starting'), done: t('done'), failed: t('failed'), killed: t('killed'), stopped: t('stopped'), ended: t('ended'), stale: t('stale') };
   for (const k of ['failed', 'killed', 'stopped', 'running', 'starting', 'done', 'ended', 'stale']) {
     if (counts[k]) parts.push(`${counts[k]} ${word[k]}`);
   }
@@ -124,15 +125,15 @@ export function groupsOf(nodes, grouping) {
     if (grouping === 'type') return { id: `type:${typeOf(n)}`, label: shownType(n), real: typeOf(n) };
     if (grouping === 'parent') {
       const p = byId.get(n.parentId);
-      if (!p || p.kind === 'session') return { id: 'direct', label: 'Session · direct' };
-      return { id: `parent:${p.id}`, label: p.kind === 'workflow' ? (p.workflowId ?? p.id) : `under ${shownType(p)}` };
+      if (!p || p.kind === 'session') return { id: 'direct', label: t('Session · direct') };
+      return { id: `parent:${p.id}`, label: p.kind === 'workflow' ? (p.workflowId ?? p.id) : t('under {type}', { type: shownType(p) }) };
     }
     if (grouping === 'none') return { id: 'all', label: null };
     // `order`: the agents called in one assistant message are a wave, and a wave is a group.
-    if (grouping === 'order') return n.wave != null ? { id: `wave:${n.wave}`, label: `Wave ${n.wave}` } : { id: 'wave:none', label: 'Not called by the session' };
+    if (grouping === 'order') return n.wave != null ? { id: `wave:${n.wave}`, label: t('Wave {n}', { n: n.wave }) } : { id: 'wave:none', label: t('Not called by the session') };
     // `run`: a workflow run is a group; everything the session started itself is another.
     if (n.workflow) return { id: `run:${n.workflow}`, label: String(n.workflow) };
-    return { id: 'direct', label: 'Session · direct' };
+    return { id: 'direct', label: t('Session · direct') };
   };
   const groups = new Map();
   for (const n of agents) {
@@ -178,7 +179,7 @@ export function rows(nodes, opts = {}) {
         id: g.id,
         label: g.label,
         folded: isFolded,
-        sub: `${g.members.length} ${g.members.length === 1 ? 'agent' : 'agents'}${countsSub(g.members, waiting) ? ` · ${countsSub(g.members, waiting)}` : ''}`,
+        sub: `${g.members.length === 1 ? t('{n} agent', { n: 1 }) : t('{n} agents', { n: g.members.length })}${countsSub(g.members, waiting) ? ` · ${countsSub(g.members, waiting)}` : ''}`,
         // Folded, the header carries its members' bars, so a group that is out of sight is not out of time.
         lanes: isFolded ? lanes(g.members.flatMap(bar)) : [],
       });
@@ -290,18 +291,18 @@ export function stepRange(key, by) {
  * @param owned the session's summary when Studio started it, else null
  */
 export function waitNote(owned) {
-  if (!owned) return { measured: false, text: 'Not measured: this session\'s approvals are not seen by Studio.' };
-  if (owned.gated === false) return { measured: false, text: 'Not measured: this session runs without the approval gate.' };
-  return { measured: true, text: `Waiting periods since Studio started this session at ${clock(owned.startedAt)}.` };
+  if (!owned) return { measured: false, text: t('Not measured: this session\'s approvals are not seen by Studio.') };
+  if (owned.gated === false) return { measured: false, text: t('Not measured: this session runs without the approval gate.') };
+  return { measured: true, text: t('Waiting periods since Studio started this session at {time}.', { time: clock(owned.startedAt) }) };
 }
 
 /** "14:01 → 14:09 · 8m 12s · 31 tool calls · 57k tokens", with only the parts that were read. */
 export function factsOf(n, now, fmt) {
   const parts = [];
   const end = n.kind === 'agent' ? endOf(n, now) : n.endedAt;
-  if (n.startedAt != null) parts.push(isLive(n) || end == null ? `${clock(n.startedAt)} → now` : `${clock(n.startedAt)} → ${clock(end)}`);
+  if (n.startedAt != null) parts.push(isLive(n) || end == null ? `${clock(n.startedAt)} → ${t('now')}` : `${clock(n.startedAt)} → ${clock(end)}`);
   if (n.startedAt != null && end != null) parts.push(fmt.duration(end - n.startedAt));
-  if (n.toolCount != null) parts.push(`${n.toolCount} tool ${n.toolCount === 1 ? 'call' : 'calls'}`);
-  if (n.tokens != null) parts.push(`${fmt.tokens(n.tokens)} tokens`);
+  if (n.toolCount != null) parts.push(n.toolCount === 1 ? t('{n} tool call', { n: 1 }) : t('{n} tool calls', { n: n.toolCount }));
+  if (n.tokens != null) parts.push(t('{n} tokens', { n: fmt.tokens(n.tokens) }));
   return parts.join(' · ');
 }

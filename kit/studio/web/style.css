@@ -176,6 +176,8 @@ body {
 .btn.icon:hover { color: var(--ink); }
 .btn.sm { height: 30px; padding: 0 10px; font-size: 12px; }
 .btn.icon.sm { width: 30px; padding: 0; }
+/* The language button names the language it switches to (EN, TR) in letters, where its neighbours draw an icon. */
+.lang-btn { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; }
 /* The one filled control on the page. */
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }

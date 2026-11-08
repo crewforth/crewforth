@@ -6,8 +6,9 @@
 // a dash, not a smaller number.
 
 import { modelName } from './names.js';
+import { t, numLocale } from './i18n.js';
 
-export const COST_NOTE = 'Estimated at API list price; on a subscription it is not what you are billed';
+export const COST_NOTE = t('Estimated at API list price; on a subscription it is not what you are billed');
 export const NO_COST = '—';
 
 /** 950 · 12.4k · 3.2M · 1.53B */
@@ -23,7 +24,7 @@ export function fmtCount(n) {
 export function fmtCost(usd) {
   if (usd == null || !Number.isFinite(usd)) return NO_COST;
   if (usd > 0 && usd < 0.01) return '<$0.01';
-  if (usd >= 1000) return `~$${Math.round(usd).toLocaleString('en-US')}`;
+  if (usd >= 1000) return `~$${Math.round(usd).toLocaleString(numLocale())}`;
   return `~$${usd.toFixed(2)}`;
 }
 
@@ -31,12 +32,12 @@ export function fmtCost(usd) {
 export function fmtSpan(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return t('{n}s', { n: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
+  if (m < 60) return t('{n}m', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h < 24) return t('{h}h {m}m', { h, m: m % 60 });
+  return t('{d}d {h}h', { d: Math.floor(h / 24), h: h % 24 });
 }
 
 /**
@@ -45,23 +46,23 @@ export function fmtSpan(ms) {
  * @returns { ms, kind: 'worked' | 'elapsed', note } or null
  */
 export function timeOf(u) {
-  if (u?.workedMs) return { ms: u.workedMs, kind: 'worked', note: 'The turns Claude Code timed, added up; a turn still running is not in it yet' };
-  if (u?.durationMs != null) return { ms: u.durationMs, kind: 'elapsed', note: 'From the first record to the last, pauses included: no turn was timed' };
+  if (u?.workedMs) return { ms: u.workedMs, kind: 'worked', note: t('The turns Claude Code timed, added up; a turn still running is not in it yet') };
+  if (u?.durationMs != null) return { ms: u.durationMs, kind: 'elapsed', note: t('From the first record to the last, pauses included: no turn was timed') };
   return null;
 }
 
 /** Why there is no estimate, when there is none. */
 export function costNote(u) {
   if (!u?.unpriced?.length) return COST_NOTE;
-  return `No estimate: the price table has no row for ${u.unpriced.join(', ')}`;
+  return t('No estimate: the price table has no row for {models}', { models: u.unpriced.join(', ') });
 }
 
 /** "40s", "4m 40s", "3h 5m": a span that is being counted, so the seconds show while they matter. */
 export function fmtRunning(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  if (s < 60) return t('{n}s', { n: s });
+  if (s < 3600) return t('{m}m {s}s', { m: Math.floor(s / 60), s: s % 60 });
   return fmtSpan(ms);
 }
 
@@ -71,15 +72,15 @@ export function fmtRunning(ms) {
  */
 export function usageLine(u, { live = false, now = null } = {}) {
   if (!u) return null;
-  const t = timeOf(u);
-  const span = live && u.startedAt != null && now != null ? fmtSpan(now - u.startedAt) : (t ? fmtSpan(t.ms) : null);
+  const took = timeOf(u);
+  const span = live && u.startedAt != null && now != null ? fmtSpan(now - u.startedAt) : (took ? fmtSpan(took.ms) : null);
   const tokens = typeof u.tokens === 'number' ? u.tokens : u.tokens?.fresh;
   return [span, tokens ? fmtCount(tokens) : null, tokens ? fmtCost(u.cost) : null].filter(Boolean).join(' · ') || null;
 }
 
 const kinds = (k, cached = true) => [
-  ['Input', fmtCount(k?.input ?? 0)], ['Output', fmtCount(k?.output ?? 0)], ['Cache write', fmtCount(k?.cacheWrite ?? 0)],
-  ...(cached ? [['Cache read', fmtCount(k?.cacheRead ?? 0)]] : []),
+  [t('Input'), fmtCount(k?.input ?? 0)], [t('Output'), fmtCount(k?.output ?? 0)], [t('Cache write'), fmtCount(k?.cacheWrite ?? 0)],
+  ...(cached ? [[t('Cache read'), fmtCount(k?.cacheRead ?? 0)]] : []),
 ];
 
 /**
@@ -98,35 +99,36 @@ export function summaryRows(u, { live = false, now = null, agentRows = [] } = {}
   if (!u) return [];
   const k = u.tokens ?? {};
   const rows = [];
-  const t = timeOf(u);
+  const took = timeOf(u);
   if (live && u.startedAt != null && now != null) {
-    rows.push({ label: 'Running for', value: fmtRunning(now - u.startedAt), note: 'From the session\'s first record to now' });
-  } else if (t) {
-    rows.push({ label: t.kind === 'worked' ? 'Working time' : 'First to last record', value: fmtSpan(t.ms), note: t.note });
-    if (t.kind === 'worked' && u.durationMs != null) rows.push({ label: 'First to last record', value: fmtSpan(u.durationMs), note: 'Pauses included; the agents\' transcripts too' });
+    rows.push({ label: t('Running for'), value: fmtRunning(now - u.startedAt), note: t('From the session\'s first record to now') });
+  } else if (took) {
+    rows.push({ label: took.kind === 'worked' ? t('Working time') : t('First to last record'), value: fmtSpan(took.ms), note: took.note });
+    if (took.kind === 'worked' && u.durationMs != null) rows.push({ label: t('First to last record'), value: fmtSpan(u.durationMs), note: t('Pauses included; the agents\' transcripts too') });
   }
-  rows.push({ label: 'Tokens', value: fmtCount(k.fresh ?? 0), note: 'New tokens: input, output and cache writes. Agents included, each response counted once', detail: kinds(k, false) });
-  rows.push({ label: 'From cache', value: fmtCount(k.cacheRead ?? 0), note: 'Read back from the prompt cache: the same context, counted on every response that reused it' });
+  rows.push({ label: t('Tokens'), value: fmtCount(k.fresh ?? 0), note: t('New tokens: input, output and cache writes. Agents included, each response counted once'), detail: kinds(k, false) });
+  rows.push({ label: t('From cache'), value: fmtCount(k.cacheRead ?? 0), note: t('Read back from the prompt cache: the same context, counted on every response that reused it') });
   const part = (label, p, note, detail = null) => {
     if (!p?.tokens?.total) return;
-    rows.push({ label, value: `${fmtCount(p.tokens.fresh)} · ${fmtCost(p.cost)}`, note: `${note}: new tokens and estimated cost\n${costNote(p)}`, detail: detail ?? kinds(p.tokens) });
+    rows.push({ label, value: `${fmtCount(p.tokens.fresh)} · ${fmtCost(p.cost)}`, note: `${t('{what}: new tokens and estimated cost', { what: note })}
+${costNote(p)}`, detail: detail ?? kinds(p.tokens) });
   };
-  part('Session', u.parts?.session, 'The session\'s own transcript');
-  part('Agents', u.parts?.agents, 'Everything its agents did', agentRows.length ? agentRows : null);
+  part(t('Session'), u.parts?.session, t('The session\'s own transcript'));
+  part(t('Agents'), u.parts?.agents, t('Everything its agents did'), agentRows.length ? agentRows : null);
   // The advisor: a second model the main one consulted mid-response. Its tokens are in the rows above already; this
   // says how much of them it was. No call recorded, no row: a session that never consulted it shows no zero.
   if (u.advisor?.calls) {
     const a = u.advisor;
     const who = Object.keys(u.advisorModels ?? {}).map(modelName).join(', ');
     rows.push({
-      label: 'Advisor',
-      value: `${a.calls} ${a.calls === 1 ? 'call' : 'calls'} \u00b7 ${fmtCount(a.tokens.fresh)} \u00b7 ${fmtCost(a.cost)}`,
-      note: `Advice the main model asked a second model for${who ? ` (${who})` : ''}, priced at that model's rates. Included in the totals above; the API's own token count leaves it out\n${costNote(a)}`,
+      label: t('Advisor'),
+      value: `${a.calls === 1 ? t('{n} call', { n: 1 }) : t('{n} calls', { n: a.calls })} \u00b7 ${fmtCount(a.tokens.fresh)} \u00b7 ${fmtCost(a.cost)}`,
+      note: `${who ? t('Advice the main model asked a second model for ({who}), priced at that model\'s rates. Included in the totals above; the API\'s own token count leaves it out', { who }) : t('Advice the main model asked a second model for, priced at that model\'s rates. Included in the totals above; the API\'s own token count leaves it out')}\n${costNote(a)}`,
       detail: kinds(a.tokens),
     });
   }
   // Behind the cost: each model's new tokens and what they come to. A model with no price says so with a dash.
-  const perModel = Object.entries(u.byModel ?? {}).map(([model, t]) => [modelName(model), `${fmtCount(t.tokens.fresh)} \u00b7 ${fmtCost(t.cost)}`]);
-  rows.push({ label: 'Cost', value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u), detail: perModel.length ? perModel : undefined });
+  const perModel = Object.entries(u.byModel ?? {}).map(([model, m]) => [modelName(model), `${fmtCount(m.tokens.fresh)} \u00b7 ${fmtCost(m.cost)}`]);
+  rows.push({ label: t('Cost'), value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u), detail: perModel.length ? perModel : undefined });
   return rows;
 }

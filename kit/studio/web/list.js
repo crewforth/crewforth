@@ -7,6 +7,7 @@ import { Press } from './press.js';
 import { hoverOf, modelOf } from './names.js';
 import { remaining, asker, allowSessionLabel, VERDICTS } from './approvals.js';
 import { AskForms } from './ask.js';
+import { t } from './i18n.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -81,8 +82,8 @@ export class List {
     this.lastSections = list;
     if (!list.length) {
       const empty = mk('div', 'ls-empty');
-      empty.append(mk('strong', null, 'No agents yet'),
-        mk('span', null, 'This session has not delegated to a subagent. When it does, each one is listed here.'));
+      empty.append(mk('strong', null, t('No agents yet')),
+        mk('span', null, t('This session has not delegated to a subagent. When it does, each one is listed here.')));
       this.root.replaceChildren(empty);
       return;
     }
@@ -104,7 +105,7 @@ export class List {
       head.type = 'button';
       head.dataset.key = `sec:${s.key}`;
       head.setAttribute('aria-expanded', String(!s.folded));
-      head.append(mk('span', 'row-fill'), mk('span', 'sub', s.folded ? 'show' : 'hide'));
+      head.append(mk('span', 'row-fill'), mk('span', 'sub', s.folded ? t('show') : t('hide')));
       head.addEventListener('click', () => { this.folded.set(s.key, !s.folded); this.render(); this.hooks.onFold?.(); });
     }
     sec.append(head);
@@ -122,13 +123,13 @@ export class List {
     const r = remaining(item, now);
     const clock = mk('span', 'ls-clock', r.known ? `${r.left}s` : '?');
     clock.setAttribute('role', 'timer');
-    clock.setAttribute('aria-label', r.known ? `Auto-deny in ${r.left} seconds` : 'Time left not measured');
+    clock.setAttribute('aria-label', r.known ? t('Auto-deny in {n} seconds', { n: r.left }) : t('Time left not measured'));
     head.append(who, mk('span', 'row-fill'), clock);
     card.append(head);
     if (item.detail && !item.ask) card.append(mk('pre', 'ls-cmd', item.detail));
     // A request from another session says which, and goes there.
     if (item.sessionId !== this.current) {
-      const where = mk('button', 'ls-where', `in ${item.sessionName}`);
+      const where = mk('button', 'ls-where', t('in {name}', { name: item.sessionName }));
       where.type = 'button';
       where.addEventListener('click', () => this.hooks.onLocate?.(item));
       card.append(where);
