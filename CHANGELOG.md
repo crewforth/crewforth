@@ -247,6 +247,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A session no longer tells the user that a command is not installed when it only cannot see it.** The commands
+  marked user-only (`/crew-interview`, `/crew-approve`, `/crew-pr`…) are left out of the model's skill list, so a
+  session asked about `/crew-interview` answered that no such command existed, while the files were in
+  `.claude/skills`. The discipline now says so in one sentence and points at `ls .claude/skills`.
 - **An approval refused in a background session now says so.** Claude Code reports a session started with
   `claude --bg`, or from the agent view, as unattended (`CLAUDE_CODE_SESSION_ATTENDED=0`) even when the user attaches
   and types into it, so `/crew-approve` was refused with "started with -p, or by a program" and no way on. Measured on

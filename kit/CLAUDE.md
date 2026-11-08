@@ -46,7 +46,7 @@ What the user sees → **crew-frontend-expert** · server behaviour → **crew-b
 **crew-privacy-agent** (personal data) · **crew-test-expert** · **crew-performance-expert** · docs/legal/store
 text → **crew-docs-agent** · what to build →
 **crew-planner** · unknown cause → **general-purpose** + `systematic-debugging`. Two domains → delegate in
-sequence. All are installed: "no owner" is an `ls`.
+sequence. All are installed: "no owner" is an `ls`. The user-only commands (`/crew-interview`, `/crew-approve`…) are missing from your skill list by design, not uninstalled: `ls .claude/skills`.
 
 1. **Diagnose, then plan** — unknown cause → `systematic-debugging` first; unclear scope → **crew-planner** (`/crew-plan`).
 2. **Produce** — the domain owner above.
