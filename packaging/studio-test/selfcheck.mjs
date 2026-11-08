@@ -7509,7 +7509,7 @@ process.stdout.write('\n== §35 the panel\'s language ==\n');
   const fallback = i18n.t('A sentence nobody wrote down', { n: 1 });
   const parts = i18n.tParts('Runs in {path} on branch {branch}.', { path: 'P', branch: 'B' });
   check('English by default, Turkish when chosen, {slots} filled, and a sentence with no entry still reads in English',
-    enSaid === 'Reconnecting in 4s' && trSaid === '4 sn içinde yeniden bağlanacak' && fallback === 'A sentence nobody wrote down'
+    enSaid === 'Reconnecting in 4s' && trSaid === '4 sn sonra yeniden denenecek' && fallback === 'A sentence nobody wrote down'
     && i18n.numLocale() === 'tr-TR', JSON.stringify([enSaid, trSaid, fallback]));
   check('tParts puts the nodes where the Turkish sentence has them, not where the English one did',
     JSON.stringify(parts) === JSON.stringify(['P', ' içinde, ', 'B', ' dalında çalışır.']), JSON.stringify(parts));
