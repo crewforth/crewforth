@@ -240,6 +240,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **An approval refused in a background session now says so.** Claude Code reports a session started with
+  `claude --bg`, or from the agent view, as unattended (`CLAUDE_CODE_SESSION_ATTENDED=0`) even when the user attaches
+  and types into it, so `/crew-approve` was refused with "started with -p, or by a program" and no way on. Measured on
+  2.1.319: a background session and `claude -p` both report 0, and a prompt started by a program in the background is
+  recorded as a human one, so the gate cannot tell them apart and stays closed. The refusal now names the background
+  case and the two ways on: a regular session, or the commit in the user's own terminal.
 - **`adopt` refuses a `settings.json` whose hook entries Claude Code would reject.** Claude Code ignores the whole
   file when one hook entry has the wrong shape, so merging Crewforth's hooks into it installed gates that never ran.
   adopt now names the entries and stops the merge, and the merged result is checked the same way before it is
