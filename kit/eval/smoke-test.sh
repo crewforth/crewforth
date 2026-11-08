@@ -13444,6 +13444,9 @@ Progress: tick a task [x] when its check passes, mark the one in work [~].
 PLAN
     _tj='{"session_id":"sl2","context_window":{"used_percentage":12},"cost":{"total_cost_usd":0.5},"workspace":{"project_dir":"'"$_sl/q"'"}}'
     _t(){ printf '%s' "$_tj" | (cd "$_sl" && env NO_COLOR=1 bash "$SLS") 2>&1; }
+    # A second between the plan and its first drawing: bash 3.2 (macOS) compares times in whole seconds, and a cache
+    # drawn in the plan's own second is not newer than it, so it is drawn again (right, but not what (3) reads).
+    sleep 1
     _to1="$(_t)"
     _tt="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" 2>&1 | head -n 1)"
     _to2="$(_t)"
