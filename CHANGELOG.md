@@ -178,6 +178,11 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio's Map spreads lines that share a side of a card**, so a module with three dependents shows three lines
   instead of one. Measured first on the crew-map test fixtures and Crewforth's own map: 48 line ends shared a pixel
   across 46 edges; now none do. Sideways lines between ends at two heights turn square instead of running slanted.
+- **Studio's graph uses both sides of a wide window.** The session stands in the middle: the agents that build
+  (backend, frontend, database, test, devops, performance) grow to its left and every other agent to its right, so
+  one tall column beside an empty half of the pane becomes two short ones. The side follows the agent's type, never
+  the count, so an agent that arrives moves nothing already drawn. A narrow window keeps the left-to-right tree, and
+  **Order** keeps its waves.
 - **Frontend work checks more of what users hit.** `a11y` separates criteria from conventions (a failed A/AA
   criterion is a finding, AAA or a 44 px target a recommendation), adds a skip link, flashing, an error summary and
   positive `tabindex`, a table of patterns to grep before finishing, and recipes for focus, forms and which
