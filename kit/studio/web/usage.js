@@ -92,8 +92,10 @@ const kinds = (k, cached = true) => [
  * read as millions.
  *
  * @param opts.live  the session is running: its time is counted from its first record to `opts.now`
+ * @param opts.agentRows  [name, value] pairs, one per kind of agent (agent-spend.js): what the Agents row opens on
+ *                        instead of the token kinds, as the Cost row opens on its models. Without any, the kinds.
  */
-export function summaryRows(u, { live = false, now = null } = {}) {
+export function summaryRows(u, { live = false, now = null, agentRows = [] } = {}) {
   if (!u) return [];
   const k = u.tokens ?? {};
   const rows = [];
@@ -106,12 +108,13 @@ export function summaryRows(u, { live = false, now = null } = {}) {
   }
   rows.push({ label: t('Tokens'), value: fmtCount(k.fresh ?? 0), note: t('New tokens: input, output and cache writes. Agents included, each response counted once'), detail: kinds(k, false) });
   rows.push({ label: t('From cache'), value: fmtCount(k.cacheRead ?? 0), note: t('Read back from the prompt cache: the same context, counted on every response that reused it') });
-  const part = (label, p, note) => {
+  const part = (label, p, note, detail = null) => {
     if (!p?.tokens?.total) return;
-    rows.push({ label, value: `${fmtCount(p.tokens.fresh)} · ${fmtCost(p.cost)}`, note: `${t('{what}: new tokens and estimated cost', { what: note })}\n${costNote(p)}`, detail: kinds(p.tokens) });
+    rows.push({ label, value: `${fmtCount(p.tokens.fresh)} · ${fmtCost(p.cost)}`, note: `${t('{what}: new tokens and estimated cost', { what: note })}
+${costNote(p)}`, detail: detail ?? kinds(p.tokens) });
   };
   part(t('Session'), u.parts?.session, t('The session\'s own transcript'));
-  part(t('Agents'), u.parts?.agents, t('Everything its agents did'));
+  part(t('Agents'), u.parts?.agents, t('Everything its agents did'), agentRows.length ? agentRows : null);
   // The advisor: a second model the main one consulted mid-response. Its tokens are in the rows above already; this
   // says how much of them it was. No call recorded, no row: a session that never consulted it shows no zero.
   if (u.advisor?.calls) {

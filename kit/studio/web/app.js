@@ -17,6 +17,7 @@ import {
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote } from './usage.js';
+import { agentSpendRows } from './agent-spend.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
 import { NewSession } from './newsession.js';
@@ -2756,7 +2757,7 @@ function paintStageNote() {
 /** The summary box, from the session on screen. A live session's time is counted to now, so this runs on the tick. */
 function paintSpend() {
   const usage = lastNodes?.find((n) => n.kind === 'session')?.usage ?? null;
-  canvas.setSpend(summaryRows(usage, { live: lastLive === true, now: serverNow() }));
+  canvas.setSpend(summaryRows(usage, { live: lastLive === true, now: serverNow(), agentRows: agentSpendRows(lastNodes) }));
 }
 
 function showGraph() {

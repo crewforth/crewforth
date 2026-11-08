@@ -675,6 +675,24 @@ check('prose without a notice yields nothing', none.size === 0);
   check('behind the summary\'s cost is each model\'s new tokens and estimate, the most used first',
     withModels.detail[0][0] === 'Opus 5.5' && withModels.detail.map((d) => d[0]).sort().join() === 'Haiku 5.5,Opus 5.5,Sonnet 5.5'
     && /^\d.*\u00b7 [~<]\$/.test(withModels.detail[0][1]), withModels.detail.map((d) => d.join(' ')).join(' | '));
+  // Under "Agents": one line per kind of agent, the same shape as the models under "Cost".
+  const { agentSpendRows } = await import(`../../kit/studio/web/agent-spend.js?mdl=${Date.now()}`);
+  const spendRows = agentSpendRows(g.nodes);
+  const agentNodes = g.nodes.filter((n) => n.kind === 'agent' && n.usage);
+  const types = new Set(agentNodes.map((n) => n.agentType));
+  const freshOf = (v) => { const m = /^([\d.]+)(k?)/.exec(v); return Number(m[1]) * (m[2] ? 1000 : 1); };
+  const agentsRow = wu.summaryRows(g.nodes[0].usage, { agentRows: spendRows }).find((r) => r.label === 'Agents');
+  check('behind the summary\'s agents is each kind of agent\'s new tokens and estimate, the most spent first, a repeated type once with its runs',
+    spendRows.length === types.size && spendRows.length >= 3 && agentsRow.detail === spendRows
+    && /^\d.*\u00b7 [~<]\$/.test(spendRows[0][1]) && spendRows.map((r) => freshOf(r[1])).every((v, i, a) => i === 0 || a[i - 1] >= v)
+    && spendRows.some((r) => /\u00d72$/.test(r[0])) && spendRows.every((r) => !/^crew-/.test(r[0]))
+    && Math.abs(spendRows.reduce((a, r) => a + freshOf(r[1]), 0) - g.nodes[0].usage.parts.agents.tokens.fresh) < 100,
+    spendRows.map((d) => d.join(' ')).join(' | '));
+  check('with no agent to break down, the Agents row keeps the token kinds, and a type with no price makes its line a dash',
+    wu.summaryRows(g.nodes[0].usage).find((r) => r.label === 'Agents').detail[0][0] === 'Input'
+    && agentSpendRows([]).length === 0 && agentSpendRows(null).length === 0 && agentSpendRows([{ kind: 'agent', agentType: 'x' }]).length === 0
+    && agentSpendRows([{ kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: null } },
+      { kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: 1 } }])[0].join() === 'X \u00d72,10 \u00b7 \u2014');
   const cardOf = (block, nodes) => cvo.delegationCard(block, nodes).model;
   check('a delegation card in the conversation says the model: what the call asks for, then what the agent ran on',
     cardOf(cvo.toolBlock({ id: 'zz', name: 'Agent', input: { subagent_type: 'crew-test-expert', model: 'opus' } }), []).asked === 'Opus'
@@ -2343,7 +2361,7 @@ check('prose without a notice yields nothing', none.size === 0);
     textClasses.join(', '));
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
-    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\) \}\)\);/.test(appSrc)
+    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\), agentRows: agentSpendRows\(lastNodes\) \}\)\);/.test(appSrc)
     && /else if \(lastLive === true\) paintSpend\(\);/.test(appSrc)
     && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
@@ -5249,6 +5267,54 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       !c.els.has('b2') && c.cellEls.has('b2') && c.els.get('type:session:crew-backend-expert').classList.contains('cv-open'));
     check('the window decides which way: beside itself above the band where the navigator is a rail',
       /canvas\.setAside\(!railBand\.matches\);\s*railBand\.addEventListener\('change', \(\) => canvas\.setAside\(!railBand\.matches\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+  }
+
+  /* -- 9b. two sides: the agents that build to the left of the session ---- */
+
+  {
+    const nodes = screenOne();
+    const flat = gp.plan(nodes, { density: 'comfortable' });
+    const two = gp.plan(nodes, { density: 'comfortable', sides: true });
+    const s = at(two, 'session');
+    const builders = ['b', 'd', 'f', 'p'];
+    const others = ['type:session:Explore', 'g', 'wf:audit'];
+    check('in a window with room the agents that build stand to the left of the session, everything else to its right',
+      builders.every((id) => at(two, id).x + at(two, id).w <= s.x) && others.every((id) => at(two, id).x >= s.x + s.w)
+      && two.sides === true && flat.sides === false,
+      `left: ${builders.filter((id) => at(two, id).x < s.x).join(', ')} · right: ${others.filter((id) => at(two, id).x > s.x).join(', ')}`);
+    check('a branch stays on the side its top stands on: a builder\'s child further left, a run member\'s child further right',
+      at(two, 'k1').x + at(two, 'k1').w <= at(two, 'b').x && at(two, 'k2').x >= at(two, 'wf:audit').x + at(two, 'wf:audit').w);
+    const leftWires = two.edges.filter((e) => e.dir === -1);
+    check('a wire on the left leaves the left edge of what spawned it and enters the right edge of the card',
+      leftWires.length === 5 && leftWires.every((e) => e.to.x < e.from.x)
+      && two.edges.filter((e) => e.dir === 1).every((e) => e.to.x > e.from.x)
+      && Math.abs(two.edges.find((e) => e.target === 'b').from.x - s.x) < 1
+      && Math.abs(two.edges.find((e) => e.target === 'b').to.x - (at(two, 'b').x + at(two, 'b').w)) < 1,
+      `${leftWires.length} wires to the left, ${two.edges.length - leftWires.length} to the right`);
+    const shortest = (p) => Math.max(...p.items.map((it) => it.y + it.h));
+    check('two columns of four are shorter than one of eight, and nothing overlaps',
+      overlap(two).length === 0 && shortest(two) < shortest(flat) && two.drawn === flat.drawn,
+      `${shortest(flat)}px in one column, ${shortest(two)}px on two sides`);
+    check('a side is the type\'s, not the count\'s: a builder that arrives later does not move one already drawn',
+      (() => {
+        const seq = gp.sequence(nodes);
+        const before = gp.plan(nodes, { seq, density: 'comfortable', sides: true });
+        const more = [...nodes, A('t9', 'crew-test-expert', { startedAt: 90 })];
+        gp.sequence(more, seq);
+        const after = gp.plan(more, { seq, density: 'comfortable', sides: true, sessionY: before.sessionY });
+        return ['b', 'd', 'f', 'p', 'type:session:Explore', 'g'].every((id) => at(after, id).y === at(before, id).y) && at(after, 't9').x < at(after, 'session').x;
+      })());
+    check('with nobody that builds the picture is what it was: the session on the left, its agents to the right',
+      (() => {
+        const plain = nodes.filter((n) => !['b', 'd', 'f', 'p', 'k1'].includes(n.id));
+        const a = gp.plan(plain, { density: 'comfortable' });
+        const b = gp.plan(plain, { density: 'comfortable', sides: true });
+        return [...boxes(a)].every(([id, xy]) => boxes(b).get(id) === xy);
+      })());
+    check('"Order" keeps its waves left to right: the sides are the tree\'s',
+      gp.plan(nodes.map((n, i) => (n.kind === 'agent' ? { ...n, order: i, wave: i } : n)), { group: 'order', sides: true }).sides === false);
+    check('the window decides: the canvas asks for two sides where an agent group opens beside itself',
+      /aside: this\.aside, sides: this\.aside,/.test(canvasSrc) && /const k = c \* \(e\.dir \?\? 1\);/.test(canvasSrc));
   }
 
   /* -- 10. the viewer's own arrangement is kept --------------------------- */
