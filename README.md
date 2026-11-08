@@ -57,9 +57,9 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | Ship | `/crew-ship` | `crew-review-agent` records a clean review; `crew-commit-agent` proposes the commit and waits for you |
 | Hand off | `/crew-handoff` | `handoff` writes the state down for the next session |
 
-A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost. Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
+A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost; `/crew-todo` opens the plan's to-do panel under it (phases and tasks, done ticked, the task in work marked). Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
 
-**17 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`.
+**18 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
 
 ## The agents
 

@@ -38,6 +38,22 @@ The gate's last word in this session, an approval you gave for a commit or a pus
 
 The installers set it only where no status line is set, in the project or in your own settings, because the project's setting would win over yours. With one of your own, they leave it and `/crew-doctor` says how to turn Crewforth's on. The plugin edition cannot set a status line.
 
+### The plan's to-do panel
+
+When the project has a plan (`docs/PLAN.md`, written by `/crew-plan`), the line ends with how many of its tasks are done: `📋 7/12`. `/crew-todo` opens the panel under the line, and the same command closes it:
+
+```
+📋 Export — Plan · 7/12 done · phase 2/3 · AC 3/5
+✓ Phase 1 — Parser  4/4
+▸ Phase 2 — Panel  3/5
+   ✓ 6. Draw the lines
+   ▸ 7. Wire the toggle
+   ☐ 8. Cache the drawing
+☐ Phase 3 — Docs  0/3
+```
+
+Done tasks are ticked, open ones boxed, and the phase and the task in work are marked. Only the phase in work is opened up; a long list is cut to a window around the task in work, and `CREW_TODO_LINES` sets the height (14 lines by default). The panel reads the plan's own boxes: `- [ ]` open, `- [x]` done, `- [~]` in work, each heading a phase, and only what is under the `## Tasks` heading when the plan has one. It never writes the plan; the plan says to tick a task when its check passes. `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat, and redrawing costs nothing while the plan stands still: the drawing is cached until the plan changes.
+
 ## Compaction
 
 When the context is compacted, the model keeps its own summary of the conversation. Just before that, the

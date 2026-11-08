@@ -13415,9 +13415,67 @@ JSON
   _g="$(printf '{"a":{"b":1},"c":"x y"}' | awk -v op=gets -v 'path=a.b|nope|c' -f "$ROOT/eval/lib/settings-json.awk" - 2>&1)"
   [ "$_g" = "1"$'\t\t'"\"x y\"" ] && pass "settings-json.awk gets: several paths in one read, tab-separated, an absent one empty" \
     || fail "settings-json.awk gets printed '$_g'"
+  # The plan's to-do panel (todo.sh, todo.awk): the count on the line while closed, the panel under it while open,
+  # drawn from the plan's own boxes, and read from its cache until the plan changes.
+  if [ -f "$ROOT/eval/lib/todo.sh" ]; then
+    mkdir -p "$_sl/q/.claude" "$_sl/q/docs"
+    cat > "$_sl/q/docs/PLAN.md" <<'PLAN'
+# Export — Plan
+## Acceptance criteria
+- [x] AC-1: exports — proven by: e2e
+- [ ] AC-2: on Safari — proven by: manual
+## Tasks (order)
+Progress: tick a task [x] when its check passes, mark the one in work [~].
+### Phase 1 — Parser
+1. [x] Read the file — satisfies: AC-1 — size: S
+2. [x] Count the boxes — satisfies: AC-1 — size: S
+### Phase 2 — Panel
+3. [x] Draw the lines — satisfies: AC-2
+4. [ ] Wire the toggle — satisfies: AC-2
+   - [ ] a sub-step, not a task
+5. [ ] Cache the drawing
+```
+- [ ] quoted in a code block, not a task
+```
+### Phase 3 — Docs
+- [ ] README
+## Not covered by tests
+- [ ] outside the Tasks section, not a task
+PLAN
+    _tj='{"session_id":"sl2","context_window":{"used_percentage":12},"cost":{"total_cost_usd":0.5},"workspace":{"project_dir":"'"$_sl/q"'"}}'
+    _t(){ printf '%s' "$_tj" | (cd "$_sl" && env NO_COLOR=1 bash "$SLS") 2>&1; }
+    # A second between the plan and its first drawing: bash 3.2 (macOS) compares times in whole seconds, and a cache
+    # drawn in the plan's own second is not newer than it, so it is drawn again (right, but not what (3) reads).
+    sleep 1
+    _to1="$(_t)"
+    _tt="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" 2>&1 | head -n 1)"
+    _to2="$(_t)"
+    _want2="🔋 12% · ~\$0.50
+📋 Export — Plan · 3/6 done · phase 2/3 · AC 1/2
+✓ Phase 1 — Parser  2/2
+▸ Phase 2 — Panel  1/3
+   ✓ 3. Draw the lines
+   ▸ 4. Wire the toggle
+   ☐ 5. Cache the drawing
+☐ Phase 3 — Docs  0/1"
+    # The cache is what a refresh reads: a planted line shows, until the plan changes and the drawing is made again.
+    _tv="$_sl/q/.claude/state/todo/view"; { IFS= read -r _tk < "$_tv"; printf '%s\n%s\n%s\n' "$_tk" '📋 9/9' 'FROM THE CACHE'; } > "$_tv.n" 2>/dev/null && mv "$_tv.n" "$_tv"
+    _to3="$(_t)"
+    sleep 1; sed 's/^4\. \[ \]/4. [x]/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    _to4="$(_t)"
+    (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" off >/dev/null 2>&1)
+    _to5="$(_t)"
+    [ "$_to1" = "🔋 12% · ~\$0.50 · 📋 3/6" ] && [ "$_tt" = "plan panel: open · docs/PLAN.md · 3/6 done, in work: 4. Wire the toggle" ] \
+      && [ "$_to2" = "$_want2" ] && [ "$_to3" = "🔋 12% · ~\$0.50"$'\n'"FROM THE CACHE" ] \
+      && case "$_to4" in *"4/6 done"*"▸ 5. Cache the drawing"*) true ;; *) false ;; esac && [ "$_to5" = "🔋 12% · ~\$0.50 · 📋 4/6" ] \
+      && pass "plan panel: the count on the line while closed; open, the phases with the one in work opened, done ticked, open boxed, the task in work marked (no sub-step, no quoted box, nothing outside Tasks); read from its cache until the plan changes; closed again" \
+      || fail "plan panel: closed='$_to1' · toggle='$_tt' · open='$_to2' · cached='$_to3' · after an edit='$_to4' · closed again='$_to5'"
+  else
+    skip scope "plan panel checks skipped (this project has no eval/lib/todo.sh)"
+  fi
   rm -rf "$_sl"
 else
-  skip scope "status line checks skipped (this project has no eval/lib/statusline.sh)" 3
+  skip scope "status line checks skipped (this project has no eval/lib/statusline.sh)" 4
 fi
 
 STAR="$ROOT/eval/lib/star.sh"

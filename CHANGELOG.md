@@ -34,6 +34,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **`/crew-todo` shows the plan as a to-do list under the status line.** The status line ends with the plan's count
+  (`📋 7/12`); the command opens a panel under it and closes it again: the plan's phases and tasks, done ones ticked,
+  open ones boxed, the phase and the task in work marked, cut to a window around the task in work (`CREW_TODO_LINES`).
+  It reads the plan's own boxes (`- [ ]`, `- [x]`, `- [~]` in work) under its headings and never writes the plan;
+  `spec-planning` now gives every task a box and tells whoever works the plan to tick it when its check passes.
+  `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat. The drawing is cached
+  until the plan changes, so a status line refresh starts no process for it.
 - **A compaction no longer loses what the user asked for.** The PreCompact snapshot keeps the user's first and last
   three prompts and the skills used in the session, and gives them back after the compaction, in the same session
   only; secrets and `<private>` text are left out. The `handoff` template carries the user's words, the dead ends
