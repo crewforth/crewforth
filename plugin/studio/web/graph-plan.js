@@ -14,8 +14,16 @@
 // 2. Nothing here reads the zoom. Positions are a function of the nodes and the viewer's choices, never of the
 //    view, so zooming cannot move a card.
 // 3. Colour is not decided here at all. A box carries its status; the stylesheet turns status into colour.
+//
+// TWO SIDES
+//
+// In a window with room (`opts.sides`) the session stands in the middle: the agents that build — backend, frontend,
+// database, test, devops, performance — grow to its left, mirrored, and everything else grows to its right. One
+// column of a dozen agents beside an empty half of the pane is then two columns of six. A side is decided by an
+// agent's type, never by how many are on either side, so an agent that arrives does not move one already drawn.
 
 import { typeOf, roleName, shownType } from './names.js';
+import { t } from './i18n.js';
 
 /* ------------------------------------------------------------- measures --- */
 
@@ -79,6 +87,15 @@ export const STATE = {
 export const stateOf = (status) => STATE[status] ?? 'unknown';
 
 const SESSION = 'session';
+
+/** The agents that build the product. Under `sides` they stand to the left of the session; the rest to its right. */
+export const BUILDERS = new Set([
+  'crew-backend-expert', 'crew-frontend-expert', 'crew-database-expert',
+  'crew-test-expert', 'crew-devops-expert', 'crew-performance-expert',
+]);
+
+/** -1 for the left of the session, 1 for its right. A workflow run, an unknown type and every other agent: right. */
+export const sideOf = (type) => (BUILDERS.has(type) ? -1 : 1);
 
 /* --------------------------------------------------------------- groups --- */
 
@@ -214,7 +231,7 @@ function itemsOf(nodes, { group, density, seq, stack, aside }) {
       if (n.kind === 'workflow' && group !== 'none') {
         const members = kids.get(n.id) ?? [];
         const g = groupItem(n.id, 'run', members, anchor, via, depth, seq, {
-          label: n.workflowId ?? 'workflow run', node: n,
+          label: n.workflowId ?? t('workflow run'), node: n,
         });
         g.seq = seq.get(n.id) ?? g.seq;
         items.push(g);
@@ -295,6 +312,8 @@ export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ?
  *                       the reference window's when it is not given
  * @param opts.aside     true when an open type group puts its agents in the next column instead of growing
  *                       downward; a narrow window leaves it off
+ * @param opts.sides     true to put the agents that build to the left of the session and the rest to its right
+ *                       (see TWO SIDES above); a narrow window leaves it off and the tree reads left to right
  * @returns { items, edges, width, height, drawn, density, sessionY }
  */
 export function plan(nodes, opts = {}) {
@@ -333,6 +352,17 @@ export function plan(nodes, opts = {}) {
   };
 
   const G = SIZE.group;
+  const sides = Boolean(opts.sides);
+
+  /** The side an item grows on: 0 for the session, and what the top of its branch is for everything under it. */
+  const sideOfItem = (it) => {
+    if (!sides || it.kind === 'session') return 0;
+    let top = it;
+    for (let guard = 0; top.parent && top.parent.kind !== 'session' && guard < 64; guard += 1) top = top.parent;
+    if (top.kind === 'agent') return sideOf(typeOf(top.node));
+    if (top.kind === 'group' && top.type === 'type') return sideOf(top.real);
+    return 1;
+  };
 
   /** Size and place everything drawn, at one density. Returns the box the picture needs. */
   const lay = (drawnItems, compact) => {
@@ -372,13 +402,18 @@ export function plan(nodes, opts = {}) {
       }));
     }
 
-    // Columns: one per depth, as wide as the widest thing in it.
-    const depths = [...new Set(drawnItems.map((it) => it.depth))].sort((a, b) => a - b);
+    // Columns: one per depth, as wide as the widest thing in it. Under `sides` a column is a depth on one side,
+    // keyed by the depth with the side's sign, so the left side's columns come first, outermost first.
+    for (const it of drawnItems) { it.side = sideOfItem(it); it.col = it.side < 0 ? -it.depth : it.depth; }
+    const cols = [...new Set(drawnItems.map((it) => it.col))].sort((a, b) => a - b);
     const colX = new Map();
+    const colW = new Map();
     let x = SIZE.padX;
-    for (const d of depths) {
-      colX.set(d, x);
-      x += Math.max(...drawnItems.filter((it) => it.depth === d).map((it) => it.w)) + SIZE.colGap;
+    for (const k of cols) {
+      const w = Math.max(...drawnItems.filter((it) => it.col === k).map((it) => it.w));
+      colX.set(k, x);
+      colW.set(k, w);
+      x += w + SIZE.colGap;
     }
     const width = x - SIZE.colGap + SIZE.padX;
 
@@ -392,12 +427,14 @@ export function plan(nodes, opts = {}) {
       return Math.max(SIZE.padY, cy - it.h / 2);
     };
     let height = 0;
-    for (const d of depths) {
-      if (d === 0) continue;
-      const col = drawnItems.filter((it) => it.depth === d).sort((a, b) => a.seq - b.seq || String(a.id).localeCompare(String(b.id)));
+    // Nearest the session first, so a parent has its place before its children ask for it.
+    for (const k of cols.slice().sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)) {
+      if (k === 0) continue;
+      const col = drawnItems.filter((it) => it.col === k).sort((a, b) => a.seq - b.seq || String(a.id).localeCompare(String(b.id)));
       let cursor = SIZE.padY;
       for (const it of col) {
-        it.x = colX.get(d);
+        // On the left a column's boxes line up on their right edge, the one their wire comes into.
+        it.x = it.side < 0 ? colX.get(k) + colW.get(k) - it.w : colX.get(k);
         it.y = Math.max(cursor, anchorY(it));
         cursor = it.y + it.h + SIZE.rowGap;
       }
@@ -449,15 +486,17 @@ export function plan(nodes, opts = {}) {
     if (p) { it.x = p.x; it.y = p.y; it.pinned = true; }
   }
 
-  // Wires: out of the right edge of what spawned a thing, into its left edge.
+  // Wires: out of the right edge of what spawned a thing, into its left edge. On the left side, mirrored: out of
+  // the left edge, into the right one, and `dir` says so to whoever draws the curve.
   const edges = [];
   for (const it of drawnItems) {
     const p = it.parent;
     if (!p) continue;
     const cell = cellOf(it);
+    const left = it.side < 0;
     const from = cell
-      ? { x: p.x + cell.x + cell.w, y: p.y + cell.y + cell.h / 2 }
-      : { x: p.x + p.w, y: p.y + p.h / 2 };
+      ? { x: p.x + cell.x + (left ? 0 : cell.w), y: p.y + cell.y + cell.h / 2 }
+      : { x: p.x + (left ? 0 : p.w), y: p.y + p.h / 2 };
     const status = it.kind === 'group' ? it.status : (it.node.status ?? 'unknown');
     // A group's wire says whether the group is still working. What went wrong inside it is said by its bar, its
     // count and the member itself; a red wire into twelve agents because one failed would say the wrong thing
@@ -468,7 +507,8 @@ export function plan(nodes, opts = {}) {
       source: it.via ?? p.id,
       target: it.id,
       from,
-      to: { x: it.x, y: it.y + it.h / 2 },
+      to: { x: it.x + (left ? it.w : 0), y: it.y + it.h / 2 },
+      dir: left ? -1 : 1,
       status,
       state,
     });
@@ -476,14 +516,14 @@ export function plan(nodes, opts = {}) {
 
   return {
     items: drawnItems, edges, width: Math.max(width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
-    drawn, density, group, stacked, aside: Boolean(aside), sessionY: sessionY ?? null,
+    drawn, density, group, stacked, aside: Boolean(aside), sides, sessionY: sessionY ?? null,
   };
 }
 
 /* ---------------------------------------------------------------- order --- */
 
 // What the wire from an agent to a later wave is called, and what it is: a reading of the order of events.
-export const INFERRED_NOTE = 'Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.';
+export const INFERRED_NOTE = t('Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.');
 
 /**
  * The same agents by when the session called them.
@@ -568,8 +608,8 @@ function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
       waves[i].members.forEach((m, k) => wire(at.get(r.id), at.get(m.id), {
         kind: 'inferred', state: 'inferred',
         // Said once for a reporter, on the wire to the wave's first agent; the others carry it on hover.
-        label: k === 0 ? `after ${shownType(r)} reported` : null,
-        title: `after ${shownType(r)} reported\n${INFERRED_NOTE}`,
+        label: k === 0 ? t('after {type} reported', { type: shownType(r) }) : null,
+        title: `${t('after {type} reported', { type: shownType(r) })}\n${INFERRED_NOTE}`,
       }));
     }
     for (const m of waves[i].members) at.get(m.id).after = reporters.map((r) => shownType(r));
@@ -577,7 +617,7 @@ function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
 
   return {
     items, edges, width: Math.max(box.width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
-    drawn: agents.length, density: compact ? 'compact' : 'comfortable', group: 'order', stacked: false, aside: false,
+    drawn: agents.length, density: compact ? 'compact' : 'comfortable', group: 'order', stacked: false, aside: false, sides: false,
     waves: waves.length, sessionY,
   };
 }
@@ -659,14 +699,14 @@ export function attention(nodes, waiting = new Set()) {
   const needs = agents.filter((n) => waiting.has(n.id)).sort((a, b) => when(b) - when(a));
   const failed = agents.filter((n) => !waiting.has(n.id) && stateOf(n.status) === 'failed').sort((a, b) => when(b) - when(a));
   return [
-    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: 'waiting for you' })),
+    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: t('waiting for you') })),
     ...failed.map((n) => ({
       id: n.id,
       tone: 'fail',
       name: shownType(n),
       real: typeOf(n),
-      says: [n.status, n.errors ? `${n.errors} ${n.errors === 1 ? 'error' : 'errors'}` : null,
-        n.workflow ? `in ${n.workflow}` : null].filter(Boolean).join(' · '),
+      says: [({ failed: t('failed'), killed: t('killed'), stopped: t('stopped') })[n.status] ?? n.status, n.errors ? (n.errors === 1 ? t('{n} error', { n: 1 }) : t('{n} errors', { n: n.errors })) : null,
+        n.workflow ? t('in {name}', { name: n.workflow }) : null].filter(Boolean).join(' · '),
     })),
   ];
 }

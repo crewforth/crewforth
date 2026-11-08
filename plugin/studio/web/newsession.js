@@ -3,6 +3,7 @@
 // The choices are the server's. The projects are the ones it listed; the modes are the ones it offers, and this
 // file can describe a mode but cannot add one. Starting is guarded by a one-shot: two clicks start one session.
 import { oneShot } from './convo.js';
+import { t, tParts } from './i18n.js';
 
 /**
  * What each permission mode means for a session started HERE.
@@ -13,9 +14,9 @@ import { oneShot } from './convo.js';
  * of repeating a difference that only exists in a terminal.
  */
 export const MODE_TEXT = {
-  plan: { word: 'Plan', says: 'Reads and plans. Cannot change files.' },
-  acceptEdits: { word: 'Accept edits', says: 'Edits files and runs commands, each one after you allow it in the approval dock.' },
-  default: { word: 'Default', says: 'The same in Studio: every call waits for you. It differs from Accept edits only in a terminal.' },
+  plan: { word: t('Plan'), says: t('Reads and plans. Cannot change files.') },
+  acceptEdits: { word: t('Accept edits'), says: t('Edits files and runs commands, each one after you allow it in the approval dock.') },
+  default: { word: t('Default'), says: t('The same in Studio: every call waits for you. It differs from Accept edits only in a terminal.') },
 };
 
 const PREFERRED = 'plan';
@@ -42,7 +43,7 @@ export function projectChoices(projects, preferKey = null) {
     cwd: p.cwd,
     label: p.label ?? p.cwd,
     branch: p.branch ?? null,
-    kit: p.kit?.installed ? (p.kit.version ?? 'installed') : null,
+    kit: p.kit?.installed ? (p.kit.version ?? t('installed')) : null,
     initial: p === initial,
   }));
 }
@@ -82,16 +83,16 @@ export class NewSession {
     const head = mk('div', 'np-head');
     const close = mk('button', 'btn icon sm ghost');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Close');
+    close.setAttribute('aria-label', t('Close'));
     close.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
     close.addEventListener('click', () => this.close());
-    head.append(mk('h2', 'np-title', 'New session'), mk('span', 'row-fill'), close);
+    head.append(mk('h2', 'np-title', t('New session')), mk('span', 'row-fill'), close);
 
     const form = mk('form', 'np-body');
     form.addEventListener('submit', (e) => { e.preventDefault(); this.submit(); });
 
     const projWrap = mk('div', 'np-field');
-    const projLabel = mk('label', 'np-label', 'Project');
+    const projLabel = mk('label', 'np-label', t('Project'));
     projLabel.htmlFor = 'np-project';
     this.projectEl = mk('select', 'np-select');
     this.projectEl.id = 'np-project';
@@ -102,20 +103,20 @@ export class NewSession {
     this.modesEl = mk('fieldset', 'np-modes');
 
     const firstWrap = mk('div', 'np-field');
-    const firstLabel = mk('label', 'np-label', 'First message');
+    const firstLabel = mk('label', 'np-label', t('First message'));
     firstLabel.htmlFor = 'np-first';
     this.firstEl = mk('textarea', 'np-first');
     this.firstEl.id = 'np-first';
     this.firstEl.rows = 5;
-    this.firstEl.placeholder = 'What should this session do?';
+    this.firstEl.placeholder = t('What should this session do?');
     firstWrap.append(firstLabel, this.firstEl,
-      mk('span', 'sub', 'Optional. You can also start empty and write in the conversation panel.'));
+      mk('span', 'sub', t('Optional. You can also start empty and write in the conversation panel.')));
 
     // What starting here means, said before the button: a closed panel is a refusal.
     const note = mk('div', 'np-note');
     note.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 7.5v3.5M8 5h.01"/></svg>';
     note.append(mk('span', 'sub',
-      'Every tool call in this session waits for your approval here in Studio. If Studio is closed, the request is denied.'));
+      t('Every tool call in this session waits for your approval here in Studio. If Studio is closed, the request is denied.')));
 
     this.errorEl = mk('div', 'np-error');
     this.errorEl.setAttribute('role', 'alert');
@@ -124,10 +125,10 @@ export class NewSession {
     form.append(projWrap, this.modesEl, firstWrap, note, this.errorEl);
 
     const foot = mk('div', 'np-foot');
-    const cancel = mk('button', 'btn', 'Cancel');
+    const cancel = mk('button', 'btn', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => this.close());
-    this.startEl = mk('button', 'btn primary', 'Start session');
+    this.startEl = mk('button', 'btn primary', t('Start session'));
     this.startEl.type = 'button';
     this.startEl.addEventListener('click', () => this.submit());
     foot.append(cancel, this.startEl);
@@ -164,7 +165,7 @@ export class NewSession {
 
   paint() {
     this.projectEl.replaceChildren(...this.projects.map((p) => {
-      const o = mk('option', null, p.kit ? `${p.label} · Crewforth ${p.kit}` : `${p.label} · no Crewforth`);
+      const o = mk('option', null, p.kit ? `${p.label} · Crewforth ${p.kit}` : `${p.label} · ${t('no Crewforth')}`);
       o.value = p.key;
       o.selected = p.initial;
       return o;
@@ -179,17 +180,17 @@ export class NewSession {
   paintRunsIn() {
     const r = runsIn(this.project, this.shorten);
     if (!r) {
-      this.runsEl.textContent = 'No project on this machine to start a session in.';
+      this.runsEl.textContent = t('No project on this machine to start a session in.');
       return;
     }
-    const parts = ['Runs in ', mk('code', null, r.path)];
-    if (r.branch) parts.push(' on branch ', mk('code', null, r.branch));
-    parts.push('.');
-    this.runsEl.replaceChildren(...parts);
+    const path = mk('code', null, r.path);
+    this.runsEl.replaceChildren(...(r.branch
+      ? tParts('Runs in {path} on branch {branch}.', { path, branch: mk('code', null, r.branch) })
+      : tParts('Runs in {path}.', { path })));
   }
 
   paintModes() {
-    const legend = mk('legend', 'np-label', 'Permission mode');
+    const legend = mk('legend', 'np-label', t('Permission mode'));
     const rows = this.modes.map((m) => {
       const row = mk('label', 'np-mode');
       const radio = mk('input');
@@ -201,19 +202,19 @@ export class NewSession {
       row.classList.toggle('on', m.mode === this.mode);
       const text = mk('span', 'np-mode-text');
       const word = mk('span', 'np-mode-word', m.word);
-      if (m.initial) word.append(mk('span', 'sub', ' · default'));
+      if (m.initial) word.append(mk('span', 'sub', ` · ${t('default')}`));
       text.append(word);
       if (m.says) text.append(mk('span', 'sub', m.says));
       row.append(radio, text);
       return row;
     });
-    this.modesEl.replaceChildren(legend, ...rows, mk('span', 'sub', 'Modes that skip Crewforth\'s gates are not offered.'));
+    this.modesEl.replaceChildren(legend, ...rows, mk('span', 'sub', t('Modes that skip Crewforth\'s gates are not offered.')));
   }
 
   paintStart() {
     const busy = this.start.spent();
     this.startEl.disabled = busy || !this.project || !this.mode;
-    this.startEl.textContent = busy ? 'Starting…' : 'Start session';
+    this.startEl.textContent = busy ? t('Starting…') : t('Start session');
   }
 
   async submit() {
@@ -226,7 +227,7 @@ export class NewSession {
     if (out?.ok) {
       this.close();
     } else {
-      this.errorEl.textContent = `Could not start a session — ${out?.reason ?? 'no reason given'}`;
+      this.errorEl.textContent = t('Could not start a session — {reason}', { reason: out?.reason ?? t('no reason given') });
       this.errorEl.hidden = false;
       this.paintStart();
     }

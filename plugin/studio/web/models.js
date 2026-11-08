@@ -6,6 +6,7 @@
 // Crewforth's command for it and lowers nothing. Then the normal work that ran above the table's model: said, with
 // the record's evidence where there is some, and not acted on either.
 import { classRow, suggestionText, aboveText, emptyNote, totalsLine, costLine, SOURCE, LOWER_RULE, ABOVE_HEAD, ABOVE_RULE } from './models-plan.js';
+import { t } from './i18n.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -14,7 +15,7 @@ function mk(tag, cls, text) {
   return n;
 }
 
-const COLUMNS = [['Agent · change', ''], ['Risk', ''], ['Model', ''], ['Tasks', 'mv-num'], ['First try', 'mv-num'], ['Escalated', 'mv-num'], ['Est. cost', 'mv-num']];
+const COLUMNS = [[t('Agent · change'), ''], [t('Risk'), ''], [t('Model'), ''], [t('Tasks'), 'mv-num'], [t('First try'), 'mv-num'], [t('Escalated'), 'mv-num'], [t('Est. cost'), 'mv-num']];
 
 export class Models {
   /** @param hooks.onCopy(text) put the command on the clipboard */
@@ -40,8 +41,8 @@ export class Models {
     const source = mk('span', 'sub', SOURCE);
     source.title = [totalsLine(d), costLine(this.costs)].filter(Boolean).join(' \u00b7 ');
     // Lines the hooks could not have written are not counted, and that is said where the count is.
-    if (d.dropped) source.textContent = `${SOURCE} \u00b7 ${d.dropped} ${d.dropped === 1 ? 'line' : 'lines'} not read`;
-    head.append(mk('h2', 'mv-title', 'Which model each kind of task needs'), mk('span', 'row-fill'), source);
+    if (d.dropped) source.textContent = `${SOURCE} \u00b7 ${d.dropped === 1 ? t('1 line not read') : t('{n} lines not read', { n: d.dropped })}`;
+    head.append(mk('h2', 'mv-title', t('Which model each kind of task needs')), mk('span', 'row-fill'), source);
     pane.append(head);
 
     const scroll = mk('div', 'mv-scroll');
@@ -64,7 +65,7 @@ export class Models {
       risk.append(tag);
       const model = mk('td');
       const ran = mk('span', null, r.models);
-      ran.title = r.ranOn ? `Ran on: ${r.ranOn}` : '';
+      ran.title = r.ranOn ? t('Ran on: {model}', { model: r.ranOn }) : '';
       model.append(ran);
       if (r.floorTag) {
         const raised = mk('span', 'mv-tag', r.floorTag);
@@ -74,7 +75,7 @@ export class Models {
         raisedNotes.push({ tag: r.floorTag, text: `${r.who} · ${r.change}: ${r.raisedWhy}` });
       }
       const first = mk('td', 'mv-num');
-      first.title = [r.firstTryOf, r.after, r.notVerified ? `Not verified: ${r.notVerified}` : null].filter(Boolean).join('\n');
+      first.title = [r.firstTryOf, r.after, r.notVerified ? t('Not verified: {what}', { what: r.notVerified }) : null].filter(Boolean).join('\n');
       first.append(mk('span', null, r.firstTry));
       if (r.rate !== null) {
         const meter = mk('span', 'mv-meter');
@@ -89,7 +90,7 @@ export class Models {
       const cost = mk('td', 'mv-num', r.cost);
       cost.title = r.costNote;
       if (r.partial) cost.dataset.partial = 'true';
-      if (r.advisor) { const t = mk('span', 'mv-tag', 'advisor'); t.dataset.kind = 'advisor'; t.title = r.advisor; cost.append(t); }
+      if (r.advisor) { const tag = mk('span', 'mv-tag', t('advisor')); tag.dataset.kind = 'advisor'; tag.title = r.advisor; cost.append(tag); }
       tr.append(who, risk, model, mk('td', 'mv-num', r.tasks), first, mk('td', 'mv-num', r.escalated), cost);
       tbody.append(tr);
     }
@@ -99,19 +100,19 @@ export class Models {
 
     if (d.suggestions?.length) {
       const box = mk('section', 'mv-suggest');
-      box.append(mk('h3', 'mv-suggest-h', 'Suggestion · needs your approval'));
+      box.append(mk('h3', 'mv-suggest-h', t('Suggestion · needs your approval')));
       for (const s of d.suggestions) {
-        const t = suggestionText(s);
-        box.append(mk('p', 'mv-suggest-text', `${t.title} ${t.says}`));
+        const s2 = suggestionText(s);
+        box.append(mk('p', 'mv-suggest-text', `${s2.title} ${s2.says}`));
         const row = mk('div', 'mv-suggest-row');
-        row.append(mk('span', 'sub', `${LOWER_RULE} ${t.how}`), mk('span', 'row-fill'));
-        if (t.command) {
+        row.append(mk('span', 'sub', `${LOWER_RULE} ${s2.how}`), mk('span', 'row-fill'));
+        if (s2.command) {
           // It copies the words and does nothing else: the hold is lowered where the user sends them.
-          const b = mk('button', 'btn sm', 'Copy command');
+          const b = mk('button', 'btn sm', t('Copy command'));
           b.type = 'button';
-          b.title = 'Copies the command. Nothing is lowered until you send it in your own session.';
-          b.addEventListener('click', () => this.hooks.onCopy?.(t.command));
-          row.append(mk('code', 'mv-cmd', t.command), b);
+          b.title = t('Copies the command. Nothing is lowered until you send it in your own session.');
+          b.addEventListener('click', () => this.hooks.onCopy?.(s2.command));
+          row.append(mk('code', 'mv-cmd', s2.command), b);
         }
         box.append(row);
       }
@@ -121,12 +122,12 @@ export class Models {
       const box = mk('section', 'mv-above');
       box.append(mk('h3', 'mv-suggest-h', ABOVE_HEAD));
       for (const a of d.above) {
-        const t = aboveText(a, this.costs?.measured ? (this.costs.above?.[a.key] ?? null) : null);
-        box.append(mk('p', 'mv-suggest-text', `${t.title} ${t.says}`));
-        const v = mk('p', 'mv-above-verdict', t.verdict);
-        v.dataset.measured = String(t.measured);
+        const at = aboveText(a, this.costs?.measured ? (this.costs.above?.[a.key] ?? null) : null);
+        box.append(mk('p', 'mv-suggest-text', `${at.title} ${at.says}`));
+        const v = mk('p', 'mv-above-verdict', at.verdict);
+        v.dataset.measured = String(at.measured);
         box.append(v);
-        if (t.costs) box.append(mk('p', 'sub', t.costs));
+        if (at.costs) box.append(mk('p', 'sub', at.costs));
       }
       box.append(mk('p', 'sub', ABOVE_RULE));
       pane.append(box);

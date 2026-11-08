@@ -5,15 +5,16 @@
 // gets a section of its own, under its own name, after them.
 import { stateOf } from './graph-plan.js';
 import { typeOf, shownType } from './names.js';
+import { t } from './i18n.js';
 
 /** "8m", "1h 4m", "40s": how long, in as little room as a row has. */
 export function short(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return t('{n}s', { n: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  if (m < 60) return t('{n}m', { n: m });
+  return t('{h}h {m}m', { h: Math.floor(m / 60), m: m % 60 });
 }
 
 const when = (n) => n.endedAt ?? n.updatedAt ?? n.startedAt ?? 0;
@@ -23,9 +24,9 @@ function rowOf(n, now) {
   const state = stateOf(n.status);
   if (state === 'failed') {
     const bits = [];
-    if (n.workflow) bits.push(`in ${n.workflow}`);
+    if (n.workflow) bits.push(t('in {name}', { name: n.workflow }));
     // The count the transcript gave. An agent can fail without a tool error; then there is none to report.
-    if (n.errors) bits.push(`${n.errors} ${n.errors === 1 ? 'error' : 'errors'}`);
+    if (n.errors) bits.push(n.errors === 1 ? t('{n} error', { n: 1 }) : t('{n} errors', { n: n.errors }));
     if (n.status !== 'failed') bits.push(n.status);
     return { id: n.id, node: n, type: shownType(n), real: typeOf(n), line: bits.join(' · ') || (n.description ?? ''), aside: null };
   }
@@ -37,7 +38,7 @@ function rowOf(n, now) {
     real: typeOf(n),
     line: n.description ?? '',
     // How long it has been going. With no start recorded there is nothing to count from, and nothing is shown.
-    aside: state === 'waking' ? 'starting' : live && n.startedAt != null ? short(now - n.startedAt) : null,
+    aside: state === 'waking' ? t('starting') : live && n.startedAt != null ? short(now - n.startedAt) : null,
   };
 }
 
@@ -56,16 +57,16 @@ export function sections(nodes, { queue = [], current = null, folded = new Map()
 
   // Needs you: every request waiting, this session's first. Each is a card that carries its own answers.
   const cards = [...queue].sort((a, b) => Number(b.sessionId === current) - Number(a.sessionId === current) || (a.askedAt ?? 0) - (b.askedAt ?? 0));
-  if (cards.length) out.push({ key: 'needs', title: 'Needs you', count: cards.length, tone: 'waiting', cards, rows: [], folded: false, foldable: false });
+  if (cards.length) out.push({ key: 'needs', title: t('Needs you'), count: cards.length, tone: 'waiting', cards, rows: [], folded: false, foldable: false });
 
   const by = (pred, sort) => agents.filter(pred).sort(sort).map((n) => rowOf(n, now));
   const newest = (a, b) => when(b) - when(a);
   const oldest = (a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity) || String(a.id).localeCompare(String(b.id));
 
   const fixed = [
-    { key: 'failed', title: 'Failed', tone: 'fail', rows: by((n) => stateOf(n.status) === 'failed', newest), foldedByDefault: false },
-    { key: 'running', title: 'Running', tone: 'busy', rows: by((n) => ['live', 'waking'].includes(stateOf(n.status)), oldest), foldedByDefault: false },
-    { key: 'done', title: 'Done', tone: 'good', rows: by((n) => stateOf(n.status) === 'done', newest), foldedByDefault: true },
+    { key: 'failed', title: t('Failed'), tone: 'fail', rows: by((n) => stateOf(n.status) === 'failed', newest), foldedByDefault: false },
+    { key: 'running', title: t('Running'), tone: 'busy', rows: by((n) => ['live', 'waking'].includes(stateOf(n.status)), oldest), foldedByDefault: false },
+    { key: 'done', title: t('Done'), tone: 'good', rows: by((n) => stateOf(n.status) === 'done', newest), foldedByDefault: true },
   ];
 
   // Everything else, by the status the transcript wrote. `ended` and `stale` have words here; anything the panel
@@ -78,7 +79,7 @@ export function sections(nodes, { queue = [], current = null, folded = new Map()
     if (!rest.has(key)) rest.set(key, []);
     rest.get(key).push(n);
   }
-  const WORD = { ended: 'Ended', stale: 'Stale' };
+  const WORD = { ended: t('Ended'), stale: t('Stale') };
   for (const [status, members] of [...rest].sort((a, b) => a[0].localeCompare(b[0]))) {
     fixed.push({
       key: `status:${status}`, title: WORD[status] ?? status, tone: 'none', known: status in WORD,
@@ -100,9 +101,9 @@ export function sections(nodes, { queue = [], current = null, folded = new Map()
 
 /** What a request card says under the agent's name. */
 export function wants(item) {
-  if (item.ask?.kind === 'questions') return 'asks';
-  if (item.ask?.kind === 'plan') return 'wants its plan approved';
-  return `wants to run ${item.toolName}`;
+  if (item.ask?.kind === 'questions') return t('asks');
+  if (item.ask?.kind === 'plan') return t('wants its plan approved');
+  return t('wants to run {tool}', { tool: item.toolName });
 }
 
 /** Which view a window opens on when the viewer has not chosen one: the List on a phone, the graph elsewhere. */
@@ -113,5 +114,5 @@ export function defaultView(stored, phone) {
 
 /** The graph and the Timeline are drawn for a wide window. On a phone they still open, and say so. */
 export function narrowWarning(view, phone) {
-  return phone && view !== 'list' ? 'Best on a wider screen' : null;
+  return phone && view !== 'list' ? t('Best on a wider screen') : null;
 }

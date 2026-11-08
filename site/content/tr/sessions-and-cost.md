@@ -38,6 +38,22 @@ Kapının bu oturumdaki son sözü, bir commit ya da push için verdiğin ve hâ
 
 Kurulum onu yalnız projede ya da kendi ayarlarında hiç durum satırı yoksa ekler, çünkü projenin ayarı seninkini ezer. Kendi satırın varsa dokunmaz; `/crew-doctor` Crewforth'unkinin nasıl açılacağını söyler. Plugin edisyonu durum satırı ayarlayamaz.
 
+### Planın yapılacaklar paneli
+
+Projede bir plan varsa (`/crew-plan`'ın yazdığı `docs/PLAN.md`), satırın sonunda kaç işin bittiği görünür: `📋 7/12`. `/crew-todo` paneli satırın altında açar, aynı komut kapatır:
+
+```
+📋 Export — Plan · 7/12 done · phase 2/3 · AC 3/5
+✓ Phase 1 — Parser  4/4
+▸ Phase 2 — Panel  3/5
+   ✓ 6. Draw the lines
+   ▸ 7. Wire the toggle
+   ☐ 8. Cache the drawing
+☐ Phase 3 — Docs  0/3
+```
+
+Biten işin yanında tik, bekleyenin yanında boş kutu var; üzerinde çalıştığın faz ve iş işaretli. Yalnız o fazın işleri açılır. Liste uzunsa sürdüğün işin çevresi görünür, yüksekliği `CREW_TODO_LINES` belirler (varsayılan 14 satır). Panel planın kendi kutularını okur: `- [ ]` bekliyor, `- [x]` bitti, `- [~]` sürüyor. Her başlık bir fazdır; planda `## Tasks` başlığı varsa yalnız onun altı okunur. Panel planı hiç değiştirmez, işaretleri işi yapan koyar: planın kuralı, kontrolü geçen işi hemen tiklemek. `/crew-todo <dosya>` başka bir planı okur, `/crew-todo show` paneli sohbete basar. Plan değişmedikçe panel yeniden çizilmez, önbellekten gelir; durum satırına ek yük getirmez.
+
 ## Sıkıştırma
 
 Bağlam sıkıştırıldığında model konuşmanın kendi özetini tutar. Hemen öncesinde `precompact-snapshot.sh` hook'u

@@ -6,6 +6,8 @@
 //
 // The choice is remembered per browser. Storage that refuses (private mode, a blocked origin) costs the memory and
 // not the click: the theme still switches for this page.
+import { t } from './i18n.js';
+
 export const THEME_KEY = 'crewforth-studio-theme';
 
 const chosen = (v) => (v === 'light' || v === 'dark' ? v : null);
@@ -28,8 +30,9 @@ export function initTheme(root, button, ls, systemLight) {
 
   const label = () => {
     const to = effectiveTheme(root.dataset.theme, systemLight()) === 'light' ? 'dark' : 'light';
-    button.setAttribute('aria-label', `Switch to ${to} theme`);
-    button.title = `Switch to ${to} theme`;
+    const say = to === 'light' ? t('Switch to light theme') : t('Switch to dark theme');
+    button.setAttribute('aria-label', say);
+    button.title = say;
   };
   label();
 

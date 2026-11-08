@@ -57,9 +57,9 @@ Hiçbir şey yazılmadan önce bir özeti onaylarsınız; `add` tam kurulum yapm
 | Teslim et | `/crew-ship` | `crew-review-agent` temiz incelemeyi kaydeder; `crew-commit-agent` commit'i önerir ve onayınızı bekler |
 | Devret | `/crew-handoff` | `handoff` durumu bir sonraki oturum için yazar |
 
-Toplam Komut satırının altındaki durum satırı kapının son sözünü, hâlâ geçerli bir onayı, çalışan ajanları, ölçülmüş bağlam doluluğunu ve oturumun maliyetini gösterir. Bir sıkıştırmadan önce bir hook işin durumunu yazar (dal, commit'lenmemiş dosyalar, son ret, bulgular) ve aynı oturum sıkıştırmadan sonra onu geri alır.
+Toplam Komut satırının altındaki durum satırı kapının son sözünü, hâlâ geçerli bir onayı, çalışan ajanları, ölçülmüş bağlam doluluğunu ve oturumun maliyetini gösterir. `/crew-todo` altında planın yapılacaklar panelini açar: fazlar ve işler, bitenler tikli, sürdüğün iş işaretli. Bir sıkıştırmadan önce bir hook işin durumunu yazar (dal, commit'lenmemiş dosyalar, son ret, bulgular) ve aynı oturum sıkıştırmadan sonra onu geri alır.
 
-**17 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`.
+**18 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
 
 ## Ajanlar
 

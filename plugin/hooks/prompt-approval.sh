@@ -606,7 +606,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
                          qno "in $PM, with a PermissionRequest hook that may be wired ($_PRH), only the typed approval counts." ;;
     *) qno "in ${PM:-an unknown mode} this approval is not open (bypassPermissions and plan fail closed)." ;;
   esac
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) qno "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) qno "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   case "$SID$_QTU" in *[!A-Za-z0-9._-]*) qno "the call carries no session or tool id this hook can bind the answer to." ;; esac
   { [ -n "$SID" ] && [ -n "$_QTU" ]; } || qno "the call carries no session or tool id this hook can bind the answer to."
   _crew_prh_scan && qno "a PermissionRequest hook may be wired ($_PRH). Such a hook can answer the question before the user does, and the answer cannot be told from a click."
@@ -668,7 +668,7 @@ _pa_record(){
   # HONEST SCOPE: a session started with an emptied environment and driven through a pseudo-terminal for a second
   # message passes both. guard-bash.sh refuses the forms of that it can read; a program that types is past it.
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in
-    0) no "this session has nobody in front of it (it was started with -p, or by a program), and an approval is what a person types into their own session." ;;
+    0) no "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal), and an approval is what a person types into their own session." ;;
   esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "this is the first message of this session, or the session keeps no transcript (one started from inside another session keeps none). An approval answers a commit message the session has shown: have it shown, then approve."
@@ -787,7 +787,7 @@ _pa_question(){
     no) [ -n "$REC" ] && { : > "$REC"; } 2>/dev/null
         say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
   esac
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) no "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) no "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
   BARE=0
@@ -884,7 +884,7 @@ _crew_appr_op "$_JU"
 # that class from here, so the old failures do not raise it straight back.
 if [ "$OP" = loosen ]; then
   nol(){ say "Crewforth: floor NOT lowered - $1" "The user sent the command only the user can type /crew-loosen, for $LO_AGENT $LO_CHANGE $LO_RISK, and Crewforth did not lower anything: $1 Tell the user exactly that."; }
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || nol "this is the first message of this session, or the session keeps no transcript."
   _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
@@ -928,7 +928,7 @@ fi
 # + % - and spaces, so it can neither chain another (the gate would refuse a chain anyway) nor need escaping here.
 if [ "$OP" = allowverify ]; then
   noa(){ say "Crewforth: verify command NOT allowed - $1" "The user sent the command only the user can type /crew-allow-verify, and Crewforth added no rule: $1 Tell the user exactly that."; }
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) noa "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) noa "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || noa "this is the first message of this session, or the session keeps no transcript."
   _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.

@@ -7,6 +7,7 @@ import {
 } from './timeline-plan.js';
 import { Press } from './press.js';
 import { shownType, hoverOf, modelOf, modelFamily } from './names.js';
+import { t, numLocale } from './i18n.js';
 
 
 function mk(tag, cls, text) {
@@ -56,7 +57,7 @@ export class Timeline {
   #build() {
     this.root.classList.add('tl');
     this.axis = mk('div', 'tl-axis');
-    this.axisLabel = mk('div', 'tl-axis-label', 'Agent');
+    this.axisLabel = mk('div', 'tl-axis-label', t('Agent'));
     this.axisTrack = mk('div', 'tl-axis-track');
     this.axis.append(this.axisLabel, this.axisTrack);
 
@@ -69,7 +70,7 @@ export class Timeline {
     this.noteEl = mk('div', 'tl-note');
     this.drawer = mk('div', 'tl-drawer');
     this.drawer.setAttribute('role', 'region');
-    this.drawer.setAttribute('aria-label', 'Selected agent');
+    this.drawer.setAttribute('aria-label', t('Selected agent'));
     this.drawer.hidden = true;
     this.empty = mk('div', 'tl-empty');
     this.empty.hidden = true;
@@ -77,7 +78,7 @@ export class Timeline {
     // no word would read as a session in which nothing happened.
     this.away = mk('div', 'tl-away');
     this.away.hidden = true;
-    const whole = mk('button', 'btn sm', 'Show the whole session');
+    const whole = mk('button', 'btn sm', t('Show the whole session'));
     whole.type = 'button';
     whole.addEventListener('click', () => { this.range = 'all'; this.render(); this.#changed(); });
     this.awayText = mk('span', null);
@@ -205,8 +206,8 @@ export class Timeline {
     this.body.hidden = agents.length === 0;
     this.axis.hidden = agents.length === 0;
     if (!agents.length) {
-      this.empty.replaceChildren(mk('strong', null, 'No agents yet'),
-        mk('span', null, 'This session has not delegated to a subagent. When it does, each one gets a row here.'));
+      this.empty.replaceChildren(mk('strong', null, t('No agents yet')),
+        mk('span', null, t('This session has not delegated to a subagent. When it does, each one gets a row here.')));
       this.noteEl.hidden = true;
       this.nowLine.hidden = true;
       this.away.hidden = true;
@@ -243,7 +244,7 @@ export class Timeline {
     this.nowLine.hidden = !this.live || !win || nowX < 0 || nowX > width + 1;
     if (!this.nowLine.hidden) {
       this.nowLine.style.left = `${this.labelWidth() + Math.min(nowX, width - 1)}px`;
-      this.nowLine.dataset.label = `now ${clock(now)}`;
+      this.nowLine.dataset.label = `${t('now')} ${clock(now)}`;
     }
 
     // Bars exist, and none of them is in the stretch on screen.
@@ -253,8 +254,8 @@ export class Timeline {
     if (!this.away.hidden) {
       const last = Math.max(...timed.map((n) => n.endedAt ?? n.updatedAt ?? n.startedAt));
       this.awayText.textContent = last < win.from
-        ? `Nothing in this stretch of time. The last activity ended at ${clock(last)}.`
-        : 'Nothing in this stretch of time.';
+        ? t('Nothing in this stretch of time. The last activity ended at {time}.', { time: clock(last) })
+        : t('Nothing in this stretch of time.');
     }
 
     const note = waitNote(this.owned);
@@ -281,7 +282,7 @@ export class Timeline {
         b.style.left = `${at.left}px`;
         b.style.width = `${at.width}px`;
         const node = this.nodes.find((n) => n.id === seg.id);
-        b.setAttribute('aria-label', `${node ? shownType(node) : 'agent'}, ${seg.tone === 'wait' ? 'waiting for you' : (node?.status ?? '')}, ${clock(seg.from)} to ${clock(seg.to)}`);
+        b.setAttribute('aria-label', t('{who}, {state}, {from} to {to}', { who: node ? shownType(node) : t('agent'), state: seg.tone === 'wait' ? t('waiting for you') : (node?.status ?? ''), from: clock(seg.from), to: clock(seg.to) }));
         if (node && this.dimmed(node)) b.classList.add('dim');
         if (seg.id === this.selected) b.classList.add('on');
         b.addEventListener('click', (e) => { e.stopPropagation(); this.#choose(seg.id); });
@@ -300,7 +301,7 @@ export class Timeline {
   #row(r, win, width) {
     if (r.kind === 'more') {
       const row = mk('div', 'tl-row tl-more');
-      const b = mk('button', 'tl-more-btn', `Show ${r.count} more in this ${this.group === 'run' ? 'run' : 'group'}`);
+      const b = mk('button', 'tl-more-btn', this.group === 'run' ? t('Show {n} more in this run', { n: r.count }) : t('Show {n} more in this group', { n: r.count }));
       b.type = 'button';
       b.addEventListener('click', () => { this.expanded.add(r.group); this.render(); });
       const lab = mk('div', 'tl-lab');
@@ -353,7 +354,7 @@ export class Timeline {
       row.addEventListener('click', () => this.#choose(r.id));
       if (r.timed) this.#bars(track, [r.bars], win, width);
       // No start was recorded, so there is nowhere to put a bar; the row says that instead of drawing one at zero.
-      else track.append(mk('span', 'tl-untimed', 'no start time recorded'));
+      else track.append(mk('span', 'tl-untimed', t('no start time recorded')));
       if (r.id === this.selected) row.classList.add('on');
       if (this.dimmed(r.node)) row.classList.add('dim');
     }
@@ -382,7 +383,7 @@ export class Timeline {
     const pill = mk('span', 'pill');
     const dot = mk('span', 'dot');
     dot.dataset.tone = st.tone ?? 'none';
-    pill.append(dot, mk('span', null, st.word ?? 'State not measured'));
+    pill.append(dot, mk('span', null, st.word ?? t('State not measured')));
     const dname = mk('span', 'tl-d-name', shownType(n));
     dname.title = n.agentType ?? '';
     head.append(dname, pill);
@@ -391,36 +392,36 @@ export class Timeline {
     left.append(head, dtask, mk('div', 'sub tl-d-facts', factsOf(n, now, this.hooks.fmt)));
 
     const mid = mk('div', 'tl-d-error');
-    mid.append(mk('div', 'isec-h', 'Last error'));
+    mid.append(mk('div', 'isec-h', t('Last error')));
     const detail = this.hooks.detailOf?.(n);
     if (!detail || detail.loading) {
-      mid.append(mk('div', 'ihint', 'Reading the agent transcript…'));
+      mid.append(mk('div', 'ihint', t('Reading the agent transcript…')));
     } else if (detail.measured === false) {
       const hint = mk('div', 'ihint');
-      hint.append(mk('strong', null, 'Not measured'), mk('div', null, detail.reason || 'no reason given'));
+      hint.append(mk('strong', null, t('Not measured')), mk('div', null, detail.reason || t('no reason given')));
       mid.append(hint);
     } else if (!detail.lastError) {
-      mid.append(mk('div', 'ihint', 'None — no tool call in this agent\'s transcript came back as an error.'));
+      mid.append(mk('div', 'ihint', t('None — no tool call in this agent\'s transcript came back as an error.')));
     } else {
       const e = detail.lastError;
-      const text = mk('pre', 'tl-d-errtext', e.truncated ? `… ${(e.length - e.text.length).toLocaleString('en-US')} earlier characters not shown\n${e.text}` : (e.text || '(no output)'));
+      const text = mk('pre', 'tl-d-errtext', e.truncated ? `${t('… {n} earlier characters not shown', { n: (e.length - e.text.length).toLocaleString(numLocale()) })}\n${e.text}` : (e.text || t('(no output)')));
       const count = detail.errors ?? 0;
-      const facts = [`${count} ${count === 1 ? 'error' : 'errors'}`];
-      if (e.at != null) facts.push(`last at ${clock(e.at, true)}`);
+      const facts = [count === 1 ? t('{n} error', { n: 1 }) : t('{n} errors', { n: count })];
+      if (e.at != null) facts.push(t('last at {time}', { time: clock(e.at, true) }));
       if (e.tool) facts.push(e.tool);
       mid.append(text, mk('div', 'sub', facts.join(' · ')));
     }
 
     const acts = mk('div', 'tl-d-acts');
-    const show = mk('button', 'btn sm primary', 'Show on graph');
+    const show = mk('button', 'btn sm primary', t('Show on graph'));
     show.type = 'button';
     show.addEventListener('click', () => this.hooks.onShowOnGraph?.(n));
-    const open = mk('button', 'btn sm', 'Open conversation');
+    const open = mk('button', 'btn sm', t('Open conversation'));
     open.type = 'button';
     open.addEventListener('click', () => this.hooks.onOpenConversation?.());
     const close = mk('button', 'btn icon sm ghost');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Close');
+    close.setAttribute('aria-label', t('Close'));
     close.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
     close.addEventListener('click', () => this.#choose(n.id));
     acts.append(show, open, close);

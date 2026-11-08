@@ -30,7 +30,7 @@ npx crewforth studio                              # without installing anything
 
 ## Three views of one session
 
-- **Graph**: the delegation in its own shape. The session is on the left, the agents it started are to its right, and a workflow run is one group that folds. A strip above the canvas names what needs attention, and a click goes to it.
+- **Graph**: the delegation in its own shape. In a window with room the session stands in the middle, the agents that build (Backend, Frontend, Database, Test, DevOps, Performance) to its left and every other agent to its right, so a dozen agents are two short columns rather than one long one. A side is decided by the agent's type, so an agent that arrives never moves one already drawn. In a narrow window the session is on the left and every agent to its right. A workflow run is one group that folds. A strip above the canvas names what needs attention, and a click goes to it.
 - **Timeline**: the same agents against the clock, one row each, and a drawer with the selected agent's last error. The time an agent spent waiting for you is drawn only for a session Studio started, and only since the panel started, because that record is kept in memory. For any other session the Timeline says `Not measured: this session's approvals are not seen by Studio` instead of drawing a session in which nobody waited.
 - **List**: the agents sorted by what needs someone. Requests waiting for you come first, then failed and running; done and ended are folded.
 
@@ -52,7 +52,7 @@ Selecting an agent in any view opens the inspector, with four tabs: **Overview**
 
 **A call the model gate refused.** It starts no agent, so it has no card. While the session has not made the call again, the session's card says so on a line of its own (`2 refused by the model gate`), with the agent and the gate's words on hover. A call made again after a refusal carries what was asked first, on the card of the agent that ran.
 
-**What the session spent.** The session's card opens a short table: how long it has run, **Tokens** (new ones: input, output and cache writes), **From cache** (the same context read back, counted apart because it would otherwise be nearly all of the number), and **Cost** for the session and for its agents. Cost is each response's usage at API list price. A session that consulted Claude Code's advisor also shows **Advisor**: how many calls, their tokens and their cost, priced at the advisor model's own rates. The API leaves those tokens out of a response's top-level usage, so they are read from its `iterations` and added to the totals; a session with no call has no such line. A model the price table has no row for has no price: the row then says `No estimate` and names the model, rather than counting it as zero.
+**What the session spent.** The session's card opens a short table: how long it has run, **Tokens** (new ones: input, output and cache writes), **From cache** (the same context read back, counted apart because it would otherwise be nearly all of the number), and **Cost** for the session and for its agents. Click **Cost** to see it per model, and **Agents** to see it per kind of agent (`Backend`, `Test ×2`): new tokens and estimated cost, the most spent first, with the number of runs when a type ran more than once. Cost is each response's usage at API list price. A session that consulted Claude Code's advisor also shows **Advisor**: how many calls, their tokens and their cost, priced at the advisor model's own rates. The API leaves those tokens out of a response's top-level usage, so they are read from its `iterations` and added to the totals; a session with no call has no such line. A model the price table has no row for has no price: the row then says `No estimate` and names the model, rather than counting it as zero.
 
 **What fills its context.** Under the session's name, the card says how many turns it has had, how full its context is (`141k ctx`) and how much of the text in that context since the last compaction is tool output (`55% tool output`, counted in characters from the transcript, not tokens). Hovering it says how many times the session was compacted and the last one's tokens before and after.
 
@@ -137,6 +137,10 @@ Allow is an answer to Claude Code. It does not go around anything:
 ## A narrow window
 
 Below 640 px the panel is one column. The navigator becomes a drawer, the inspector and the conversation each take the whole stage and stop above the dock, and the panel opens on the List, where a request's three answers sit one under the other. The Graph and the Timeline still open, and say `Best on a wider screen`. This is the layout a phone-sized window gets. It was checked in a narrow desktop browser window and on an Android phone over the same Wi-Fi (below).
+
+## Language
+
+The panel is in English unless you choose otherwise. The **TR** button in the top bar, beside the theme button, switches it to Turkish; in Turkish the same button reads **EN** and switches back. The choice is kept in this browser, and the page reloads to apply it. Words the panel writes itself change language. What it shows from elsewhere does not: the conversation, agent and tool names, and the reasons the server gives when something was not measured or failed stay as they were written.
 
 ## Watching from another device
 

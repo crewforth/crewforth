@@ -34,6 +34,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **`/crew-todo` shows the plan as a to-do list under the status line.** The status line ends with the plan's count
+  (`📋 7/12`); the command opens a panel under it and closes it again: the plan's phases and tasks, done ones ticked,
+  open ones boxed, the phase and the task in work marked, cut to a window around the task in work (`CREW_TODO_LINES`).
+  It reads the plan's own boxes (`- [ ]`, `- [x]`, `- [~]` in work) under its headings and never writes the plan;
+  `spec-planning` now gives every task a box and tells whoever works the plan to tick it when its check passes.
+  `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat. The drawing is cached
+  until the plan changes, so a status line refresh starts no process for it.
 - **A compaction no longer loses what the user asked for.** The PreCompact snapshot keeps the user's first and last
   three prompts and the skills used in the session, and gives them back after the compaction, in the same session
   only; secrets and `<private>` text are left out. The `handoff` template carries the user's words, the dead ends
@@ -127,6 +134,11 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio shows what a session it started has changed.** The strip above the conversation says how many files
   changed since the session started (lines added and removed) and how many new files git does not track yet,
   counted against the commit recorded at the start. It is read without git rewriting the index and kept in memory.
+- **Studio speaks Turkish.** The **TR** button in the top bar, beside the theme button, puts the panel in Turkish
+  and **EN** puts it back; English stays the default, and the choice is kept per browser. What Studio shows from
+  elsewhere (the conversation, agent and tool names, a reason the server gave) stays as it was written. The Studio
+  gate fails when a sentence on screen has no Turkish, when a translation is left over, or when the two disagree
+  on a `{slot}`.
 - **`/crew-doctor` names a linked worktree with no `.claude/settings.json`**, where a resumed session runs none of
   Crewforth's hooks. One Claude Code makes under `.claude/worktrees/` is not named: it still runs this checkout's.
 - **`npx crewforth remove` takes Crewforth out of a project.** By default it lists what it would change and changes
@@ -139,6 +151,11 @@ versioning follows [SemVer](https://semver.org/).
   not" precedes it.
   A `CREW_` variable set in the environment that no Crewforth file reads (a typo) is named, and so is a switch that
   takes a whole number set to something else.
+
+- **Studio's summary box says what each kind of agent spent.** Open **Agents** and, as **Cost** does for models, it
+  lists one line per agent type (`Backend`, `Test ×2`, …) with its new tokens and estimated cost, the most spent
+  first; a type that ran more than once shows how many times. Without an agent to break down, the row still opens on
+  the token kinds.
 
 ### Changed
 
@@ -234,6 +251,12 @@ versioning follows [SemVer](https://semver.org/).
   marked user-only (`/crew-interview`, `/crew-approve`, `/crew-pr`…) are left out of the model's skill list, so a
   session asked about `/crew-interview` answered that no such command existed, while the files were in
   `.claude/skills`. The discipline now says so in one sentence and points at `ls .claude/skills`.
+- **An approval refused in a background session now says so.** Claude Code reports a session started with
+  `claude --bg`, or from the agent view, as unattended (`CLAUDE_CODE_SESSION_ATTENDED=0`) even when the user attaches
+  and types into it, so `/crew-approve` was refused with "started with -p, or by a program" and no way on. Measured on
+  2.1.319: a background session and `claude -p` both report 0, and a prompt started by a program in the background is
+  recorded as a human one, so the gate cannot tell them apart and stays closed. The refusal now names the background
+  case and the two ways on: a regular session, or the commit in the user's own terminal.
 - **`adopt` refuses a `settings.json` whose hook entries Claude Code would reject.** Claude Code ignores the whole
   file when one hook entry has the wrong shape, so merging Crewforth's hooks into it installed gates that never ran.
   adopt now names the entries and stops the merge, and the merged result is checked the same way before it is

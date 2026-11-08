@@ -415,8 +415,8 @@ check('prose without a notice yields nothing', none.size === 0);
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page settles what the stream sent against the fleet, and again when the fleet changes its mind',
     /const g = settle\(lastGraph, lastLive\);/.test(appSrc) && /if \(lastGraph && sessionIsLive\(\) !== lastLive\) showGraph\(\);/.test(appSrc)
-    && /isection\('In the background', \.\.\.rows\)/.test(appSrc)
-    && /p\.bg\.textContent = bg \? `\$\{bg\} in background` : '';/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+    && /isection\(t\('In the background'\), \.\.\.rows\)/.test(appSrc)
+    && /p\.bg\.textContent = bg \? t\('\{n\} in background', \{ n: bg \}\) : '';/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -528,10 +528,10 @@ check('prose without a notice yields nothing', none.size === 0);
   dom();
   const cssSrc = read(path.join(WEB_ROOT, 'style.css')) ?? '';
   check('the legend names the wire that is not a call, and it is drawn dotted and still',
-    /line\('inferred', 'after it reported \(inferred, not a call\)'\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
+    /line\('inferred', t\('after it reported \(inferred, not a call\)'\)\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
     && /\.cv-edge\[data-kind="inferred"\] \{[^}]*stroke-dasharray: 1\.5 5;/.test(cssSrc)
     && /\.cv-legend-line\[data-state="inferred"\] \{ border-top: 1\.5px dotted/.test(cssSrc)
-    && /order: 'Order'/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+    && /order: t\('Order'\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
 }
 
 /* Which model each piece of work ran on, and what its call asked for. Two facts, kept apart: the call's own
@@ -675,6 +675,24 @@ check('prose without a notice yields nothing', none.size === 0);
   check('behind the summary\'s cost is each model\'s new tokens and estimate, the most used first',
     withModels.detail[0][0] === 'Opus 5.5' && withModels.detail.map((d) => d[0]).sort().join() === 'Haiku 5.5,Opus 5.5,Sonnet 5.5'
     && /^\d.*\u00b7 [~<]\$/.test(withModels.detail[0][1]), withModels.detail.map((d) => d.join(' ')).join(' | '));
+  // Under "Agents": one line per kind of agent, the same shape as the models under "Cost".
+  const { agentSpendRows } = await import(`../../kit/studio/web/agent-spend.js?mdl=${Date.now()}`);
+  const spendRows = agentSpendRows(g.nodes);
+  const agentNodes = g.nodes.filter((n) => n.kind === 'agent' && n.usage);
+  const types = new Set(agentNodes.map((n) => n.agentType));
+  const freshOf = (v) => { const m = /^([\d.]+)(k?)/.exec(v); return Number(m[1]) * (m[2] ? 1000 : 1); };
+  const agentsRow = wu.summaryRows(g.nodes[0].usage, { agentRows: spendRows }).find((r) => r.label === 'Agents');
+  check('behind the summary\'s agents is each kind of agent\'s new tokens and estimate, the most spent first, a repeated type once with its runs',
+    spendRows.length === types.size && spendRows.length >= 3 && agentsRow.detail === spendRows
+    && /^\d.*\u00b7 [~<]\$/.test(spendRows[0][1]) && spendRows.map((r) => freshOf(r[1])).every((v, i, a) => i === 0 || a[i - 1] >= v)
+    && spendRows.some((r) => /\u00d72$/.test(r[0])) && spendRows.every((r) => !/^crew-/.test(r[0]))
+    && Math.abs(spendRows.reduce((a, r) => a + freshOf(r[1]), 0) - g.nodes[0].usage.parts.agents.tokens.fresh) < 100,
+    spendRows.map((d) => d.join(' ')).join(' | '));
+  check('with no agent to break down, the Agents row keeps the token kinds, and a type with no price makes its line a dash',
+    wu.summaryRows(g.nodes[0].usage).find((r) => r.label === 'Agents').detail[0][0] === 'Input'
+    && agentSpendRows([]).length === 0 && agentSpendRows(null).length === 0 && agentSpendRows([{ kind: 'agent', agentType: 'x' }]).length === 0
+    && agentSpendRows([{ kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: null } },
+      { kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: 1 } }])[0].join() === 'X \u00d72,10 \u00b7 \u2014');
   const cardOf = (block, nodes) => cvo.delegationCard(block, nodes).model;
   check('a delegation card in the conversation says the model: what the call asks for, then what the agent ran on',
     cardOf(cvo.toolBlock({ id: 'zz', name: 'Agent', input: { subagent_type: 'crew-test-expert', model: 'opus' } }), []).asked === 'Opus'
@@ -709,7 +727,7 @@ check('prose without a notice yields nothing', none.size === 0);
   check('the Timeline\'s and the List\'s rows carry the same badge, and the model filter reaches both',
     /mk\('span', 'tl-model',/.test(src('timeline.js')) && /mk\('span', 'sub ls-model',/.test(src('list.js'))
     && /timeline\.setModelFilter\(family\);/.test(src('app.js')) && /canvas\.setModelFilter\(family\);/.test(src('app.js'))
-    && /label: `Only \$\{f\[0\]\.toUpperCase\(\)\}\$\{f\.slice\(1\)\}`/.test(src('app.js')) && /isection\('Model', dl\)/.test(src('app.js')));
+    && /label: t\('Only \{model\}', \{ model: `\$\{f\[0\]\.toUpperCase\(\)\}\$\{f\.slice\(1\)\}` \}\)/.test(src('app.js')) && /isection\(t\('Model'\), dl\)/.test(src('app.js')));
 }
 
 /* Expand all and Fold all. The case this was found on: Graph, "Workflow run", Auto density, a live session whose
@@ -964,7 +982,7 @@ check('prose without a notice yields nothing', none.size === 0);
     /id="tb-reset" data-view="graph map"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
     && /key === 'r'\) \{\s*if \(view === 'graph' \|\| view === 'map'\) resetLayout\(\);/.test(app)
     && /const target = zoomed\(\);\s*const was = target\.resetLayout\(\);/.test(app)
-    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(target\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
+    && /toast\(t\('Layout reset'\), \{ label: t\('Undo'\), run: \(\) => \{ if \(target\.restoreLayout\(was\)\) toast\(t\('Layout restored'\)\); \} \}\);/.test(app));
   const keys = await import(`../../kit/studio/web/keys.js?k=${Date.now()}`);
   const press = (key, extra = {}) => keys.shortcutOf({ key, target: { tagName: 'DIV' }, ...extra });
   check('r is a shortcut only as a bare key outside a field: not while typing, and not as Cmd+R, Ctrl+R or Alt+R',
@@ -1071,7 +1089,7 @@ check('prose without a notice yields nothing', none.size === 0);
   const app = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   const css = (read(path.join(WEB_ROOT, 'style.css')) ?? '');
   check('when Auto has turned cards into chips the Density button says so, and its tooltip says why',
-    /st\.density === 'auto' && st\.drawnAs === 'compact' \? 'Auto \\u00b7 compact'/.test(app) && /fits this pane at \$\{Math\.round\(AUTO\.readable \* 100\)\}%/.test(app));
+    /st\.density === 'auto' && st\.drawnAs === 'compact' \? t\('Auto \\u00b7 compact'\)/.test(app) && /fits this pane at \{pct\}% or larger; choose Comfortable to keep them anyway\.', \{ pct: Math\.round\(AUTO\.readable \* 100\) \}/.test(app));
   check('the canvas plans again when its pane changes size: a window made taller gets its cards back',
     /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.paneResized\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
     && /this\.settleTimer = setTimeout\(\(\) => \{ this\.settleTimer = null; this\.fitIfUntouched\(\); \}, RESIZE_SETTLE_MS\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
@@ -2343,7 +2361,7 @@ check('prose without a notice yields nothing', none.size === 0);
     textClasses.join(', '));
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
-    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\) \}\)\);/.test(appSrc)
+    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\), agentRows: agentSpendRows\(lastNodes\) \}\)\);/.test(appSrc)
     && /else if \(lastLive === true\) paintSpend\(\);/.test(appSrc)
     && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
@@ -3686,7 +3704,7 @@ const chatSrc2 = read(path.join(STUDIO, 'web', 'chat.js')) ?? '';
 check('a resumed pane loads what was said before it',
   /loadHistory/.test(chatSrc2) && /resumedFrom/.test(chatSrc2));
 check('the seam between history and this run is drawn, not implied',
-  /chat-seam/.test(chatSrc2) && /forked from \$\{from/.test(chatSrc2));
+  /chat-seam/.test(chatSrc2) && /forked from \{id\}/.test(chatSrc2));
 check('an observed session is shown but not writable',
   /openReadOnly/.test(chatSrc2) && /readOnly/.test(chatSrc2));
 check('the read-only pane says why it cannot be written to, and what to do instead',
@@ -3839,7 +3857,7 @@ check('the conversation is a column beside the graph, not a drawer under it',
 check('who spoke is read from which side it sits on',
   /\.msg-user\s*\{\s*align-items:\s*flex-end/.test(cssSrc)
   && /\.msg-assistant\s*\{\s*align-items:\s*stretch/.test(cssSrc)
-  && /el\('div', 'msg-role', 'Session'\)/.test(chatSrc2),
+  && /el\('div', 'msg-role', t\('Session'\)\)/.test(chatSrc2),
   'what the viewer wrote is a bubble on the right; what the session said runs the width under its name');
 check('either panel can be collapsed without leaving a gap where it was',
   /\.shell\.no-side/.test(cssSrc) && /\.shell\.no-chat/.test(cssSrc));
@@ -5251,6 +5269,54 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       /canvas\.setAside\(!railBand\.matches\);\s*railBand\.addEventListener\('change', \(\) => canvas\.setAside\(!railBand\.matches\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   }
 
+  /* -- 9b. two sides: the agents that build to the left of the session ---- */
+
+  {
+    const nodes = screenOne();
+    const flat = gp.plan(nodes, { density: 'comfortable' });
+    const two = gp.plan(nodes, { density: 'comfortable', sides: true });
+    const s = at(two, 'session');
+    const builders = ['b', 'd', 'f', 'p'];
+    const others = ['type:session:Explore', 'g', 'wf:audit'];
+    check('in a window with room the agents that build stand to the left of the session, everything else to its right',
+      builders.every((id) => at(two, id).x + at(two, id).w <= s.x) && others.every((id) => at(two, id).x >= s.x + s.w)
+      && two.sides === true && flat.sides === false,
+      `left: ${builders.filter((id) => at(two, id).x < s.x).join(', ')} · right: ${others.filter((id) => at(two, id).x > s.x).join(', ')}`);
+    check('a branch stays on the side its top stands on: a builder\'s child further left, a run member\'s child further right',
+      at(two, 'k1').x + at(two, 'k1').w <= at(two, 'b').x && at(two, 'k2').x >= at(two, 'wf:audit').x + at(two, 'wf:audit').w);
+    const leftWires = two.edges.filter((e) => e.dir === -1);
+    check('a wire on the left leaves the left edge of what spawned it and enters the right edge of the card',
+      leftWires.length === 5 && leftWires.every((e) => e.to.x < e.from.x)
+      && two.edges.filter((e) => e.dir === 1).every((e) => e.to.x > e.from.x)
+      && Math.abs(two.edges.find((e) => e.target === 'b').from.x - s.x) < 1
+      && Math.abs(two.edges.find((e) => e.target === 'b').to.x - (at(two, 'b').x + at(two, 'b').w)) < 1,
+      `${leftWires.length} wires to the left, ${two.edges.length - leftWires.length} to the right`);
+    const shortest = (p) => Math.max(...p.items.map((it) => it.y + it.h));
+    check('two columns of four are shorter than one of eight, and nothing overlaps',
+      overlap(two).length === 0 && shortest(two) < shortest(flat) && two.drawn === flat.drawn,
+      `${shortest(flat)}px in one column, ${shortest(two)}px on two sides`);
+    check('a side is the type\'s, not the count\'s: a builder that arrives later does not move one already drawn',
+      (() => {
+        const seq = gp.sequence(nodes);
+        const before = gp.plan(nodes, { seq, density: 'comfortable', sides: true });
+        const more = [...nodes, A('t9', 'crew-test-expert', { startedAt: 90 })];
+        gp.sequence(more, seq);
+        const after = gp.plan(more, { seq, density: 'comfortable', sides: true, sessionY: before.sessionY });
+        return ['b', 'd', 'f', 'p', 'type:session:Explore', 'g'].every((id) => at(after, id).y === at(before, id).y) && at(after, 't9').x < at(after, 'session').x;
+      })());
+    check('with nobody that builds the picture is what it was: the session on the left, its agents to the right',
+      (() => {
+        const plain = nodes.filter((n) => !['b', 'd', 'f', 'p', 'k1'].includes(n.id));
+        const a = gp.plan(plain, { density: 'comfortable' });
+        const b = gp.plan(plain, { density: 'comfortable', sides: true });
+        return [...boxes(a)].every(([id, xy]) => boxes(b).get(id) === xy);
+      })());
+    check('"Order" keeps its waves left to right: the sides are the tree\'s',
+      gp.plan(nodes.map((n, i) => (n.kind === 'agent' ? { ...n, order: i, wave: i } : n)), { group: 'order', sides: true }).sides === false);
+    check('the window decides: the canvas asks for two sides where an agent group opens beside itself',
+      /aside: this\.aside, sides: this\.aside,/.test(canvasSrc) && /const k = c \* \(e\.dir \?\? 1\);/.test(canvasSrc));
+  }
+
   /* -- 10. the viewer's own arrangement is kept --------------------------- */
 
   {
@@ -6343,7 +6409,7 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
   check('the copy button copies a path the server handed over, and is disabled when there is none',
     /copy\.disabled = !file/.test(appJs) && /transcriptPath: file/.test(read(path.join(STUDIO, 'server', 'lib', 'graph.js')) ?? ''),
     'a path is not assembled from parts in the page');
-  check('a skill chip copies the skill\'s name', /copyText\(s, `Copied \$\{s\}`\)/.test(appJs));
+  check('a skill chip copies the skill\'s name', /copyText\(s, t\('Copied \{text\}', \{ text: s \}\)\)/.test(appJs));
 }
 
 /** Every piece of text under a stub element, for claims about what a built panel says. */
@@ -6519,7 +6585,7 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
         && /continueAs === 'copy'[\s\S]*so Studio starts a copy/.test(chatJs) && /Open it in the desktop app again/.test(chatJs));
     }
     check('the terminal command at the foot is the server\'s, read before anything runs',
-      /\/api\/session\/\$\{encodeURIComponent\(this\.id\)\}\/terminal/.test(chatJs) && /r\?\.plan\?\.line \?\? 'not measured/.test(chatJs));
+      /\/api\/session\/\$\{encodeURIComponent\(this\.id\)\}\/terminal/.test(chatJs) && /r\?\.plan\?\.line \?\? t\('not measured/.test(chatJs));
     check('options are offered on the reply waiting for an answer, not on the history',
       /this\.renderMessage\(m, \{ quick: false \}\)/.test(chatJs) && /if \(quick && !this\.readOnly\)/.test(chatJs)
       && /Clicking an option sends it as your reply\./.test(chatJs));
@@ -6576,7 +6642,7 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
       ns.projectChoices(projects, 'a').find((p) => p.initial).key === 'a');
     check('the branch is named only when the server read one',
       ns.runsIn(pc[0]).branch === 'feat/x' && ns.runsIn(pc[1]).branch === null && ns.runsIn(null) === null
-      && /if \(r\.branch\) parts\.push\(' on branch '/.test(web('newsession.js')));
+      && /r\.branch\s*\? tParts\('Runs in \{path\} on branch \{branch\}\.'/.test(web('newsession.js')));
 
     /* -- 7. two clicks, one session ------------------------------------------------ */
 
@@ -7085,7 +7151,7 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   check('a toolbar that gives up Group, Density, Show, Expand and Fold gives them up only together with a menu that holds them',
     optBase > 0 && optShown > optBase
     && /\.toolbar:is\(\[data-fit="2"\], \[data-fit="3"\]\) :is\(#tb-group, #tb-density, #tb-show, #tb-expand, #tb-fold\) \{ display: none; \}\s*\.toolbar:is\(\[data-fit="2"\], \[data-fit="3"\]\) #tb-options \{ display: inline-flex; \}/.test(css34)
-    && /el\.tbOptions\.addEventListener\('click'/.test(appJs) && /\{ label: 'Expand all', run: \(\) => canvas\.expandAll\(\) \}/.test(appJs),
+    && /el\.tbOptions\.addEventListener\('click'/.test(appJs) && /\{ label: t\('Expand all'\), run: \(\) => canvas\.expandAll\(\) \}/.test(appJs),
     'the rule that hides the menu comes before the one that shows it: the other way round it never appeared');
 
   // The steps were widths in the stylesheet (880, 760, 520 px), and the first was a guess that was 200 px low:
@@ -7421,6 +7487,130 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     /reason: restartNote \?\? e\.message/.test(appSrc) && /restartNote = staleServerNote\(h\);/.test(appSrc)
     && /if \(view === 'map'\) loadMap\(true\)/.test(appSrc)
     && /\.stage-note\[data-kind="restart"\] \.stage-note-text \{ white-space: normal; \}/.test(cssSrc));
+}
+
+/* ------------------------------------------------- §35 the panel's language ---
+   English is the panel's own; Turkish is a choice. The English sentence is the key (web/i18n.js), so a sentence
+   nobody translated still reads — in English, in a Turkish panel. That fallback is what makes a missing entry
+   invisible, so the coverage is asserted here and not trusted to the screen: every t('…') in web/, every word of
+   index.html, nothing left over in the dictionary, and the same {slots} on both sides. */
+
+process.stdout.write('\n== §35 the panel\'s language ==\n');
+{
+  const i18n = await import('../../kit/studio/web/i18n.js');
+  const { TR } = await import('../../kit/studio/web/i18n-tr.js');
+  // A t( or tParts( that is not a method of something else; spread (`...tParts(`) counts.
+  const CALL = /(?<![\w$])(?<!\w\.)t(?:Parts)?\(\s*(?:(['"`])((?:\\.|(?!\1)[^\\])*)\1)?/g;
+  const keysOf = (src) => {
+    const keys = []; const dynamic = [];
+    for (const m of src.matchAll(CALL)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      if (!m[1] || (m[1] === '`' && m[2].includes('${'))) { dynamic.push(`${line}: ${src.slice(m.index, m.index + 50)}`); continue; }
+      keys.push(Function(`return ${m[1]}${m[2]}${m[1]}`)());
+    }
+    return { keys, dynamic };
+  };
+  // Names and values JS overwrites at once are not words to translate.
+  const KEEP = new Set(['Crewforth', 'Studio', '15m', '100%']);
+  const htmlWords = (html) => {
+    const body = html.slice(html.indexOf('<body')).replace(/<script[\s\S]*?<\/script>/g, '');
+    const out = new Set();
+    for (const m of body.matchAll(/\s(?:aria-label|title|placeholder)="([^"]+)"/g)) out.add(m[1]);
+    for (const m of body.matchAll(/>([^<]+)</g)) { const w = m[1].trim(); if (w) out.add(w); }
+    return [...out].filter((w) => !KEEP.has(w));
+  };
+  const slots = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort().join();
+  const audit = (sources, html, dict) => {
+    const used = new Map(); const dynamic = [];
+    for (const [f, src] of sources) {
+      const r = keysOf(src);
+      for (const k of r.keys) used.set(k, f);
+      for (const d of r.dynamic) dynamic.push(`${f}:${d}`);
+    }
+    const words = htmlWords(html);
+    return {
+      used, words, dynamic,
+      missing: [...used].filter(([k]) => !Object.hasOwn(dict, k)).map(([k, f]) => `${f}: ${k}`),
+      htmlMissing: words.filter((w) => !Object.hasOwn(dict, w)),
+      extra: Object.keys(dict).filter((k) => !used.has(k) && !words.includes(k)),
+      slotsDiffer: Object.entries(dict).filter(([k, v]) => slots(k) !== slots(v)).map(([k]) => k),
+      empty: Object.entries(dict).filter(([, v]) => typeof v !== 'string' || !v.trim()).map(([k]) => k),
+    };
+  };
+  const webJs = walk(WEB_ROOT).filter((f) => f.endsWith('.js') && !/[\\/]i18n(-tr)?\.js$/.test(f))
+    .map((f) => [path.relative(WEB_ROOT, f), read(f) ?? '']);
+  const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+  const a = audit(webJs, html, TR);
+  // The set read against the set that has to be read: a file that renders words and is not scanned is a blind spot.
+  const mustScan = ['app.js', 'canvas.js', 'chat.js', 'map.js', 'timeline.js', 'list.js', 'dock.js', 'models.js', 'newsession.js', 'nav.js'];
+  const unscanned = mustScan.filter((f) => !webJs.some(([n]) => n === f));
+  check('the language audit reads every script of the panel that renders words',
+    unscanned.length === 0 && webJs.length >= 25, unscanned.length ? `not read: ${unscanned.join(', ')}` : `${webJs.length} scripts`);
+  check('every sentence the scripts put on screen has its Turkish',
+    a.used.size > 600 && a.missing.length === 0, a.missing.length ? a.missing.slice(0, 8).join(' · ') : `${a.used.size} of ${a.used.size} sentences`);
+  check('every word of index.html has its Turkish, names and values set at run time aside',
+    a.words.length > 40 && a.htmlMissing.length === 0, a.htmlMissing.length ? a.htmlMissing.join(' · ') : `${a.words.length} of ${a.words.length}`);
+  check('nothing in the dictionary is left over from a sentence that is gone',
+    a.extra.length === 0, a.extra.length ? a.extra.slice(0, 8).join(' · ') : `${Object.keys(TR).length} entries, every one in use`);
+  check('every key is written out where it is used, so the audit can read it: no t() of a variable or a template',
+    a.dynamic.length === 0, a.dynamic.slice(0, 5).join(' · '));
+  check('the Turkish has the same {slots} as the English, and none is empty',
+    a.slotsDiffer.length === 0 && a.empty.length === 0, [...a.slotsDiffer, ...a.empty].slice(0, 5).join(' · '));
+
+  // Calibration: inputs whose answer is known before the audit runs.
+  const twin = audit([['x.js', "const a = t('Known'); const b = t('Not in it'); const c = t(word); const d = t(`Hi ${n}`); const e = obj.t('a method');"
+    + " parts.push(...tParts('Spread {x}', { x }));"]],
+    '<body><button aria-label="Known">Keep me</button><span>Studio</span></body>', { Known: 'Bilinen', 'Spread {x}': 'Yayılmış {x}', Gone: 'Gitti', 'Two {a}': 'İki' });
+  check('twin: a missing sentence, a word of the page, a leftover entry and a slot that differs are each caught',
+    twin.missing.join() === 'x.js: Not in it' && twin.htmlMissing.join() === 'Keep me' && twin.extra.join() === 'Gone,Two {a}'
+    && twin.slotsDiffer.join() === 'Two {a}', JSON.stringify({ m: twin.missing, h: twin.htmlMissing, e: twin.extra, s: twin.slotsDiffer }));
+  check('twin: a key the audit cannot read is caught, a method called t is not a key, and a spread tParts is read',
+    twin.dynamic.length === 2 && twin.used.has('Spread {x}') && !twin.used.has('a method'), twin.dynamic.join(' · '));
+
+  // What t() does.
+  i18n.setLang('en');
+  const enSaid = i18n.t('Reconnecting in {n}s', { n: 4 });
+  i18n.setLang('tr');
+  const trSaid = i18n.t('Reconnecting in {n}s', { n: 4 });
+  const fallback = i18n.t('A sentence nobody wrote down', { n: 1 });
+  const parts = i18n.tParts('Runs in {path} on branch {branch}.', { path: 'P', branch: 'B' });
+  check('English by default, Turkish when chosen, {slots} filled, and a sentence with no entry still reads in English',
+    enSaid === 'Reconnecting in 4s' && trSaid === '4 sn sonra yeniden denenecek' && fallback === 'A sentence nobody wrote down'
+    && i18n.numLocale() === 'tr-TR', JSON.stringify([enSaid, trSaid, fallback]));
+  check('tParts puts the nodes where the Turkish sentence has them, not where the English one did',
+    JSON.stringify(parts) === JSON.stringify(['P', ' içinde, ', 'B', ' dalında çalışır.']), JSON.stringify(parts));
+  // index.html put into Turkish: a text node, its surrounding spaces kept, and the three attributes a reader meets.
+  const mkEl = (attrs, texts) => ({
+    attrs: { ...attrs },
+    getAttribute(k) { return this.attrs[k] ?? null; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    childNodes: texts.map((v) => ({ nodeType: 3, nodeValue: v })),
+  });
+  const btn = mkEl({ 'aria-label': 'Graph view', title: 'Not a key' }, ['\n  ', ' Graph ']);
+  const input = mkEl({ placeholder: 'Search projects and sessions' }, []);
+  let langSet = null;
+  const root = { querySelectorAll: () => [btn, input], ownerDocument: { documentElement: { setAttribute: (k, v) => { langSet = `${k}=${v}`; } } } };
+  i18n.translateDom(root);
+  check('the page in Turkish: words and labels replaced, spaces kept, what is not a key left alone, and <html lang> said',
+    btn.attrs['aria-label'] === 'Grafik görünümü' && btn.attrs.title === 'Not a key' && btn.childNodes[1].nodeValue === ' Grafik '
+    && input.attrs.placeholder === 'Proje ve oturum ara' && langSet === 'lang=tr', JSON.stringify([btn.attrs, btn.childNodes[1].nodeValue, langSet]));
+  // The button: it names the language it goes to, remembers it, and reloads; storage that refuses costs only the memory.
+  const stored = new Map();
+  const lsOk = { setItem: (k, v) => stored.set(k, v) };
+  const lsNo = { setItem: () => { throw new Error('blocked'); } };
+  const fakeBtn = () => { const b = { attrs: {}, title: '', textContent: '', handlers: [], setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(e, f) { this.handlers.push(f); } }; return b; };
+  let reloads = 0;
+  const b1 = fakeBtn(); i18n.initLang(b1, lsOk, () => { reloads += 1; }); b1.handlers.forEach((f) => f());
+  const b2 = fakeBtn(); i18n.initLang(b2, lsNo, () => { reloads += 1; }); b2.handlers.forEach((f) => f());
+  i18n.setLang('en');
+  const b3 = fakeBtn(); i18n.initLang(b3, lsOk, () => {});
+  check('the language button names where it goes in that language, remembers it, and reloads; a blocked storage still reloads',
+    b1.textContent === 'EN' && b1.attrs['aria-label'] === 'English' && stored.get(i18n.LANG_KEY) === 'en' && reloads === 2
+    && b3.textContent === 'TR' && b3.attrs['aria-label'] === 'Türkçe', JSON.stringify({ b1: b1.textContent, b3: b3.textContent, reloads, stored: [...stored] }));
+  i18n.setLang('en');
+  check('the panel starts the language before anything is drawn, and the button is in the bar',
+    /<button id="lang" [^>]*aria-label="Switch language"/.test(html)
+    && /translateDom\(document\.body\);\s*initLang\(document\.getElementById\('lang'\), themeStorage, \(\) => location\.reload\(\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
 }
 
 process.stdout.write(`${pass}/${pass + fail} assertions passed`

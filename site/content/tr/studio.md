@@ -30,7 +30,7 @@ npx crewforth studio                              # hiçbir şey kurmadan
 
 ## Tek oturum, üç görünüm
 
-- **Graph**: delegasyon kendi biçimiyle. Oturum solda, başlattığı ajanlar sağında; bir workflow koşusu, katlanabilen tek bir grup. Tuvalin üstündeki şerit ilgi isteyeni adıyla yazıyor, tıklayınca oraya gidiliyor.
+- **Graph**: delegasyon kendi biçimiyle. Geniş bir pencerede oturum ortada duruyor: geliştiren ajanlar (Backend, Frontend, Database, Test, DevOps, Performance) solunda, geri kalan her ajan sağında; böylece bir düzine ajan tek uzun sütun değil, iki kısa sütun oluyor. Taraf ajanın türüne göre belirleniyor, yani yeni gelen bir ajan önceden çizilmiş olanı hiç kaydırmıyor. Dar bir pencerede oturum solda, bütün ajanlar sağında. Bir workflow koşusu, katlanabilen tek bir grup. Tuvalin üstündeki şerit ilgi isteyeni adıyla yazıyor, tıklayınca oraya gidiliyor.
 - **Timeline**: aynı ajanlar saate karşı, her birine bir satır; seçili ajanın son hatası alttaki çekmecede. Bir ajanın sizi beklediği süre yalnızca Studio'nun başlattığı oturumda ve yalnızca panel açıldığından beri çiziliyor, çünkü o kayıt bellekte tutuluyor. Başka her oturumda Timeline, kimsenin beklemediği bir oturum çizmek yerine `Not measured: this session's approvals are not seen by Studio` yazıyor.
 - **List**: ajanlar, kime ihtiyaç olduğuna göre sıralı. Önce sizi bekleyen istekler, sonra düşenler ve çalışanlar; bitenler ve sona erenler katlı duruyor.
 
@@ -52,7 +52,7 @@ Hangi görünümde olursa olsun bir ajanı seçmek inspector'ı açıyor. Dört 
 
 **Model kapısının reddettiği çağrı.** Hiç ajan başlatmaz, bu yüzden kartı yoktur. Oturum çağrıyı yeniden yapmadıkça oturumun kartı bunu kendi satırında söyler (`2 refused by the model gate`); üstüne gelince ajan ve kapının cümlesi görünür. Retten sonra yeniden yapılan çağrı, ilk istenen modeli koşan ajanın kartında taşır.
 
-**Oturumun harcadığı.** Oturumun kartı kısa bir tablo açıyor: ne kadardır koştuğu, **Tokens** (yeni olanlar: girdi, çıktı ve önbelleğe yazılanlar), **From cache** (geri okunan aynı bağlam; ayrı sayılıyor, çünkü yoksa sayının neredeyse tamamı o olurdu) ve oturum ile ajanları için **Cost**. Maliyet, her cevabın kullanımının API liste fiyatıyla karşılığı. Claude Code'un advisor'ına danışmış bir oturum ayrıca **Advisor** satırını gösteriyor: kaç çağrı, token'ları ve maliyetleri; maliyet advisor modelinin kendi fiyatıyla. API bu token'ları yanıtın üst düzey kullanımına katmıyor, bu yüzden `iterations` alanından okunup toplamlara ekleniyor; hiç çağrı olmayan oturumda böyle bir satır yok. Fiyat tablosunda satırı olmayan bir modelin fiyatı yok: satır o zaman onu sıfır saymak yerine `No estimate` yazıyor ve modelin adını veriyor.
+**Oturumun harcadığı.** Oturumun kartı kısa bir tablo açıyor: ne kadardır koştuğu, **Tokens** (yeni olanlar: girdi, çıktı ve önbelleğe yazılanlar), **From cache** (geri okunan aynı bağlam; ayrı sayılıyor, çünkü yoksa sayının neredeyse tamamı o olurdu) ve oturum ile ajanları için **Cost**. **Cost**'a tıklayınca model başına, **Agents**'a tıklayınca ajan türü başına (`Backend`, `Test ×2`) döküm açılıyor: yeni token'lar ve tahmini maliyet, en çok harcayan başta; bir tür birden çok koştuysa kaç kez koştuğu da yazıyor. Maliyet, her cevabın kullanımının API liste fiyatıyla karşılığı. Claude Code'un advisor'ına danışmış bir oturum ayrıca **Advisor** satırını gösteriyor: kaç çağrı, token'ları ve maliyetleri; maliyet advisor modelinin kendi fiyatıyla. API bu token'ları yanıtın üst düzey kullanımına katmıyor, bu yüzden `iterations` alanından okunup toplamlara ekleniyor; hiç çağrı olmayan oturumda böyle bir satır yok. Fiyat tablosunda satırı olmayan bir modelin fiyatı yok: satır o zaman onu sıfır saymak yerine `No estimate` yazıyor ve modelin adını veriyor.
 
 **Bağlamını ne dolduruyor.** Kart, oturumun adının altında kaç tur sürdüğünü, bağlamının ne kadar dolu olduğunu (`141k ctx`) ve son sıkıştırmadan bu yana o bağlamdaki metnin ne kadarının araç çıktısı olduğunu söylüyor (`55% tool output`; token değil, transcript'ten karakterle sayılıyor). Üzerine gelince oturumun kaç kez sıkıştırıldığını ve sonuncusunun önceki ve sonraki token sayısını gösteriyor.
 
@@ -137,6 +137,10 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 ## Dar pencere
 
 640 px'in altında panel tek sütun. Gezgin bir çekmeceye dönüşüyor, inspector ve konuşma sahnenin tamamını alıp dock'un üstünde bitiyor ve panel List ile açılıyor; orada bir isteğin üç cevabı alt alta duruyor. Graph ve Timeline yine açılıyor ve `Best on a wider screen` diyor. Telefon boyutundaki bir pencerenin aldığı düzen bu. Dar bir masaüstü tarayıcı penceresinde ve aynı Wi-Fi'daki bir Android telefonda denendi (aşağıda).
+
+## Dil
+
+Panel, siz değiştirmedikçe İngilizce açılıyor. Üst çubukta, tema düğmesinin yanındaki **TR** düğmesi paneli Türkçeye çeviriyor; Türkçede aynı düğme **EN** yazıyor ve geri döndürüyor. Seçim bu tarayıcıda saklanıyor ve sayfa uygulamak için yeniden yükleniyor. Panelin kendi yazdığı her şey dil değiştiriyor. Başka yerden gösterdikleri değiştirmiyor: konuşma, ajan ve araç adları ve bir şey ölçülemediğinde ya da başarısız olduğunda sunucunun verdiği sebepler yazıldıkları dilde kalıyor.
 
 ## Başka bir cihazdan izlemek
 
