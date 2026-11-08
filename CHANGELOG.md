@@ -140,6 +140,11 @@ versioning follows [SemVer](https://semver.org/).
   A `CREW_` variable set in the environment that no Crewforth file reads (a typo) is named, and so is a switch that
   takes a whole number set to something else.
 
+- **Studio's summary box says what each kind of agent spent.** Open **Agents** and, as **Cost** does for models, it
+  lists one line per agent type (`Backend`, `Test ×2`, …) with its new tokens and estimated cost, the most spent
+  first; a type that ran more than once shows how many times. Without an agent to break down, the row still opens on
+  the token kinds.
+
 ### Changed
 
 - **`dependency-audit` asks which registry answers an internal name** (scope mappings, `--index-url` against

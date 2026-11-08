@@ -675,6 +675,24 @@ check('prose without a notice yields nothing', none.size === 0);
   check('behind the summary\'s cost is each model\'s new tokens and estimate, the most used first',
     withModels.detail[0][0] === 'Opus 5.5' && withModels.detail.map((d) => d[0]).sort().join() === 'Haiku 5.5,Opus 5.5,Sonnet 5.5'
     && /^\d.*\u00b7 [~<]\$/.test(withModels.detail[0][1]), withModels.detail.map((d) => d.join(' ')).join(' | '));
+  // Under "Agents": one line per kind of agent, the same shape as the models under "Cost".
+  const { agentSpendRows } = await import(`../../kit/studio/web/agent-spend.js?mdl=${Date.now()}`);
+  const spendRows = agentSpendRows(g.nodes);
+  const agentNodes = g.nodes.filter((n) => n.kind === 'agent' && n.usage);
+  const types = new Set(agentNodes.map((n) => n.agentType));
+  const freshOf = (v) => { const m = /^([\d.]+)(k?)/.exec(v); return Number(m[1]) * (m[2] ? 1000 : 1); };
+  const agentsRow = wu.summaryRows(g.nodes[0].usage, { agentRows: spendRows }).find((r) => r.label === 'Agents');
+  check('behind the summary\'s agents is each kind of agent\'s new tokens and estimate, the most spent first, a repeated type once with its runs',
+    spendRows.length === types.size && spendRows.length >= 3 && agentsRow.detail === spendRows
+    && /^\d.*\u00b7 [~<]\$/.test(spendRows[0][1]) && spendRows.map((r) => freshOf(r[1])).every((v, i, a) => i === 0 || a[i - 1] >= v)
+    && spendRows.some((r) => /\u00d72$/.test(r[0])) && spendRows.every((r) => !/^crew-/.test(r[0]))
+    && Math.abs(spendRows.reduce((a, r) => a + freshOf(r[1]), 0) - g.nodes[0].usage.parts.agents.tokens.fresh) < 100,
+    spendRows.map((d) => d.join(' ')).join(' | '));
+  check('with no agent to break down, the Agents row keeps the token kinds, and a type with no price makes its line a dash',
+    wu.summaryRows(g.nodes[0].usage).find((r) => r.label === 'Agents').detail[0][0] === 'Input'
+    && agentSpendRows([]).length === 0 && agentSpendRows(null).length === 0 && agentSpendRows([{ kind: 'agent', agentType: 'x' }]).length === 0
+    && agentSpendRows([{ kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: null } },
+      { kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: 1 } }])[0].join() === 'X \u00d72,10 \u00b7 \u2014');
   const cardOf = (block, nodes) => cvo.delegationCard(block, nodes).model;
   check('a delegation card in the conversation says the model: what the call asks for, then what the agent ran on',
     cardOf(cvo.toolBlock({ id: 'zz', name: 'Agent', input: { subagent_type: 'crew-test-expert', model: 'opus' } }), []).asked === 'Opus'
@@ -2343,7 +2361,7 @@ check('prose without a notice yields nothing', none.size === 0);
     textClasses.join(', '));
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
-    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\) \}\)\);/.test(appSrc)
+    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\), agentRows: agentSpendRows\(lastNodes\) \}\)\);/.test(appSrc)
     && /else if \(lastLive === true\) paintSpend\(\);/.test(appSrc)
     && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
