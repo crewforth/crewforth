@@ -30,7 +30,7 @@ npx crewforth studio                              # hiçbir şey kurmadan
 
 ## Tek oturum, üç görünüm
 
-- **Graph**: delegasyon kendi biçimiyle. Oturum solda, başlattığı ajanlar sağında; bir workflow koşusu, katlanabilen tek bir grup. Tuvalin üstündeki şerit ilgi isteyeni adıyla yazıyor, tıklayınca oraya gidiliyor.
+- **Graph**: delegasyon kendi biçimiyle. Geniş bir pencerede oturum ortada duruyor: geliştiren ajanlar (Backend, Frontend, Database, Test, DevOps, Performance) solunda, geri kalan her ajan sağında; böylece bir düzine ajan tek uzun sütun değil, iki kısa sütun oluyor. Taraf ajanın türüne göre belirleniyor, yani yeni gelen bir ajan önceden çizilmiş olanı hiç kaydırmıyor. Dar bir pencerede oturum solda, bütün ajanlar sağında. Bir workflow koşusu, katlanabilen tek bir grup. Tuvalin üstündeki şerit ilgi isteyeni adıyla yazıyor, tıklayınca oraya gidiliyor.
 - **Timeline**: aynı ajanlar saate karşı, her birine bir satır; seçili ajanın son hatası alttaki çekmecede. Bir ajanın sizi beklediği süre yalnızca Studio'nun başlattığı oturumda ve yalnızca panel açıldığından beri çiziliyor, çünkü o kayıt bellekte tutuluyor. Başka her oturumda Timeline, kimsenin beklemediği bir oturum çizmek yerine `Not measured: this session's approvals are not seen by Studio` yazıyor.
 - **List**: ajanlar, kime ihtiyaç olduğuna göre sıralı. Önce sizi bekleyen istekler, sonra düşenler ve çalışanlar; bitenler ve sona erenler katlı duruyor.
 
