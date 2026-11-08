@@ -230,6 +230,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A session no longer tells the user that a command is not installed when it only cannot see it.** The commands
+  marked user-only (`/crew-interview`, `/crew-approve`, `/crew-pr`…) are left out of the model's skill list, so a
+  session asked about `/crew-interview` answered that no such command existed, while the files were in
+  `.claude/skills`. The discipline now says so in one sentence and points at `ls .claude/skills`.
 - **`adopt` refuses a `settings.json` whose hook entries Claude Code would reject.** Claude Code ignores the whole
   file when one hook entry has the wrong shape, so merging Crewforth's hooks into it installed gates that never ran.
   adopt now names the entries and stops the merge, and the merged result is checked the same way before it is
