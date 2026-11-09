@@ -197,6 +197,10 @@ versioning follows [SemVer](https://semver.org/).
   one tall column beside an empty half of the pane becomes two short ones. The side follows the agent's type, never
   the count, so an agent that arrives moves nothing already drawn. A narrow window keeps the left-to-right tree, and
   **Order** keeps its waves.
+- **Studio's graph puts Claude Code's own agents at the bottom of their column.** General Purpose, Explore and every
+  other agent drawn with the Claude mark stand below Crewforth's agents, whichever was called first; a Crewforth
+  agent that arrives later goes above them. Only what the session called is reordered: a run's members and an
+  agent's children keep their order.
 - **Frontend work checks more of what users hit.** `a11y` separates criteria from conventions (a failed A/AA
   criterion is a finding, AAA or a 44 px target a recommendation), adds a skip link, flashing, an error summary and
   positive `tabindex`, a table of patterns to grep before finishing, and recipes for focus, forms and which
