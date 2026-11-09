@@ -104,6 +104,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
   local s="$1"; shift
   if [ "$CREW_LANG" = tr ]; then
     case "$s" in
+      "Verify commands an agent may run, read from the project: %s (delete a line of .claude/crew-model-rules to take one back)") s="Ajanların doğrulama komutu olarak çalıştırabileceği proje komutları: %s (birini geri almak için .claude/crew-model-rules dosyasındaki satırını silin)" ;;
       "Crewforth · setup wizard") s='Crewforth · kurulum' ;;
       "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost).") s="Durum satırı: Crewforth'unki (kapının son sözü, geçerli onay, crew ajanları, doluluk, maliyet)." ;;
       "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor).") s="Durum satırı: seninki korundu; Crewforth'unki tek komutla açılır (/crew-doctor'a bak)." ;;
@@ -711,6 +712,14 @@ cp "$SRC/README.md"         .claude/ 2>/dev/null || true
 } > .claude/kit.conf
 # The organisation's preset, now that .claude/ is in place (checked above): a block at the top of crew-model-rules.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
+# The project's own test, lint and type-check commands become `verify` lines of .claude/crew-model-rules
+# (eval/lib/verify-detect.sh), so an agent's verify command runs them from the first card on; the user is told which,
+# here, and takes one back by deleting its line. One already added once is not added again after it was deleted.
+if [ -f .claude/eval/lib/verify-detect.sh ] && [ -f .claude/eval/lib/verify-cmd.sh ]; then
+  _VD_ADDED=""
+  . .claude/eval/lib/verify-cmd.sh && . .claude/eval/lib/verify-detect.sh && crew_verify_detect_apply . 2>/dev/null
+  [ -n "$_VD_ADDED" ] && { _mt 'Verify commands an agent may run, read from the project: %s (delete a line of .claude/crew-model-rules to take one back)' "$_VD_ADDED"; echo "  ${_M}"; }
+fi
 
 # Discipline (kit-owned, refreshed on every update) vs project section (yours, written once), joined by @import.
 kit_require_sentinel "$SRC/CLAUDE.md"

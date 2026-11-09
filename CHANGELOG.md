@@ -159,6 +159,16 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **An agent's verify command runs without the user having to know a command for it.** On a real project
+  (3.5.0-rc.2) 22 of 56 agents finished with their verify not run, 21 of them because the command was a chain
+  (`cd web && npm run lint && npm test`, `uv run ruff check . && uv run pytest -q`). Steps joined by ` && ` now run in
+  order, each judged alone as one command was before, a `cd <folder>` moving inside the project; `;`, `||`, `|` and a
+  step no rule allows still stop it before anything runs. The installer reads the project's own test, lint and
+  type-check commands (`package.json` scripts and tools, `pyproject.toml` through uv or poetry, `go.mod`,
+  `Cargo.toml`, .NET, Flutter) and adds them as `verify` lines of `.claude/crew-model-rules`, says which in one line,
+  and does not put back a line the user deleted. A step still allowed by no rule is said to the user once a session,
+  with the `/crew-allow-verify` message that allows it and the rule that covers the next card too
+  (`uv run pytest`, not one test file). The agent still cannot allow its own command.
 - **`dependency-audit` asks which registry answers an internal name** (scope mappings, `--index-url` against
   `--extra-index-url`, NuGet source mapping, `GOPRIVATE`, image digests), names a registry config committed in the
   repository, and checks each new package against the popular name one edit away.
