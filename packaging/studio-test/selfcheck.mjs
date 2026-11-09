@@ -7869,6 +7869,73 @@ process.stdout.write('\n== §35 the panel\'s language ==\n');
     && /endCont\.hidden = r\?\.continueAs !== 'copy';/.test(chatSrc) && /offerEnd\(button, row, name, \(\) => continueHere\(button, id\)\)/.test(appSrc));
 }
 
+/* ------------------------------------- §36 a redraw keeps the reader's place ---
+   The inspector, the List and the Timeline drawer are built again on every live frame. A box that scrolls is a
+   new element each time; before this it started at the top again, so reading down a transcript while a session
+   worked threw the reader back to the start every second. */
+
+process.stdout.write('\n== §36 a redraw keeps the reader\'s place ==\n');
+
+{
+  const ks = await import(`../../kit/studio/web/keep-scroll.js?t=${Date.now()}`);
+  const box = (cls, kids = [], tag = 'div') => ({ tagName: tag.toUpperCase(), className: cls, children: kids, scrollTop: 0, scrollLeft: 0, dataset: {} });
+  // The inspector as it is drawn: a head, the task, the tabs, the body that scrolls, and a scrolling block inside it.
+  const frame = () => {
+    const pre = box('tool-out', [], 'pre');
+    const body = box('ibody', [box('isec'), box('isec', [pre])]);
+    return { head: box('ihead'), task: box('itask'), tabs: box('itabs'), body, pre };
+  };
+  const root = box('inspector');
+  const draw = (f) => { root.children = [f.head, f.task, f.tabs, f.body]; };
+  const a = frame(); draw(a);
+  a.body.scrollTop = 840; a.pre.scrollTop = 60; a.task.scrollLeft = 12;
+  root.dataset.scrollView = 'agent:a1|conversation';
+  const b = frame();
+  ks.keepScroll(root, () => draw(b), 'agent:a1|conversation');
+  check('a live redraw of the same node and tab puts the body, a block inside it and the task back where they were',
+    root.children[3] === b.body && b.body.scrollTop === 840 && b.pre.scrollTop === 60 && b.task.scrollLeft === 12,
+    JSON.stringify({ body: b.body.scrollTop, pre: b.pre.scrollTop, task: b.task.scrollLeft }));
+
+  const c = frame();
+  ks.keepScroll(root, () => draw(c), 'agent:a2|conversation');
+  check('another node is a new page: it starts at the top', c.body.scrollTop === 0 && c.pre.scrollTop === 0
+    && root.dataset.scrollView === 'agent:a2|conversation', JSON.stringify({ body: c.body.scrollTop, view: root.dataset.scrollView }));
+
+  c.body.scrollTop = 300;
+  const d = frame();
+  ks.keepScroll(root, () => draw(d), 'agent:a2|overview');
+  check('another tab of the same node starts at the top too', d.body.scrollTop === 0, String(d.body.scrollTop));
+
+  // A box found by class and place among its siblings: a hint that appears above the body does not move the body's key.
+  d.body.scrollTop = 500;
+  const e = frame();
+  ks.keepScroll(root, () => { root.children = [e.head, e.task, box('ihint'), e.tabs, e.body]; }, 'agent:a2|overview');
+  check('a line that appears above the scrolling body does not lose its place', e.body.scrollTop === 500, String(e.body.scrollTop));
+
+  // A box that is gone after the redraw is left alone, and nothing throws.
+  e.body.scrollTop = 200;
+  const f = frame();
+  let threw = null;
+  try { ks.keepScroll(root, () => { root.children = [f.head, f.task, f.tabs]; }, 'agent:a2|overview'); } catch (err) { threw = err.message; }
+  check('a box missing after the redraw is skipped, without an error', threw === null && f.body.scrollTop === 0, threw ?? 'ok');
+
+  // A view not named keeps its places always: the List and its rows.
+  const list = box('ls', [box('ls-sec', [box('ls-cmd', [], 'pre')])]);
+  list.scrollTop = 410; list.children[0].children[0].scrollTop = 30;
+  ks.keepScroll(list, () => { list.children = [box('ls-sec', [box('ls-cmd', [], 'pre')])]; });
+  check('the List keeps its own place and a long command\'s place across a redraw',
+    list.scrollTop === 410 && list.children[0].children[0].scrollTop === 30,
+    JSON.stringify({ list: list.scrollTop, cmd: list.children[0].children[0].scrollTop }));
+
+  const appJs = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const listJs = read(path.join(WEB_ROOT, 'list.js')) ?? '';
+  const tlJs = read(path.join(WEB_ROOT, 'timeline.js')) ?? '';
+  check('the inspector, the List and the Timeline drawer each redraw through keepScroll',
+    /keepScroll\(el\.inspector, \(\) => el\.inspector\.replaceChildren\(/.test(appJs)
+    && /keepScroll\(this\.root, \(\) => this\.root\.replaceChildren\(/.test(listJs)
+    && /keepScroll\(this\.drawer, \(\) => this\.drawer\.replaceChildren\(/.test(tlJs));
+}
+
 process.stdout.write(`${pass}/${pass + fail} assertions passed`
   + (skipped ? `, ${skipped} skipped` : '')
   + (na ? `, ${na} n/a on ${process.platform}` : '') + '\n');

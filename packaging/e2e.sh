@@ -2122,7 +2122,7 @@ lb_check(){  # $1 = installed project -> prints "<legacy files> <matched> <first
   while IFS= read -r f; do
     rel="${f#"$d"/}"; comp="${rel#.claude/}"
     case "$comp" in skills/*/*) comp="${comp%%/*}/$(printf '%s' "${comp#skills/}" | cut -d/ -f1)" ;; esac
-    printf '%s\n' "$now" | grep -qxF "$comp" && continue            # shipped today: refreshed, not legacy
+    grep -qxF "$comp" <<<"$now" && continue   # shipped today: refreshed, not legacy (a here-string: under pipefail an early grep -q would SIGPIPE a printf)
     n=$((n+1)); h="$(git hash-object --no-filters "$f")"; hl="$(tr -d '\r' < "$f" | git hash-object --no-filters --stdin)"
     if awk -F'\t' -v p="$rel" -v a="$h" -v b="$hl" '$2 == p && ($3 == a || $3 == b) { f = 1 } END { exit !f }' kit/legacy-blobs.tsv
     then m=$((m+1)); else [ "$miss" = - ] && miss="$rel"; fi

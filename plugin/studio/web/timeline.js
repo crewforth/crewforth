@@ -8,6 +8,7 @@ import {
 import { Press } from './press.js';
 import { shownType, hoverOf, modelOf, modelFamily } from './names.js';
 import { t, numLocale } from './i18n.js';
+import { keepScroll } from './keep-scroll.js';
 
 
 function mk(tag, cls, text) {
@@ -426,7 +427,8 @@ export class Timeline {
     close.addEventListener('click', () => this.#choose(n.id));
     acts.append(show, open, close);
 
-    this.drawer.replaceChildren(left, mid, acts);
+    // Drawn again on every live frame; a long error read down to its end stays where the reader left it.
+    keepScroll(this.drawer, () => this.drawer.replaceChildren(left, mid, acts), n.id);
   }
 }
 
