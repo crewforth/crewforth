@@ -552,6 +552,39 @@ _crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (gu
   done
   return 1
 }
+# A BACKGROUND SESSION (claude --bg, the agent view, a session the phone reaches). Claude Code marks it unattended
+# (CLAUDE_CODE_SESSION_ATTENDED=0), the same mark as `claude -p` and the SDK, where a program answers a question by
+# itself (canUseTool) and no person is involved at all. Measured on 2.1.319: what does tell a background session apart
+# is Claude Code's own record of it, ~/.claude/sessions/<pid>.json, with "kind":"bg" and a "jobId" whose folder is
+# under ~/.claude/jobs; a -p session has no job. So the CLICK (the approval question) is open there; the typed
+# approval is not, since another session can send a background session a message.
+# HONEST SCOPE, measured the same day: a program can answer that question, by opening the session with
+# `claude attach <id>` in a pseudo-terminal and pressing Enter (15 lines of Python; the hook saw the answer exactly as
+# a tap). That is the pseudo-terminal limit this file already names for an interactive session, reached the short way:
+# the session can do it to itself. guard-bash.sh refuses the forms of it it can read (`claude attach`, `claude agents`,
+# the messaging socket); a program that hides them is past it. The record is a file of the user's, so a program can
+# also write one. Both are deliberate circumvention, not an accident.
+_crew_bg_session(){  # $1 = session id -> 0 when Claude Code's own record says this live session is a background job
+  local sid="$1" d f l p j
+  case "$sid" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  d="${CLAUDE_CONFIG_DIR:-${HOME:+$HOME/.claude}}"; d="${d//\\//}"
+  [ -n "$d" ] && [ -d "$d/sessions" ] || return 1
+  for f in "$d"/sessions/*.json; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    l=""; IFS= read -r -d '' l < "$f" || true
+    case "$l" in *"\"sessionId\":\"$sid\""*) ;; *) continue ;; esac
+    case "$l" in *'"kind":"bg"'*) ;; *) return 1 ;; esac
+    p="${f##*/}"; p="${p%.json}"; case "$p" in ''|*[!0-9]*) return 1 ;; esac
+    case "$l" in *"\"pid\":$p,"*) ;; *) return 1 ;; esac
+    j="${l#*\"jobId\":\"}"; [ "$j" != "$l" ] || return 1; j="${j%%\"*}"
+    case "$j" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+    [ -d "$d/jobs/$j" ] || return 1
+    [ -z "${CLAUDE_JOB_DIR:-}" ] || [ "${CLAUDE_JOB_DIR%/}" = "$d/jobs/$j" ] || return 1
+    kill -0 "$p" 2>/dev/null || return 1
+    return 0
+  done
+  return 1
+}
 _crew_q_open(){  # $1 = permission mode -> 0 when the click may be offered: auto, both halves wired and beside this file, no PermissionRequest hook
   [ "$1" = auto ] && [ -f "$_CREW_Q_HERE/guard-question.sh" ] && _crew_q_wired && ! _crew_prh_scan
 }
@@ -606,7 +639,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
                          qno "in $PM, with a PermissionRequest hook that may be wired ($_PRH), only the typed approval counts." ;;
     *) qno "in ${PM:-an unknown mode} this approval is not open (bypassPermissions and plan fail closed)." ;;
   esac
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) qno "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || qno "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ;; esac
   case "$SID$_QTU" in *[!A-Za-z0-9._-]*) qno "the call carries no session or tool id this hook can bind the answer to." ;; esac
   { [ -n "$SID" ] && [ -n "$_QTU" ]; } || qno "the call carries no session or tool id this hook can bind the answer to."
   _crew_prh_scan && qno "a PermissionRequest hook may be wired ($_PRH). Such a hook can answer the question before the user does, and the answer cannot be told from a click."
@@ -636,6 +669,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
 # Whatever records an approval says why when it does not - to the user and to the model - instead of leaving a
 # commit to fail later with no explanation. EVN is the event this hook answers, SRC what the user gave.
 EVN=UserPromptSubmit; SRC="message"; SRC_BY="in their own message"
+_PA_BGQ=""                      # set only by the question route, below; never taken from the environment
 say(){  # $1 = for the user, $2 = for the model. Both are built from fixed text and values checked below.
   printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$1" "$EVN" "$2"
   exit 0
@@ -667,7 +701,7 @@ _pa_record(){
   #      first message and the session is not one that keeps no transcript.
   # HONEST SCOPE: a session started with an emptied environment and driven through a pseudo-terminal for a second
   # message passes both. guard-bash.sh refuses the forms of that it can read; a program that types is past it.
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}${_PA_BGQ:-}" in
     0) no "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal), and an approval is what a person types into their own session." ;;
   esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
@@ -787,7 +821,7 @@ _pa_question(){
     no) [ -n "$REC" ] && { : > "$REC"; } 2>/dev/null
         say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
   esac
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) no "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || no "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ; _PA_BGQ=1 ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
   BARE=0

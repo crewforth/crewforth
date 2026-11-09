@@ -2085,6 +2085,21 @@ _rf_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$CMD_UQ" in *crew-refuter.tsv*) rc=0 ;; esac
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
 _rf_named && block "the refuter ledger named in a command (only Crewforth's hook writes it)" "4.5" tamper
+# ANOTHER SESSION'S SCREEN OR SOCKET. A background session's approval question is answered by a tap, and a program
+# can give that tap: `claude attach <id>` in a pseudo-terminal and Enter (measured on 2.1.319; the hook saw the answer
+# exactly as a person's). The session could do it to itself. So the forms a command can show are refused: the attach
+# and agent-view screens (`claude agents --json`, which prints a list and exits, is a read), `claude respawn`, and the
+# messaging socket. HONEST SCOPE: a program that builds these from pieces, or hides them in a script, is past this.
+_GB_BG_SCREEN='(^|[;&|(`]|\$\()[[:space:]]*([^[:space:];&|()]*/)?claude(\.exe|\.cmd)?[[:space:]]+(attach|respawn|agents)([[:space:]]|$)'
+_bg_reach(){ local nc=0 rc=1
+  shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$CMD" in *cc-socks*|*MESSAGING_SOCKET*|*cc-daemon-*) rc=0 ;; esac
+  if [ "$rc" = 1 ] && [[ "$CMD" =~ $_GB_BG_SCREEN ]]; then
+    rc=0
+    case "${BASH_REMATCH[4]}" in agents) [[ "$CMD" =~ [[:space:]]--json([[:space:]]|$) ]] && rc=1 ;; esac
+  fi
+  [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
+_bg_reach && block "a command that opens another Claude Code session's screen or socket (claude attach, claude agents, claude respawn, the messaging socket): it can answer that session's questions, an approval included" "4.5" tamper
 _appr_in_claude_call && block "a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)" "4.4" tamper
 
 # §4.5-adjacent: a .env file holds secrets. The settings.json Read-tool deny does NOT cover the Bash tool, so a
