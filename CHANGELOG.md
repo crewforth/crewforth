@@ -305,9 +305,9 @@ versioning follows [SemVer](https://semver.org/).
   refused there and the session asked the user to run `! git commit` themselves. Claude Code's own record of the
   session (`~/.claude/sessions/<pid>.json`, kind `bg`, with its job folder) tells a background session from a headless
   one, and there the question is asked and its answer recorded. The typed `/crew-approve` stays closed in it, since
-  another session can send it a message. Measured on 2.1.319: a program can still answer that question by opening the
-  session with `claude attach` in a pseudo-terminal, the limit already named for a driven terminal; the shell gate
-  refuses `claude attach`, the agent view, `claude respawn` and the messaging socket where a command shows them.
+  another session can send it a message. A program that drives a terminal can still answer that question, the limit
+  already named for a driven terminal; the shell gate refuses the commands that open another session's screen or
+  socket.
 
 ## [3.4.0] — 2026-10-30
 

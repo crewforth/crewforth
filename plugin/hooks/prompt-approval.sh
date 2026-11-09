@@ -558,11 +558,10 @@ _crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (gu
 # is Claude Code's own record of it, ~/.claude/sessions/<pid>.json, with "kind":"bg" and a "jobId" whose folder is
 # under ~/.claude/jobs; a -p session has no job. So the CLICK (the approval question) is open there; the typed
 # approval is not, since another session can send a background session a message.
-# HONEST SCOPE, measured the same day: a program can answer that question, by opening the session with
-# `claude attach <id>` in a pseudo-terminal and pressing Enter (15 lines of Python; the hook saw the answer exactly as
-# a tap). That is the pseudo-terminal limit this file already names for an interactive session, reached the short way:
-# the session can do it to itself. guard-bash.sh refuses the forms of it it can read (`claude attach`, `claude agents`,
-# the messaging socket); a program that hides them is past it. The record is a file of the user's, so a program can
+# HONEST SCOPE, measured the same day: a program that drives a terminal can answer that question, and the hook cannot
+# tell its answer from a tap. That is the driven-terminal limit this file already names for an interactive session.
+# guard-bash.sh refuses the forms of it a command shows (another session's screen or socket); a program that hides
+# them is past it. The record is a file of the user's, so a program can
 # also write one. Both are deliberate circumvention, not an accident.
 _crew_bg_session(){  # $1 = session id -> 0 when Claude Code's own record says this live session is a background job
   local sid="$1" d f l p j

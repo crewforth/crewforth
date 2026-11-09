@@ -2086,8 +2086,8 @@ _rf_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
 _rf_named && block "the refuter ledger named in a command (only Crewforth's hook writes it)" "4.5" tamper
 # ANOTHER SESSION'S SCREEN OR SOCKET. A background session's approval question is answered by a tap, and a program
-# can give that tap: `claude attach <id>` in a pseudo-terminal and Enter (measured on 2.1.319; the hook saw the answer
-# exactly as a person's). The session could do it to itself. So the forms a command can show are refused: the attach
+# that drives a terminal can give that tap (measured on 2.1.319; the hook cannot tell it from a person's). So the
+# forms a command can show are refused: the attach
 # and agent-view screens (`claude agents --json`, which prints a list and exits, is a read), `claude respawn`, and the
 # messaging socket. HONEST SCOPE: a program that builds these from pieces, or hides them in a script, is past this.
 _GB_BG_SCREEN='(^|[;&|(`]|\$\()[[:space:]]*([^[:space:];&|()]*/)?claude(\.exe|\.cmd)?[[:space:]]+(attach|respawn|agents)([[:space:]]|$)'
