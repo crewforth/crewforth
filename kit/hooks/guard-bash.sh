@@ -202,11 +202,12 @@ gatelog(){  # $1 = verdict (BLOCK|ASK|ALLOW)  $2 = section  $3 = rule
   # then §4.4's ASK. On Windows a process is 62-135 ms.
   if [ "${_GL_MEMO_SET:-0}" != 1 ]; then _GL_MEMO="$(_gatelog_path)"; _GL_MEMO_SET=1; fi
   _GL="$_GL_MEMO"; [ -n "$_GL" ] || return 0
+  _CREW_TS=""; declare -F crew_gate_log_ts >/dev/null && crew_gate_log_ts "$_GL"   # the fifth column: when (UTC)
   if [ "${CREW_GATE_LOG_CMD:-0}" = 1 ]; then
-    printf '%s\t§%s\t%s\t%s\n' "$1" "$2" "$3" \
-      "$(printf '%s' "$CMD" | tr -d '\000-\037' | cut -c1-200)" >> "$_GL" 2>/dev/null || true
+    printf '%s\t§%s\t%s\t%s\t%s\n' "$1" "$2" "$3" \
+      "$(printf '%s' "$CMD" | tr -d '\000-\037' | cut -c1-200)" "$_CREW_TS" >> "$_GL" 2>/dev/null || true
   else
-    printf '%s\t§%s\t%s\t\n' "$1" "$2" "$3" >> "$_GL" 2>/dev/null || true
+    printf '%s\t§%s\t%s\t\t%s\n' "$1" "$2" "$3" "$_CREW_TS" >> "$_GL" 2>/dev/null || true
   fi
 }
 
@@ -1470,7 +1471,7 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
               # (\001 n \001, its text in _C47_Q[n]); redirections set apart from the words they touch; heredoc bodies gone
   [ "${_C47_SRC-$'\002'}" = "$1" ] && return 0       # the same text, already read in this call
   local s="$1" out="" pre c w hd="" c2 nl=$'\n' n=0 body t bt=0
-  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""; _C47_SRC="$1"
+  _C47_M=$'\001'; _C47_Q=(); _C47_QX=""; _C47_QD=""; _C47_SRC="$1"
   # WHAT THE READER MET, for a caller that accepts only the plainest text (_a44_collapse): b = a backslash that
   # escapes a character outside quotes · u = a quote that is never closed · x = a double-quoted text holding `$`, a
   # backtick, a backslash or `!` (other than a message read from a here-document with a quoted delimiter, closed
@@ -1527,6 +1528,8 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
           done
           # "$@" and "${A[@]}" stay quoted and still become SEVERAL words: `set -- -n; git commit -m x "$@"`.
           case "$body" in *'$@'*|*'[@]'*) _C47_QX="$_C47_QX $n " ;; esac
+          # A double-quoted text with `$` or a backtick in it is expanded by the shell: _c47_w says so in _WE.
+          case "$body" in *[\$\`]*) _C47_QD="$_C47_QD $n " ;; esac
           _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
       \$) case "$s" in
             \'*) # $'…' : a quoted text in which a backslash escapes, so a quote after one does not close it
@@ -1538,6 +1541,7 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
                    [ "$c2" = "'" ] && break
                    body="$body\\${s:0:1}"; s="${s:1}"
                  done
+                 case "$body" in *\\*) _C47_QD="$_C47_QD $n " ;; esac   # an escape in it is turned into another character
                  _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
             '(('*) case "$s" in *'))'*) pre="${s%%'))'*}"; s="${s:${#pre}+2}" ;; *) s="" ;; esac; out="$out\$" ;;   # $(( … )): arithmetic, `<<` in it is a shift
             '{'*)  case "$s" in *'}'*) pre="${s%%'}'*}"; s="${s:${#pre}+1}" ;; *) s="" ;; esac; out="$out\$" ;;     # ${ … }: one expansion, `#` in it is no comment
@@ -1594,14 +1598,16 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
 }
 _c47_w(){  # $1 = one token of _C47_T -> _W: the word as the command receives it (expansions left as written);
            # _WQ = 1 when part of it was quoted; _WX = 1 when an UNQUOTED part holds $ * ? [ or {, i.e. the shell
-           # will make something else of it — possibly more than one word
+           # will make something else of it — possibly more than one word; _WE = 1 when a double-quoted part of it holds
+           # `$` or a backtick (the shell expands it, so the text is not what the command receives)
   local t="$1" m="$_C47_M" pre i
-  _W=""; _WQ=0; _WX=0; _WAT=0
+  _W=""; _WQ=0; _WX=0; _WAT=0; _WE=0
   while :; do
     case "$t" in *"$m"*) ;; *) break ;; esac
     pre="${t%%"$m"*}"; t="${t#*"$m"}"; i="${t%%"$m"*}"; t="${t#*"$m"}"
     case "$pre" in *[\$\*\?\[\{]*) _WX=1 ;; esac
-    case "$i" in ''|*[!0-9]*) ;; *) _W="$_W$pre${_C47_Q[i]:-}"; _WQ=1; case "$_C47_QX" in *" $i "*) _WX=1; _WAT=1 ;; esac; continue ;; esac
+    case "$i" in ''|*[!0-9]*) ;; *) _W="$_W$pre${_C47_Q[i]:-}"; _WQ=1; case "$_C47_QX" in *" $i "*) _WX=1; _WAT=1 ;; esac
+                                   case "$_C47_QD" in *" $i "*) _WE=1 ;; esac; continue ;; esac
     _W="$_W$pre"
   done
   case "$t" in *[\$\*\?\[\{]*) _WX=1 ;; esac
@@ -1645,6 +1651,11 @@ _gate_named(){ case "$CMD" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|
 #   * a READER: grep egrep fgrep rg (no --pre) cat head tail wc ls less (no log file) diff cmp stat sha256sum shasum
 #     md5 md5sum du basename dirname realpath readlink jq echo printf test [ [[ mkdir pwd, sed without -i, sort
 #     without -o, find without -delete / -exec / -fprint;
+#   * awk (gawk, mawk, nawk) whose program is written out in the command and only reads: no -f / -i / -l / -E or
+#     long option, no `system` or `@`, and where the program holds `print` no `>` or `|`, where it holds `getline`
+#     no `|` (`>=` and `||` are comparisons). A regex like /a|b/ is no pipe when nothing prints or gets a line;
+#     this is read by words, never by parsing the program, because awk's regex/division split cannot be told
+#     from the text and a guess that is wrong hides the rest of the program inside a string;
 #   * a RUNNER of a hook script: `bash|sh <a .sh file, pre-commit or commit-msg under .claude/hooks>`, or that file
 #     itself — never `bash -c`, never a script that is not one; and `chmod +x` / `755` on one;
 #   * git status | log | diff | show | add | ls-files | blame | check-ignore | rev-parse | cat-file | ls-tree |
@@ -1672,7 +1683,23 @@ _gt_script(){  # $1 = a word -> 0 = a file under a hooks directory of the gate (
   if [[ "$1" =~ \.claude[/\\]+hooks[/\\]+([^/\\[:space:]]+\.sh|pre-commit|commit-msg)$ ]] || [[ "$1" =~ \.claude[/\\]+git-shim[/\\]+git$ ]] || { [ -n "${_PGATE:-}" ] && [[ "$1" =~ $_PGATE ]]; }; then r=0; fi
   shopt -u nocasematch; return "$r"
 }
-_gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate path -> 0 = on the list · 1 = not (_GTW says why)
+# An awk program that only reads: $1 = the program as the command receives it -> 0 = it cannot write or run anything.
+# Output and commands exist in awk only through print/printf (`>`, `>>`, `|`), getline (`cmd | getline`), system()
+# and gawk's @ forms. The test is on words, so a `print` inside a string makes it stricter, never looser.
+_gt_awk_reads(){
+  local p="$1"
+  [ "${#p}" -le 4096 ] || return 1
+  case "$p" in *system*|*@*) return 1 ;; esac
+  case "$p" in *print*|*getline*) ;; *) return 0 ;; esac
+  _gsub "$p" '||' ''; p="$_GS"
+  case "$p" in *'|'*) return 1 ;; esac
+  case "$1" in *print*) ;; *) return 0 ;; esac
+  _gsub "$p" '>=' ''; p="$_GS"
+  case "$p" in *'>'*) return 1 ;; esac
+  return 0
+}
+_gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate path; $3 = one digit per word of $1, 0 = the
+           # shell expands nothing in it -> 0 = on the list · 1 = not (_GTW says why)
   local seg="${1//[$'\t\n']/ }" taint="${2:-0}" k=0 a w base sub scr
   local -a W=()
   read -r -a W <<< "$seg"
@@ -1752,6 +1779,22 @@ _gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate pa
     find) for w in ${W[@]+"${W[@]:k}"}; do case "$w" in -delete|-exec|-execdir|-ok|-okdir|-fprint*|-fls) _GTW="'find $w' deletes, runs or writes"; return 1 ;; esac; done; return 0 ;;
     grep|egrep|fgrep|cat|head|tail|wc|ls|diff|cmp|stat|sha256sum|shasum|md5|md5sum|du|basename|dirname|realpath|readlink|echo|printf|test|'['|'[['|true|:|mkdir|pwd|cd|pushd|popd|read|mapfile|readarray) return 0 ;;
     jq)   for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --ou*) _GTW="'jq $w' names an output"; return 1 ;; esac; done; return 0 ;;
+    awk|gawk|mawk|nawk)
+      a=$((k+1))
+      while [ "$a" -lt "${#W[@]}" ]; do
+        case "${W[a]}" in
+          --) a=$((a+1)); break ;;
+          -F|-v) a=$((a+2)) ;;
+          -F?*|-v?*) a=$((a+1)) ;;
+          -*) _GTW="'$base ${W[a]}' reads its program from a file, loads code or takes an option a reader does not need"; return 1 ;;
+          *) break ;;
+        esac
+      done
+      scr="${W[a]:-}"
+      [ -n "$scr" ] || { _GTW="'$base' with no program"; return 1; }
+      [ "${3:a:1}" = 0 ] || { _GTW="the program of '$base' is not written out in the command (the shell expands part of it)"; return 1; }
+      _gt_awk_reads "${scr//$'\002'/ }" && return 0
+      _GTW="the program of '$base' can write a file or run a command (system, @, or a > or | where it prints or gets a line)"; return 1 ;;
   esac
   _GTW="'$base' is not on the list of commands that read a gate file or run a hook script"; return 1
 }
@@ -1767,8 +1810,8 @@ _GT_BIND='(^|[;&|[:space:](])(xargs|parallel|read|mapfile|readarray)([[:space:]]
 # A shell with no script reads its commands from the pipe in front of it: `… | sh`.
 _GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
 _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is refused; 0 otherwise
-  local cwd="" taint=0 named=0 globby=0 any=0 here=0 seg w x t i sp=$'\002'
-  local -a SEG=() W=()     # set, not only declared: bash 4.4 and later call a declared, empty array unbound under `set -u`
+  local cwd="" taint=0 named=0 globby=0 any=0 here=0 seg w x t f u i j sp=$'\002'
+  local -a SEG=() SEGF=() W=()     # set, not only declared: bash 4.4 and later call a declared, empty array unbound under `set -u`
   _GTW=""
   if _gate_named && _gt_named "$CMD_UQ"; then named=1; fi
   case "$CMD_UQ" in *.git*) [[ "$CMD_UQ" =~ $_GT_DOTGIT ]] && named=1 ;; esac
@@ -1787,9 +1830,14 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
   _c47_read "$CMD"; _gsub "$_C47_T" ' ; ' $'\n'
   while IFS= read -r seg; do
     case "$seg" in *[![:space:]]*) ;; *) continue ;; esac
-    read -r -a W <<< "$seg"; t=""
-    for w in ${W[@]+"${W[@]}"}; do _c47_w "$w"; t="$t ${_W//[$' \t\n']/$sp}"; done
-    SEG[${#SEG[@]}]="${t# }"
+    read -r -a W <<< "$seg"; t=""; f=""
+    # f: one digit per word, 1 where the shell expands part of it. An empty word stands as \003, so the words of
+    # the segment and the digits stay in step when it is split again.
+    for w in ${W[@]+"${W[@]}"}; do
+      _c47_w "$w"; u="${_W//[$' \t\n']/$sp}"; [ -n "$u" ] || u=$'\003'; t="$t $u"
+      if [ "$_WX$_WAT$_WE" = 000 ]; then f="${f}0"; else f="${f}1"; fi
+    done
+    SEG[${#SEG[@]}]="${t# }"; SEGF[${#SEGF[@]}]="$f"
     { _gt_named "$t" || [[ "$t" =~ $_GT_DOTGIT ]]; } && any=1
     case " $t " in *' <<H '*) here=1 ;; esac
   done <<< "$_GS"
@@ -1824,13 +1872,15 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
       done
     fi
   fi
-  for seg in "${SEG[@]}"; do
+  j=0
+  while [ "$j" -lt "${#SEG[@]}" ]; do
+    seg="${SEG[j]}"; f="${SEGF[j]}"; j=$((j+1))
     x=0
     if [ "$taint" = 1 ]; then          # by a name: only a command that expands something, or holds a binding word, can reach it
       case "$seg" in *'$'*) x=1 ;; *) [[ "$seg" =~ $_GT_BIND ]] && x=1 ;; esac
     fi
     if [ "$taint" = 2 ] || [ "$x" = 1 ]; then
-      _gt_ok "$seg" "$taint" || { _GTW="$_GTW, in a call that can reach a gate file by another name (a variable, a loop, a cd, a substitution, a here-document, xargs, or a word that changes what a command runs)"; return 1; }
+      _gt_ok "$seg" "$taint" "$f" || { _GTW="$_GTW, in a call that can reach a gate file by another name (a variable, a loop, a cd, a substitution, a here-document, xargs, or a word that changes what a command runs)"; return 1; }
       continue
     fi
     _gt_named "$seg" && x=1
@@ -1844,7 +1894,7 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
       done
     fi
     [ "$x" = 1 ] || continue
-    _gt_ok "$seg" 0 || return 1
+    _gt_ok "$seg" 0 "$f" || return 1
   done
   return 0
 }
@@ -1985,6 +2035,29 @@ _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names i
 # HONEST SCOPE: this stops an accident and a plain attempt, not a determined one. A command that builds the name
 # from pieces (`f=crew-mo; … ${f}del-loosened.tsv`), writes through an interpreter (`python3 -c`), or moves a
 # folder above it (`cd .claude && mv state x`) spells none of what is matched here and is past this rule.
+# A glob under .claude/state that CANNOT reach a record is not one: `.claude/state/todo/*`, `.claude/state/loop-*.txt`
+# (field report, 3.5.0-rc.2: reading the plan panel's own files was refused as a routing record). Every file a gate
+# keeps there is named `crew-…` (the routing records, crew-approval-pending), and this rule's glob arm is what keeps
+# a glob off all of them. So a glob passes only when the first name under state/ cannot be a `crew-` name: written
+# out and not starting with `crew-` or a dot, or its wildcard after a written prefix that is not `crew-`, nor the
+# start of it, nor a dot; and no name after it starts with a dot. Called with nocasematch on.
+_mr_glob_safe(){  # $1 = a word holding .claude/state and a wildcard -> 0 = no file it can match is a routing record
+  local r="$1" c p rest=""
+  case "$r" in *.claude[/\\]state[/\\]*) ;; *) return 1 ;; esac
+  # everything after the FIRST .claude/state/, found without a glob in ${r#…} (that is case-sensitive)
+  while :; do
+    case "$r" in .claude[/\\]state[/\\]*) r="${r:14}"; break ;; esac
+    r="${r:1}"
+  done
+  c="${r%%[/\\]*}"; [ "$c" = "$r" ] || rest="${r:${#c}+1}"
+  case "$c" in ''|.*|crew-*) return 1 ;; esac
+  case "$c" in *[\*\?\[\{]*)
+    p="${c%%[\*\?\[\{]*}"; [ -n "$p" ] || return 1
+    case crew- in "$p"*) return 1 ;; esac ;;
+  esac
+  case "/$rest" in *[/\\].*) return 1 ;; esac
+  return 0
+}
 _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$CMD_UQ" in *crew-model*|*crew-critical-paths*) rc=0 ;; esac
   # ...and by a glob that could reach one, or the folder itself in a command that moves, copies or removes: a word
@@ -1995,7 +2068,7 @@ _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
     for w in $CMD_UQ; do case "$w" in rm|mv|cp|rmdir|rsync|tar|ln|*/rm|*/mv|*/cp) verb=1 ;; esac; done
     for w in $CMD_UQ; do
       case "$w" in
-        *.claude[/\\]state[/\\]*[\*\?\[]*|*.claude[/\\]state[\*\?\[]*) rc=0 ;;
+        *.claude[/\\]state[/\\]*[\*\?\[]*|*.claude[/\\]state[\*\?\[]*) _mr_glob_safe "$w" || rc=0 ;;
         *.claude[/\\]state|*.claude[/\\]state[/\\]) [ "$verb" = 1 ] && rc=0 ;;
       esac
     done

@@ -42,6 +42,32 @@ crew_gate_log_write(){
   return 0
 }
 
+# The time of a line, in UTC, for its fifth column: _CREW_TS ("" when the clock cannot be read, or the line goes to
+# /dev/null). A line once read as four columns (verdict, section, rule, command) gains a fifth; a reader that takes
+# the first four is unchanged. Before 3.5.0 no line carried a time, so a refusal could not be put beside the session
+# that met it (field report, 3.5.0-rc.2).
+# No process on bash 5 (Git Bash, Linux), where a process costs most: $EPOCHSECONDS, turned into a date by arithmetic.
+# Not the builtin `printf '%(…)T'`: it prints LOCAL time, three hours off at +0300 (agent-outcome.sh _ao_now). Older
+# bash (macOS's 3.2) pays one `date -u`, only when a decision is logged.
+crew_gate_log_ts(){  # $1 = where the line goes
+  _CREW_TS=""
+  [ "${1:-}" = /dev/null ] && return 0
+  if [ -n "${EPOCHSECONDS:-}" ]; then crew_utc_of "$EPOCHSECONDS"; return 0; fi
+  _CREW_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || _CREW_TS=""
+  case "$_CREW_TS" in [0-9][0-9][0-9][0-9]-*Z) ;; *) _CREW_TS="" ;; esac
+}
+crew_utc_of(){  # $1 = seconds since 1970 -> _CREW_TS, 2026-11-09T08:27:54Z (days to a civil date: H. Hinnant's algorithm)
+  local s="$1" z t y m d doe yoe doy mp era
+  case "$s" in ''|*[!0-9]*) _CREW_TS=""; return 0 ;; esac
+  z=$((s / 86400)); t=$((s % 86400)); z=$((z + 719468))
+  era=$((z / 146097)); doe=$((z - era * 146097))
+  yoe=$(((doe - doe / 1460 + doe / 36524 - doe / 146096) / 365))
+  doy=$((doe - (365 * yoe + yoe / 4 - yoe / 100))); mp=$(((5 * doy + 2) / 153))
+  d=$((doy - (153 * mp + 2) / 5 + 1)); if [ "$mp" -lt 10 ]; then m=$((mp + 3)); else m=$((mp - 9)); fi
+  y=$((yoe + era * 400)); [ "$m" -le 2 ] && y=$((y + 1))
+  printf -v _CREW_TS '%04d-%02d-%02dT%02d:%02d:%02dZ' "$y" "$m" "$d" $((t / 3600)) $((t % 3600 / 60)) $((t % 60))
+}
+
 # Where a reader finds it: _CREW_GL ("" = none yet). No process.
 crew_gate_log_read(){
   _CREW_GL=""

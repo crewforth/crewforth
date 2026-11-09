@@ -117,7 +117,7 @@ if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then
   exit 3
 fi
 
-# ---- read the log: VERDICT \t §SECTION \t RULE \t COMMAND
+# ---- read the log: VERDICT \t §SECTION \t RULE \t COMMAND [\t TIME, since 3.5.0]
 awk -F'\t' 'NF>=3 { k=$3; sub(/[[:space:]]*\([^()]*\)[[:space:]]*$/,"",k); c[k]++; lab[k]=$3; v[$1]++; tot++ } END {
   print "TOTAL\t" tot+0
   for (k in v) print "VERDICT\t" k "\t" v[k]

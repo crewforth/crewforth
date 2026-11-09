@@ -1399,11 +1399,13 @@ function paintGates(body) {
     return;
   }
 
-  // The distinction is the point: this file has no timestamp column, so these
-  // are decisions found in the log, not decisions seen happening.
+  // The distinction is the point: a line written before 3.5.0 has no time, so
+  // it is a decision found in the log, not one seen happening.
   observed.push(node('div', 'ihint',
     `${t('{n} in the tail of gate-log.tsv', { n: log.total.toLocaleString(numLocale()) })}${log.truncated ? ` ${t('(truncated)')}` : ''} · `
-    + t('no timestamps in this format, so these are what the log holds, not when they ran')
+    + (log.timestamped
+      ? t('lines written since 3.5.0 carry the time they were written (UTC); older lines carry none')
+      : t('no timestamps in this format, so these are what the log holds, not when they ran'))
     + (log.commandsRecorded ? '' : ` · ${t('commands not recorded (CREW_GATE_LOG_CMD=1 records them)')}`)));
 
   const counts = node('div', 'kit-sum');
@@ -1421,6 +1423,7 @@ function paintGates(body) {
     row.append(v);
     row.append(node('span', 'gate-name', e.rule ?? '—'));
     if (e.section) row.append(node('span', 'gate-sec', e.section));
+    if (e.at) row.append(node('span', 'gate-sec', `${e.at.slice(0, 16).replace('T', ' ')} UTC`));
     observed.push(row);
   }
   body.append(isection(t('Observed'), ...observed));

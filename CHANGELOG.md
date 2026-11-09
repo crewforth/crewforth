@@ -252,6 +252,19 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Two read-only commands are no longer refused as tampering.** Found on a real project on 3.5.0-rc.2. Any glob
+  under `.claude/state` was taken as a model routing record, so `head .claude/state/todo/*` and
+  `ls .claude/state/loop-*.txt` were refused. A glob now passes when it cannot reach a `crew-` file (the records
+  and the approval record): its first name under `state/` is written out, or has a written prefix that is not
+  `crew-` nor its start, and no name in it starts with a dot. `state/*`, `state/c*`, `crew-app*`, `todo/../c*` and
+  `[c]rew-model` are still refused. `awk` was on no list of readers, so
+  `awk … $G/…` beside a `grep` of a hook script was refused as a write to a gate file. `awk` now reads when its
+  program is written out in the command and cannot write or run anything: no `-f`, `-i`, `-l`, `-E`, `system` or
+  `@`, and no `>` or `|` in a program that prints or gets a line. A program from a variable, or from a `$'…'`
+  escape, is still refused.
+- **The gate log says when.** Each line carries the time it was written, in UTC, in a fifth column, and Studio's
+  gate list shows it. A line written before this has none and is labelled so. The command is still left out unless
+  `CREW_GATE_LOG_CMD=1`.
 - **A session no longer tells the user that a command is not installed when it only cannot see it.** The commands
   marked user-only (`/crew-interview`, `/crew-approve`, `/crew-pr`…) are left out of the model's skill list, so a
   session asked about `/crew-interview` answered that no such command existed, while the files were in
