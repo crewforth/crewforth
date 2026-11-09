@@ -8,6 +8,7 @@ import { hoverOf, modelOf } from './names.js';
 import { remaining, asker, allowSessionLabel, VERDICTS } from './approvals.js';
 import { AskForms } from './ask.js';
 import { t } from './i18n.js';
+import { keepScroll } from './keep-scroll.js';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -88,9 +89,8 @@ export class List {
       return;
     }
     const focused = this.root.contains?.(document.activeElement) ? document.activeElement.dataset?.key ?? null : null;
-    const top = this.root.scrollTop;
-    this.root.replaceChildren(...list.map((s) => this.#section(s, now)));
-    this.root.scrollTop = top;
+    // The list, and a long command inside a row, keep the reader's place across the redraw.
+    keepScroll(this.root, () => this.root.replaceChildren(...list.map((s) => this.#section(s, now))));
     if (focused) [...this.root.querySelectorAll('[data-key]')].find((el) => el.dataset.key === focused)?.focus();
   }
 
