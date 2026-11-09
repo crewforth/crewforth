@@ -35,7 +35,8 @@
 # Merge semantics (what the former jq program in adopt.sh did, held to it by the parity fixture in
 # packaging/e2e.sh): objects deep-merge, the PROJECT's scalar wins, arrays concat+dedup with Crewforth's entries
 # first, and "hooks" is rebuilt per event as Crewforth's entries followed by the project's entries that do not
-# reference .claude/hooks/ (in "command" or "args"). permissions.ask then loses every rule named in -v retired.
+# reference .claude/hooks/ (in "command" or "args"). permissions.ask then loses every rule named in -v retired and
+# every rule the PROJECT's own permissions.allow names verbatim (ask outranks allow, so it would undo that choice).
 # Output is pretty-printed with two-space indent, the layout jq writes, so merging Crewforth onto itself gives its
 # own bytes back.
 # The text is split into CH[] once. substr(S,P,1) is O(len) per call on BSD awk, which made a 1 MB file take ~20 s;
@@ -180,6 +181,10 @@ END{
   for(i=1;i<=N[r];i++) if(K[r,i]=="\"hooks\""){ C[r,i]=h; h=0 }
   if(h) add(r,"\"hooks\"",h)
   n=split(retired,rr,"|"); for(i=1;i<=n;i++) ret["\"" rr[i] "\""]=1
+  # A rule the PROJECT allows verbatim is its own decision: Crewforth's ask copy would outrank it (ask beats allow)
+  # and come back on every update after the user deleted it, so it leaves ask like a retired one.
+  qp=get(p,"\"permissions\""); qa=(T[qp]=="o" ? get(qp,"\"allow\"") : 0)
+  if(T[qa]=="a") for(i=1;i<=N[qa];i++) if(T[C[qa,i]]=="s") ret[V[C[qa,i]]]=1
   pm=get(r,"\"permissions\""); ak=(T[pm]=="o" ? get(pm,"\"ask\"") : 0)
   if(T[ak]=="a"){ na=mk("a"); for(i=1;i<=N[ak];i++) if(T[C[ak,i]]!="s" || !(V[C[ak,i]] in ret)) add(na,"",C[ak,i])
     for(i=1;i<=N[pm];i++) if(K[pm,i]=="\"ask\"") C[pm,i]=na }

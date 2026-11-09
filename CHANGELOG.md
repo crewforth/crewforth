@@ -262,6 +262,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **An update no longer puts back an ask rule the project allows.** The settings merge keeps every array entry,
+  so a Crewforth ask rule the user had deleted came back on each update, and since ask outranks allow, a project
+  that allowed `Bash(docker:*)` was asked before every docker command again. The merge now leaves out of
+  `permissions.ask` every rule the project's own `permissions.allow` names verbatim.
 - **Two read-only commands are no longer refused as tampering.** Found on a real project on 3.5.0-rc.2. Any glob
   under `.claude/state` was taken as a model routing record, so `head .claude/state/todo/*` and
   `ls .claude/state/loop-*.txt` were refused. A glob now passes when it cannot reach a `crew-` file (the records
