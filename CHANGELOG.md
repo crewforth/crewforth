@@ -312,6 +312,14 @@ versioning follows [SemVer](https://semver.org/).
   where any other Stop hook had blocked.
 - **Crew Map and the review pre-pass report what they could not read** (an unreadable or binary file, untracked
   files in the pre-pass) instead of leaving it out without a word.
+- **The commit approval is a click again in a background session.** A session started with `claude --bg`, from the
+  agent view or reached from the phone is unattended to Claude Code, the same mark as `claude -p`, so the question was
+  refused there and the session asked the user to run `! git commit` themselves. Claude Code's own record of the
+  session (`~/.claude/sessions/<pid>.json`, kind `bg`, with its job folder) tells a background session from a headless
+  one, and there the question is asked and its answer recorded. The typed `/crew-approve` stays closed in it, since
+  another session can send it a message. A program that drives a terminal can still answer that question, the limit
+  already named for a driven terminal; the shell gate refuses the commands that open another session's screen or
+  socket.
 
 ## [3.4.0] — 2026-10-30
 

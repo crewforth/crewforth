@@ -9828,6 +9828,50 @@ _paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label"
 if [ "$_paqn" != 20 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 20"
 elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four, in whatever key order Claude Code hands it back; the record allows the commit (20 cases, 14 must-fail)"
 else fail "the approval question:$_paqbad"; fi
+# A BACKGROUND SESSION (claude --bg, the agent view, the phone) is unattended to Claude Code, like `claude -p`; what
+# tells it apart is Claude Code's own record, ~/.claude/sessions/<pid>.json with "kind":"bg" and a job folder (shape
+# measured on 2.1.319). There the click is asked and recorded; the typed approval stays closed; every way the record
+# could be wrong refuses: none, another kind, a dead process, no job folder, a job folder the environment disputes.
+_pabg="$(mktemp -d)"; _pabg="$(cd -P "$_pabg" && pwd)"; _pabb=""; _pabn=0
+sleep 300 & _pabp=$!
+sleep 300 & _pabd=$!; kill "$_pabd" 2>/dev/null; wait "$_pabd" 2>/dev/null
+_pab_rec(){  # $1 = pid, $2 = kind, $3 = job id -> the record, and the job folder
+  rm -rf "$_pabg/sessions" "$_pabg/jobs"; mkdir -p "$_pabg/sessions" "$_pabg/jobs/$3"
+  printf '{"pid":%s,"sessionId":"s","cwd":"%s","version":"2.1.319","kind":"%s","entrypoint":"cli","jobId":"%s","status":"busy"}' "$1" "$_paw" "$2" "$3" > "$_pabg/sessions/$1.json"; }
+_pab_is(){ _pabn=$((_pabn+1)); [ "$2" = "$3" ] || _pabb="$_pabb [$1: got '$2', want '$3']"; }
+_PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg"
+_pa_new; : > "$_pa_rec"; _pab_rec "$_pabp" bg j1
+_paq_pre auto "$_paq_canon" '' tb1;   _k=no; case "$_pao" in *'"permissionDecision":"ask"'*) _k=ask ;; esac
+                                      _pab_is 'a background session: the question is asked' "$_par/$_k" 0/ask
+_paq_post auto 'Commit only' tb1;     _pab_is 'a background session: the answer is recorded' "$(_paq_rec)" commit
+_paq_gate auto 'git commit -m x';     _pab_is 'a background session: the recorded click allows the commit' "$_par" 0
+for _pc in "none||" "interactive|$_pabp|j1" "bg|$_pabd|j1" "bg|$_pabp|"; do
+  _pa_new; : > "$_pa_rec"; _k="${_pc%%|*}"; _r="${_pc#*|}"; _p="${_r%%|*}"; _j="${_r#*|}"
+  if [ "$_k" = none ]; then rm -rf "$_pabg/sessions"; mkdir -p "$_pabg/sessions"; else _pab_rec "$_p" "$_k" "${_j:-j9}"; [ -n "$_j" ] || rm -rf "$_pabg/jobs"; fi
+  _paq_pre auto "$_paq_canon" '' tb2;  _pab_is "record $_pc: the question is refused" "$_par" 2
+done
+_pa_new; : > "$_pa_rec"; _pab_rec "$_pabp" bg j1
+_PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg CLAUDE_JOB_DIR=$_pabg/jobs/other"
+_paq_pre auto "$_paq_canon" '' tb3;   _pab_is 'a job folder the environment disputes: refused' "$_par" 2
+_PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg"
+_paq_pre auto "$_paq_canon" '' tb4; rm -rf "$_pabg/sessions"; mkdir -p "$_pabg/sessions"
+_paq_post auto 'Commit only' tb4;     _pab_is 'the record gone between question and answer: not recorded' "$(_paq_rec)" none
+_pab_rec "$_pabp" bg j1
+_PA_ENV="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg" _pa_say auto '/crew-approve commit' >/dev/null
+_pab_is 'a background session: the typed approval stays closed' "$(_paq_rec)" none
+_PA_ENV="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg _PA_BGQ=1" _pa_say auto '/crew-approve commit' >/dev/null
+_pab_is 'the route flag cannot be handed in from the environment' "$(_paq_rec)" none
+unset _PAQ_X; kill "$_pabp" 2>/dev/null; wait "$_pabp" 2>/dev/null; rm -rf "$_pabg"
+# What a command can show of the way round: another session's screen or socket.
+for _pc in '2|claude attach 4b1cd61d' '2|cd x && /usr/local/bin/claude attach abc' '2|claude agents' '2|claude respawn --all' \
+           '2|python3 -c "import socket; socket.socket(1).connect(\x27/tmp/cc-socks/1.sock\x27)"' '2|echo $CLAUDE_CODE_MESSAGING_SOCKET' \
+           '0|claude agents --json' '0|grep -rn attach src' '0|git log --grep agents'; do
+  _w="${_pc%%|*}"; _c="${_pc#*|}"; _c="${_c//\\x27/$_pq}"; _c="${_c//\"/\\\"}"
+  _pa_run auto "$_c"; _pab_is "shell: $_c" "$_par$( [ "$_par" = 2 ] && { grep -q "screen or socket" "$_PA/err" || echo ' (another rule)'; } )" "$_w"
+done
+if [ "$_pabn" != 20 ]; then fail "FIXTURE: the background-session table ran $_pabn cases, not 20"
+elif [ -z "$_pabb" ]; then pass "a background session, by Claude Code's own record of it: the approval question is asked and its answer recorded and honoured; no record, another kind, a dead process, no job folder, a disputed job folder and a record gone before the answer refuse; the typed approval stays closed and its route flag cannot come from the environment; attach, the agent view, respawn and the messaging socket are refused to a command (20 cases)"
+else fail "the approval question in a background session:$_pabb"; fi
 # An approval holds as long as what it is about is unchanged, not for 30 minutes (field: a question asked at night was
 # refused in the morning). The question and the refused command write down the staged tree and HEAD; the answer or
 # the bare /crew-approve is recorded however late, and refused when either changed. With nothing staged the question
