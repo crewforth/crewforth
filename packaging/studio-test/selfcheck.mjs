@@ -7542,11 +7542,12 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
 
   // Side by side with todo.awk, which draws the status line's count: the same plans, the same "done/total".
   const awk = path.join(PAYLOAD, 'eval', 'lib', 'todo.awk');
-  const hasAwk = spawnSync('awk', ['BEGIN{}'], { encoding: 'utf8' }).status === 0;
+  // Through bash, as the status line runs it: on Windows awk is Git Bash's, on bash's PATH and not on node's.
+  const hasAwk = spawnSync('bash', ['-c', 'awk "BEGIN{}"'], { encoding: 'utf8' }).status === 0;
   if (hasAwk && fs.existsSync(awk)) {
     const cases = [PLAN, PLAN.replace('2. [~]', '2. [ ]'), '# T\n- [x] a\n- [ ] b\n  - [x] sub\n', '# T\n## Tasks\n### A\n- [x] a\n### B\n- [ ] b\n- [x] c\n## Notes\n- [ ] n\n'];
     const counts = cases.map((c) => {
-      const r = spawnSync('awk', ['-v', 'color=0', '-v', 'maxl=14', '-v', 'name=PLAN.md', '-f', awk], { input: c, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+      const r = spawnSync('bash', ['-c', 'LC_ALL=C awk -v color=0 -v maxl=14 -v name=PLAN.md -f "$1"', 'bash', awk], { input: c, encoding: 'utf8' });
       const q = pt.parsePlan(c);
       return [r.stdout.split('\n')[0].replace('📋 ', ''), `${q.done}/${q.total}`];
     });
