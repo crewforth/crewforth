@@ -62,7 +62,7 @@ sequence. All are installed: "no owner" is an `ls`. The user-only commands (`/cr
 
 **Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
 `files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
-· `verify:` the command that proves it, or `none`. **crew-planner** writes the card, or you do.
+· `verify:` the command that proves it (`a && b` ok), or `none`. **crew-planner** writes the card, or you do.
 
 | `model` (`guard-agent-model.sh`: floor = default; `above: <why>` for more) | the card |
 |---|---|

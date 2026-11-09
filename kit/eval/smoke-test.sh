@@ -10739,7 +10739,8 @@ while IFS= read -r _l; do [ -z "$_l" ] && continue
   [ "$(_v2res "m$_v2n")" = "$_w" ] || _v2b="$_v2b [$_vc → $(_v2res "m$_v2n"), want $_w]"
   [ -e "$_v2p/PWNED" ] && _v2b="$_v2b [$_vc RAN]"
   if [ "$_w" = blocked ]; then
-    [ -z "$_o" ] || _v2b="$_v2b [$_vc kept the agent running]"
+    # Not kept running: no decision. A line for the user (systemMessage, a rule that would allow it) is not one.
+    case "$_o" in *'"decision"'*) _v2b="$_v2b [$_vc kept the agent running]" ;; esac
     case "$(_v2post "m$_v2n")" in *'NOT run by the hook'*'Run the verify command yourself with the Bash tool'*) ;; *) _v2b="$_v2b [$_vc: the session was not told to run it]" ;; esac
   fi
 done <<'VF'
@@ -10992,8 +10993,8 @@ if command -v iconv >/dev/null 2>&1; then printf '%s' "$_o" | iconv -f UTF-8 -t 
 [ -z "$_v2b" ] && pass "the one fix is asked once and only where it can be counted: a red verify under stop_hook_active ends as fail with no block, and so does one whose counter cannot be written (both recorded as fail with no fix); the output handed to the agent is cut at 1500 bytes without splitting a character" \
                || fail "the stop hook's one fix:$_v2b"
 # A verify command in a sub-folder, `cd <folder> && <command>` (41 of 71 refusals on one project): judged as the
-# command and run in the folder with no chain. A folder outside the project, one that does not exist, or a second
-# chain after it stays refused. A card that says `none (why)` is none.
+# command and run in the folder. A folder outside the project, one that does not exist, or a step after it that no
+# rule allows stays refused. A card that says `none (why)` is none.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/sub"; : > "$_v2p/sub/ok.flag"
 printf 'verify test -f ok.flag\n' > "$_v2p/.claude/crew-model-rules"
 _v2plant c1 'cd sub && test -f ok.flag'; _v2stop c1 >/dev/null
@@ -11028,13 +11029,58 @@ if [ -f "$ROOT/eval/doctor.sh" ]; then
   # The block after each warning: its ↳ lines, up to the next line that is not one.
   _v2blk(){ printf '%s\n' "$_dd" | awk -v k="$1" 'index($0,k){on=1; print; next} on && /^     ↳ /{print; next} {on=0}'; }
   _ddc="$(_v2blk 'verify commands never run')"; _dds="$(_v2blk 'verify lines that are not a command')"
-  case "$_ddc" in *'12 time(s)'*'↳ /crew-allow-verify bash tools/build.sh --check'*'↳ /crew-allow-verify ./check.sh'*'↳ /crew-allow-verify bash tools/release/a-script-whose-path-runs-past-eighty-characters/on-purpose/check.sh --staged'*'↳ … (+4)'*) ;; *) _v2b="$_v2b [doctor commands: ${_ddc:-no line}]" ;; esac
+  # 13: the twelve below and c4's refused step (`touch x`, recorded as the step no rule allows).
+  case "$_ddc" in *'13 time(s)'*'↳ /crew-allow-verify touch x'*'↳ /crew-allow-verify bash tools/build.sh --check'*'↳ /crew-allow-verify ./check.sh'*'↳ /crew-allow-verify bash tools/release/a-script-whose-path-runs-past-eighty-characters/on-purpose/check.sh --staged'*'↳ … (+5)'*) ;; *) _v2b="$_v2b [doctor commands: ${_ddc:-no line}]" ;; esac
   case "$_ddc" in *actionlint*|*measured*|*'/crew-allow-verify cd '*) _v2b="$_v2b [doctor offered a sentence, or a rule with its cd, as a rule: ${_ddc}]" ;; esac
   [ "$(printf '%s\n' "$_ddc" | grep -c '^     ↳ /crew-allow-verify ')" = 8 ] || _v2b="$_v2b [not eight rule lines: ${_ddc}]"
   case "$_dds" in *'3 time(s)'*'↳ actionlint (if installed)'*'↳ measured numbers'*'↳ every scenario listed below has a verdict and a screenshot attached for the …'*) ;; *) _v2b="$_v2b [doctor sentences: ${_dds:-no line}]" ;; esac
 fi
 [ -z "$_v2b" ] && pass "a verify command in a sub-folder runs there: 'cd sub && <command>' passes, judged as the command alone; a folder outside the project or missing, an absolute one, and a chain after it stay refused; 'none (why)' is none; doctor offers the refused commands, in either mode, as the rule that matches them (no cd prefix), eight whole and the rest counted; a sentence is counted on its own line, never offered as a rule" \
                || fail "verify in a sub-folder:$_v2b"
+# A verify command of several steps joined by ` && ` (21 of 22 refusals on one project, 3.5.0-rc.2): each step is
+# judged alone and the steps run in order, a `cd` moving inside the project. A step no rule allows refuses the whole
+# command before anything runs, and the user is told once a session, with the message that allows it.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/sub"; : > "$_v2p/sub/ok.flag"
+printf 'verify test -f\nverify touch made\n' > "$_v2p/.claude/crew-model-rules"
+_v2plant k1 'cd sub && test -f ok.flag && cd .. && touch made'; _v2stop k1 >/dev/null
+{ [ "$(_v2row k1 | cut -d/ -f2)" = pass ] && [ -e "$_v2p/made" ] && [ ! -e "$_v2p/sub/made" ]; } || _v2b="$_v2b [a chain of allowed steps: $(_v2row k1), made at the root: $([ -e "$_v2p/made" ] && echo yes || echo no)]"
+rm -f "$_v2p/made"
+_v2plant k2 'test -f ok.flag && touch made'; _v2o="$(_v2stop k2)"
+{ case "$_v2o" in *'"decision":"block"'*) true ;; *) false ;; esac && [ ! -e "$_v2p/made" ]; } || _v2b="$_v2b [a failing first step did not stop the chain, or was not asked about: ${_v2o:0:120}]"
+_v2plant k3 'test -f sub/ok.flag && touch made2'; _v2o="$(_v2stop k3)"
+{ [ "$(_v2row k3 | cut -d/ -f2)" = blocked ] && [ ! -e "$_v2p/made2" ]; } || _v2b="$_v2b [a step no rule allows ran or did not refuse: $(_v2row k3)]"
+grep -q "^step=touch made2$" "$_v2p/.claude/state/crew-model/results/k3" 2>/dev/null || _v2b="$_v2b [the refused step is not recorded]"
+case "$_v2o" in *'"systemMessage":"crew: an agent'"'"'s verify command was not run'*'/crew-allow-verify touch made2"'*) ;; *) _v2b="$_v2b [the user was not told with the message that allows it: ${_v2o:0:200}]" ;; esac
+_v2plant k4 'test -f sub/ok.flag && touch made2'; _v2o="$(_v2stop k4)"
+case "$_v2o" in *systemMessage*) _v2b="$_v2b [told twice in one session]" ;; esac
+_v2plant k5 'test -f sub/ok.flag && uv run python -c 1'; _v2o="$(_v2stop k5)"
+case "$_v2o" in *systemMessage*) _v2b="$_v2b [a rule that would run anything was offered: ${_v2o:0:200}]" ;; esac
+for _cc in 'k6:cd sub && cd ../.. && test -f x' 'k7:test -f sub/ok.flag && touch made; touch made3' 'k8:test -f sub/ok.flag || touch made3'; do
+  _v2plant "${_cc%%:*}" "${_cc#*:}"; _v2stop "${_cc%%:*}" >/dev/null
+  [ "$(_v2row "${_cc%%:*}" | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [${_cc#*:} was not refused: $(_v2row "${_cc%%:*}")]"
+done
+[ ! -e "$_v2p/made3" ] || _v2b="$_v2b [a ; or || chain ran]"
+[ -z "$_v2b" ] && pass "a verify command of steps joined by && runs step by step, a cd moving inside the project; a failing step stops the rest; a step no rule allows refuses the whole command before anything runs, is recorded, and is told to the user once with /crew-allow-verify and the rule, never for a rule that would run anything; ;, || and a cd out of the project stay refused" \
+               || fail "verify steps:$_v2b"
+# The installer reads the project's own commands and adds them as verify lines, once: a line the user deleted is not
+# put back by the next update, and a project that declares none gets no file.
+_v2new; _v2b=""; _vdp="$_v2p"; mkdir -p "$_vdp/web" "$_vdp/node_modules/x"
+printf '{"scripts":{"test":"vitest","lint":"eslint .","dev":"vite"},"devDependencies":{"vitest":"1","typescript":"5"}}\n' > "$_vdp/web/package.json"
+printf '{"scripts":{"test":"x"}}\n' > "$_vdp/node_modules/x/package.json"
+printf '[project]\nname="a"\n[dependency-groups]\ndev=["pytest","ruff"]\n' > "$_vdp/pyproject.toml"; : > "$_vdp/uv.lock"
+printf '# ours\n- docs/**\n' > "$_vdp/.claude/crew-model-rules"
+_vd(){ ( cd "$_vdp" && CREW_SJ_AWK="$ROOT/eval/lib/settings-json.awk" bash -c '. "$1/verify-cmd.sh"; . "$1/verify-detect.sh"; crew_verify_detect_apply .; printf "%s" "$_VD_ADDED"' _ "$ROOT/eval/lib" ); }
+_vda="$(_vd)"
+[ "$_vda" = "uv run pytest, uv run ruff check, npm test, npm run lint, npx vitest run, npx tsc --noEmit" ] || _v2b="$_v2b [added: $_vda]"
+[ "$(grep -c '^verify ' "$_vdp/.claude/crew-model-rules")" = 6 ] && head -2 "$_vdp/.claude/crew-model-rules" | grep -q '^- docs/\*\*$' || _v2b="$_v2b [rules file: $(tr '\n' '|' < "$_vdp/.claude/crew-model-rules")]"
+grep -q 'npm run dev' "$_vdp/.claude/crew-model-rules" && _v2b="$_v2b [a script that is no check was added]"
+[ -z "$(_vd)" ] || _v2b="$_v2b [a second run added again]"
+grep -v '^verify npm test$' "$_vdp/.claude/crew-model-rules" > "$_v2/r" && cat "$_v2/r" > "$_vdp/.claude/crew-model-rules"
+[ -z "$(_vd)" ] && ! grep -q '^verify npm test$' "$_vdp/.claude/crew-model-rules" || _v2b="$_v2b [a deleted line was put back]"
+_v2new; _vdp="$_v2p"; _vda="$(_vd)"
+{ [ -z "$_vda" ] && [ ! -e "$_vdp/.claude/crew-model-rules" ]; } || _v2b="$_v2b [a project with no commands got: $_vda]"
+[ -z "$_v2b" ] && pass "the installer adds the project's own test, lint and type-check commands as verify lines (package.json scripts and tools one folder down, pyproject through uv; not a dev server, not node_modules), below the user's own lines, says which, adds nothing twice, does not put back a deleted line, and writes nothing for a project that declares none" \
+               || fail "verify commands read from the project:$_v2b"
 # Which record is whose. Two calls of one type made together are matched by order, which can be wrong; the card in
 # the agent's own transcript settles it.
 _v2new; _v2b=""; _v2st="$_v2p/.claude/state/crew-model"

@@ -947,7 +947,7 @@ if [ "$OP" = allowverify ]; then
     _avm=""; [ "$_avx" -gt 0 ] && _avm=" $_avx more hold a character this command does not write; those lines go into .claude/crew-model-rules by hand, as verify <command>."
     say "Crewforth: verify commands refused for want of a rule:${_avl:- none in a form this command writes}.$_avm" "The user sent the command only the user can type, /crew-allow-verify, with nothing after it. Show them, in their language, the lines in Crewforth's message, one per line, as they stand: $_avwho. Do not type one for them."
   fi
-  case "$AV_CMD" in *[\;\&\|\<\>\`]*|*'$('*) noa "this is more than one command (a ; & | < > or a substitution): the hook runs a verify command alone, so no rule makes it run a chain. Give the card a single command, or a script that holds the chain." ;; esac
+  case "$AV_CMD" in *[\;\&\|\<\>\`]*|*'$('*) noa "this is more than one command (a ; & | < > or a substitution): a rule names one command. A card's verify may join steps with &&, and each step is allowed by its own rule: the user can type /crew-allow-verify once for each." ;; esac
   _avok "$AV_CMD" || noa "'${AV_CMD//[!A-Za-z0-9 ._\/=:,@+%-]/?}' is not one plain command (letters, digits, . _ / = : , @ + % - and spaces only, not starting with -). Write such a line into .claude/crew-model-rules by hand, as verify <command>."
   case " $AV_CMD " in *" git commit "*|*" git push "*) noa "a git commit or push is never a verify command: the hook does not commit or push." ;; esac
   crew_verify_open_ended "$AV_CMD" && noa "a rule '$AV_CMD' would let the hook run any command that begins with it (an interpreter, a shell, a wrapper or a package runner, with nothing after it that names the file or the task). Name the script or the test: bash tools/check.sh, npm test, pytest tests/."
@@ -962,7 +962,7 @@ if [ "$OP" = allowverify ]; then
   # Said only when it is TRUE: the line is read back from the file.
   _avh=0; while IFS= read -r _avl || [ -n "$_avl" ]; do [ "${_avl%$'\r'}" = "verify $AV_CMD" ] && _avh=1; done < "$_avf"
   [ "$_avh" = 1 ] || noa "the line was written but is not read back from .claude/crew-model-rules."
-  say "Crewforth: verify command allowed - the hook may now run: $AV_CMD (the line is in .claude/crew-model-rules)." "The user allowed the verify command $AV_CMD with their own command; Crewforth added the line verify $AV_CMD to .claude/crew-model-rules. From the next agent call, the hook runs it when a card names it, and judges the result. Tell the user that in one line. A deny rule of the settings still stops it, and it is still run alone, with no chain."
+  say "Crewforth: verify command allowed - the hook may now run: $AV_CMD (the line is in .claude/crew-model-rules)." "The user allowed the verify command $AV_CMD with their own command; Crewforth added the line verify $AV_CMD to .claude/crew-model-rules. From the next agent call, the hook runs it when a card names it, and judges the result. Tell the user that in one line. A deny rule of the settings still stops it, and in a card's verify it runs as one step of a && chain or alone, never after ; | or ||."
 fi
 
 # ---- `/crew-approve` with nothing after it: what this session was last refused ---------------------------------
