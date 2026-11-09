@@ -7683,7 +7683,8 @@ process.stdout.write('\n== §35 the panel\'s language ==\n');
       other.statusSince === null && other.rawStatus === null && other.lastWriteAt === null && other.activityAt === null
       && (await statusFile(4242, 'zzz', root)) === null && (await statusFile(-1, 'abc', root)) === null, JSON.stringify(other));
     check('the status files are read from <config dir>/sessions, the way transcripts are',
-      sessionsRoot({}, '/h') === path.join('/h', '.claude', 'sessions') && sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h') === path.join('/c', 'sessions'));
+      sessionsRoot({}, '/h') === path.join('/h', '.claude', 'sessions') && sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h') === path.join(path.resolve('/c'), 'sessions'),
+      JSON.stringify([sessionsRoot({}, '/h'), sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h')]));
 
     // Ending: a real process, really signalled. The fleet and the ancestry are the only stand-ins.
     if (process.platform === 'win32') {
