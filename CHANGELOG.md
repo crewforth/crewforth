@@ -35,10 +35,14 @@ versioning follows [SemVer](https://semver.org/).
 ### Added
 
 - **`/crew-todo` shows the plan as a to-do list under the status line.** The status line ends with the plan's count
-  (`📋 7/12`); the command opens a panel under it and closes it again: the plan's phases and tasks, done ones ticked,
-  open ones boxed, the phase and the task in work marked, cut to a window around the task in work (`CREW_TODO_LINES`).
-  It reads the plan's own boxes (`- [ ]`, `- [x]`, `- [~]` in work) under its headings and never writes the plan;
-  `spec-planning` now gives every task a box and tells whoever works the plan to tick it when its check passes.
+  (`📋 7/12`); the command opens a panel under it and closes it again: the plan's phases and tasks, done ones ticked
+  (✓), the one in work marked ◐, open ones boxed (☐), cut to a window around the task in work (`CREW_TODO_LINES`).
+  With nothing marked in work, the first open task is shown as the next one, never as in work. It reads the plan's
+  own boxes (`- [ ]`, `- [x]`, `- [~]` in work) under its headings; `spec-planning` now gives every task a box and
+  tells whoever works the plan to tick it when its check passes. A plan carries a `status:` line, and one that is
+  `paused`, `dropped` or `done` is not shown as the work in progress: the count leaves the line and the panel says the
+  plan is paused, so a stopped plan no longer stands in for the work that replaced it. The plan tells whoever works it
+  to set that line when the user stops the work; `/crew-todo pause` and `/crew-todo resume` set it directly.
   `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat. The drawing is cached
   until the plan changes, so a status line refresh starts no process for it.
 - **A compaction no longer loses what the user asked for.** The PreCompact snapshot keeps the user's first and last

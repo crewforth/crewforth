@@ -13453,23 +13453,57 @@ PLAN
     _want2="🔋 12% · ~\$0.50
 📋 Export — Plan · 3/6 done · phase 2/3 · AC 1/2
 ✓ Phase 1 — Parser  2/2
-▸ Phase 2 — Panel  1/3
+◐ Phase 2 — Panel  1/3
    ✓ 3. Draw the lines
-   ▸ 4. Wire the toggle
+   ☐ 4. Wire the toggle  ← next
    ☐ 5. Cache the drawing
 ☐ Phase 3 — Docs  0/1"
     # The cache is what a refresh reads: a planted line shows, until the plan changes and the drawing is made again.
-    _tv="$_sl/q/.claude/state/todo/view"; { IFS= read -r _tk < "$_tv"; printf '%s\n%s\n%s\n' "$_tk" '📋 9/9' 'FROM THE CACHE'; } > "$_tv.n" 2>/dev/null && mv "$_tv.n" "$_tv"
+    _tv="$_sl/q/.claude/state/todo/view"; { IFS= read -r _tk < "$_tv"; printf '%s\n%s\n%s\n%s\n' "$_tk" '📋 9/9' 'none' 'FROM THE CACHE'; } > "$_tv.n" 2>/dev/null && mv "$_tv.n" "$_tv"
     _to3="$(_t)"
     sleep 1; sed 's/^4\. \[ \]/4. [x]/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
     _to4="$(_t)"
+    # Marked in work: its own mark, ◐, and the status says so; the next one is no longer flagged.
+    sleep 1; sed 's/^5\. \[ \]/5. [~]/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    _to4w="$(_t)"
+    _tsw="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" status 2>&1 | head -n 1)"
     (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" off >/dev/null 2>&1)
     _to5="$(_t)"
-    [ "$_to1" = "🔋 12% · ~\$0.50 · 📋 3/6" ] && [ "$_tt" = "plan panel: open · docs/PLAN.md · 3/6 done, in work: 4. Wire the toggle" ] \
+    [ "$_to1" = "🔋 12% · ~\$0.50 · 📋 3/6" ] && [ "$_tt" = "plan panel: open · docs/PLAN.md · 3/6 done, nothing marked in work, next: 4. Wire the toggle" ] \
       && [ "$_to2" = "$_want2" ] && [ "$_to3" = "🔋 12% · ~\$0.50"$'\n'"FROM THE CACHE" ] \
-      && case "$_to4" in *"4/6 done"*"▸ 5. Cache the drawing"*) true ;; *) false ;; esac && [ "$_to5" = "🔋 12% · ~\$0.50 · 📋 4/6" ] \
-      && pass "plan panel: the count on the line while closed; open, the phases with the one in work opened, done ticked, open boxed, the task in work marked (no sub-step, no quoted box, nothing outside Tasks); read from its cache until the plan changes; closed again" \
-      || fail "plan panel: closed='$_to1' · toggle='$_tt' · open='$_to2' · cached='$_to3' · after an edit='$_to4' · closed again='$_to5'"
+      && case "$_to4" in *"4/6 done"*"☐ 5. Cache the drawing  ← next"*) true ;; *) false ;; esac \
+      && case "$_to4w" in *"◐ Phase 2 — Panel  2/3"*"   ◐ 5. Cache the drawing"*) case "$_to4w" in *"← next"*) false ;; *) true ;; esac ;; *) false ;; esac \
+      && [ "$_tsw" = "plan panel: open · docs/PLAN.md · 4/6 done, in work: 5. Cache the drawing" ] \
+      && [ "$_to5" = "🔋 12% · ~\$0.50 · 📋 4/6" ] \
+      && pass "plan panel: the count on the line while closed; open, the phases with the one in work opened, done ticked, the task in work ◐, open boxed, with none in work the first open one as next, not as in work (no sub-step, no quoted box, nothing outside Tasks); read from its cache until the plan changes; closed again" \
+      || fail "plan panel: closed='$_to1' · toggle='$_tt' · open='$_to2' · cached='$_to3' · after an edit='$_to4' · marked in work='$_to4w' · its status='$_tsw' · closed again='$_to5'"
+    # A plan that is not the work in progress: paused, it gives no count and no tasks, open or closed; pause and resume
+    # write that one line and nothing else, in the file's own line endings; any other status word is active.
+    cp "$_sl/q/docs/PLAN.md" "$_sl/q/p.before"
+    sleep 1; _tp="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" pause 2>&1 | head -n 1)"
+    _tpd="$(diff "$_sl/q/p.before" "$_sl/q/docs/PLAN.md" 2>&1)"
+    _to6="$(_t)"
+    (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" on >/dev/null 2>&1)
+    _to7="$(_t)"
+    sleep 1; (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" off >/dev/null 2>&1; env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" resume >/dev/null 2>&1)
+    _tpr="$(sed -n 2p "$_sl/q/docs/PLAN.md")"
+    _to8="$(_t)"
+    sleep 1; sed 's/^status: active$/**Status:** on hold — waiting for the API/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    _to9="$(_t)"
+    sleep 1; sed 's/^\*\*Status:\*\* on hold.*$/status: in progress/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    _to10="$(_t)"
+    printf '# T\r\ncommit: abc\r\n## Tasks\r\n- [ ] one\r\n' > "$_sl/q/crlf.md"
+    (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" pause crlf.md >/dev/null 2>&1)
+    _tcr="$(tr -dc '\r' < "$_sl/q/crlf.md" | wc -c | tr -d ' ')/$(sed -n 3p "$_sl/q/crlf.md" | tr -d '\r')"
+    [ -e "$_sl/q/.claude/state/todo/path" ] && _tcr="$_tcr/the panel moved to crlf.md"
+    [ "$_tpd" = "1a2
+> status: paused" ] && case "$_tp" in *"paused: not the work in progress"*) true ;; *) false ;; esac \
+      && [ "$_to6" = "🔋 12% · ~\$0.50" ] \
+      && [ "$_to7" = "🔋 12% · ~\$0.50"$'\n'"📋 Export — Plan · paused: not the work in progress (4/6 done) · /crew-todo resume shows it again" ] \
+      && [ "$_tpr" = "status: active" ] && [ "$_to8" = "🔋 12% · ~\$0.50 · 📋 4/6" ] \
+      && [ "$_to9" = "🔋 12% · ~\$0.50" ] && [ "$_to10" = "🔋 12% · ~\$0.50 · 📋 4/6" ] && [ "$_tcr" = "5/status: paused" ] \
+      && pass "plan panel: a paused plan gives no count closed and one line open; pause adds only its status line, resume sets it back; 'on hold' (bold key) is paused, any other word active; a named file set without moving the panel, its CRLF kept" \
+      || fail "plan panel status: pause said '$_tp', changed '$_tpd' · closed='$_to6' · open='$_to7' · resumed line='$_tpr' line='$_to8' · on hold='$_to9' · other word='$_to10' · crlf='$_tcr' (want 5/status: paused)"
   else
     skip scope "plan panel checks skipped (this project has no eval/lib/todo.sh)"
   fi

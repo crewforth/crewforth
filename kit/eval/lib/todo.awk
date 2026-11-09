@@ -1,5 +1,5 @@
 # todo.awk — reads a plan (docs/PLAN.md by default) and draws its to-do panel: the phases and the tasks, a tick on
-# what is done, an empty box on what is not, and the phase and the task in work marked.
+# what is done (✓), a half-filled circle on what is in work (◐), an empty box on what is not (☐).
 #
 #   LC_ALL=C awk -v color=1 -v maxl=14 -v name=docs/PLAN.md -f todo.awk docs/PLAN.md
 #
@@ -12,20 +12,26 @@
 #   a phase     a heading (## or deeper) with at least one task under it.
 #   the scope   when the plan has a `## Tasks` heading (or Görevler, İşler, To-do), only what is under it; else the
 #               whole file. An `Acceptance criteria` section is never a phase: its boxes are counted as AC n/m.
+#   the status a `status: <word>` line in the plan's head (above its first ## heading). paused, on hold, stopped,
+#               dropped, abandoned, cancelled, superseded, replaced, done (or beklemede, durduruldu, bırakıldı, iptal,
+#               bitti) mean the plan is not the work in progress: no count, no tasks, one line saying so. Anything
+#               else, or no such line, is active.
 #   code blocks are skipped (a template quoted in the plan is not the plan).
-# The task in work is the first one marked [~]/[>]; with none marked, the first open one. Its phase is the active one.
+# In work means marked [~]/[>], and only that: the first such task. With none marked, the first open task is shown as
+# the next one (☐ … ← next), never as in work. The phase of that task is the one opened up.
 #
-# Output: line 1 the short count for the status line ("📋 7/12"), or nothing when the plan has no task; then the panel.
-# It decides nothing and changes nothing.
+# Output: line 1 the short count for the status line ("📋 7/12"), or nothing when the plan has no task or is not
+# active; line 2 one fact for `todo.sh status`, tab-separated: work<TAB>task · next<TAB>task · done · inactive<TAB>word
+# · none; then the panel. It decides nothing and changes nothing.
 BEGIN {
   if (maxl + 0 < 6) maxl = 14
   wmax = 64
   E = sprintf("%c", 27)
-  if (color + 0) { DIM = E "[2m"; BOLD = E "[1m"; ACT = E "[1;36m"; RST = E "[0m" } else { DIM = BOLD = ACT = RST = "" }
+  if (color + 0) { DIM = E "[2m"; BOLD = E "[1m"; ACT = E "[1;36m"; WRK = E "[1;33m"; RST = E "[0m" } else { DIM = BOLD = ACT = WRK = RST = "" }
   for (i = 128; i < 192; i++) CONT = CONT sprintf("%c", i)
   for (i = 192; i < 256; i++) LEAD = LEAD sprintf("%c", i)
-  TICK = "✓"; BOX = "☐"; HERE = "▸"
-  nev = 0; fence = ""
+  TICK = "✓"; BOX = "☐"; WORK = "◐"; NEXT = "← next"
+  nev = 0; fence = ""; status = ""; inhead = 1
 }
 
 # A fenced code block: skipped whole.
@@ -36,8 +42,15 @@ BEGIN {
 }
 fence != "" { next }
 
+# The plan's status: the first `status:` line above its first ## heading.
+inhead && status == "" && /^[ ]*\**[Ss][Tt][Aa][Tt][Uu][Ss]\**:/ {
+  status = $0; sub(/\r$/, "", status); sub(/^[^:]*:\**[ \t]*/, "", status); sub(/[ \t]+$/, "", status)
+  if (status == "") status = "active"
+  next
+}
+
 /^#+[ \t]/ {
-  t = $0; match(t, /^#+/); lv = RLENGTH
+  t = $0; match(t, /^#+/); lv = RLENGTH; if (lv >= 2) inhead = 0
   t = substr(t, lv + 1); sub(/^[ \t]+/, "", t); sub(/[ \t]+#*[ \t]*$/, "", t); sub(/\r$/, "", t)
   nev++; EV[nev] = "H"; LV[nev] = lv; TX[nev] = t
   next
@@ -71,7 +84,13 @@ function cut(s, n,   r) {
   if (length(r) && index(LEAD, substr(r, length(r), 1))) r = substr(r, 1, length(r) - 1)
   return r "…"
 }
-function mark(st) { return st == "d" ? TICK : st == "w" ? HERE : BOX }
+function mark(st) { return st == "d" ? TICK : st == "w" ? WORK : BOX }
+# Not the work in progress: the status's first word, lower-cased (ASCII; the Turkish words are written lower-case).
+function inactive(s,   w) {
+  w = tolower(s); sub(/[ \t.,;:(].*$/, "", w)
+  if (w == "on" && tolower(s) ~ /^on[ -]hold/) return 1
+  return w ~ /^(paused|hold|stopped|dropped|abandoned|cancell?ed|superseded|replaced|done|closed|beklemede|durduruldu|bırakıldı|iptal|bitti)$/
+}
 function out(s) { L[++nl] = s }
 
 END {
@@ -105,20 +124,28 @@ END {
     PT[cur]++; nt++; T[cur, PT[cur]] = i
     if (ST[i] == "d") { PD[cur]++; done++ }
   }
-  if (nt == 0) { print ""; print "📋 " cut(name != "" ? name : FILENAME, wmax) ": no task with a box yet ( - [ ] task · - [x] done · - [~] in work )"; exit }
+  nm0 = cut(title != "" ? title : (name != "" ? name : FILENAME), wmax)
+  if (inactive(status)) {
+    print ""; print "inactive\t" status
+    print DIM "📋 " nm0 " · " cut(status, 24) ": not the work in progress (" done "/" nt " done) · /crew-todo resume shows it again" RST
+    exit
+  }
+  if (nt == 0) { print ""; print "none"; print "📋 " cut(name != "" ? name : FILENAME, wmax) ": no task with a box yet ( - [ ] task · - [x] done · - [~] in work )"; exit }
 
-  # The task in work: the first marked [~]/[>], else the first open one.
-  ap = 0; at = 0
-  for (p = 1; p <= np && !ap; p++) for (t = 1; t <= PT[p]; t++) if (ST[T[p, t]] == "w") { ap = p; at = t; break }
+  # The task in work: the first marked [~]/[>]. With none, the first open one is the next (wk = 0), not in work.
+  ap = 0; at = 0; wk = 0
+  for (p = 1; p <= np && !ap; p++) for (t = 1; t <= PT[p]; t++) if (ST[T[p, t]] == "w") { ap = p; at = t; wk = 1; break }
   for (p = 1; p <= np && !ap; p++) for (t = 1; t <= PT[p]; t++) if (ST[T[p, t]] == "o") { ap = p; at = t; break }
+  for (p = 1; p <= np; p++) { PW[p] = 0; for (t = 1; t <= PT[p]; t++) if (ST[T[p, t]] == "w") PW[p] = 1 }
 
   # Phases with no task are not phases.
   m = 0
-  for (p = 1; p <= np; p++) if (PT[p] > 0) { m++; PN[m] = PN[p]; PT[m] = PT[p]; PD[m] = PD[p]; for (t = 1; t <= PT[p]; t++) T[m, t] = T[p, t]; if (p == ap) ap = m }
+  for (p = 1; p <= np; p++) if (PT[p] > 0) { m++; PN[m] = PN[p]; PT[m] = PT[p]; PD[m] = PD[p]; PW[m] = PW[p]; for (t = 1; t <= PT[p]; t++) T[m, t] = T[p, t]; if (p == ap) ap = m }
   np = m
   phased = (np > 1 || PN[1] != "")
 
   print "📋 " done "/" nt
+  if (!ap) print "done"; else print (wk ? "work" : "next") "\t" TX[T[ap, at]]
   hd = BOLD "📋 " (title != "" ? cut(title, wmax) : "Plan") RST " · " done "/" nt " done"
   if (phased && ap) hd = hd " · phase " ap "/" np
   if (ac) hd = hd " · AC " acd "/" ac
@@ -140,9 +167,11 @@ END {
   for (p = (phased ? pa : 1); p <= (phased ? pb : 1); p++) {
     if (phased) {
       nm = (PN[p] != "" ? cut(PN[p], wmax) : "(no phase)") "  " PD[p] "/" PT[p]
-      if (p == ap) out(ACT HERE " " nm RST)
-      else if (PD[p] == PT[p]) out(DIM TICK " " nm RST)
-      else out(BOX " " nm)
+      # A phase: ✓ all done · ◐ a task in it is in work, or some are done · ☐ none started. The opened one is bright.
+      pm = (PD[p] == PT[p]) ? TICK : (PW[p] || PD[p] > 0) ? WORK : BOX
+      if (p == ap) out(ACT pm " " nm RST)
+      else if (PD[p] == PT[p]) out(DIM pm " " nm RST)
+      else out(pm " " nm)
     }
     if (p != ap && !(phased == 0 && !ap)) continue
     # A window over the tasks that keeps the one in work in sight: one before it, the rest after.
@@ -156,8 +185,10 @@ END {
     if (lo > 1) out(ind DIM "… " (lo - 1) " above" RST)
     for (t = lo; t <= hi; t++) {
       e = T[p, t]; s = mark(ST[e]) " " cut(TX[e], wmax)
-      if (t == at && p == ap) out(ind ACT HERE " " cut(TX[e], wmax) RST)
+      if (t == at && p == ap && wk) out(ind WRK WORK " " cut(TX[e], wmax) RST)
+      else if (t == at && p == ap) out(ind BOLD BOX " " cut(TX[e], wmax) "  " NEXT RST)
       else if (ST[e] == "d") out(ind DIM s RST)
+      else if (ST[e] == "w") out(ind WRK s RST)
       else out(ind s)
     }
     if (hi < n) out(ind DIM "… " (n - hi) " more" RST)
