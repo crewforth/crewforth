@@ -94,10 +94,13 @@ if [ "$cmd" = pause ] || [ "$cmd" = resume ]; then
   crew_todo_plan; [ -n "$file" ] && _CREW_TODO_PLAN="$file"
   if [ ! -f "$_CREW_TODO_PLAN" ]; then echo "todo: no plan at $_CREW_TODO_PLAN" >&2; exit 1; fi
   w=paused; [ "$cmd" = resume ] && w=active
-  awk -v w="$w" '
-    { L[NR] = $0 }
+  # The line ending is read here, not in awk: Git Bash's awk drops the CR of a CRLF line as it reads it, so it would
+  # neither see one nor write one back, and the whole plan would come out LF.
+  cr=0; IFS= read -r l < "$_CREW_TODO_PLAN" && case "$l" in *$'\r') cr=1 ;; esac
+  awk -v w="$w" -v crlf="$cr" '
+    { sub(/\r$/, ""); L[NR] = $0 }
     END {
-      cr = (NR && L[1] ~ /\r$/) ? "\r" : ""; at = 0; after = 0; fence = 0
+      cr = crlf ? "\r" : ""; at = 0; after = 0; fence = 0
       for (i = 1; i <= NR; i++) {
         if (L[i] ~ /^[ ]*(```|~~~)/) fence = !fence
         if (fence) continue
@@ -109,7 +112,7 @@ if [ "$cmd" = pause ] || [ "$cmd" = resume ]; then
       for (i = 1; i <= NR; i++) {
         if (i == at) { print "status: " w cr; continue }
         if (!at && after == 0 && i == 1) print "status: " w cr
-        print L[i]
+        print L[i] cr
         if (!at && i == after) print "status: " w cr
       }
       if (NR == 0) print "status: " w

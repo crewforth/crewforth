@@ -13464,7 +13464,9 @@ PLAN
     sleep 1; sed 's/^4\. \[ \]/4. [x]/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
     _to4="$(_t)"
     # Marked in work: its own mark, ◐, and the status says so; the next one is no longer flagged.
-    sleep 1; sed 's/^5\. \[ \]/5. [~]/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    # No second is waited for before an edit: a plan changed in its cache's own second is not older than the cache, so
+    # it is drawn again either way. Only reading the cache back, as (3) does, needs the cache to be the newer one.
+    sed 's/^5\. \[ \]/5. [~]/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
     _to4w="$(_t)"
     _tsw="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" status 2>&1 | head -n 1)"
     (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" off >/dev/null 2>&1)
@@ -13480,17 +13482,17 @@ PLAN
     # A plan that is not the work in progress: paused, it gives no count and no tasks, open or closed; pause and resume
     # write that one line and nothing else, in the file's own line endings; any other status word is active.
     cp "$_sl/q/docs/PLAN.md" "$_sl/q/p.before"
-    sleep 1; _tp="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" pause 2>&1 | head -n 1)"
+    _tp="$(cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" pause 2>&1 | head -n 1)"
     _tpd="$(diff "$_sl/q/p.before" "$_sl/q/docs/PLAN.md" 2>&1)"
     _to6="$(_t)"
     (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" on >/dev/null 2>&1)
     _to7="$(_t)"
-    sleep 1; (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" off >/dev/null 2>&1; env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" resume >/dev/null 2>&1)
+    (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" off >/dev/null 2>&1; env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" resume >/dev/null 2>&1)
     _tpr="$(sed -n 2p "$_sl/q/docs/PLAN.md")"
     _to8="$(_t)"
-    sleep 1; sed 's/^status: active$/**Status:** on hold — waiting for the API/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    sed 's/^status: active$/**Status:** on hold — waiting for the API/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
     _to9="$(_t)"
-    sleep 1; sed 's/^\*\*Status:\*\* on hold.*$/status: in progress/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
+    sed 's/^\*\*Status:\*\* on hold.*$/status: in progress/' "$_sl/q/docs/PLAN.md" > "$_sl/q/p.n" && mv "$_sl/q/p.n" "$_sl/q/docs/PLAN.md"
     _to10="$(_t)"
     printf '# T\r\ncommit: abc\r\n## Tasks\r\n- [ ] one\r\n' > "$_sl/q/crlf.md"
     (cd "$_sl/q" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" pause crlf.md >/dev/null 2>&1)
