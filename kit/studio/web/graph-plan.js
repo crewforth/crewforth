@@ -101,7 +101,7 @@ export const sideOf = (type) => (BUILDERS.has(type) ? -1 : 1);
 
 /**
  * Whether a type is one of Crewforth's own agents, when the caller has no better word for it: its `crew-` prefix.
- * The canvas passes its own (`opts.kit`), read from the agents the kit ships, so the order agrees with the mark.
+ * The canvas passes its own (`opts.kit`), read from the agents Crewforth ships, so the order agrees with the mark.
  */
 export const isKitType = (type) => typeof type === 'string' && type.startsWith('crew-');
 
