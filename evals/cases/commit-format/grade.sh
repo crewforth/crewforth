@@ -18,7 +18,7 @@ SUBJECT="$(git log -1 --format=%s)"
 BODY="$(git log -1 --format=%B)"
 
 # Conventional Commits: type(optional scope)[!]: subject
-if printf '%s' "$SUBJECT" | grep -qE '^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([a-z0-9._/-]+\))?!?: .+'; then
+if grep -qE '^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([a-z0-9._/-]+\))?!?: .+' <<<"$SUBJECT"; then
   say PASS "conventional-commits subject: $SUBJECT"
 else
   say FAIL "subject is not conventional commits: $SUBJECT"
@@ -35,7 +35,7 @@ else
   HIT=""
   while IFS= read -r pat; do
     case "$pat" in ''|'#'*) continue ;; esac
-    if printf '%s' "$BODY" | grep -qiE "$pat" 2>/dev/null; then HIT="$pat"; break; fi
+    if grep -qiE "$pat" <<<"$BODY" 2>/dev/null; then HIT="$pat"; break; fi
   done < "$BL"
   if [ -n "$HIT" ]; then say FAIL "AI trace in the commit message (matched: $HIT)"
   else say PASS "no AI trace in the commit message"; fi

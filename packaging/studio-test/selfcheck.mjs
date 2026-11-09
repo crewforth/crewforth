@@ -4741,7 +4741,8 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
   /* -- 1. a tree that reads left to right ------------------------------- */
 
   const one = gp.plan(screenOne(), {});
-  const col = (p, d) => p.items.filter((it) => it.depth === d);
+  // A column top to bottom: the order it is drawn in, which is not always the order its items were made in.
+  const col = (p, d) => p.items.filter((it) => it.depth === d).sort((a, b) => a.y - b.y);
   check('the session is on the left, what it spawned in the next column, what those spawned in the one after',
     at(one, 'session').x < at(one, 'b').x && at(one, 'b').x < at(one, 'k1').x
     && new Set(col(one, 1).map((it) => it.x)).size === 1 && new Set(col(one, 2).map((it) => it.x)).size === 1,
@@ -4781,9 +4782,23 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const after = gp.plan(more, { seq, density: 'comfortable', sessionY: before.sessionY });
     const was = boxes(before);
     const moved = [...was].filter(([id, xy]) => boxes(after).get(id) !== xy).map(([id]) => id);
-    check('a new agent lands at the end of its column and nothing already drawn moves',
-      moved.length === 0 && col(after, 1).at(-1).id === 'late',
-      moved.length ? `moved: ${moved.join(', ')}` : `${was.size} boxes held; the new one is last of ${col(after, 1).length}`);
+    // A Crewforth agent lands at the end of Crewforth's part of the column: Claude Code's own (Explore, general-purpose)
+    // stand below it and are the only thing that moves, down by its height.
+    const low = new Set(['type:session:Explore', 'g']);
+    const crewLast = col(after, 1).filter((it) => !low.has(it.id)).at(-1)?.id;
+    check('a new Crewforth agent lands at the end of Crewforth\'s part of its column; only Claude Code\'s agents below it move',
+      moved.every((id) => low.has(id)) && crewLast === 'late'
+      && [...low].every((id) => at(after, id).y > at(after, 'late').y && at(after, id).x === at(before, id).x),
+      `moved: ${moved.join(', ') || 'nothing'}; last Crewforth card: ${crewLast}`);
+    {
+      const more2 = [...nodes, A('late2', 'Plan', { parentId: 'session', startedAt: 0 })];
+      gp.sequence(more2, seq);
+      const after2 = gp.plan(more2, { seq, density: 'comfortable', sessionY: before.sessionY });
+      const moved2 = [...was].filter(([id, xy]) => boxes(after2).get(id) !== xy).map(([id]) => id);
+      check('a new Claude Code agent lands at the very end of its column and nothing already drawn moves',
+        moved2.length === 0 && col(after2, 1).at(-1).id === 'late2',
+        moved2.length ? `moved: ${moved2.join(', ')}` : `${was.size} boxes held; the new one is last of ${col(after2, 1).length}`);
+    }
 
     const grown = [...more, A('w9', 'crew-docs-agent', { parentId: 'wf:audit', workflow: 'audit', startedAt: 99 })];
     gp.sequence(grown, seq);
@@ -5331,6 +5346,29 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       gp.plan(nodes.map((n, i) => (n.kind === 'agent' ? { ...n, order: i, wave: i } : n)), { group: 'order', sides: true }).sides === false);
     check('the window decides: the canvas asks for two sides where an agent group opens beside itself',
       /aside: this\.aside, sides: this\.aside,/.test(canvasSrc) && /const k = c \* \(e\.dir \?\? 1\);/.test(canvasSrc));
+  }
+
+  /* -- 9c. Claude Code's own agents at the bottom of the column ----------- */
+
+  {
+    const nodes = screenOne();
+    const low = (it) => it.kind === 'agent' ? !it.node.agentType.startsWith('crew-') : it.kind === 'group' && it.type === 'type' && !String(it.real).startsWith('crew-');
+    for (const sides of [false, true]) {
+      const p = gp.plan(nodes, { density: 'comfortable', sides });
+      const right = p.items.filter((it) => it.depth === 1 && it.side >= 0).sort((a, b) => a.y - b.y);
+      const firstLow = right.findIndex(low);
+      check(`Claude Code's own agents the session called stand below Crewforth's in their column${sides ? ' (two sides)' : ''}, called first or not`,
+        firstLow > 0 && right.slice(firstLow).every(low) && overlap(p).length === 0,
+        right.map((it) => it.id).join(' > '));
+    }
+    const ownKit = gp.plan(nodes, { density: 'comfortable', kit: (type) => type === 'Explore' || type.startsWith('crew-') });
+    const order = ownKit.items.filter((it) => it.depth === 1).sort((a, b) => a.y - b.y).map((it) => it.id);
+    check('what counts as Crewforth\'s is the caller\'s to say: the canvas\'s own word moves a type up',
+      order.at(-1) === 'g' && order.indexOf('type:session:Explore') < order.indexOf('g'), order.join(' > '));
+    check('only what the session called is reordered: a run\'s members and an agent\'s children keep their places',
+      (() => { const a = gp.plan(nodes, { density: 'comfortable' }); const run = at(a, 'wf:audit'); return run.cells.map((c) => c.id).join() === 'w0,w1,w2,w3'; })());
+    check('the canvas decides by the mark: an agent drawn with Crewforth\'s chevrons stands above the rest',
+      /kit: \(type\) => this\.#identity\(\{ agentType: type \}\)\.source === 'kit'/.test(canvasSrc));
   }
 
   /* -- 10. the viewer's own arrangement is kept --------------------------- */

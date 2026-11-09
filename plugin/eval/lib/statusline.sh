@@ -13,7 +13,8 @@
 #   🔋  the context fill Claude Code measured (context_window.used_percentage), never an estimate
 #   ~$  what Claude Code puts the session's cost at (cost.total_cost_usd), at API list price
 #   📋  the plan's count of done tasks (docs/PLAN.md, todo.sh); with the panel open (/crew-todo), the panel itself is
-#       drawn under the line instead: phases and tasks, ✓ done, ☐ open, ▸ the phase and the task in work
+#       drawn under the line instead: phases and tasks, ✓ done, ◐ in work, ☐ open; a plan whose status: is paused,
+#       dropped or done gives neither
 #
 # Wired by the installers only where no status line is set already (theirs is never replaced), from
 # statusline.settings.json beside this file.

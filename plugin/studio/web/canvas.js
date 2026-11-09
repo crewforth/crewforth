@@ -526,6 +526,9 @@ export class Canvas {
     return plan(this.#visibleNodes(), {
       group: this.group, density: this.density, seq: this.seq, open: this.open, pinned: this.pinned, sessionY: this.sessionY,
       aside: this.aside, sides: this.aside, all: this.all, tallest: this.#tallest(),
+      // The order agrees with the mark: what is drawn with Crewforth's chevrons stands above the rest.
+      kit: (type) => this.#identity({ agentType: type }).source === 'kit'
+        || (this.palette.measured === false && String(type).startsWith('crew-')),
     });
   }
 

@@ -12,7 +12,7 @@ RT='node(\.js)?|typescript|golang|go 1\.[0-9]+|python|fastapi|django|flask|\.net
 # payload). Anywhere else outside .claude/: any markdown naming a runtime. The seed README names none. WHOLE
 # WORDS (-w): "trust", "javascript", "expression" must not read as rust, java, express.
 REC=""
-if [ -f CLAUDE.md ] && awk '/^## Stack/{f=1;next} f&&/^## /{exit} f&&NF&&!/[<>]/{print}' CLAUDE.md | grep -qiwE "$RT"; then REC="./CLAUDE.md"; fi
+if [ -f CLAUDE.md ] && grep -qiwE "$RT" <<<"$(awk '/^## Stack/{f=1;next} f&&/^## /{exit} f&&NF&&!/[<>]/{print}' CLAUDE.md)"; then REC="./CLAUDE.md"; fi
 if [ -z "$REC" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] && [ "$f" != ./CLAUDE.md ] || continue

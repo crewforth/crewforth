@@ -26,13 +26,14 @@ whether to replace it, add this plan to it, or write this one beside it.
 ```
 # <Feature> — Plan
 commit: <HEAD when the plan was written>
+status: active
 ## Acceptance criteria
 - [ ] AC-1: <measurable outcome> — proven by: <the one test level: unit · integration · e2e · a named manual check>
 - [ ] AC-2: <measurable outcome> — proven by: <…>
 ## Constraints
 - <a value, limit or name copied word for word from the request or spec>
 ## Tasks (order)
-Progress: tick a task [x] when its check passes, mark the one in work [~]. /crew-todo shows these boxes.
+Progress: tick a task [x] when its check passes, mark the one in work [~]; status: paused above when this work stops.
 ### Phase 1 — <name>                                              (phases only when the work has stages)
 1. [ ] <task> — satisfies: AC-1 — size: <S/M/L> — dependency: <none/#n> — risk: <low/medium/high>
    Interfaces: consumes <name: type> · produces <name: type>      (only when a later task uses its output)
@@ -48,7 +49,11 @@ Progress: tick a task [x] when its check passes, mark the one in work [~]. /crew
 ```
 - **Every task carries a box, and the box is the record.** `[ ]` open, `[x]` done (its check passed, not "written"),
   `[~]` the one in work. Tick it in the same step that finishes the task; the `Progress:` line keeps that rule in the
-  plan, where whoever works it reads it. `/crew-todo` draws the boxes under the status line; it reads, never writes.
+  plan, where whoever works it reads it. `/crew-todo` draws the boxes under the status line.
+- **The `status:` line says whether this plan is the work in progress.** When the user stops, parks or replaces the
+  work, set it to `paused` (`dropped` when it will not come back, `done` when it is finished) in that same step; set it
+  back to `active` when the work on it resumes. A paused plan gives the panel no count and no tasks, so the work that
+  replaced it is not shown as this plan's next task. `/crew-todo pause` and `/crew-todo resume` set the same line.
 - **No timeline and no estimate in time.** A size (S/M/L) says how much, never when.
 - **No code beyond signatures.** A plan names functions and types; the bodies are the tasks' work. The only code a
   plan quotes is the current code a task changes, word for word.
