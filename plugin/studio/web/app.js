@@ -34,6 +34,7 @@ import { qrSvg } from './qr.js';
 import { SESSION_MODES } from './convo.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
 import { t, numLocale, translateDom, initLang } from './i18n.js';
+import { keepScroll } from './keep-scroll.js';
 
 const FLEET_POLL_MS = 2000;
 const SESSION_POLL_MS = 5000;
@@ -1043,7 +1044,10 @@ function paintInspector() {
   copy.addEventListener('click', () => copyText(file, t('Copied')));
   foot.append(open, copy);
 
-  el.inspector.replaceChildren(inspectorSplit, head, meta, task, tabs, body, foot);
+  // Drawn again on every live frame: the place the reader scrolled to in the body or the task stays, until they
+  // pick another node or tab.
+  keepScroll(el.inspector, () => el.inspector.replaceChildren(inspectorSplit, head, meta, task, tabs, body, foot),
+    `${n.kind}:${n.id ?? n.sessionId ?? ''}|${inspectorTab}`);
 }
 
 function paintAgentOverview(body, n, detail) {
