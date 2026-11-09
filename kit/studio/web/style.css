@@ -363,6 +363,15 @@ body.resizing .cv-root { pointer-events: none; }
 .mname { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub { font-size: 12px; line-height: 16px; color: var(--ink-dim); white-space: nowrap; flex: none; }
 .srow-sub { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; }
+
+/* The Live tab: one group per project. A quiet session (open, silent for an hour) is listed, dimmed, not counted.
+   End shows on a row being pointed at or focused, and always on a quiet one: that is the row it is most for. */
+.proj-head.static { cursor: default; }
+.srow.quiet .nm { color: var(--ink-dim); }
+.btn.xs { height: 22px; padding: 0 8px; font-size: 11px; }
+.live-end { visibility: hidden; }
+.srow:hover .live-end, .srow:focus-within .live-end, .srow.quiet .live-end, .live-end:focus-visible { visibility: visible; }
+@media (hover: none) { .live-end { visibility: visible; } }
 .srow.remote .srow-sub { padding-left: var(--space-6); }
 /* What the session spent, under its state: time, tokens and the estimate. */
 .srow-usage { padding-left: var(--space-4); flex: initial; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
