@@ -270,6 +270,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **An update no longer puts back an ask rule the project allows.** The settings merge keeps every array entry,
+  so a Crewforth ask rule the user had deleted came back on each update, and since ask outranks allow, a project
+  that allowed `Bash(docker:*)` was asked before every docker command again. The merge now leaves out of
+  `permissions.ask` every rule the project's own `permissions.allow` names verbatim.
 - **Studio keeps your place while a session works.** The inspector, the List and the Timeline drawer are drawn
   again on every live update, so a panel scrolled down (a transcript, a long report, a gate list) jumped back to the
   top every second or so. A redraw now puts each scrolled box back where it was; picking another agent or tab still

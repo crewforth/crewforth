@@ -1724,6 +1724,8 @@ fi
 # ask rule prompts even when a hook returns "allow" (Claude Code permissions doc), which made the hook's
 # CLAUDE_GIT_OK pre-authorisation dead: a headless session was refused `git add` and never committed. The hook
 # now asks for all four itself. These exact strings are the kit's own; a project that wants them can re-add them.
+# The same holds for a kit ask rule the project ALLOWS verbatim (say "Bash(docker:*)"): ask outranks allow, so
+# re-adding the kit's copy on every update silently undid that choice. The merge leaves such a rule out of ask.
 # ONE path on every OS: the merge is kit/eval/lib/settings-json.awk (POSIX awk; its header holds the
 # reader contract and the merge semantics). jq and python3 are absent on a stock Windows Git-Bash, where python3
 # is often the Microsoft Store stub (exit 49); the old per-tool arms REPLACED the file there and lost the project's

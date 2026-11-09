@@ -818,7 +818,7 @@ cmp -s "$U/settings.first" "$N/.claude/settings.json" \
 # jq merge put it — asserted by name here, and against that jq program itself where jq exists.
 R="$WORK/selfheal-rich"; mk_stale_install "$R" '{
   "model": "opus", "env": { "A": "1", "B": "say \"hi\" \\ ç" }, "skillListingBudgetFraction": 0.5,
-  "permissions": { "allow": [ "Bash", "WebFetch(domain:example.com)" ], "ask": [ "Bash(git push:*)", "Bash(terraform apply:*)" ],
+  "permissions": { "allow": [ "Bash", "WebFetch(domain:example.com)", "Bash(rsync:*)" ], "ask": [ "Bash(git push:*)", "Bash(terraform apply:*)" ],
     "deny": [ "Read(.env)", "Read(secrets/**)" ], "defaultMode": "acceptEdits" },
   "hooks": {
     "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "my-own-check.sh", "timeout": 5 } ] },
@@ -833,6 +833,10 @@ for _k in '"my-own-check.sh"' '"notify-send hi"' '"model": "opus"' '"defaultMode
   grep -qF "$_k" "$R/.claude/settings.json" || { echo "FAIL: the merge lost the project's $_k"; exit 1; }; done
 ! grep -qF 'old/.claude/hooks/guard-bash.sh' "$R/.claude/settings.json" || { echo "FAIL: a stale kit hook survived the refresh"; exit 1; }
 ! grep -qF '"Bash(git push:*)"' "$R/.claude/settings.json"              || { echo "FAIL: a retired ask rule survived the merge"; exit 1; }
+# The project allows the kit's own ask rule "Bash(rsync:*)": ask outranks allow, so keeping the kit's copy would undo
+# that choice on every update. It stays in allow and leaves ask; the kit's other ask rules stay.
+[ "$(grep -cF '"Bash(rsync:*)"' "$R/.claude/settings.json")" = 1 ]          || { echo "FAIL: a rule the project allows was put back into ask"; exit 1; }
+grep -qF '"Bash(scp:*)"' "$R/.claude/settings.json"                          || { echo "FAIL: dropping the project-allowed rule also dropped another kit ask rule"; exit 1; }
 [ "$(grep -cF '"Read(.env)"' "$R/.claude/settings.json")" = 1 ]           || { echo "FAIL: a rule both sides carry was not deduplicated"; exit 1; }
 # Parity with the program the awk merge replaced. It lives here only, as the oracle; the product never runs it.
 # Compared after `jq -S .`, so key order is out and array order stays in. Needs a jq that RUNS (not a stub).
@@ -847,8 +851,8 @@ def merge_hooks(kh;ph):
   (((kh|keys_unsorted)+(ph|keys_unsorted))|unique) as $e
   | reduce $e[] as $k ({}; .[$k]=((kh[$k] // [])+((ph[$k] // [])|map(select(is_kit|not)))));
 def retired: ["Bash(git add:*)","Bash(git commit:*)","Bash(git push:*)","Bash(git checkout -b:*)"];
-def drop_retired: if (.permissions.ask|type)=="array" then .permissions.ask -= retired else . end;
-(dm($k[0]; $p[0]) | drop_retired) | .hooks=merge_hooks(($k[0].hooks // {}); ($p[0].hooks // {}))'
+def drop_retired(own): if (.permissions.ask|type)=="array" then .permissions.ask -= (retired + own) else . end;
+(dm($k[0]; $p[0]) | drop_retired([$p[0].permissions.allow // [] | .[] | strings])) | .hooks=merge_hooks(($k[0].hooks // {}); ($p[0].hooks // {}))'
 if printf '{}' | jq -e . >/dev/null 2>&1; then
   # `|`, not `:`, between the two paths: a Windows temp dir is `D:\a\_temp`, so a colon split handed jq "D" —
   # measured on windows-latest ("Could not open D:"), where jq exists and this oracle actually runs.
