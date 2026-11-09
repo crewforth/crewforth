@@ -26,5 +26,5 @@ Read the line Crewforth added to this turn and say what it says:
   a session, a headless session).
 - **No such line**: the message was not the command alone. Say that it has to be the whole message.
 
-What this does not touch: a deny rule of the settings still stops the command, the hook still runs it alone with no
-chain, and `/crew-doctor` lists the same refused commands.
+What this does not touch: a deny rule of the settings still stops the command; the hook runs it alone, or as one step
+of a card's `a && b` where every step has its rule; and `/crew-doctor` lists the same refused commands.

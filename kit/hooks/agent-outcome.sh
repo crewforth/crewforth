@@ -15,7 +15,8 @@
 #                                                      the end of its output as its next instruction.
 #                          red, the second time     -> the agent ends; the result is fail, and the card is marked so
 #                                                      the gate refuses it on the same or a lower model.
-#                          not a command a hook may run (it chains, or the shell gate would refuse or ask)
+#                          not a command a hook may run (it chains other than by &&, a step is allowed by no rule,
+#                          or the shell gate would refuse or ask; the user is told once with the message that allows it)
 #                                                   -> blocked: not run, nothing concluded.
 #                          not finished in CREW_VERIFY_TIMEOUT seconds (540)
 #                                                   -> timeout: stopped, nothing concluded.
@@ -40,8 +41,8 @@
 # review before a commit. CREW_MODEL_ROUTING=off: nothing here does anything.
 #
 # THE VERIFY COMMAND comes from the card, which the session wrote, and would run here where no PreToolUse gate sees
-# it. So it is one command with nothing chained to it, and it is handed to hooks/guard-bash.sh first, as the Bash
-# call it would be: what that gate refuses, or would ask the user about, is not run (_am_verify_ok, one function,
+# it. So it is one command, or steps joined by ` && ` each judged alone (eval/lib/verify-cmd.sh crew_verify_steps),
+# and every command is handed to hooks/guard-bash.sh first, as the Bash call it would be: what that gate refuses, or would ask the user about, is not run (_am_verify_ok, one function,
 # asked by the gate when the agent is called and here again when the command would start).
 set -uo pipefail
 export LC_ALL=C
@@ -82,6 +83,29 @@ _ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
   local s="$1"
   s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
   _AOJ="$(printf '%s' "$s" | tr -d '\000-\010\013-\037\177')"
+}
+
+# A verify command the hook may not run because NOTHING ALLOWS IT is said to the user, once a session for each
+# command, with the message that allows it. It used to reach the model alone ("run it yourself"), and a project ran
+# 22 of 56 agents without their verify while the user never heard why (3.5.0-rc.2). Only for that reason, and only
+# for a plain command a rule may name (crew_verify_open_ended): a chain, a sentence or a refusal of the shell gate is
+# not something one message fixes. The agent cannot send the message: prompt-approval.sh takes it from the user only.
+_ao_tell_allow(){  # $1 = the command (or the step) that was refused, $2 = why
+  local c="$1" w="$2" sid f l v1 m
+  case "$w" in *"not a test or build command on this hook's list"*|*"does not run a command the user has not allowed"*) ;; *) return 0 ;; esac
+  case "$c" in ''|*[\;\&\|\<\>\`\(\)]*|*'$('*|*' + '*) return 0 ;; esac
+  [ "${#c}" -le 200 ] || return 0
+  v1="${c%% *}"; case "$v1" in */*|*=*) ;; *) command -v -- "$v1" >/dev/null 2>&1 || return 0 ;; esac
+  declare -F crew_verify_rule_of >/dev/null 2>&1 || return 0
+  crew_verify_rule_of "$c"; c="$_VR_RULE"; [ -n "$c" ] || return 0
+  _json_slice "$INPUT" session_id >/dev/null; sid="$_JS"; case "$sid" in ''|*[!A-Za-z0-9._-]*) sid=none ;; esac
+  mkdir -p "$_AMD/told" 2>/dev/null || return 0
+  f="$_AMD/told/$sid"
+  if [ -f "$f" ]; then while IFS= read -r l || [ -n "$l" ]; do [ "$l" = "$c" ] && return 0; done < "$f"; fi
+  printf '%s\n' "$c" >> "$f" 2>/dev/null || return 0
+  # Said to the user, in English as every hook's own line is; the slash command is one the user can type, never the agent.
+  m="crew: an agent's verify command was not run, because no rule lets the hook run it: $c. To let it run from now on, the user can type this as the whole message: /crew-allow-verify $c"
+  _ao_json "$m"; printf '{"systemMessage":"%s"}\n' "$_AOJ"
 }
 
 _ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never ending inside a UTF-8 character
@@ -304,15 +328,34 @@ case "$EV" in
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
     SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
-    RES=none; WHYNOT=""
+    RES=none; WHYNOT=""; VSTEP=""
     if [ -n "$VCMD" ] && [ "$VCMD" != none ]; then
       _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
-      # `cd <folder> && <command>` is judged as the command and run in the folder (guard-agent-model.sh).
-      _am_verify_split "$VCMD"; VDIR="$_AMVD"; VRUN="$_AMVC"
-      if ! _am_verify_ok "$VRUN" "$PM"; then
+      # Steps joined by ` && `, each judged alone, with `cd <folder>` steps run as a move inside the project
+      # (eval/lib/verify-cmd.sh crew_verify_steps). The script that runs is built here from the judged steps only:
+      # `cd "$CREW_VR/<folder>" && <step> && …`, where the folder is a plain relative name the reader checked.
+      VDIR=""; VRUN=""; VOK=1
+      if ! declare -F crew_verify_steps >/dev/null 2>&1; then
+        _am_verify_split "$VCMD"; VDIR="$_AMVD"; VRUN="$_AMVC"
+        _am_verify_ok "$VRUN" "$PM" || { VOK=0; WHYNOT="$_AMVW"; }
+      elif ! crew_verify_steps "$VCMD" "$_AMP"; then VOK=0; WHYNOT="$_VS_WHY"
+      else
+        VI=0
+        while [ "$VI" -lt "$_VS_N" ]; do
+          if ! _am_verify_ok "${_VS_C[VI]}" "$PM"; then
+            VOK=0; WHYNOT="$_AMVW"
+            [ "$_VS_N" -gt 1 ] && { VSTEP="${_VS_C[VI]}"; WHYNOT="the step '$VSTEP': $_AMVW"; }
+            break
+          fi
+          VRUN="${VRUN:+$VRUN && }cd \"\$CREW_VR/${_VS_D[VI]}\" && ${_VS_C[VI]}"
+          VI=$((VI+1))
+        done
+      fi
+      if [ "$VOK" = 0 ]; then
         # Judged again here, at the moment it would run: the gate judged it when the agent was called, and this
         # is the place the command actually starts. Not run; nothing is concluded about the work.
-        RES=blocked; WHYNOT="$_AMVW"; VRC=0
+        RES=blocked; VRC=0
+        _ao_tell_allow "${VSTEP:-$VCMD}" "$WHYNOT"
       else
         # A time limit of its own, below the hook's: a hook killed at its timeout records nothing, and a verify
         # that hangs must not read as a pass or as a fail.
@@ -324,11 +367,11 @@ case "$EV" in
         # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
         # is ended by its Windows process id.
         if [ -z "${CREW_VERIFY_NO_SETSID:-}" ] && command -v setsid >/dev/null 2>&1; then
-          ( cd "$_AMP/$VDIR" 2>/dev/null && exec setsid bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$_AMP/$VDIR" 2>/dev/null && CREW_VR="$_AMP" exec setsid bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
         else
           set -m
-          ( cd "$_AMP/$VDIR" 2>/dev/null && exec bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$_AMP/$VDIR" 2>/dev/null && CREW_VR="$_AMP" exec bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
           set +m
         fi
@@ -379,6 +422,7 @@ case "$EV" in
     case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac
     [ "$RES" = fail ] && printf '%s\n' "$ASK" >> "$_AMD/fails/$CID" 2>/dev/null
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
+    [ -n "$VSTEP" ] && printf 'step=%s\n' "$VSTEP" >> "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
     [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why\n' > "$TSV" 2>/dev/null

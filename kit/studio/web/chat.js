@@ -561,11 +561,17 @@ class Pane {
     cont.type = 'button';
     cont.addEventListener('click', () => this.hooks.onContinue?.(this, cont));
     const contRow = el('div', 'chat-ro-row');
+    // Shown only once the server says the session is held elsewhere: then the way to continue it ITSELF, not a copy,
+    // is to end the process that holds it first. Two presses, the first saying what ending does.
+    const endCont = el('button', 'btn sm', t('End it there, continue here'));
+    endCont.type = 'button';
+    endCont.hidden = true;
+    endCont.addEventListener('click', (e) => { e.stopPropagation(); this.hooks.onEndAndContinue?.(this, endCont); });
     // Said before the press, from the server's own check (the one Continue here acts on): the same session, or a copy.
     // Until the server answers, and if it cannot: the sentence true of both outcomes.
     const FALLBACK = t('Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: the original does not see this, and messages here never reach your terminal.');
     const contText = el('span', 'sub', FALLBACK);
-    contRow.append(cont, contText);
+    contRow.append(cont, endCont, contText);
 
     const term = el('button', 'btn sm', t('Open in terminal'));
     term.type = 'button';
@@ -600,8 +606,9 @@ class Pane {
         contText.textContent = r?.continueAs === 'same'
           ? t('Continues this same session in Studio: its id and history stay, and the desktop app or a terminal that opens it later sees what you add here. Nothing else has it open now.')
           : r?.continueAs === 'copy'
-            ? t('It is open somewhere else right now, so Studio starts a copy: the original does not see this, and messages here never reach your terminal or the desktop app.')
+            ? t('It is open somewhere else right now, so Studio starts a copy: the original does not see this, and messages here never reach your terminal or the desktop app. To keep the same session, end it there first.')
             : FALLBACK;
+        endCont.hidden = r?.continueAs !== 'copy';
       })
       .catch((e) => { line.textContent = t('not read — {reason}', { reason: e.message }); deskLine.textContent = t('not read — {reason}', { reason: e.message }); deskCopy.disabled = true; });
   }

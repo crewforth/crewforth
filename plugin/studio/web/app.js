@@ -12,7 +12,7 @@ import { renderMarkdown } from './md.js';
 import { Chat } from './chat.js';
 import {
   summaryChips, sessionStatus, sessionName, sessionSub, ago, matchesSession, highlight, badgeFor,
-  liveSessions, machines, seenAgo, isFirstRun,
+  liveSessions, liveCount, liveGroups, projectOfCwd, span, machines, seenAgo, isFirstRun,
 } from './nav.js';
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
@@ -336,6 +336,7 @@ const chat = new Chat(el.chat, {
       label: m.label, title: m.title, checked: m.mode === now, run: () => setSessionMode(pane.id, m.mode),
     }))),
     onTerminal: (pane, button) => offerTerminal(button, pane.id),
+    onEndAndContinue: (pane, button) => endThenContinue(button, pane.id),
   },
 });
 
@@ -411,6 +412,7 @@ async function openOwned(sessionId) {
 // Offered on the session in the inspector and at the foot of its read-only conversation.
 async function continueHere(button, from = current) {
   if (!from) return;
+  const label = button.textContent;
   button.disabled = true;
   button.textContent = t('Continuing…');
   try {
@@ -428,8 +430,21 @@ async function continueHere(button, from = current) {
     }
   } finally {
     button.disabled = false;
-    button.textContent = t('Continue here');
+    button.textContent = label;
   }
+}
+
+/* Continue a session ITSELF that another process still holds: end that process (two presses, offerEnd), then
+   continue. The server's own check then finds nothing holding it, and resumes the same id. */
+function endThenContinue(button, id) {
+  const row = (fleetData?.sessions ?? []).find((s) => s.sessionId === id && s.local !== false);
+  if (!row || !Number.isInteger(row.pid)) {
+    toast(t('Not ended: this machine does not list that session as running'));
+    return;
+  }
+  const known = findSessionRow(id);
+  const name = known ? sessionName(known.session, labels.all()) : (row.name || id.slice(0, 8));
+  offerEnd(button, row, name, () => continueHere(button, id));
 }
 
 /* New session: a panel, not a button that starts one. Where it runs, how much it may do and what it is asked
@@ -2001,9 +2016,10 @@ function paintLive() {
   }
 
   const live = liveSessions(data);
-  el.liveCount.hidden = live.length === 0;
-  el.liveCount.textContent = String(live.length);
-  el.liveCount.title = t('{n} working or waiting', { n: live.length });
+  const working = liveCount(data);
+  el.liveCount.hidden = working === 0;
+  el.liveCount.textContent = String(working);
+  el.liveCount.title = t('{n} working or waiting', { n: working });
 
   const rows = live.filter((s) => !filterText
     || [s.name, s.cwd, s.sessionId, s.origin].some((v) => typeof v === 'string' && v.toLowerCase().includes(filterText)));
@@ -2023,35 +2039,81 @@ function paintLive() {
     return;
   }
 
-  el.fleet.replaceChildren(...rows.map((s) => {
-    const status = sessionStatus(s.sessionId, { measured: true, sessions: [{ ...s, local: true }] });
-    const known = findSessionRow(s.sessionId);
-    const name = known ? sessionName(known.session, labels.all()) : (s.name || s.sessionId.slice(0, 8));
-    const row = node('div', 'srow');
-    const top = node('span', 'srow-top');
-    top.append(dot(status.tone), marked(name, 'nm'));
-    if (s.origin && s.local === false) top.append(node('span', 'origin', s.origin));
-    top.append(node('span', 'row-fill'), node('span', 'sub', ago(s.startedAt, Date.now())));
-    row.append(top);
-    const where = known?.project.label ?? shortPath(s.cwd);
-    const said = status.key === 'waiting' && s.waitingFor ? `${t('Needs you')} · ${s.waitingFor}` : (status.word ?? s.status);
-    row.append(marked([where, said].filter(Boolean).join(' · '), 'sub srow-sub'));
-
-    if (s.local !== false && s.sessionId) {
-      row.tabIndex = 0;
-      row.dataset.id = s.sessionId;
-      row.setAttribute('aria-current', String(s.sessionId === current));
-      row.title = t('Open {name}', { name });
-      const open = () => selectSession(s.sessionId);
-      row.addEventListener('click', open);
-      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
-    } else {
-      // A session on another machine has no transcript here to open.
-      row.classList.add('remote');
-      row.title = t('{name} — on {origin}. Its transcript is on that machine.', { name, origin: s.origin });
-    }
-    return row;
+  // One group per project, the project a session is in as the Projects tab names it.
+  const groups = liveGroups({ ...data, sessions: rows }, (s) => findSessionRow(s.sessionId)?.project.label ?? projectOfCwd(s.cwd));
+  el.fleet.replaceChildren(...groups.map((g) => {
+    const group = node('div', 'proj live-group');
+    const head = node('div', 'proj-head static');
+    head.append(node('span', 'proj-name', g.label));
+    if (g.origin) head.append(node('span', 'origin', g.origin));
+    head.append(node('span', 'row-fill'), node('span', 'sub', String(g.rows.length)));
+    group.append(head, ...g.rows.map(({ row, status }) => liveRow(row, status)));
+    return group;
   }));
+}
+
+function liveRow(s, status) {
+  const known = findSessionRow(s.sessionId);
+  const name = known ? sessionName(known.session, labels.all()) : (s.name || s.sessionId.slice(0, 8));
+  const row = node('div', `srow${status.key === 'quiet' ? ' quiet' : ''}`);
+  const top = node('span', 'srow-top');
+  top.append(dot(status.tone), marked(name, 'nm'));
+  if (s.origin && s.local === false) top.append(node('span', 'origin', s.origin));
+  top.append(node('span', 'row-fill'), node('span', 'sub', ago(s.startedAt, Date.now())));
+  // Ending is offered for a session on this machine only: a process elsewhere is not this server's to signal.
+  if (s.local !== false && Number.isInteger(s.pid)) {
+    const end = node('button', 'btn xs live-end', t('End'));
+    end.type = 'button';
+    end.title = t('End this session…');
+    end.addEventListener('click', (e) => { e.stopPropagation(); offerEnd(end, s, name); });
+    end.addEventListener('keydown', (e) => e.stopPropagation());
+    top.append(end);
+  }
+  row.append(top);
+  // What it said before it went quiet stays on the line: "quiet for 18h · was Needs you · permission prompt".
+  const before = status.key === 'quiet'
+    ? t('was {state}', { state: status.was === 'waiting' ? `${t('Needs you')}${status.waitingFor ? ` · ${status.waitingFor}` : ''}` : t('Running') })
+    : null;
+  const said = status.key === 'waiting' && s.waitingFor ? `${t('Needs you')} · ${s.waitingFor}` : (status.word ?? s.status);
+  row.append(marked([said, before].filter(Boolean).join(' · '), 'sub srow-sub'));
+  if (status.key === 'quiet') row.title = t('Nothing written for {span}. Its process is still open; End closes it.', { span: span(status.quietFor) });
+
+  if (s.local !== false && s.sessionId) {
+    row.tabIndex = 0;
+    row.dataset.id = s.sessionId;
+    row.setAttribute('aria-current', String(s.sessionId === current));
+    if (status.key !== 'quiet') row.title = t('Open {name}', { name });
+    const open = () => selectSession(s.sessionId);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  } else {
+    // A session on another machine has no transcript here to open.
+    row.classList.add('remote');
+    row.title = t('{name} — on {origin}. Its transcript is on that machine.', { name, origin: s.origin });
+  }
+  return row;
+}
+
+/*
+ * Ending a session that runs somewhere else is a signal to a real process, so it takes two presses: the first says
+ * what will happen, the second does it. The server refuses whatever it cannot show to be that session's process.
+ */
+function offerEnd(anchor, row, name, then = null) {
+  openMenu(anchor, [
+    { note: t('Ends {name} (process {pid}): Claude Code is asked to quit, as when its terminal is closed. Its history stays and can be continued; work it is doing now stops, and a question it is waiting on goes unanswered.', { name, pid: row.pid }) },
+    { label: t('End session'), primary: true, run: () => endSession(row, name, then) },
+    { label: t('Cancel'), run: () => {} },
+  ]);
+}
+
+async function endSession(row, name, then) {
+  const out = await remoteWrite('POST', `/api/fleet/${encodeURIComponent(row.sessionId)}/end`, { pid: row.pid });
+  if (!out.ok) { toast(t('Not ended: {reason}', { reason: out.reason ?? t('no reason given') })); return false; }
+  if (out.ended === false) { toast(t('{name} was asked to end and is still running.', { name })); return false; }
+  toast(t('{name} ended.', { name }));
+  try { renderFleet(await getJson('/api/fleet')); } catch { /* the next poll brings it */ }
+  then?.();
+  return true;
 }
 
 function machineRow(m) {

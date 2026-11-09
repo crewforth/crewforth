@@ -132,6 +132,7 @@ another machine's sessions, so a peer is another Studio.
 | Source | What it gives |
 |---|---|
 | `claude agents --json` | Live sessions on this machine: name, cwd, busy/waiting/idle, what it is waiting for |
+| `<config>/sessions/<pid>.json` and the last transcript write | Since when: a session that says busy or waiting and has written nothing for an hour is shown as quiet. The file is believed only when it names the session |
 | `<session>.jsonl` and `<session>/subagents/` | The delegation graph, nested workflow runs included |
 | `.claude/VERSION` per project | Which projects run an old Crewforth, against the npm dist-tags feed |
 
