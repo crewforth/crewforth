@@ -45,14 +45,16 @@ When the project has a plan (`docs/PLAN.md`, written by `/crew-plan`), the line 
 ```
 📋 Export — Plan · 7/12 done · phase 2/3 · AC 3/5
 ✓ Phase 1 — Parser  4/4
-▸ Phase 2 — Panel  3/5
+◐ Phase 2 — Panel  3/5
    ✓ 6. Draw the lines
-   ▸ 7. Wire the toggle
+   ◐ 7. Wire the toggle
    ☐ 8. Cache the drawing
 ☐ Phase 3 — Docs  0/3
 ```
 
-Done tasks are ticked, open ones boxed, and the phase and the task in work are marked. Only the phase in work is opened up; a long list is cut to a window around the task in work, and `CREW_TODO_LINES` sets the height (14 lines by default). The panel reads the plan's own boxes: `- [ ]` open, `- [x]` done, `- [~]` in work, each heading a phase, and only what is under the `## Tasks` heading when the plan has one. It never writes the plan; the plan says to tick a task when its check passes. `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat, and redrawing costs nothing while the plan stands still: the drawing is cached until the plan changes.
+Done tasks are ticked (✓), the task in work has a half-filled circle (◐), open ones are boxed (☐); a phase gets ◐ once it is started. When no task is marked in work, the first open one is shown as `☐ … ← next`, never as in work. Only the phase in work is opened up; a long list is cut to a window around the task in work, and `CREW_TODO_LINES` sets the height (14 lines by default). The panel reads the plan's own boxes: `- [ ]` open, `- [x]` done, `- [~]` in work, each heading a phase, and only what is under the `## Tasks` heading when the plan has one. It never writes the plan; the plan says to tick a task when its check passes. `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat.
+
+The panel follows the work in progress, not whichever plan happens to be on disk. A `status:` line in the plan's head says whether it is: when the work on a plan stops, its `status:` becomes `paused` (or `dropped`, or `done`), and the line drops its count and the panel shows one line saying the plan is paused, instead of a task nobody is working on. The plan's own rules tell whoever works it to set that line when the user stops or replaces the work; `/crew-todo pause` and `/crew-todo resume` set it directly. Redrawing costs nothing while the plan stands still: the drawing is cached until the plan changes.
 
 ## Compaction
 

@@ -61,6 +61,10 @@ posix_modes_ok() {
   chmod 700 "$d" 2>/dev/null; m="$(stat -c '%a' "$d" 2>/dev/null || stat -f '%Lp' "$d" 2>/dev/null)"
   rmdir "$d" 2>/dev/null; [ "$m" = 700 ]
 }
+# Does the text $1 have a line starting with $2? A builtin, not `printf | grep -q`: under pipefail that pipe reads a
+# match as "not found" whenever grep exits on it before the writer is done (SIGPIPE, 141), and a grader's PASS went
+# missing that way on a CI runner.
+has_line() { case $'\n'"$1" in *$'\n'"$2"*) return 0 ;; esac; return 1; }
 req_missing() { # REQUIRES words -> the ones this machine lacks, each with a leading space
   local t; for t in "$@"; do
     case "$t" in
@@ -122,11 +126,11 @@ if [ "$CALIB" = 1 ]; then
     if [ -n "$miss" ]; then CAL_NONE="$CAL_NONE $cname(needs$miss)"; continue; fi
     og="$(cal_one "$cdir" good)"; ob="$(cal_one "$cdir" bad)"
     why=""
-    printf '%s\n' "$og" | grep -q '^NOT_MEASURED ' && why="$why good:NOT_MEASURED"
-    printf '%s\n' "$ob" | grep -q '^NOT_MEASURED ' && why="$why bad:NOT_MEASURED"
-    printf '%s\n' "$og" | grep -q '^FAIL ' && why="$why good:$(printf '%s\n' "$og" | grep -c '^FAIL ')-FAIL"
-    printf '%s\n' "$og" | grep -q '^PASS ' || why="$why good:no-PASS"
-    printf '%s\n' "$ob" | grep -q '^FAIL ' || why="$why bad:no-FAIL"
+    has_line "$og" 'NOT_MEASURED ' && why="$why good:NOT_MEASURED"
+    has_line "$ob" 'NOT_MEASURED ' && why="$why bad:NOT_MEASURED"
+    has_line "$og" 'FAIL ' && why="$why good:$(printf '%s\n' "$og" | grep -c '^FAIL ')-FAIL"
+    has_line "$og" 'PASS ' || why="$why good:no-PASS"
+    has_line "$ob" 'FAIL ' || why="$why bad:no-FAIL"
     if [ -z "$why" ]; then
       CAL_OK=$((CAL_OK+1)); printf '   ok    %-32s good %s PASS · bad %s FAIL\n' "$cname" "$(printf '%s\n' "$og" | grep -c '^PASS ')" "$(printf '%s\n' "$ob" | grep -c '^FAIL ')"
     else
@@ -607,7 +611,7 @@ for cdir in "$CASES"/*/; do
       # protocol it had only PASS and FAIL to choose from, and a missing interpreter came out as a FAIL — measured, a
       # grader reported "the suite was weakened" when nothing had been touched and node simply could not run. A run
       # the grader could not read is not a result, so it is counted exactly like one that never happened.
-      if printf '%s\n' "$out" | grep -q '^NOT_MEASURED '; then
+      if has_line "$out" 'NOT_MEASURED '; then
         NOT_MEASURED=$((NOT_MEASURED+1)); arm_nm=$((arm_nm+1)); arm_graded=$((arm_graded-1))
         printf '   ! %s run %s NOT MEASURED by its grader — %s\n' "$arm" "$r" "$(printf '%s\n' "$out" | sed -n 's/^NOT_MEASURED //p' | head -1)"
         continue

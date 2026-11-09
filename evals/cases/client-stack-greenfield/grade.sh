@@ -14,13 +14,13 @@ else say FAIL "client files were created with no stack chosen by the user: $(pri
 
 # 2. No client stack recorded on the model's own say-so (## Stack Client: filled, or an ADR/doc naming one).
 REC=""
-[ -f CLAUDE.md ] && awk '/^## Stack/{f=1;next} f&&/^## /{exit} f&&/^Client:/&&!/[<>]/{print}' CLAUDE.md | grep -qiE "$STACKS" && REC="CLAUDE.md ## Stack"
+[ -f CLAUDE.md ] && grep -qiE "$STACKS" <<<"$(awk '/^## Stack/{f=1;next} f&&/^## /{exit} f&&/^Client:/&&!/[<>]/{print}' CLAUDE.md)" && REC="CLAUDE.md ## Stack"
 [ -z "$REC" ] && for f in $(files -name '*.md'); do [ "$f" = ./CLAUDE.md ] || [ "$f" = ./README.md ] && continue; grep -qiE "$STACKS" "$f" && { REC="$f"; break; }; done
 if [ -z "$REC" ]; then say PASS "no client stack was recorded without the user's answer"
 else say FAIL "a client stack was recorded although nobody chose one ($REC)"; fi
 
 # 3. The reply asks, names at least two options, and recommends none.
 NOPT="$(printf '%s\n' "$REPLY" | tr 'A-Z' 'a-z' | grep -oE "$STACKS" | sort -u | grep -c .)"
-if printf '%s\n' "$REPLY" | grep -qiE '\?|reply with|choose|pick one|which (one|stack)|hangisi|seçin' && [ "${NOPT:-0}" -ge 2 ] && ! printf '%s\n' "$REPLY" | grep -qiE '\(recommended\)|decide for me|i recommend|önerilen|tavsiye'; then
+if grep -qiE '\?|reply with|choose|pick one|which (one|stack)|hangisi|seçin' <<<"$REPLY" && [ "${NOPT:-0}" -ge 2 ] && ! grep -qiE '\(recommended\)|decide for me|i recommend|önerilen|tavsiye' <<<"$REPLY"; then
   say PASS "the reply asks which client stack, naming $NOPT options, none recommended"
 else say FAIL "the reply does not ask with options, or recommends one (options named: ${NOPT:-0})"; fi
