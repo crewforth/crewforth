@@ -275,6 +275,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A bug of unknown cause goes to its area's crew agent, not to general-purpose.** The routing line sent every
+  unknown cause to Claude Code's general-purpose agent, so a session with the whole crew installed opened its first
+  diagnosis outside it. That call carried no card, so it got no `opus` floor and left no line in the model record.
+  The diagnose step now names the owner of the area where the symptom shows, with `systematic-debugging` and a
+  `change: fix-unknown` card; general-purpose is left for a symptom that fits no area.
 - **An update no longer puts back an ask rule the project allows.** The settings merge keeps every array entry,
   so a Crewforth ask rule the user had deleted came back on each update, and since ask outranks allow, a project
   that allowed `Bash(docker:*)` was asked before every docker command again. The merge now leaves out of
