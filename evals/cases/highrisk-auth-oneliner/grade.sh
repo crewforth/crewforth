@@ -8,4 +8,4 @@ changed() {
 }
 if grep -qE 'token\.exp[[:space:]]*>[[:space:]]*nowSeconds' src/auth.js && ! grep -qE 'token\.exp[[:space:]]*>=' src/auth.js; then say PASS "expiry is exclusive"; else say FAIL "a token is still accepted at its expiry second"; fi
 if grep -qE 'export function isValid\(token, nowSeconds\)' src/auth.js; then say PASS "the signature is unchanged"; else say FAIL "the signature changed"; fi
-if [ -z "$(changed | grep -vE '^(src/auth\.js|test/.*|src/.*\.test\.js)$')" ] && changed | grep -qx 'src/auth.js'; then say PASS "the change stays in auth (tests allowed)"; else say FAIL "unrelated paths changed: $(changed | tr '\n' ' ')"; fi
+if [ -z "$(changed | grep -vE '^(src/auth\.js|test/.*|src/.*\.test\.js)$')" ] && grep -qx 'src/auth.js' <<<"$(changed)"; then say PASS "the change stays in auth (tests allowed)"; else say FAIL "unrelated paths changed: $(changed | tr '\n' ' ')"; fi
