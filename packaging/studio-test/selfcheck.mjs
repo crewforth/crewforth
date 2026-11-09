@@ -28,7 +28,7 @@ import { redact, transcriptOnly } from '../../kit/studio/server/lib/redact.js';
 import { lanListener, lanAddresses } from '../../kit/studio/server/lib/lan.js';
 import http from 'node:http';
 import { prepare, decide, pending, cleanup, revoke, alwaysList, _internals as permInternals } from '../../kit/studio/server/lib/permissions.js';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import os from 'node:os';
 import { quickReplies, OwnedStream } from '../../kit/studio/web/chat.js';
 import { installDom } from './dom-stub.mjs';
@@ -7627,6 +7627,197 @@ process.stdout.write('\n== §35 the panel\'s language ==\n');
   check('the panel starts the language before anything is drawn, and the button is in the bar',
     /<button id="lang" [^>]*aria-label="Switch language"/.test(html)
     && /translateDom\(document\.body\);\s*initLang\(document\.getElementById\('lang'\), themeStorage, \(\) => location\.reload\(\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+}
+
+/* == Live sessions that are not live: quiet ones, the project they are in, and ending one ================== */
+{
+  const nav = await import(`../../kit/studio/web/nav.js?t=${Date.now()}`);
+  const { activityOf, statusFile, sessionsRoot } = await import(`../../kit/studio/server/lib/activity.js?t=${Date.now()}`);
+  const { endForeignSession, ancestry } = await import(`../../kit/studio/server/lib/end-session.js?t=${Date.now()}`);
+  const H = 60 * 60 * 1000;
+  const now = 100 * H;
+
+  // Measured on a real machine: a "waiting · permission prompt" row silent for 1124 minutes, a "busy" row whose own
+  // status file said "shell". The rule is read against those two shapes, and against the rows that must not move.
+  const rs = (row) => nav.rowStatus(row, now);
+  const stuck = rs({ status: 'waiting', waitingFor: 'permission prompt', activityAt: now - 18 * H });
+  check('a session that waits and has written nothing for an hour is quiet, and keeps what it waited for',
+    stuck.key === 'quiet' && stuck.tone === 'idle' && stuck.was === 'waiting' && stuck.waitingFor === 'permission prompt'
+    && stuck.word === 'Quiet for 18h', JSON.stringify(stuck));
+  check('one that wrote just now keeps its state; so does one whose clock was not read, or with no clock to read it against',
+    rs({ status: 'waiting', activityAt: now - 60000 }).key === 'waiting' && rs({ status: 'busy', activityAt: now - H + 1000 }).key === 'busy'
+    && rs({ status: 'waiting' }).key === 'waiting' && nav.rowStatus({ status: 'busy', activityAt: 0 }, null).key === 'busy',
+    'not read is not quiet');
+  check('an idle session is never called quiet: idle already says it',
+    rs({ status: 'idle', activityAt: now - 50 * H }).key === 'idle');
+  check('"shell" from the session itself is said as a shell command, not as the model at work',
+    rs({ status: 'busy', rawStatus: 'shell', activityAt: now - 60000 }).word === 'Shell command running'
+    && rs({ status: 'busy', rawStatus: 'busy', activityAt: now - 60000 }).word === 'Running');
+  check('the session card reads the fleet against the server\'s own clock',
+    nav.sessionStatus('s', { measured: true, now, sessions: [{ sessionId: 's', status: 'waiting', activityAt: now - 2 * H }] }).key === 'quiet'
+    && nav.sessionStatus('s', { measured: true, sessions: [{ sessionId: 's', status: 'waiting', activityAt: now - 2 * H }] }).key === 'waiting');
+
+  const fleet = { measured: true, now, sessions: [
+    { sessionId: 'q', status: 'waiting', cwd: '/w/crewforth', activityAt: now - 18 * H, startedAt: 9 },
+    { sessionId: 'r1', status: 'busy', cwd: '/w/ReportAI', activityAt: now, startedAt: 5 },
+    { sessionId: 'r2', status: 'busy', cwd: '/w/ReportAI', activityAt: now - 3 * H, startedAt: 4 },
+    { sessionId: 'w', status: 'waiting', cwd: '/w/crewforth/.claude/worktrees/m336', activityAt: now, startedAt: 1 },
+    { sessionId: 'i', status: 'idle', cwd: '/w/crewforth', activityAt: now, startedAt: 1 },
+    { sessionId: 'p', status: 'busy', cwd: '/w/crewforth', activityAt: now, startedAt: 1, local: false, origin: 'mini' },
+  ] };
+  check('the live badge counts live work only: a quiet session is listed, not counted',
+    nav.liveCount(fleet) === 3 && nav.liveSessions(fleet).length === 5
+    && nav.liveSessions(fleet).map((s) => s.sessionId).slice(-2).join() === 'q,r2', nav.liveSessions(fleet).map((s) => s.sessionId).join());
+  const groups = nav.liveGroups(fleet);
+  check('Live is grouped by project, a worktree folded into its repository, another machine in a group of its own',
+    groups.map((g) => `${g.origin ?? ''}/${g.label}:${g.rows.map((r) => r.row.sessionId).join('+')}`).join(' | ')
+      === '/crewforth:w+q | /ReportAI:r1+r2 | mini/crewforth:p',
+    groups.map((g) => `${g.origin ?? ''}/${g.label}:${g.rows.map((r) => r.row.sessionId).join('+')}`).join(' | '));
+  check('a Windows path is a project too', nav.projectOfCwd('C:\\Users\\x\\ReportAI') === 'ReportAI'
+    && nav.projectOfCwd('C:\\Users\\x\\crewforth\\.claude\\worktrees\\a') === 'crewforth' && nav.projectOfCwd(null) === '');
+
+  // The server's clocks, from files in a temp config dir: the status file is believed only when it names the session.
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-activity-'));
+  try {
+    const root = path.join(d, 'sessions');
+    const proj = path.join(d, 'projects', 'p');
+    fs.mkdirSync(root, { recursive: true });
+    fs.mkdirSync(path.join(proj, 'abc', 'subagents', 'workflows', 'w1'), { recursive: true });
+    fs.writeFileSync(path.join(root, '4242.json'), JSON.stringify({ sessionId: 'abc', status: 'shell', statusUpdatedAt: 1000, entrypoint: 'cli' }));
+    fs.writeFileSync(path.join(proj, 'abc.jsonl'), '{}\n');
+    fs.writeFileSync(path.join(proj, 'abc', 'subagents', 'workflows', 'w1', 'agent-x.jsonl'), '{}\n');
+    const t0 = new Date('2026-01-01T00:00:00Z'); const t1 = new Date('2026-01-02T00:00:00Z');
+    fs.utimesSync(path.join(proj, 'abc.jsonl'), t0, t0);
+    fs.utimesSync(path.join(proj, 'abc', 'subagents', 'workflows', 'w1', 'agent-x.jsonl'), t1, t1);
+    const find = async (id) => (id === 'abc' ? { dir: proj, modifiedAt: fs.statSync(path.join(proj, 'abc.jsonl')).mtimeMs } : null);
+    const a = await activityOf({ sessionId: 'abc', pid: 4242 }, { root, find });
+    check('a session\'s last activity is the latest of its status file and every transcript under it, a nested agent included',
+      a.statusSince === 1000 && a.lastWriteAt === t1.getTime() && a.activityAt === t1.getTime() && a.rawStatus === 'shell',
+      JSON.stringify(a));
+    const other = await activityOf({ sessionId: 'zzz', pid: 4242 }, { root, find });
+    check('a status file that names another session is not this one\'s (a pid is reused), and an unread clock is null, not 0',
+      other.statusSince === null && other.rawStatus === null && other.lastWriteAt === null && other.activityAt === null
+      && (await statusFile(4242, 'zzz', root)) === null && (await statusFile(-1, 'abc', root)) === null, JSON.stringify(other));
+    check('the status files are read from <config dir>/sessions, the way transcripts are',
+      sessionsRoot({}, '/h') === path.join('/h', '.claude', 'sessions') && sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h') === path.join(path.resolve('/c'), 'sessions'),
+      JSON.stringify([sessionsRoot({}, '/h'), sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h')]));
+
+    // Ending: a real process, really signalled. The fleet and the ancestry are the only stand-ins.
+    if (process.platform === 'win32') {
+      na += 1;
+    } else {
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+      await new Promise((r) => child.once('spawn', r));
+      const gone = new Promise((r) => child.once('exit', (code, sig) => r(sig)));
+      fs.writeFileSync(path.join(root, `${child.pid}.json`), JSON.stringify({ sessionId: 'live-1', status: 'waiting' }));
+      const listed = async () => ({ measured: true, sessions: [{ sessionId: 'live-1', pid: child.pid }] });
+      const base = { fleet: listed, root, mine: async () => new Set([process.pid]), waitMs: 3000 };
+      const refusals = [
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid + 1 }, base),
+        await endForeignSession({ sessionId: 'other', pid: child.pid }, base),
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid }, { ...base, mine: async () => new Set([child.pid]) }),
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid }, { ...base, fleet: async () => ({ measured: false, reason: 'no CLI' }) }),
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid }, { ...base, root: path.join(d, 'nowhere') }),
+        await endForeignSession({ sessionId: '../x', pid: child.pid }, base),
+      ];
+      check('ending refuses what it cannot show to be that session\'s process: another pid, a session not listed, the server\'s own ancestor, an unread fleet, no status file, a bad id',
+        refusals.map((r) => `${r.ok}:${r.status}`).join() === 'false:409,false:404,false:409,false:409,false:409,false:400'
+        && child.exitCode === null && child.signalCode === null,
+        refusals.map((r) => `${r.status} ${r.reason}`).join(' / '));
+      const out = await endForeignSession({ sessionId: 'live-1', pid: child.pid }, base);
+      const sig = await Promise.race([gone, new Promise((r) => setTimeout(() => r('still running'), 3000))]);
+      check('and ends the one it can: SIGTERM, then it reports the process gone', out.ok === true && out.ended === true && sig === 'SIGTERM',
+        JSON.stringify({ out, sig }));
+      // A process its parent has not collected still answers to its pid; Claude Code's own record going away is the
+      // other sign it left. Calibrated both ways: the record removed reads ended, a process that ignores the signal not.
+      fs.writeFileSync(path.join(root, '777777.json'), JSON.stringify({ sessionId: 'z-1', status: 'idle' }));
+      const zList = async () => ({ measured: true, sessions: [{ sessionId: 'z-1', pid: 777777 }] });
+      const leftRecord = await endForeignSession({ sessionId: 'z-1', pid: 777777 },
+        { ...base, fleet: zList, signal: () => fs.rmSync(path.join(root, '777777.json')) });
+      fs.writeFileSync(path.join(root, `${process.pid}.json`), JSON.stringify({ sessionId: 'self-1', status: 'idle' }));
+      const stays = await endForeignSession({ sessionId: 'self-1', pid: process.pid },
+        { ...base, fleet: async () => ({ measured: true, sessions: [{ sessionId: 'self-1', pid: process.pid }] }), mine: async () => new Set(), signal: () => {}, waitMs: 300 });
+      check('a session whose own record is gone has ended; one still running after the wait is said to be running',
+        leftRecord.ended === true && stays.ok === true && stays.ended === false && /still running/.test(stays.reason ?? ''),
+        JSON.stringify({ leftRecord, stays }));
+      const chain = await ancestry();
+      check('the server\'s ancestry includes itself and its parent', chain.has(process.pid) && chain.has(process.ppid), [...chain].join());
+    }
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const chatSrc = read(path.join(WEB_ROOT, 'chat.js')) ?? '';
+  check('the panel asks before it ends a session, and Continue here offers ending the holder only when it would copy',
+    /function offerEnd\(anchor, row, name, then = null\) \{\s*openMenu\(/.test(appSrc) && /run: \(\) => endSession\(row, name, then\)/.test(appSrc)
+    && /endCont\.hidden = r\?\.continueAs !== 'copy';/.test(chatSrc) && /offerEnd\(button, row, name, \(\) => continueHere\(button, id\)\)/.test(appSrc));
+}
+
+/* ------------------------------------- §36 a redraw keeps the reader's place ---
+   The inspector, the List and the Timeline drawer are built again on every live frame. A box that scrolls is a
+   new element each time; before this it started at the top again, so reading down a transcript while a session
+   worked threw the reader back to the start every second. */
+
+process.stdout.write('\n== §36 a redraw keeps the reader\'s place ==\n');
+
+{
+  const ks = await import(`../../kit/studio/web/keep-scroll.js?t=${Date.now()}`);
+  const box = (cls, kids = [], tag = 'div') => ({ tagName: tag.toUpperCase(), className: cls, children: kids, scrollTop: 0, scrollLeft: 0, dataset: {} });
+  // The inspector as it is drawn: a head, the task, the tabs, the body that scrolls, and a scrolling block inside it.
+  const frame = () => {
+    const pre = box('tool-out', [], 'pre');
+    const body = box('ibody', [box('isec'), box('isec', [pre])]);
+    return { head: box('ihead'), task: box('itask'), tabs: box('itabs'), body, pre };
+  };
+  const root = box('inspector');
+  const draw = (f) => { root.children = [f.head, f.task, f.tabs, f.body]; };
+  const a = frame(); draw(a);
+  a.body.scrollTop = 840; a.pre.scrollTop = 60; a.task.scrollLeft = 12;
+  root.dataset.scrollView = 'agent:a1|conversation';
+  const b = frame();
+  ks.keepScroll(root, () => draw(b), 'agent:a1|conversation');
+  check('a live redraw of the same node and tab puts the body, a block inside it and the task back where they were',
+    root.children[3] === b.body && b.body.scrollTop === 840 && b.pre.scrollTop === 60 && b.task.scrollLeft === 12,
+    JSON.stringify({ body: b.body.scrollTop, pre: b.pre.scrollTop, task: b.task.scrollLeft }));
+
+  const c = frame();
+  ks.keepScroll(root, () => draw(c), 'agent:a2|conversation');
+  check('another node is a new page: it starts at the top', c.body.scrollTop === 0 && c.pre.scrollTop === 0
+    && root.dataset.scrollView === 'agent:a2|conversation', JSON.stringify({ body: c.body.scrollTop, view: root.dataset.scrollView }));
+
+  c.body.scrollTop = 300;
+  const d = frame();
+  ks.keepScroll(root, () => draw(d), 'agent:a2|overview');
+  check('another tab of the same node starts at the top too', d.body.scrollTop === 0, String(d.body.scrollTop));
+
+  // A box found by class and place among its siblings: a hint that appears above the body does not move the body's key.
+  d.body.scrollTop = 500;
+  const e = frame();
+  ks.keepScroll(root, () => { root.children = [e.head, e.task, box('ihint'), e.tabs, e.body]; }, 'agent:a2|overview');
+  check('a line that appears above the scrolling body does not lose its place', e.body.scrollTop === 500, String(e.body.scrollTop));
+
+  // A box that is gone after the redraw is left alone, and nothing throws.
+  e.body.scrollTop = 200;
+  const f = frame();
+  let threw = null;
+  try { ks.keepScroll(root, () => { root.children = [f.head, f.task, f.tabs]; }, 'agent:a2|overview'); } catch (err) { threw = err.message; }
+  check('a box missing after the redraw is skipped, without an error', threw === null && f.body.scrollTop === 0, threw ?? 'ok');
+
+  // A view not named keeps its places always: the List and its rows.
+  const list = box('ls', [box('ls-sec', [box('ls-cmd', [], 'pre')])]);
+  list.scrollTop = 410; list.children[0].children[0].scrollTop = 30;
+  ks.keepScroll(list, () => { list.children = [box('ls-sec', [box('ls-cmd', [], 'pre')])]; });
+  check('the List keeps its own place and a long command\'s place across a redraw',
+    list.scrollTop === 410 && list.children[0].children[0].scrollTop === 30,
+    JSON.stringify({ list: list.scrollTop, cmd: list.children[0].children[0].scrollTop }));
+
+  const appJs = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const listJs = read(path.join(WEB_ROOT, 'list.js')) ?? '';
+  const tlJs = read(path.join(WEB_ROOT, 'timeline.js')) ?? '';
+  check('the inspector, the List and the Timeline drawer each redraw through keepScroll',
+    /keepScroll\(el\.inspector, \(\) => el\.inspector\.replaceChildren\(/.test(appJs)
+    && /keepScroll\(this\.root, \(\) => this\.root\.replaceChildren\(/.test(listJs)
+    && /keepScroll\(this\.drawer, \(\) => this\.drawer\.replaceChildren\(/.test(tlJs));
 }
 
 process.stdout.write(`${pass}/${pass + fail} assertions passed`

@@ -266,6 +266,10 @@ versioning follows [SemVer](https://semver.org/).
   so a Crewforth ask rule the user had deleted came back on each update, and since ask outranks allow, a project
   that allowed `Bash(docker:*)` was asked before every docker command again. The merge now leaves out of
   `permissions.ask` every rule the project's own `permissions.allow` names verbatim.
+- **Studio keeps your place while a session works.** The inspector, the List and the Timeline drawer are drawn
+  again on every live update, so a panel scrolled down (a transcript, a long report, a gate list) jumped back to the
+  top every second or so. A redraw now puts each scrolled box back where it was; picking another agent or tab still
+  starts at the top.
 - **Two read-only commands are no longer refused as tampering.** Found on a real project on 3.5.0-rc.2. Any glob
   under `.claude/state` was taken as a model routing record, so `head .claude/state/todo/*` and
   `ls .claude/state/loop-*.txt` were refused. A glob now passes when it cannot reach a `crew-` file (the records
