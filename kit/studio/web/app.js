@@ -20,6 +20,7 @@ import { summaryRows, usageLine, costNote } from './usage.js';
 import { agentSpendRows } from './agent-spend.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
+import { TodoBox } from './todo.js';
 import { NewSession } from './newsession.js';
 import { Timeline } from './timeline.js';
 import { List } from './list.js';
@@ -567,6 +568,28 @@ const canvas = new Canvas(document.getElementById('canvas'), {
   },
 });
 
+// The plan's to-do list of the session's project, in the graph's top right corner: what /crew-todo draws under the
+// status line, read again every few seconds while the graph is the view and the box is open.
+const todo = new TodoBox();
+document.getElementById('canvas').append(todo.el);
+const TODO_POLL_MS = 3000;
+let todoFor = null;
+let todoAt = 0;
+let todoBusy = false;
+async function loadTodo(force = false) {
+  if (todoFor !== current) { todoFor = current; todoAt = 0; todo.render(null); }
+  if (!current || todoBusy) return;
+  // Closed, it is asked once for the session, so View options knows whether there is a plan to show.
+  if (!force && todoAt && (!todo.open || Date.now() - todoAt < TODO_POLL_MS)) return;
+  const asked = current;
+  todoAt = Date.now();
+  todoBusy = true;
+  let data;
+  try { data = await getJson(`/api/todo?session=${encodeURIComponent(asked)}`); } catch (e) { data = { measured: false, reason: e.message }; }
+  finally { todoBusy = false; }
+  if (asked === current) todo.render(data);
+}
+
 // The mark for every agent that is not Crewforth's is one file, so that changing
 // it is changing that file.
 fetch('/icons/builtin.svg')
@@ -652,6 +675,10 @@ el.tbOptions.addEventListener('click', (e) => {
   if (view === 'graph') {
     const open = canvas.spendOpen;
     items.push({ note: t('Session summary') }, { label: open ? t('Hide time, tokens and cost') : t('Show time, tokens and cost'), run: () => canvas.showSpend(!open) });
+    if (todo.has) {
+      const on = todo.open;
+      items.push({ note: t('Plan') }, { label: on ? t('Hide the plan\'s to-do list') : t('Show the plan\'s to-do list'), run: () => { todo.show(!on); if (!on) loadTodo(true); } });
+    }
   }
   openMenu(el.tbOptions, items);
 });
@@ -2549,7 +2576,7 @@ function paintPulse() {
   pulse.detail.textContent = l.detail ? `· ${l.detail}` : '';
 }
 paintPulse();
-setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } if (view === 'map') loadMap(); }, 1000);
+setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } if (view === 'map') loadMap(); if (view === 'graph') loadTodo(); }, 1000);
 
 /* -------------------------------------------------------------- home, keys */
 

@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getFleet, measureSpawnCost } from './lib/fleet.js';
 import { withActivity } from './lib/activity.js';
 import { endForeignSession } from './lib/end-session.js';
+import { readPlanTodo } from './lib/plan-todo.js';
 import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentMetaFiles } from './lib/projects.js';
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
@@ -423,6 +424,16 @@ export async function handle(req, res) {
     const cwd = url.searchParams.get('cwd') || (session ? await sessionCwd(session.file, session.bytes) : null);
     if (!cwd) return sendJson(res, 200, { measured: false, reason: 'no project named', classes: [], suggestions: [], above: [], byAgent: {} });
     return sendJson(res, 200, readModels(cwd, { agents: await agentIdsOf(session) }));
+  }
+
+  // The plan's to-do list of the session's project: the same boxes /crew-todo draws under the status line. Only the
+  // session names the project here, so the route reads no directory the panel does not already show.
+  if (url.pathname === '/api/todo') {
+    const sid = url.searchParams.get('session');
+    const session = sid ? await findSession(sid) : null;
+    const cwd = session ? await sessionCwd(session.file, session.bytes) : null;
+    if (!cwd) return sendJson(res, 200, { measured: false, reason: sid ? 'no such session, or its directory was not read' : 'no session named' });
+    return sendJson(res, 200, { ...readPlanTodo(cwd), cwd });
   }
 
   if (url.pathname === '/api/models/cost') {

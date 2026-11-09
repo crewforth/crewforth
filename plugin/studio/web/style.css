@@ -1389,6 +1389,34 @@ button.tl-lab { cursor: pointer; }
 .cv-spend-detail[hidden] { display: none; }
 .cv-spend-detail dt { color: var(--ink-faint); }
 .cv-spend-detail dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-dim); }
+/* The plan's to-do list: the same kind of box, in the top right corner, as tall as the pane lets it be. */
+.cv-todo { bottom: auto; top: var(--space-6); width: 280px; max-height: calc(100% - 2 * var(--space-6)); gap: var(--space-1); }
+.cv-todo-name { font-size: 12px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-todo-line { font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.cv-todo-list { display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto; margin-top: var(--space-1); font-size: 12px; }
+.cv-todo-phase, .cv-todo-task {
+  display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; width: 100%;
+  padding: 2px 4px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; color: var(--ink); text-align: left;
+}
+.cv-todo-phase { cursor: pointer; font-weight: 600; }
+.cv-todo-phase:hover { background: var(--surface-raised); }
+.cv-todo-phase[data-state="done"] { color: var(--ink-faint); font-weight: 400; }
+.cv-todo-phase[data-state="current"] { color: var(--studio-accent); }
+.cv-todo-in { padding-left: 18px; }
+.cv-todo-mark { flex: none; width: 12px; text-align: center; }
+/* Half full, drawn: the glyph ◐ is a sliver in most interface fonts. The character stays for copy and for readers. */
+.cv-todo-mark[data-mark="work"] { font-size: 0; }
+.cv-todo-mark[data-mark="work"]::before {
+  content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+.cv-todo-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-todo-count { flex: none; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-dim); font-weight: 400; }
+.cv-todo-task[data-state="done"] { color: var(--ink-faint); }
+.cv-todo-task[data-state="work"] { color: var(--status-waiting); font-weight: 600; }
+.cv-todo-task[data-state="next"] { font-weight: 600; }
+.cv-todo-next { flex: none; color: var(--ink-dim); font-weight: 400; }
+.cv-todo-next::before { content: '\2190\00a0'; }
 .cv-legend-head { display: flex; align-items: center; justify-content: space-between; }
 .cv-legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1) var(--space-2); }
 .cv-legend-item { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }

@@ -192,6 +192,11 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio's Map spreads lines that share a side of a card**, so a module with three dependents shows three lines
   instead of one. Measured first on the crew-map test fixtures and Crewforth's own map: 48 line ends shared a pixel
   across 46 edges; now none do. Sideways lines between ends at two heights turn square instead of running slanted.
+- **Studio shows the plan's to-do list.** In the graph's top right corner, the to-do list of the session's
+  project: the same boxes `/crew-todo` draws under the status line, from the same plan file, with the phase in work
+  open and the others folded. Done ✓, in work ◐, open ☐, and **next** on the first open task when none is marked. A
+  paused, dropped or done plan shows one line. Read every few seconds, never written; a plan path outside the
+  project is refused. It closes with its × and comes back from **View options**.
 - **Studio's graph uses both sides of a wide window.** The session stands in the middle: the agents that build
   (backend, frontend, database, test, devops, performance) grow to its left and every other agent to its right, so
   one tall column beside an empty half of the pane becomes two short ones. The side follows the agent's type, never

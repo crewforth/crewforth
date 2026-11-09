@@ -7543,6 +7543,122 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     && /\.stage-note\[data-kind="restart"\] \.stage-note-text \{ white-space: normal; \}/.test(cssSrc));
 }
 
+/* ------------------------------------------ §34b the plan's to-do list ---
+   The same boxes /crew-todo draws under the status line, read by the server from the session's project and drawn
+   in the graph's corner. The rules are todo.awk's; where the two can be run side by side, they are. */
+
+{
+  installDom();
+  const pt = await import('../../kit/studio/server/lib/plan-todo.js');
+  const tb = await import(`../../kit/studio/web/todo.js?t=${Date.now()}`);
+  const PLAN = [
+    '# Export — Plan', 'commit: abc123', 'status: active',
+    '## Acceptance criteria', '- [x] AC-1: exports — proven by: unit', '- [ ] AC-2: imports — proven by: e2e',
+    '## Tasks (order)', 'Progress: tick a task [x] when its check passes.',
+    '### Phase 1 — Base', '1. [x] Write the reader — satisfies: AC-1 — size: S', '2. [~] Write the writer — size: M', '   - [ ] a sub-step',
+    '### Phase 2 — Wire', '3. [ ] Hook it up', '```', '- [ ] a template, not a task', '```',
+    '### Phase 3 — Empty', 'nothing boxed here',
+    '## Risks', '- [ ] not in the Tasks section',
+  ].join('\n');
+  const p = pt.parsePlan(PLAN);
+  check('a plan reads into its phases and tasks as /crew-todo reads it: Tasks only, no sub-steps, no code blocks, AC counted apart',
+    p.title === 'Export — Plan' && p.active && p.total === 3 && p.done === 1 && p.ac?.done === 1 && p.ac?.total === 2
+    && p.phases.map((x) => `${x.name}:${x.done}/${x.total}`).join('|') === 'Phase 1 — Base:1/2|Phase 2 — Wire:0/1'
+    && p.phases[0].tasks.map((x) => `${x.state}:${x.text}`).join('|') === 'done:1. Write the reader|work:2. Write the writer',
+    JSON.stringify(p.phases));
+  check('the task in work is the one marked [~]; with none marked the first open task is the next, never "in work"',
+    p.now.kind === 'work' && p.now.task === '2. Write the writer'
+    && (() => { const q = pt.parsePlan(PLAN.replace('2. [~]', '2. [ ]')); return q.now.kind === 'next' && q.now.task === '2. Write the writer' && q.now.phase === 'Phase 1 — Base'; })()
+    && pt.parsePlan(PLAN.replace(/\[[ ~]\]/g, '[x]')).now.kind === 'done' && pt.parsePlan('# x\nno boxes').now === null);
+  check('a paused, dropped or done plan is not the work in progress; anything else, or no status line, is',
+    ['paused', 'on hold', 'dropped', 'done', 'beklemede', 'iptal'].every((w) => !pt.parsePlan(PLAN.replace('status: active', `status: ${w}`)).active)
+    && ['active', 'in progress', ''].every((w) => pt.parsePlan(PLAN.replace('status: active', w ? `status: ${w}` : '')).active)
+    && pt.parsePlan(`${PLAN}\n## Later\nstatus: paused`).active, 'a status line under a ## heading is not the plan\'s');
+  check('CRLF reads as LF, and a plan with no Tasks heading is read whole',
+    JSON.stringify(pt.parsePlan(PLAN.replace(/\n/g, '\r\n')).phases) === JSON.stringify(p.phases)
+    && pt.parsePlan('# T\n- [x] a\n- [ ] b\n').phases.length === 1 && pt.parsePlan('# T\n- [x] a\n- [ ] b\n').phases[0].name === '');
+
+  // Side by side with todo.awk, which draws the status line's count: the same plans, the same "done/total".
+  const awk = path.join(PAYLOAD, 'eval', 'lib', 'todo.awk');
+  // Through bash, as the status line runs it: on Windows awk is Git Bash's, on bash's PATH and not on node's.
+  const hasAwk = spawnSync('bash', ['-c', 'awk "BEGIN{}"'], { encoding: 'utf8' }).status === 0;
+  if (hasAwk && fs.existsSync(awk)) {
+    const cases = [PLAN, PLAN.replace('2. [~]', '2. [ ]'), '# T\n- [x] a\n- [ ] b\n  - [x] sub\n', '# T\n## Tasks\n### A\n- [x] a\n### B\n- [ ] b\n- [x] c\n## Notes\n- [ ] n\n'];
+    const counts = cases.map((c) => {
+      const r = spawnSync('bash', ['-c', 'LC_ALL=C awk -v color=0 -v maxl=14 -v name=PLAN.md -f "$1"', 'bash', awk], { input: c, encoding: 'utf8' });
+      const q = pt.parsePlan(c);
+      return [r.stdout.split('\n')[0].replace('📋 ', ''), `${q.done}/${q.total}`];
+    });
+    check('the panel and the status line count the same: todo.awk and the server agree on every plan',
+      counts.every(([a, b]) => a === b), JSON.stringify(counts));
+  } else skip('the panel and the status line count the same', 'tool', 'no awk here');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-todo-'));
+  try {
+    const proj = path.join(dir, 'proj');
+    fs.mkdirSync(path.join(proj, 'docs'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.claude', 'state', 'todo'), { recursive: true });
+    const none = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(proj, 'docs', 'PLAN.md'), PLAN);
+    const dflt = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(proj, 'other.md'), '# Other\n- [x] one\n');
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), 'other.md\r\n');
+    const named = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(dir, 'outside.md'), '- [ ] secret task\n');
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), '../outside.md\n');
+    const out = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), `${path.join(dir, 'outside.md')}\n`);
+    const abs = pt.readPlanTodo(proj);
+    let link = { measured: false, reason: 'outside the project' };
+    try { fs.symlinkSync(path.join(dir, 'outside.md'), path.join(proj, 'linked.md')); fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), 'linked.md\n'); link = pt.readPlanTodo(proj); } catch { /* no symlinks here: the two above stand */ }
+    check('the plan file is the one /crew-todo reads: docs/PLAN.md, or the file it was pointed at',
+      none.measured && none.exists === false && none.file === 'docs/PLAN.md'
+      && dflt.exists && dflt.total === 3 && dflt.file === 'docs/PLAN.md' && named.file === 'other.md' && named.title === 'Other' && named.done === 1,
+      JSON.stringify([none, named.file]));
+    check('a plan path that leaves the project is not read, whether by .., an absolute path or a link',
+      [out, abs, link].every((r) => r.measured === false && /outside the project/.test(r.reason) && !JSON.stringify(r).includes('secret task')),
+      JSON.stringify([out.reason, abs.reason, link.reason]));
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), 'big.md\n');
+    fs.writeFileSync(path.join(proj, 'big.md'), 'x'.repeat(pt.MAX_PLAN_BYTES + 1));
+    check('a plan past the size limit is said to be too large, not read', /larger than/.test(pt.readPlanTodo(proj).reason ?? ''));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+
+  // The box.
+  const all = (e) => [e, ...(e.children ?? []).flatMap(all)];
+  const box = new tb.TodoBox();
+  const data = { measured: true, exists: true, file: 'docs/PLAN.md', cwd: '/p', ...p };
+  box.show(true);
+  box.render(data);
+  const rows = () => box.listEl.children;
+  const words = () => rows().map((r) => r.children.map((c) => c.textContent).join(' '));
+  check('the box shows the phases, opens the one in work, and marks done ✓, in work ◐, open ☐',
+    !box.el.hidden && box.nameEl.textContent === 'Export — Plan' && box.lineEl.textContent === '1/3 done · AC 1/2'
+    && words().join('|') === '◐ Phase 1 — Base 1/2|✓ 1. Write the reader|◐ 2. Write the writer|☐ Phase 2 — Wire 0/1',
+    words().join('|'));
+  rows()[3].emit('click');
+  check('a folded phase opens on a click, and stays open when the plan is read again',
+    words().at(-1) === '☐ 3. Hook it up' && (box.render({ ...data, modifiedAt: 2 }), words().at(-1) === '☐ 3. Hook it up'), words().join('|'));
+  box.render({ ...data, ...pt.parsePlan(PLAN.replace('2. [~]', '2. [ ]')) });
+  check('with nothing in work the first open task says it is next',
+    rows().some((r) => r.dataset.state === 'next' && r.children.at(-1).textContent === 'next'));
+  box.render({ ...data, ...pt.parsePlan(PLAN.replace('status: active', 'status: paused')) });
+  check('a paused plan shows one line and no tasks', box.lineEl.textContent === 'paused: not the work in progress (1/3 done)' && rows().length === 0);
+  box.render({ measured: true, exists: false, file: 'docs/PLAN.md' });
+  const hiddenNoPlan = box.el.hidden && !box.has;
+  box.render(data);
+  box.show(false);
+  check('no plan, no box; closed, it stays closed until View options opens it again',
+    hiddenNoPlan && box.el.hidden && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
+  box.show(true);
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const srvSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('the page asks for the plan of the session on screen while the graph is the view, and View options toggles the box',
+    /if \(view === 'graph'\) loadTodo\(\);/.test(appSrc) && /\/api\/todo\?session=\$\{encodeURIComponent\(asked\)\}/.test(appSrc)
+    && /todo\.show\(!on\)/.test(appSrc) && /document\.getElementById\('canvas'\)\.append\(todo\.el\)/.test(appSrc));
+  check('the server finds the project from the session only: no cwd is taken from the request',
+    /url\.pathname === '\/api\/todo'[\s\S]{0,400}const cwd = session \? await sessionCwd\(session\.file, session\.bytes\) : null;/.test(srvSrc));
+}
+
 /* ------------------------------------------------- §35 the panel's language ---
    English is the panel's own; Turkish is a choice. The English sentence is the key (web/i18n.js), so a sentence
    nobody translated still reads — in English, in a Turkish panel. That fallback is what makes a missing entry
