@@ -206,6 +206,13 @@ versioning follows [SemVer](https://semver.org/).
   other agent drawn with the Claude mark stand below Crewforth's agents, whichever was called first; a Crewforth
   agent that arrives later goes above them. Only what the session called is reordered: a run's members and an
   agent's children keep their order.
+- **Studio's Live tab tells a working session from a quiet one, and can end one.** A session that says busy or
+  waiting but has written nothing to its transcripts for an hour is listed as quiet, dimmed, left out of the badge,
+  with what it last said; a session running a shell command is said as one. Sessions are grouped by project, a
+  worktree under its repository. **End** stops a local session after asking: only a pid the list shows for that
+  session and Claude Code's own status file names, never the Studio server or a process above it, with SIGTERM and
+  nothing harder. When **Continue here** would start a copy of a session held elsewhere, the panel offers to end it
+  there first.
 - **Frontend work checks more of what users hit.** `a11y` separates criteria from conventions (a failed A/AA
   criterion is a finding, AAA or a 44 px target a recommendation), adds a skip link, flashing, an error summary and
   positive `tabindex`, a table of patterns to grep before finishing, and recipes for focus, forms and which
