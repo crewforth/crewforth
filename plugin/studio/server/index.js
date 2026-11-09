@@ -17,6 +17,8 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { getFleet, measureSpawnCost } from './lib/fleet.js';
+import { withActivity } from './lib/activity.js';
+import { endForeignSession } from './lib/end-session.js';
 import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentMetaFiles } from './lib/projects.js';
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
@@ -320,7 +322,8 @@ export async function handle(req, res) {
 
   if (url.pathname === '/api/fleet') {
     const local = await getFleet();
-    const mine = (local.sessions ?? []).map((sn) => ({ ...sn, origin: SELF_NAME, local: true }));
+    // Each row with when it last did anything (lib/activity.js), and this machine's clock to read those against.
+    const mine = (await withActivity(local.sessions ?? [])).map((sn) => ({ ...sn, origin: SELF_NAME, local: true }));
 
     // Self is always in origins, peers or not: a machine that never names
     // itself cannot be labelled by the one reading it.
@@ -328,7 +331,7 @@ export async function handle(req, res) {
     // Sessions reachable on other machines. Not live and not this machine's —
     // a snapshot of what a Remote-Control-connected session last recorded.
     const roster = await remoteRoster();
-    if (!PEERS.length) return sendJson(res, 200, { ...local, sessions: mine, origins: [self], roster });
+    if (!PEERS.length) return sendJson(res, 200, { ...local, sessions: mine, origins: [self], roster, now: Date.now() });
 
     const answers = await askAll(PEERS, '/api/fleet');
     const sessions = [...mine];
@@ -343,11 +346,16 @@ export async function handle(req, res) {
       // A machine knows its own name; the URL we reached it on is only a
       // fallback for one that does not say.
       const label = a.body?.origins?.find((o) => o.local)?.name ?? a.peer.name;
-      const rows = (a.body?.sessions ?? []).map((sn) => ({ ...sn, origin: label, local: false }));
+      // Its activity clock is read against its own `now`, then carried onto this machine's clock.
+      const skew = typeof a.body?.now === 'number' ? Date.now() - a.body.now : 0;
+      const rows = (a.body?.sessions ?? []).map((sn) => ({
+        ...sn, origin: label, local: false,
+        activityAt: typeof sn.activityAt === 'number' ? sn.activityAt + skew : null,
+      }));
       origins.push({ name: label, via: a.peer.name, ok: true, sessions: rows.length, measured: a.body?.measured !== false });
       sessions.push(...rows);
     }
-    return sendJson(res, 200, { measured: local.measured, sessions, origins, roster, at: Date.now() });
+    return sendJson(res, 200, { measured: local.measured, sessions, origins, roster, at: Date.now(), now: Date.now() });
   }
 
   if (url.pathname === '/api/projects') {
@@ -654,6 +662,22 @@ export async function handle(req, res) {
   // Every open conversation on ONE connection (lib/owned-stream.js). Reading, so it sits beside /events, not
   // behind the write gate.
   if (url.pathname === '/api/owned-events') return streamOwned(req, res, url, { getSession, stateAfter: STATE_AFTER });
+
+  // End a session this server did not start (lib/end-session.js). One this server started is stopped as its own.
+  const endMatch = url.pathname.match(/^\/api\/fleet\/([^/]+)\/end$/);
+  if (endMatch) {
+    const gate = writeAllowed(req);
+    if (!gate.ok) return sendJson(res, 403, { ok: false, reason: gate.reason });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, reason: 'POST only' });
+    const id = decodeURIComponent(endMatch[1]);
+    const own = getSession(id);
+    if (own) return sendJson(res, 200, { ...own.stop(), owned: true });
+    const body = await readBody(req);
+    if (!body) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
+    const out = await endForeignSession({ sessionId: id, pid: body.pid });
+    const { status, ...rest } = out;
+    return sendJson(res, status, rest);
+  }
 
   const ownedMatch = url.pathname.match(/^\/api\/owned\/([^/]+)(?:\/(message|stop|events|mode))?$/);
   if (ownedMatch) {
