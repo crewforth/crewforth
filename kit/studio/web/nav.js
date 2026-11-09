@@ -62,6 +62,43 @@ const SESSION_STATUS = {
   idle: { word: t('Idle'), tone: 'idle' },
 };
 
+// A session that says it is working or waiting, and has written nothing for this long, is drawn as quiet: still
+// open, no longer counted as live work or as needing the viewer. Measured on this machine: sessions doing work wrote
+// within a minute; the one listed as "waiting · permission prompt" for a window that was gone had been silent for
+// 1124 minutes. A tool call can run ten minutes without a line (the Bash tool's longest timeout), so an hour is six
+// times that and still far from the case it exists for.
+export const QUIET_AFTER_MS = 60 * 60 * 1000;
+
+/** "45m", "18h", "3d" — a quiet stretch, coarse on purpose. */
+export function span(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+/**
+ * One fleet row's status, read against `now` (the server's clock: the row's activity clock is that machine's).
+ * A row with no activity clock, or no clock to read it against, keeps what the machine said: not read is not quiet.
+ */
+export function rowStatus(row, now = null) {
+  const known = SESSION_STATUS[row.status];
+  if (!known) return { key: String(row.status), word: String(row.status), tone: null, known: false };
+  const quietFor = typeof now === 'number' && typeof row.activityAt === 'number' ? now - row.activityAt : null;
+  if ((row.status === 'busy' || row.status === 'waiting') && quietFor !== null && quietFor > QUIET_AFTER_MS) {
+    return {
+      key: 'quiet', word: t('Quiet for {span}', { span: span(quietFor) }), tone: 'idle', known: true,
+      was: row.status, quietFor, waitingFor: row.waitingFor ?? null,
+    };
+  }
+  // The session's own word can be finer than the CLI's: "shell" arrives as busy, and it is a command running in
+  // the session, not the model at work.
+  if (row.status === 'busy' && row.rawStatus === 'shell') {
+    return { key: 'busy', word: t('Shell command running'), tone: 'busy', known: true, waitingFor: null };
+  }
+  return { key: row.status, word: known.word, tone: known.tone, known: true, waitingFor: row.waitingFor ?? null };
+}
+
 /**
  * @param fleet the /api/fleet answer, or null before the first one
  * @returns { key, word, tone, known } — key is 'unmeasured' when the fleet was not read: that is not "ended".
@@ -70,9 +107,7 @@ export function sessionStatus(sessionId, fleet) {
   if (!fleet || fleet.measured === false) return { key: 'unmeasured', word: null, tone: null, known: false };
   const row = (fleet.sessions ?? []).find((s) => s.sessionId === sessionId && s.local !== false);
   if (!row) return { key: 'ended', word: t('Ended'), tone: null, known: true };
-  const known = SESSION_STATUS[row.status];
-  if (!known) return { key: String(row.status), word: String(row.status), tone: null, known: false };
-  return { key: row.status, word: known.word, tone: known.tone, known: true, waitingFor: row.waitingFor ?? null };
+  return rowStatus(row, fleet.now ?? null);
 }
 
 /**
@@ -203,10 +238,45 @@ export function badgeFor(kit) {
 /** The Live tab: sessions that are working or waiting on someone, the waiting ones first. */
 export function liveSessions(fleet) {
   if (!fleet || fleet.measured === false) return [];
-  const rank = { waiting: 0, busy: 1 };
+  const now = fleet.now ?? null;
   return (fleet.sessions ?? [])
-    .filter((s) => s.status in rank)
-    .sort((a, b) => rank[a.status] - rank[b.status] || (b.startedAt ?? 0) - (a.startedAt ?? 0));
+    .filter((s) => s.status in LIVE_RANK)
+    .map((s) => ({ s, k: rowStatus(s, now).key }))
+    .sort((a, b) => LIVE_RANK[a.k] - LIVE_RANK[b.k] || (b.s.startedAt ?? 0) - (a.s.startedAt ?? 0))
+    .map(({ s }) => s);
+}
+const LIVE_RANK = { waiting: 0, busy: 1, quiet: 2 };
+
+/** How many of the live rows are live work: the badge's number. A quiet one is listed, not counted. */
+export function liveCount(fleet) {
+  const now = fleet?.now ?? null;
+  return liveSessions(fleet).filter((s) => rowStatus(s, now).key !== 'quiet').length;
+}
+
+/** Where a live session belongs: its project, with a worktree folded into the repository that holds it. */
+export function projectOfCwd(cwd) {
+  if (typeof cwd !== 'string' || !cwd) return '';
+  const root = cwd.replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/, '');
+  const parts = root.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || root;
+}
+
+/**
+ * The Live tab, one group per project. Groups keep the order of the rows they hold, so the project with a session
+ * waiting on the viewer comes first; another machine's sessions never share a group with this machine's.
+ * @param placeOf  row -> the project's name (the panel knows the projects; a bare cwd falls back to projectOfCwd)
+ */
+export function liveGroups(fleet, placeOf = (s) => projectOfCwd(s.cwd)) {
+  const now = fleet?.now ?? null;
+  const groups = new Map();
+  for (const s of liveSessions(fleet)) {
+    const origin = s.local === false ? (s.origin ?? '') : null;
+    const label = placeOf(s) || t('unknown');
+    const key = `${origin ?? ''}\u0000${label}`;
+    if (!groups.has(key)) groups.set(key, { key, label, origin, rows: [] });
+    groups.get(key).rows.push({ row: s, status: rowStatus(s, now) });
+  }
+  return [...groups.values()];
 }
 
 /**
