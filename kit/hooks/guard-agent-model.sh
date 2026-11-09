@@ -635,7 +635,8 @@ _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog
   case "$1" in "note: "*) v=NOTE ;; esac          # something worth knowing that refused nothing
   declare -F crew_gate_log_write >/dev/null || return 0
   crew_gate_log_write; gl="$_CREW_GL"; [ -n "$gl" ] || return 0
-  printf '%s\t§model\t%s\t\n' "$v" "$1" >> "$gl" 2>/dev/null || true
+  _CREW_TS=""; declare -F crew_gate_log_ts >/dev/null && crew_gate_log_ts "$gl"   # the fifth column: when (UTC)
+  printf '%s\t§model\t%s\t\t%s\n' "$v" "$1" "$_CREW_TS" >> "$gl" 2>/dev/null || true
 }
 
 # ---- IS THIS VERIFY COMMAND ONE A HOOK MAY RUN? ------------------------------------------------------------------

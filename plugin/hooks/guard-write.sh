@@ -368,11 +368,12 @@ block(){  # $1 = rule name for the log (must keep the `gate-file edit` prefix �
   # change it. CREW_GATE_LOG overrides the path; point it at /dev/null to turn recording off.
   _GL=""; declare -F crew_gate_log_write >/dev/null && { crew_gate_log_write; _GL="$_CREW_GL"; }
   if [ -n "$_GL" ]; then
+    _CREW_TS=""; declare -F crew_gate_log_ts >/dev/null && crew_gate_log_ts "$_GL"   # the fifth column: when (UTC)
     if [ "${CREW_GATE_LOG_CMD:-0}" = 1 ]; then
-      printf 'BLOCK\t§4.5\t%s\t%s\n' "$1" \
-        "$(printf '%s' "$FP" | tr -d '\000-\037' | cut -c1-200)" >> "$_GL" 2>/dev/null
+      printf 'BLOCK\t§4.5\t%s\t%s\t%s\n' "$1" \
+        "$(printf '%s' "$FP" | tr -d '\000-\037' | cut -c1-200)" "$_CREW_TS" >> "$_GL" 2>/dev/null
     else
-      printf 'BLOCK\t§4.5\t%s\t\n' "$1" >> "$_GL" 2>/dev/null
+      printf 'BLOCK\t§4.5\t%s\t\t%s\n' "$1" "$_CREW_TS" >> "$_GL" 2>/dev/null
     fi
   fi
   echo "GUARD (§4.5): editing '$FP' is blocked AT THE TOOL LEVEL." >&2

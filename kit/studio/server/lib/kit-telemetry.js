@@ -6,8 +6,8 @@
 // and that is a real answer, not an empty one.
 //
 // One distinction runs through the whole file. A gate event from an owned
-// session's stream carries the moment it happened; a line in gate-log.tsv does
-// not, because the format has no timestamp. Those are labelled differently all
+// session's stream carries the moment it happened; a line in gate-log.tsv is an
+// observation, with the time it was written since 3.5.0 and none before. Those are labelled differently all
 // the way to the screen, because drawing an observation as an event would be
 // the first thing here that is not true.
 
@@ -48,9 +48,10 @@ function kitPaths(cwd) {
 /**
  * The gate decisions recorded on disk.
  *
- * Four tab-separated columns: verdict, section, rule, command. The command is
- * empty unless CREW_GATE_LOG_CMD=1 was set, and there is no timestamp at all —
- * both facts are returned rather than papered over.
+ * Tab-separated columns: verdict, section, rule, command, and since 3.5.0 a
+ * fifth, the time the line was written (UTC, 2026-11-09T08:27:54Z). The command
+ * is empty unless CREW_GATE_LOG_CMD=1 was set, and a line written before 3.5.0
+ * has no time — both facts are returned rather than papered over.
  */
 /**
  * Where the gate log is, by the rule the gates write by (eval/lib/gate-log.sh): .claude/gate-log.tsv, else the
@@ -106,9 +107,12 @@ export function gateLog(cwd, { limit = 200 } = {}) {
   const entries = [];
   for (const line of lines) {
     if (!line.trim()) continue;
-    const [verdict, section, rule, command] = line.split('\t');
+    const [verdict, section, rule, command, at] = line.split('\t');
     if (!verdict) continue;
-    entries.push({ verdict, section: section ?? null, rule: rule ?? null, command: command || null });
+    entries.push({
+      verdict, section: section ?? null, rule: rule ?? null, command: command || null,
+      at: /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(at ?? '') ? at : null,
+    });
   }
 
   const counts = {};
@@ -120,9 +124,9 @@ export function gateLog(cwd, { limit = 200 } = {}) {
     total: entries.length,
     truncated: st.size > TAIL,
     counts,
-    // Stated, not implied. The panel renders these as "observed", never as
-    // something that happened at a known time.
-    timestamped: false,
+    // Stated, not implied. A line with no time of its own (written before 3.5.0)
+    // is "observed", never something that happened at a known time.
+    timestamped: entries.some((e) => e.at),
     commandsRecorded: entries.some((e) => e.command),
     entries: entries.slice(-limit).reverse(),
   };

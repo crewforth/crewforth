@@ -616,6 +616,7 @@ export const TR = {
   "{n} in the tail of gate-log.tsv": "gate-log.tsv'nin sonunda {n} kayıt",
   "(truncated)": "(kırpıldı)",
   "no timestamps in this format, so these are what the log holds, not when they ran": "bu biçimde zaman damgası yok; bunlar günlükte duranlar, ne zaman çalıştıkları değil",
+  "lines written since 3.5.0 carry the time they were written (UTC); older lines carry none": "3.5.0'dan beri yazılan satırlar yazıldıkları zamanı taşıyor (UTC); daha eskiler taşımıyor",
   "commands not recorded (CREW_GATE_LOG_CMD=1 records them)": "komutlar kaydedilmedi (CREW_GATE_LOG_CMD=1 kaydeder)",
   "Could not copy — {text}": "Kopyalanamadı — {text}",
   "Could not read the terminal command — {reason}": "Terminal komutu okunamadı — {reason}",

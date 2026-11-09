@@ -6795,12 +6795,12 @@ blocks2(){ gj auto "$1" | env "${2:-IGNORE=1}" bash "$HOOKS/guard-bash.sh" >/dev
 #    the failure that matters here.
 blocks2 'git reset --hard' "CREW_GATE_LOG=$GLOG" \
   && pass "log set: reset --hard still BLOCKED (rc=2, verdict unchanged)" || fail "log set: the gate stopped blocking with rc=2"
-grep -q "^BLOCK	§4.5	git reset --hard	$" "$GLOG" 2>/dev/null \
-  && pass "log set: BLOCK line carries verdict, section, rule — and no command" \
+grep -qE "^BLOCK	§4.5	git reset --hard		[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" "$GLOG" 2>/dev/null \
+  && pass "log set: BLOCK line carries verdict, section, rule, an empty command and the time it was written (UTC)" \
   || fail "log set: wrong or missing line ($(tr '\t' '|' < "$GLOG" 2>/dev/null | tr '\n' ' '))"
 rm -f "$GLOG"
 gj auto 'git reset --hard' | env "CREW_GATE_LOG=$GLOG" CREW_GATE_LOG_CMD=1 bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1
-grep -q "^BLOCK	§4.5	git reset --hard	git reset --hard$" "$GLOG" 2>/dev/null \
+grep -qE "^BLOCK	§4.5	git reset --hard	git reset --hard	[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$" "$GLOG" 2>/dev/null \
   && pass "log set: CREW_GATE_LOG_CMD=1 adds the command back" \
   || fail "log set: CREW_GATE_LOG_CMD=1 did not record the command ($(tr '\t' '|' < "$GLOG" 2>/dev/null | tr '\n' ' '))"
 # 3. A command the gate ALLOWS writes nothing — the log records gate decisions, not shell history. Without this
@@ -6820,7 +6820,7 @@ gj auto 'git reset --hard\nGUARD fake' | CREW_GATE_LOG="$GLOG" bash "$HOOKS/guar
 # 6. guard-write.sh shares the channel, so a gate-file edit is visible in the same place.
 : > "$GLOG"
 wj Edit '/p/.claude/hooks/guard-bash.sh' | CREW_GATE_LOG="$GLOG" bash "$HOOKS/guard-write.sh" >/dev/null 2>&1
-grep -q '^BLOCK	§4.5	gate-file edit' "$GLOG" 2>/dev/null && pass "log set: guard-write block lands in the same log" \
+grep -qE '^BLOCK	§4.5	gate-file edit[^	]*		[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$' "$GLOG" 2>/dev/null && pass "log set: guard-write block lands in the same log, with its time" \
   || fail "log set: guard-write did not record its block"
 rm -rf "$GLD"
 
@@ -12487,7 +12487,7 @@ GLA='2 2 @@ rm .claude/hooks/guard-bash.sh
 2 2 @@ hash -p /bin/sh cat; cat -c \"rm .claude/hooks/guard-bash.sh\"
 2 2 @@ function grep { \"$@\"; }; grep rm .claude/hooks/guard-bash.sh
 2 2 @@ PATH=/tmp/evil:$PATH; cat rm .claude/hooks/guard-bash.sh
-2 2 @@ awk /cp/ .claude/hooks/guard-bash.sh
+2 2 @@ perl -ne /cp/ .claude/hooks/guard-bash.sh
 2 2 @@ rm\\ -f .claude/hooks/guard-bash.sh
 2 2 @@ cd /Users/ed/p && rm .claude/hooks/guard-bash.sh
 2 2 @@ /Users/ed/bin/rm .claude/hooks/guard-bash.sh
@@ -12495,7 +12495,7 @@ GLA='2 2 @@ rm .claude/hooks/guard-bash.sh
 2 2 @@ grep -n rm .claude/hooks/guard-bash.sh | xargs rm .claude/hooks/x
 2 2 @@ sed -i s/a/b/ .claude/hooks/guard-bash.sh
 2 2 @@ cat x\nrm .claude/hooks/guard-bash.sh
-2 2 @@ awk \x27/cp /\x27 .claude/hooks/guard-bash.sh
+2 2 @@ ruby -ne \x27print if /cp /\x27 .claude/hooks/guard-bash.sh
 2 2 @@ git grep -n rm -- .claude/hooks/guard-bash.sh
 2 2 @@ cat .claude/hooks/x; node /Users/ed/p/e.js .claude/settings.json
 2 2 @@ python3 /Users/ed/p/e.py .claude/settings.json
@@ -12627,6 +12627,65 @@ _cf_table '2 2 @@ Remove-Item .claude/hooks/guard-bash.sh
 if [ "$_cfgrn $_cfgpn $_cfn" != "160 86 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 160, 86 and 8"
 elif [ -z "$_cfgb$_cfbad" ]; then pass "a command that names a gate file is a reader, a runner of a hook script or a reading git command, or it is refused: 160 calls refused (a write by option or by a program the old verb list did not know: curl -o, wget -O, sort -o, git --output, tar -C, unzip -d, unlink, shred, touch, patch, an editor, find -delete, git checkout / restore of the file; the path hidden behind a glob, a variable, a loop, a cd, the parent directory, quoting, a substitution, xargs; bash -c, eval, source; a changed PATH, an alias, a function; an interpreter fed a here-document), 86 pass or reach the commit prompt (grep -n rm, cat, head, less, diff, git log / diff / show / add, bash <hook script>, a commit message or a note that names one, a folder called ed or node), 8 calls from inside .claude, .claude/hooks, .git and .git/hooks answer to the list as a whole and from any other folder do not, 8 PowerShell calls keep the verb rule (254 rows)"
 else fail "the gate-file list:$_cfgb$_cfbad"; fi
+# ---- awk that only reads is a reader; a glob under .claude/state that cannot reach a record is not one -----------
+# Field report, 3.5.0-rc.2: two read-only calls were refused. `G=$(git rev-parse --absolute-git-dir); awk … $G/…`
+# beside a grep of a hook script was "tamper of a gate file" (awk was on no list), and `head .claude/state/todo/*`
+# was "a model routing record" (any glob under .claude/state was). Both directions are pinned: the reads pass, and
+# every way awk writes or runs, and every glob that can reach a record, is still refused.
+_cf_new; ( cd "$_cfw" && mkdir -p .claude/hooks .claude/state/todo && echo '# x' > .claude/hooks/guard-bash.sh ) >/dev/null 2>&1
+_cfaw=""
+_cf_table '0 0 @@ awk \x27{print $1}\x27 .claude/hooks/guard-bash.sh
+0 0 @@ awk -F: \x27$3 ~ /a|b/\x27 .claude/hooks/guard-bash.sh
+0 0 @@ gawk -v n=2 \x27NR==n {print; exit}\x27 .claude/hooks/guard-bash.sh
+0 0 @@ awk \x27{print $1 >= 2 || $2 >= 3}\x27 .claude/hooks/guard-bash.sh
+0 0 @@ awk $\x27{print}\x27 .claude/hooks/guard-bash.sh
+0 0 @@ G=$(git rev-parse --absolute-git-dir); awk -F\x27\\t\x27 \x27$1==\"BLOCK\" && $3 ~ /no card|below the floor/\x27 $G/crewforth-gate-log.tsv | wc -l; grep -n blocked .claude/hooks/guard-bash.sh | head -8
+2 2 @@ awk \x27{print > \"x\"}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27{print >> \"x\"}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27{printf \"%s\", $0 > \"x\"}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27{print | \"sh\"}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27{print ||| \"sh\"}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27{\"id\" | getline x}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27BEGIN{system(\"rm .claude/hooks/guard-bash.sh\")}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27@include \"x\"\x27 .claude/hooks/guard-bash.sh
+2 2 @@ awk -f /tmp/p.awk .claude/hooks/guard-bash.sh
+2 2 @@ awk -E /tmp/p.awk .claude/hooks/guard-bash.sh
+2 2 @@ awk --source=1 .claude/hooks/guard-bash.sh
+2 2 @@ awk -l filefuncs 1 .claude/hooks/guard-bash.sh
+2 2 @@ P=\x27{print}\x27; awk \"$P\" .claude/hooks/guard-bash.sh
+2 2 @@ awk -F \x27\x27 \"$P\" .claude/hooks/guard-bash.sh
+2 2 @@ awk \x27{print}\x27\"$X\" .claude/hooks/guard-bash.sh
+2 2 @@ awk $\x27{print \\x3e \"f\"}\x27 .claude/hooks/guard-bash.sh
+2 2 @@ D=.claude/hooks; awk \"$P\" $D/guard-bash.sh'
+_cfaw="$_cfbad"; _cfan="$_cfn"
+# The routing-record rule by its own refusal, not by a 2 that another rule could give.
+_cfar=0
+while IFS='|' read -r _w _c; do [ -z "$_c" ] && continue
+  _cfar=$((_cfar+1)); _cf_run default "$_c" 0
+  if [ "$_w" = 2 ]; then { [ "$_cfr" = 2 ] && grep -q 'model routing record' "$_CF/err"; } || _cfaw="$_cfaw [$_c → $_cfr, want the routing-record refusal]"
+  else [ "$_cfr" = 0 ] || _cfaw="$_cfaw [$_c → $_cfr, want 0: $(head -c 160 "$_CF/err")]"; fi
+done <<'RR'
+0|head -c 1500 .claude/state/todo/* 2>/dev/null | head -60
+0|ls .claude/state/loop-*.txt
+0|cat .claude/state/statusline/*
+0|cat x/.claude/state/todo/*
+2|cat .claude/state/*
+2|cat .claude/state/c*
+2|cat .claude/state/cr*/agents/x
+2|cat .claude/state/crew-m*
+2|cat .claude/state/todo/../c*
+2|cat .claude/state/todo/.*
+2|cat .claude/state/.*/x
+2|cat .claude/state/[c]rew-model/x
+2|cat .CLAUDE/STATE/C*
+2|cat .claude/state*/x
+2|ls .claude/state/crew-model/agents
+2|cp /tmp/p .claude/state/crew-app*
+2|cat .claude/state/cre*/x
+RR
+if [ "$_cfan $_cfar" != "23 17" ]; then fail "FIXTURE: the awk and state-glob tables have $_cfan and $_cfar rows, not 23 and 17"
+elif [ -z "$_cfaw" ]; then pass "awk is a reader when its program is written out and cannot write or run anything, and a glob under .claude/state passes when it cannot reach a routing record: 6 reads pass (the field call among them), 17 awk forms are refused (> >> | getline system @ -f -E -l --source, a program from a variable, a \$'…' escape), 4 globs pass and 13 that can reach a record or a crew- file are refused by that rule (40 rows)"
+else fail "awk reader and state globs:$_cfaw"; fi
 # ---- a gate that stops on an error of its own refuses the call ---------------------------------------------------
 # Claude Code blocks a tool call on exit 2 only. A hook that died with 1, or ran on past the rule that broke and
 # left with 0, had allowed the call: measured with a local array that was declared and not set (bash 4.4 and later

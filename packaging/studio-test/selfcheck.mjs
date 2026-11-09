@@ -3596,6 +3596,22 @@ check('the log is marked as carrying no timestamps',
   'the format has no timestamp column, and the panel must not imply one');
 check('whether commands were recorded is stated, not assumed',
   own.measured && own.commandsRecorded === true);
+
+// Since 3.5.0 a line carries the time it was written in a fifth column; a line
+// without one, or with something that is not a UTC time there, has none.
+const tsHome = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-studio-gatelog-ts-'));
+fs.mkdirSync(path.join(tsHome, '.claude'), { recursive: true });
+fs.writeFileSync(path.join(tsHome, '.claude', 'gate-log.tsv'),
+  ['BLOCK\t§4.5\tdestructive rm -rf\t',
+    'BLOCK\t§4.5\tdestructive rm -rf\t\t2026-11-09T08:27:54Z',
+    'NOTE\t§model\tnote: x\t\tyesterday',
+    ''].join('\n'));
+let ts;
+try { ts = gateLog(tsHome); } finally { fs.rmSync(tsHome, { recursive: true, force: true }); }
+check('a line with a fifth column is read with its time, and only a UTC time counts as one',
+  ts.measured && ts.timestamped === true && ts.total === 3
+    && ts.entries.filter((e) => e.at).length === 1 && ts.entries.some((e) => e.at === '2026-11-09T08:27:54Z'),
+  JSON.stringify(ts.entries?.map((e) => e.at)));
 check('verdicts are counted', own.measured && typeof own.counts?.BLOCK === 'number', JSON.stringify(own.counts));
 
 const noLog = gateLog(os.tmpdir());
