@@ -10,7 +10,9 @@
 // 1. Arrival appends. Every node gets a sequence number the first time it is seen, and a column is stacked in
 //    that order. A new agent therefore lands at the end of its column and nothing that was already drawn changes
 //    place. What does move things is a container growing (a run that gains a member is taller) and the viewer
-//    asking for a different picture (folding, grouping, density).
+//    asking for a different picture (folding, grouping, density). One exception, by request: among what the
+//    session spawned, Claude Code's own agents (general-purpose, Explore, …) stand below Crewforth's, so a crew
+//    agent that arrives after one of them goes above it and moves it down by one card.
 // 2. Nothing here reads the zoom. Positions are a function of the nodes and the viewer's choices, never of the
 //    view, so zooming cannot move a card.
 // 3. Colour is not decided here at all. A box carries its status; the stylesheet turns status into colour.
@@ -96,6 +98,12 @@ export const BUILDERS = new Set([
 
 /** -1 for the left of the session, 1 for its right. A workflow run, an unknown type and every other agent: right. */
 export const sideOf = (type) => (BUILDERS.has(type) ? -1 : 1);
+
+/**
+ * Whether a type is one of Crewforth's own agents, when the caller has no better word for it: its `crew-` prefix.
+ * The canvas passes its own (`opts.kit`), read from the agents the kit ships, so the order agrees with the mark.
+ */
+export const isKitType = (type) => typeof type === 'string' && type.startsWith('crew-');
 
 /* --------------------------------------------------------------- groups --- */
 
@@ -314,6 +322,8 @@ export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ?
  *                       downward; a narrow window leaves it off
  * @param opts.sides     true to put the agents that build to the left of the session and the rest to its right
  *                       (see TWO SIDES above); a narrow window leaves it off and the tree reads left to right
+ * @param opts.kit       (type) => true for Crewforth's own agents; `isKitType` when not given. What the session
+ *                       spawned that is not Crewforth's is stacked below what is (see rule 1)
  * @returns { items, edges, width, height, drawn, density, sessionY }
  */
 export function plan(nodes, opts = {}) {
@@ -353,6 +363,15 @@ export function plan(nodes, opts = {}) {
 
   const G = SIZE.group;
   const sides = Boolean(opts.sides);
+  const kit = typeof opts.kit === 'function' ? opts.kit : isKitType;
+
+  /** 1 for a Claude Code agent (or a group of them) the session spawned: it goes below the rest of its column. */
+  const lowOf = (it) => {
+    if (it.parent?.kind !== 'session') return 0;
+    if (it.kind === 'agent') return kit(typeOf(it.node)) ? 0 : 1;
+    if (it.kind === 'group' && it.type === 'type') return kit(it.real) ? 0 : 1;
+    return 0;
+  };
 
   /** The side an item grows on: 0 for the session, and what the top of its branch is for everything under it. */
   const sideOfItem = (it) => {
@@ -430,7 +449,8 @@ export function plan(nodes, opts = {}) {
     // Nearest the session first, so a parent has its place before its children ask for it.
     for (const k of cols.slice().sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)) {
       if (k === 0) continue;
-      const col = drawnItems.filter((it) => it.col === k).sort((a, b) => a.seq - b.seq || String(a.id).localeCompare(String(b.id)));
+      const col = drawnItems.filter((it) => it.col === k)
+        .sort((a, b) => lowOf(a) - lowOf(b) || a.seq - b.seq || String(a.id).localeCompare(String(b.id)));
       let cursor = SIZE.padY;
       for (const it of col) {
         // On the left a column's boxes line up on their right edge, the one their wire comes into.
