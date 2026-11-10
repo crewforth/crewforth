@@ -181,6 +181,11 @@ versioning follows [SemVer](https://semver.org/).
   lower model or at a lower effort, and after the repeat one model up the user is asked, as before. Where the user
   allowed `fable` (`CREW_ALLOW_FABLE=1`), a card that fails on `opus` may go up to it instead of to the user.
   `CLAUDE_CODE_EFFORT_LEVEL` outranks the call's effort, so the gate reads it from there when it is set.
+- **Twelve more skill descriptions say when to use the skill, not how it works.** `a11y`, `api-design`, `ci-pipeline`,
+  `frontend`, `frontend-design`, `incident-runbook`, `mcp-builder`, `observability`, `performance`,
+  `privacy-compliance`, `release` and `teamboard` summarised their method in the always-on description; the method
+  stays in the body. The lint that flags a method summary now fails instead of warning, and the listing budget is the
+  measured one (8056). On 61 cases at three runs each, none fell below its floor and `incident-runbook` rose.
 - **Explore runs on `haiku`, and the docs agent on `sonnet`.** The built-in Explore agent takes the session's model
   (on Opus when the session is on Fable); it only searches and reads, which the guidance gives to Haiku, so a
   call to it is run on `haiku` unless its task says `above: <why>`. A project's own Explore with a model of its own is
@@ -230,6 +235,16 @@ versioning follows [SemVer](https://semver.org/).
   other agent drawn with the Claude mark stand below Crewforth's agents, whichever was called first; a Crewforth
   agent that arrives later goes above them. Only what the session called is reordered: a run's members and an
   agent's children keep their order.
+- **Studio's plan box can be resized.** A handle at the box's bottom left corner changes its width and height within
+  the pane, a double-click on it resets the size, and the size is kept for the next visit. A phase row shows its full
+  name on hover, as a task row does, instead of a name cut with an ellipsis.
+- **Studio's project list puts the projects with Crewforth first.** The ones without it are folded behind a link with
+  their count; a search still looks in them, and the project you stand in stays visible. A project whose state could
+  not be read is not folded as if it had none.
+- **Studio shows an agent that is inside a shell command as running.** A build, a test run or a server sent to the
+  background writes nothing to the transcript, so the agent looked stopped and the session looked idle. While the
+  session is live, an agent with a shell command still open is drawn running, with the command on its card, and the
+  session card says a shell command is running.
 - **Studio's Live tab tells a working session from a quiet one, and can end one.** A session that says busy or
   waiting but has written nothing to its transcripts for an hour is listed as quiet, dimmed, left out of the badge,
   with what it last said; a session running a shell command is said as one. Sessions are grouped by project, a
