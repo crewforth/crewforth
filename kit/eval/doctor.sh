@@ -198,6 +198,10 @@ _mt() {
       'fill in Project / Stack / Project skills — agents read the stack from there') s='Project / Stack / Project skills bölümlerini doldurun — ajanlar yığını oradan okur' ;;
       'CLAUDE.md project section is filled in') s='CLAUDE.md proje bölümü doldurulmuş' ;;
       'quality analysis recorded: %s') s='kalite analizi kayıtlı: %s' ;;
+      'dependency audit ran %s day(s) ago (limit %s)') s='bağımlılık denetimi %s gün önce koştu (sınır %s)' ;;
+      'dependency audit last ran %s days ago (limit %s) — a CVE is published without the lockfile changing') s='bağımlılık denetimi en son %s gün önce koştu (sınır %s) — bir CVE lockfile değişmeden de yayımlanır' ;;
+      'no dependency audit is recorded for the %s lockfile(s) this repository tracks') s='bu deponun izlediği %s lockfile için kayıtlı bir bağımlılık denetimi yok' ;;
+      'apply the dependency-audit skill (a read-only report) and record it: record.sh --periodic') s="dependency-audit skill'ini uygulayın (salt okunur rapor) ve kaydedin: record.sh --periodic" ;;
       'CLAUDE.md names no quality analysis (## Stack → Quality analysis: %s) — the quality gate cannot tell a skipped analysis from a declined one') s='CLAUDE.md kalite analizi belirtmiyor (## Stack → Quality analysis: %s) — kalite kapısı atlanmış analizi reddedilmiş olandan ayıramıyor' ;;
       'add "Quality analysis: sonarqube-local" (or sonarqube-server, or declined) under ## Stack; sonarqube-check stands a local server up') s='## Stack altına "Quality analysis: sonarqube-local" (ya da sonarqube-server, ya da declined) ekleyin; sonarqube-check yerel sunucuyu kurar' ;;
       "%s project-specific skill(s) alongside Crewforth's") s="Crewforth'unkilerin yanında %s projeye özel skill" ;;
@@ -1106,6 +1110,30 @@ if [ -f CLAUDE.md ]; then
     *) gap "CLAUDE.md names no quality analysis (## Stack → Quality analysis: %s) — the quality gate cannot tell a skipped analysis from a declined one" \
            'add "Quality analysis: sonarqube-local" (or sonarqube-server, or declined) under ## Stack; sonarqube-check stands a local server up' "${QA%% *}" ;;
   esac
+fi
+
+# R1c) How old the dependency audit is. §4.7 audits a lockfile when it CHANGES; a CVE is published without it changing
+#      (a field project: a pyasn1 advisory against a lockfile untouched for weeks). Said only where the repository
+#      tracks a lockfile, dated by the record's "epoch" (dependency-audit's record.sh, --periodic when nothing is
+#      staged). CREW_DEPS_AUDIT_DAYS (default 7) is the limit; 0 turns the line off. The age is read first, with
+#      builtins, so a fresh audit costs no git call.
+_dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
+if [ "$_dd" -gt 0 ] && [ -n "${_DOC_LIB:-}" ] && . "$_DOC_LIB/gate-log.sh" 2>/dev/null && . "$_DOC_LIB/lockfiles.sh" 2>/dev/null; then
+  crew_deps_audit_age .
+  if [ "$CREW_DEPS_AGE" -ge 0 ] && [ "$CREW_DEPS_AGE" -lt "$_dd" ]; then
+    rdy "dependency audit ran %s day(s) ago (limit %s)" "$CREW_DEPS_AGE" "$_dd"
+  else
+    crew_tracked_lockfiles .
+    if [ "${#CREW_LOCKS[@]}" -gt 0 ]; then
+      if [ "$CREW_DEPS_AGE" -ge 0 ]; then
+        gap "dependency audit last ran %s days ago (limit %s) — a CVE is published without the lockfile changing" \
+            "apply the dependency-audit skill (a read-only report) and record it: record.sh --periodic" "$CREW_DEPS_AGE" "$_dd"
+      else
+        gap "no dependency audit is recorded for the %s lockfile(s) this repository tracks" \
+            "apply the dependency-audit skill (a read-only report) and record it: record.sh --periodic" "${#CREW_LOCKS[@]}"
+      fi
+    fi
+  fi
 fi
 
 # R2) A project-specific skill — Crewforth ships the generic 'how's; the domain ones (payment-contract,

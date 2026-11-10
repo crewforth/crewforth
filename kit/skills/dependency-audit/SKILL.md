@@ -85,6 +85,11 @@ bash .claude/skills/dependency-audit/scripts/record.sh <clean|accepted|unverifie
 The record hashes the staged lockfile diff alone: staging more code keeps it valid, a lockfile change needs a new
 audit. It lives in the git directory, so it is never committed.
 
+**Periodic audit.** A CVE is published without the lockfile changing, so the doctor and a session-start line say
+when the last audit is older than `CREW_DEPS_AUDIT_DAYS` (default 7; 0 turns both off). With nothing staged, audit
+the lockfiles the repository tracks and record it with `record.sh --periodic <verdict> "<what it found>"`: it dates
+the audit and never lets a commit through §4.7.
+
 ## DoD
 - 0 known HIGH/CRITICAL vulnerabilities; licenses compliant; lockfile consistent; every new package justified.
 - **Every axis resolves to one of three states, and the third is a real answer:** *assessed-clean*,

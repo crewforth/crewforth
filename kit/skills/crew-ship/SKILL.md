@@ -7,6 +7,8 @@ metadata:
 # /crew-ship
 Closure flow — in order:
 1. **DoD gate:** was `/simplify` applied · are tests green (@agent-crew-test-expert) · `sonarqube-check` per the DoD quality line (`## Stack` → `Quality analysis:`) · a staged lockfile → `dependency-audit` record (§4.7).
+   Run `bash .claude/skills/sonarqube-check/scripts/freshness.sh` (Bash tool, not PowerShell): rc 1 (no analysis recorded, stale since an edit,
+   or an empty `Quality analysis:` line) is red; rc 0 prints the verdict to quote, `unverified` included.
    If any one is red, **STOP**, report what is missing; no deferral.
    A risky change (auth, data, payments, a migration) names its rollback step in the commit proposal before it is
    committed: how it is undone and what that loses.

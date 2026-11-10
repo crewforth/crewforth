@@ -34,6 +34,17 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **`/crew-ship` checks that the SonarQube verdict is about the code it ships.** `sonarqube-check` records its
+  verdict with the work tree it analysed (`scripts/record.sh clean|unverified`), and `/crew-ship` runs
+  `scripts/freshness.sh` before it proposes a commit: no recorded analysis, or an edit made after it (staged or not,
+  a new file too), stops the ship until a re-scan is recorded. `Quality analysis: declined` passes as "no analysis
+  ran — unverified". It is a step of `/crew-ship`, not a commit hook. Network-free.
+- **The doctor and the session start say when the dependency audit is old.** A CVE is published without the
+  lockfile changing, so §4.7 never asks for it. Where the repository tracks a lockfile, the doctor reports the age
+  of the last audit, and a session start says it at most once a week when it is older than `CREW_DEPS_AUDIT_DAYS`
+  (default 7; 0 turns both off; silent under CI and in an unattended session). `record.sh --periodic` records an
+  audit made with no lockfile staged; it dates the audit and never lets a commit through §4.7.
+
 - **`/crew-todo` shows the plan as a to-do list under the status line.** The status line ends with the plan's count
   (`📋 7/12`); the command opens a panel under it and closes it again: the plan's phases and tasks, done ones ticked
   (✓), the one in work marked ◐, open ones boxed (☐), cut to a window around the task in work (`CREW_TODO_LINES`).
@@ -301,6 +312,14 @@ versioning follows [SemVer](https://semver.org/).
   `PermissionRequest` entry is exactly Warp's and the five scripts it runs have the content pinned from the plugin's
   repository (the same from 2.1.0 to 2.4.0). Any other shape, a changed script, or the same entry outside the plugin
   cache still closes the question.
+- **A command that stages and commits in one call no longer commits what the review never saw (§4.6).** The gate
+  reads the index before the command runs, so `git add b.txt && git commit` with a review of `a.txt` alone reached
+  the approval with `b.txt` in the commit. Such a command is now refused when the add would bring in something not
+  staged yet, and a restore, reset, stash, checkout or merge beside a commit is refused outright. An add of a file
+  that is already staged still goes on to the approval.
+- **Deleting a lockfile reads the one lockfile list (§4.5).** The rule kept 11 names of its own, so `rm uv.lock`,
+  `rm bun.lock`, `git rm Package.resolved` and 12 more went through. It now asks the same list as §4.7, by whole
+  file name: `uv.lock.bak` is a copy, not the lockfile, and passes.
 
 - **A model forced onto every subagent is judged.** With `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` set, every subagent
   runs on `CLAUDE_CODE_SUBAGENT_MODEL` whatever the call names, so a security audit asked for on `opus` could run on

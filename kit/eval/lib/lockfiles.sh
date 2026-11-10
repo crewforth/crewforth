@@ -1,7 +1,9 @@
-# Sourced, not run. The ONE list of lockfiles, and the ONE way to find the staged ones, for the two sides of §4.7:
-# guard-bash.sh (reads the audit record back) and skills/dependency-audit/scripts/record.sh (writes it). Both hash
-# what crew_staged_lockfiles returns, so a second copy of the list would let them disagree on which files were
-# audited and turn a correct record into a refusal (or the reverse).
+# Sourced, not run. The ONE list of lockfiles, and the ONE way to find the staged ones. Read by guard-bash.sh's §4.5
+# (deleting a lockfile) and by both sides of §4.7: guard-bash.sh (reads the audit record back) and
+# skills/dependency-audit/scripts/record.sh (writes it). Both §4.7 sides hash what crew_staged_lockfiles returns, so a
+# second copy of the list would let them disagree on which files were audited and turn a correct record into a
+# refusal (or the reverse); §4.5 kept a regex of its own once, and 15 of these names could be deleted unasked.
+# doctor.sh reads it too, to tell whether a repository tracks a lockfile (the periodic audit reminder).
 #
 # Lockfiles, not manifests: a lockfile changes when the RESOLVED set changes, which is what an audit judges. A
 # manifest also changes for a script, a description or a version field, and gating those would ask for an audit
@@ -63,6 +65,40 @@ crew_lock_oid(){
     git -C "${1:-.}" -c core.fsmonitor= --literal-pathspecs diff --cached --full-index --no-ext-diff --no-textconv -- "${CREW_LOCKS[@]}" 2>/dev/null \
       | git hash-object --stdin 2>/dev/null )" || CREW_LOCK_OID=""
   case "$CREW_LOCK_OID" in e69de29bb2d1d6434b8b29ae775ad8c2e48c5391|473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813) CREW_LOCK_OID="" ;; esac   # the empty blob, SHA-1 and SHA-256
+  return 0
+}
+
+# crew_tracked_lockfiles <top> -> CREW_LOCKS: the lockfiles the repository TRACKS, whatever their state. One git process.
+# For the periodic audit: a CVE is published without the lockfile changing, so "nothing staged" is not "nothing to audit".
+# git is handed lock-ish pathspecs first (a `*` in a pathspec crosses `/`): a superset of the list, not a second copy
+# of it — crew_is_lockfile still decides. Without them every tracked file was one loop turn (618 on e2e's project;
+# a large repository on Git Bash would read as a hang at session start).
+crew_tracked_lockfiles(){
+  local p
+  CREW_LOCKS=()
+  while IFS= read -r -d '' p; do
+    crew_is_lockfile "$p" && CREW_LOCKS+=("$p")
+  done < <(git -C "${1:-.}" -c core.fsmonitor= ls-files -z -- '*lock*' '*go.sum' '*.resolved' '*shrinkwrap*' 2>/dev/null)
+  return 0
+}
+
+# crew_now -> CREW_NOW: epoch seconds. bash 5 has it built in (Git Bash: no process); bash 3.2 asks `date +%s`, which
+# BSD and GNU date both answer. 0 when neither can: the callers then say nothing rather than guess an age.
+crew_now(){ CREW_NOW="${EPOCHSECONDS:-}"; [ -n "$CREW_NOW" ] || CREW_NOW="$(date +%s 2>/dev/null)"; CREW_NOW="${CREW_NOW//[!0-9]/}"; : "${CREW_NOW:=0}"; }
+
+# crew_deps_audit_age <top> -> CREW_DEPS_AGE: whole days since the last recorded audit (record.sh's "epoch"), or -1
+# when there is no record or it carries no epoch (one written before the field existed). Builtins only (crew_now aside,
+# on bash 3.2), so a caller asks this first and pays for the lockfile listing only when the audit is not fresh.
+# crew_git_dir (gate-log.sh) must be loaded.
+crew_deps_audit_age(){
+  local j="" l e
+  CREW_DEPS_AGE=-1
+  crew_git_dir "${1:-.}" && [ -f "$_CREW_GD/$CREW_DEPS_RECORD" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do j="$j${l%$'\r'}"; done < "$_CREW_GD/$CREW_DEPS_RECORD"
+  e="${j#*\"epoch\":\"}"; [ "$e" = "$j" ] && return 0
+  e="${e%%\"*}"; e="${e//[!0-9]/}"; [ -n "$e" ] || return 0
+  crew_now; [ "$CREW_NOW" -gt 0 ] || return 0
+  CREW_DEPS_AGE=$(( (CREW_NOW - e) / 86400 )); [ "$CREW_DEPS_AGE" -ge 0 ] || CREW_DEPS_AGE=0
   return 0
 }
 

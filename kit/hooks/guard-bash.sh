@@ -2353,7 +2353,30 @@ fi
   # gitignore bypass alone, not about stopping people from staging files.)
   [ "$HAS_GIT" = 1 ] && _ere s "$CMD" 'git[[:space:]]+([^;&|]*[[:space:]])?update-index([^[:alnum:]_;&|][^;&|]*)?(--add|--force-remove)' '*[Uu][Pp][Dd][Aa][Tt][Ee]-[Ii][Nn][Dd][Ee][Xx]*' \
     && block "git update-index --add (bypasses .gitignore, same as git add -f)" "4.5" bypass
-case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE '(rm|git[[:space:]]+rm)\b[^|]*(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|npm-shrinkwrap\.json|Gemfile\.lock|poetry\.lock|Pipfile\.lock|Cargo\.lock|composer\.lock|go\.sum|packages\.lock\.json)' && block "lockfile deletion" "4.5" loss
+# §4.5 lockfile deletion. The names come from eval/lib/lockfiles.sh, the ONE list §4.7 also reads: this rule kept a
+# regex of 11 names of its own, so `rm uv.lock`, `rm bun.lock`, `rm Package.resolved` (15 of the list's names) went
+# through. Two builtin prefilters first — the text has `rm` and a lock-ish word — so nearly every call pays nothing.
+# The span is the old one (`rm` or `git rm` up to a pipe), every word of it is tested with quotes and separators
+# taken off, so a quoted path or `x/uv.lock;` is still the file. A word that only CONTAINS a name (`uv.lock.bak`,
+# a copy) is not the lockfile and passes; the old substring regex refused it. A list that cannot be loaded refuses
+# the span instead of passing it: the prefilter has already seen a lock-ish word there.
+case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac \
+&& case "$CMD" in *[Ll][Oo][Cc][Kk]*|*go.sum*|*.resolved*|*shrinkwrap*) : ;; *) false ;; esac \
+&& _grep_out "$CMD" -oE '(rm|git[[:space:]]+rm)\b[^|]*' && [ -n "$_GO" ] && {
+  _lfsep=$'["\'`;&(){},<>=]'; _lfspan="${_GO//\\/}"; _lfspan="${_lfspan//$_lfsep/ }"   # \ dropped; quotes, `, separators, braces -> spaces
+  if [ -f "$_CREW_LF_LIB" ] && . "$_CREW_LF_LIB" 2>/dev/null && declare -F crew_is_lockfile >/dev/null 2>&1; then
+    case "$-" in *f*) _lfog=1 ;; *) _lfog=0; set -f ;; esac   # a word like `*.lock` must not glob here
+    for _lfw in $_lfspan; do
+      crew_is_lockfile "$_lfw" && { [ "$_lfog" = 0 ] && set +f; block "lockfile deletion" "4.5" loss; }
+    done
+    [ "$_lfog" = 0 ] && set +f
+  else
+    case "$_lfspan" in *[Ll][Oo][Cc][Kk]*|*go.sum*|*.resolved*|*shrinkwrap*)
+      _BLOCK_NOTE="The lockfile list ('$_CREW_LF_LIB') could not be loaded, so a lock-ish name in this rm was not judged. Restore Crewforth's eval/lib (run the doctor)."
+      block "lockfile deletion (the lockfile list could not be loaded)" "4.5" loss ;;
+    esac
+  fi
+}
 
 # The rules that read the command as text end here: what follows judges a commit or a push, and reads all of it.
 # WHETHER there is a commit or a push in the call is still asked of the text without those arguments (CMD_SEEN):
@@ -3499,6 +3522,63 @@ if git_has "$CMD_SEEN" 'commit|push'; then
         echo "review run there, and commit from it; or the user commits there in their own terminal." >&2
         exit 2
       fi
+    fi
+
+    # A COMMAND THAT STAGES AND COMMITS IN ONE CALL. This hook reads the index BEFORE the command runs, so in
+    # `git add b.txt && git commit -m x` the record below is compared with an index that does not yet hold b.txt:
+    # it matched, and b.txt landed unreviewed (measured: rc 0 to the approval prompt, the commit carried b.txt).
+    # §4.7 closed this for lockfiles only. Two shapes, both before the record is read:
+    #   * a verb that rewrites the index or HEAD from somewhere else (restore, reset, stash, …) beside the commit:
+    #     what it brings in cannot be read from here at all, so it is refused whatever the work tree holds.
+    #   * an add (or rm, mv, update-index) beside the commit, with something the add would take that is not staged
+    #     yet. git is asked about the add's OWN paths, from where it runs, so it reads them the way the add does;
+    #     an add of a file that is already staged changes nothing and goes on to the record. Any form this cannot
+    #     read as plain paths (an option, a quote, a glob, rm/mv, a change of directory) is asked about the whole
+    #     tree. The review record itself is not counted: it sits in the work tree and is never staged.
+    # The ordinary `git commit -m x` pays nothing here: git_has is builtin, and git runs only beside an add.
+    _c46_why=""
+    if git_has "$CMD_SEEN" 'restore|reset|stash|apply|am|checkout|switch|read-tree|merge|cherry-pick|revert|pull'; then
+      _c46_why=rewrite
+    elif git_has "$CMD_SEEN" 'add|rm|mv|update-index'; then
+      _c46_ps=(); _c46_all=0
+      if git_has "$CMD_SEEN" 'rm|mv|update-index' || [ "$_C47_CD" != 0 ]; then _c46_all=1; else
+        _grep_out "$CMD" -oE 'git[[:space:]]+([^;&|]*[[:space:]])?add([^;&|]*)'
+        [ -n "$_GO" ] || _c46_all=1
+        case "$-" in *f*) _c46_og=1 ;; *) _c46_og=0; set -f ;; esac   # the paths are tested as words, never globbed
+        while IFS= read -r _seg; do
+          [ -n "$_seg" ] || continue
+          _c46_pre=(${_seg%%add*}); [ "${#_c46_pre[@]}" = 1 ] || _c46_all=1   # `git -C x add`: not this cwd's paths
+          for _w in ${_seg#*add}; do
+            case "$_w" in
+              --) ;;
+              -*|*[\"\'\`\$\\*?\[\<\>\(\)\{\}:]*) _c46_all=1 ;;
+              *) _c46_ps+=("$_w") ;;
+            esac
+          done
+        done <<< "$_GO"
+        [ "$_c46_og" = 0 ] && set +f
+        [ "${#_c46_ps[@]}" -gt 0 ] || _c46_all=1
+      fi
+      [ "$_c46_all" = 1 ] && _c46_ps=()
+      _c46_skip=0
+      while IFS= read -r -d '' _e; do
+        [ "$_c46_skip" = 1 ] && { _c46_skip=0; continue; }      # a rename's second field: the original path
+        case "${_e:0:1}" in R|C) _c46_skip=1 ;; esac
+        case "${_e:3}" in .claude/review-pass.json|*/.claude/review-pass.json) continue ;; esac
+        [ "${_e:1:1}" != " " ] && { _c46_why=pending; break; }
+      done < <(git -C "${_CWD:-.}" -c core.fsmonitor= status --porcelain=v1 -z --untracked-files=all ${_c46_ps[@]+-- "${_c46_ps[@]}"} 2>/dev/null)
+    fi
+    if [ -n "$_c46_why" ]; then
+      if [ "$_c46_why" = rewrite ]; then
+        gatelog BLOCK 4.6 "a command that rewrites the index and commits"
+        echo "GUARD (§4.6): this command changes the index or HEAD (restore, reset, stash, checkout, merge, …) and commits" >&2
+      else
+        gatelog BLOCK 4.6 "a command that stages and commits, with unstaged changes"
+        echo "GUARD (§4.6): this command stages and commits in one call, and something it would stage is not staged yet." >&2
+      fi
+      echo "The gate reads what is staged BEFORE the command runs, so the review record cannot cover what this brings in." >&2
+      echo "Stage in its own call (git add …), have @agent-crew-review-agent record the staged diff, then git commit." >&2
+      exit 2
     fi
 
     # CREW-REVIEW-PASS (this recipe is kept identical in agents/crew-review-agent.md; smoke-test pins the pair)
