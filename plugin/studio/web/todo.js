@@ -7,6 +7,9 @@
 import { t } from './i18n.js';
 
 const FLAG = 'crewforth-studio-todo';
+const SIZE = 'crewforth-studio-todo-size';
+const MIN_W = 200;
+const MIN_H = 120;
 const CLOSE = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
 export const MARK = { done: '✓', work: '◐', open: '☐' };
 
@@ -26,6 +29,16 @@ function mk(tag, cls, text) {
 
 function readFlag() { try { return globalThis.window?.localStorage?.getItem(FLAG) ?? null; } catch { return null; } }
 function writeFlag(v) { try { globalThis.window?.localStorage?.setItem(FLAG, v); } catch { /* blocked storage: for this page only */ } }
+
+/** The size the viewer dragged the box to, or null: a stored value that is not two finite numbers is no size. */
+export function readSize() {
+  try {
+    const v = JSON.parse(globalThis.window?.localStorage?.getItem(SIZE) ?? 'null');
+    return v && Number.isFinite(v.w) && Number.isFinite(v.h) ? { w: Math.max(MIN_W, v.w), h: Math.max(MIN_H, v.h) } : null;
+  } catch { return null; }
+}
+function writeSize(w, h) { try { globalThis.window?.localStorage?.setItem(SIZE, JSON.stringify({ w: Math.round(w), h: Math.round(h) })); } catch { /* blocked storage: for this page only */ } }
+function clearSize() { try { globalThis.window?.localStorage?.removeItem(SIZE); } catch { /* blocked storage */ } }
 
 /** A phase's mark: ✓ all done · ◐ a task in work or some done · ☐ none started. */
 export const phaseMark = (p) => (p.done === p.total ? MARK.done : (p.work || p.done > 0) ? MARK.work : MARK.open);
@@ -58,13 +71,52 @@ export class TodoBox {
     this.nameEl = mk('div', 'cv-todo-name');
     this.lineEl = mk('div', 'cv-todo-line');
     this.listEl = mk('div', 'cv-todo-list');
-    this.el.append(head, this.nameEl, this.lineEl, this.listEl);
+    // The box hangs from the top right corner, so it grows to the left and down: the handle is its bottom left.
+    const grip = mk('div', 'cv-todo-grip');
+    grip.setAttribute('role', 'separator');
+    grip.setAttribute('aria-label', t('Resize the plan (double-click to reset)'));
+    grip.title = t('Resize the plan (double-click to reset)');
+    grip.addEventListener('pointerdown', (e) => this.#drag(e, grip));
+    grip.addEventListener('dblclick', () => { clearSize(); this.#applySize(null); });
+    this.el.append(head, this.nameEl, this.lineEl, this.listEl, grip);
+    this.#applySize(readSize());
     this.open = readFlag() !== 'closed';
     this.unfolded = new Set();   // phases the viewer opened by hand
     this.folded = new Set();     // the current phase, folded by hand
     this.data = null;
     this.sig = '';
     this.el.hidden = true;
+  }
+
+  #applySize(sz) {
+    this.el.style.width = sz ? `${sz.w}px` : '';
+    this.el.style.height = sz ? `${sz.h}px` : '';
+  }
+
+  #drag(e, grip) {
+    const parent = this.el.parentElement;
+    const box = this.el.getBoundingClientRect();
+    const room = parent?.getBoundingClientRect();
+    const maxW = room ? room.width - 24 : Infinity;
+    const maxH = room ? room.height - 24 : Infinity;
+    const x0 = e.clientX, y0 = e.clientY;
+    let w = box.width, h = box.height;
+    e.preventDefault();
+    grip.setPointerCapture?.(e.pointerId);
+    const move = (m) => {
+      w = Math.min(maxW, Math.max(MIN_W, box.width + (x0 - m.clientX)));
+      h = Math.min(maxH, Math.max(MIN_H, box.height + (m.clientY - y0)));
+      this.#applySize({ w, h });
+    };
+    const end = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', end);
+      grip.removeEventListener('pointercancel', end);
+      writeSize(w, h);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', end);
+    grip.addEventListener('pointercancel', end);
   }
 
   /** Whether there is a plan to show: the box and the View options entry both ask. */
@@ -101,6 +153,7 @@ export class TodoBox {
           row.type = 'button';
           row.dataset.state = p.done === p.total ? 'done' : isCurrent ? 'current' : 'open';
           row.setAttribute('aria-expanded', String(opened));
+          row.title = p.name || '';
           row.append(markEl(phaseMark(p)), mk('span', 'cv-todo-text', p.name || t('(no phase)')), mk('span', 'cv-todo-count', `${p.done}/${p.total}`));
           row.addEventListener('click', () => {
             const set = isCurrent ? this.folded : this.unfolded;
