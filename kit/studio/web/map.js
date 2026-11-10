@@ -1,22 +1,23 @@
 // The Map view: the project as Crewforth's crew map shows it.
 //
-// Bands from the layers /crew-map wrote (UI, API, Service, Data, Infrastructure, …), or from what the scan shows
-// where it wrote none, on a pane that pans and zooms like the graph's (the shared viewport.js). A module's card
-// carries what it is built with and folds the outside services it calls into one line under it; a search dims the
-// cards it does not name, and the tour /crew-map wrote steps through the map one stop at a time. Lines are solid where a file proves them, dotted where they are inferred, dashed with their
-// own mark where the model proposed them. A card can be placed by hand and stays placed for that project; modules
-// that share a folder can be folded into one card. Under the pane, the findings; beside it, the inspector. On a
-// phone the pane gives way to the findings and a list of the modules. It reads the map the server sends and writes
-// nothing; what leaves the page is copied text: a finding as a task, or a file:line.
+// Columns, left to right in the order things are used: what people use, what serves them, the code they share, what
+// they run on, and the outside services; a line points from the module that uses to the one used, so the map reads
+// left to right, and carries no words (what a line is, the inspector says). Cards sit where the layout puts them and
+// are not dragged, so nothing on the pane is left behind; the pane pans and zooms like the graph's (the shared
+// viewport.js). Tools and modules the map does not place fold into strips under the columns. Lines are solid where a
+// file proves them, dotted where they are inferred, dashed where the model proposed them; selecting a card lights its
+// own. A search dims the cards it does not name, and the tour /crew-map wrote steps through the map one stop at a
+// time. Under the pane, the findings; beside it, the inspector. On a phone the pane gives way to the findings and a
+// list of the modules. It reads the map the server sends and writes nothing; what leaves the page is copied text: a
+// finding as a task, or a file:line.
 import {
   nodesOf, edgesOf, edgeKey, litEdges, findingsOf, findingCounts, cardSub, summaryOf, sourceOf, inspectOf, taskOf,
-  emptyNote, layoutOf, routesOf, chipsOf, inferredOnly, groupsOf, foldView, placed, BANDS, cardOf, tourOf, searchOf, resourceWord,
+  emptyNote, layoutOf, routesOf, chipsOf, inferredOnly, outsideOf, placeOf, STRIPS, BANDS, cardOf, tourOf, searchOf, resourceWord,
 } from './map-plan.js';
-import { Viewport, draggable, swallowClick } from './viewport.js';
+import { Viewport } from './viewport.js';
 import { t } from './i18n.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
-export const LAYOUT_KEY = 'crewforth-studio-map-layout:';
 
 function mk(tag, cls, text) {
   const n = document.createElement(tag);
@@ -29,12 +30,16 @@ function svg(tag, attrs = {}) {
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
   return n;
 }
-const BAND_ORDER = Object.fromEntries(BANDS.map(([k], i) => [k, i]));
 const BAND_WORD = Object.fromEntries(BANDS);
 
 const LAYERS = [['modules', t('Modules')], ['external', t('External')], ['endpoints', t('Endpoints')], ['findings', t('Findings')]];
-// How a line between two modules is named on the map.
-const EDGE_WORD = { references: t('uses'), calls: t('calls'), builds: t('builds') };
+// What a line is, in words, where the inspector lists it: the scan's kind, said plainly. A kind not here is shown as is.
+const EDGE_WORD = {
+  references: t('uses'), calls: t('calls'), builds: t('builds'), runs: t('runs'), 'depends-on': t('starts after'),
+  'uses-db': t('database'), 'uses-cache': t('cache'), 'uses-queue': t('queue'), 'uses-auth': t('sign-in'),
+  'uses-http-api': t('web address'), 'configured-http-api': t('web address in config'),
+};
+const kindWord = (k) => EDGE_WORD[k] ?? k;
 
 export class MapView {
   /**
@@ -51,8 +56,7 @@ export class MapView {
     this.selected = null;
     this.tab = 'overview';
     this.legendOpen = false;
-    this.pins = {};
-    this.folded = new Set();
+    this.open = new Set();  // the strips opened (Tools, Unplaced), for this map
     this.groupOf = {};
     this.lay = null;
     this.fitted = false;
@@ -72,7 +76,7 @@ export class MapView {
     this.tourBox.hidden = true;
     this.pane.append(this.tourBox);
     this.vp = new Viewport(this.pane, this.layer, {
-      skip: (t) => Boolean(t.closest?.('.mp-card') || t.closest?.('.mp-group-fold') || t.closest?.('.mp-tour')),
+      skip: (t) => Boolean(t.closest?.('.mp-card') || t.closest?.('.mp-strip-head') || t.closest?.('.mp-tour')),
       onApply: () => this.hooks.onZoom?.(this.vp.view.k),
     });
     this.below = mk('div', 'mp-below');
@@ -90,7 +94,7 @@ export class MapView {
     // The pane has no size until it is on screen, so the first Fit is done again when it gets one, and whenever it
     // changes size while the viewer has not moved the view or placed a card: the graph does the same.
     if (typeof ResizeObserver !== 'undefined') {
-      new ResizeObserver(() => { if (this.lay && !this.vp.touched && !this.moved) { this.layWidth = null; this.render(); this.fit(); } }).observe(this.pane);
+      new ResizeObserver(() => { if (this.lay && !this.vp.touched) this.fit(); }).observe(this.pane);
     }
     // A press anywhere outside the open legend closes it, as the design says: a popover, not a window.
     document.addEventListener?.('pointerdown', (e) => {
@@ -100,8 +104,7 @@ export class MapView {
 
   setData(data) {
     if (data?.cwd !== this.data?.cwd) {
-      this.selected = null; this.tab = 'overview'; this.fitted = false; this.layWidth = null; this.query = ''; this.tourAt = -1;
-      this.#restore(data?.cwd);
+      this.selected = null; this.tab = 'overview'; this.fitted = false; this.query = ''; this.tourAt = -1; this.open = new Set();
     }
     this.data = data;
     this.render();
@@ -109,6 +112,10 @@ export class MapView {
 
   /** Select a node; with `reveal`, bring its card to the middle of the pane. */
   select(id, { reveal = false } = {}) {
+    // A strip holding the card opens, so a finding row, the list or the tour can bring it into view; folding the
+    // strip again afterwards is the viewer's to do, and keeps it folded.
+    const band = id && this.data?.doc ? nodesOf(this.data.doc, this.data.compare).find((n) => n.id === id)?.band : null;
+    if (band && STRIPS.some(([k]) => k === placeOf(band))) this.open.add(placeOf(band));
     const drawn = id ? (this.lay?.pos[id] ? id : this.groupOf[id] ?? id) : null;
     this.selected = id; this.tab = 'overview';
     this.render();
@@ -128,21 +135,10 @@ export class MapView {
   zoomTo(k) { this.vp.zoomTo(k); }
   fit() { if (this.lay) this.vp.fit(this.lay.width, this.lay.height); }
   get zoom() { return this.vp.view.k; }
-  /** How many cards were placed by hand: what Reset layout would forget. */
-  get moved() { return Object.keys(this.pins).length; }
-  /** Forget every card placed by hand. Returns what was forgotten, for Undo; null when there was nothing. */
-  resetLayout() {
-    if (!this.moved) return null;
-    const was = { ...this.pins };
-    this.pins = {}; this.#persist(); this.render(); this.fit();
-    return was;
-  }
-
-  restoreLayout(was) {
-    if (!was) return false;
-    this.pins = { ...was }; this.#persist(); this.render();
-    return true;
-  }
+  // No card is placed by hand on the map, so the toolbar's Reset layout has nothing to forget here.
+  get moved() { return 0; }
+  resetLayout() { return null; }
+  restoreLayout() { return false; }
 
   /** Step the tour to a stop (clamped), selecting its node and bringing it to the middle; -1 ends it. */
   tour(at) {
@@ -152,9 +148,9 @@ export class MapView {
     this.select(stops[this.tourAt].node, { reveal: true });
   }
 
-  toggleGroup(id) {
-    if (this.folded.has(id)) this.folded.delete(id); else this.folded.add(id);
-    this.#persist();
+  /** Open a folded strip (Tools, Unplaced) into cards, or fold it back into a line of names. */
+  toggleStrip(key) {
+    if (this.open.has(key)) this.open.delete(key); else this.open.add(key);
     this.render();
   }
 
@@ -174,28 +170,17 @@ export class MapView {
     const counts = this.layers.findings ? findingCounts(findings.shown) : {};
     const allEdges = edgesOf(doc, d.compare);
     const all = nodesOf(doc, d.compare);
-    // An outside service is not a card: it is named on the line under the cards of the modules that call it.
-    let nodes = all.filter((n) => n.kind !== 'external' && this.layers.modules);
-    const groups = groupsOf(nodes);
-    this.groupOf = {};
-    for (const g of Object.values(groups)) for (const m of g.members) if (this.folded.has(g.id)) this.groupOf[m] = g.id;
-    const sortKey = {};
-    for (const g of Object.values(groups)) for (const m of g.members) sortKey[m] = g.id;
-    // Members of one folder side by side, so an open group can be framed.
-    nodes = [...nodes].sort((a, b) => (BAND_ORDER[a.band] - BAND_ORDER[b.band]) || String(sortKey[a.id] ?? a.id).localeCompare(String(sortKey[b.id] ?? b.id)));
-    const ids = new Set(nodes.map((n) => n.id));
-    const view = foldView(nodes, allEdges.filter((e) => ids.has(e.from) && ids.has(e.to)), groups, this.folded);
-    nodes = view.nodes;
+    // An outside service is a card of its own; web addresses called by the same modules are one card (outsideOf).
+    const shown = all.filter((n) => (n.kind === 'external' ? this.layers.external : this.layers.modules));
+    const ids = new Set(shown.map((n) => n.id));
+    const view = outsideOf(shown, allEdges.filter((e) => ids.has(e.from) && ids.has(e.to)));
+    const nodes = view.nodes;
     const edges = view.edges;
-    for (const n of nodes) if (n.kind === 'group') counts[n.id] = n.members.reduce((s, m) => s + (counts[m] ?? 0), 0);
+    this.groupOf = {};
+    for (const n of nodes) for (const m of n.members ?? []) this.groupOf[m] = n.id;
     const chips = {};
     if (this.layers.endpoints) for (const n of nodes) if (n.kind === 'module') chips[n.id] = chipsOf(n, doc);
-    // The width cards wrap at is taken once per map and per pane size, not on every redraw: a click must not move
-    // the cards it did not touch.
-    this.layWidth ??= Math.max(720, (this.pane.clientWidth || 1100) - 24);
-    const width = this.layWidth;
-    const openGroup = (n) => (sortKey[n.id] && !this.folded.has(sortKey[n.id]) ? sortKey[n.id] : null);
-    this.lay = placed(layoutOf(nodes, { width, chips: Object.fromEntries(Object.entries(chips).map(([k, v]) => [k, v.length])), rowKey: openGroup }), this.pins);
+    this.lay = layoutOf(nodes, edges, { chips: Object.fromEntries(Object.entries(chips).map(([k, v]) => [k, v.length])), open: this.open });
     const lay = this.lay;
     const shownSel = this.selected ? (lay.pos[this.selected] ? this.selected : this.groupOf[this.selected] ?? null) : null;
     const lit = litEdges(edges, shownSel);
@@ -206,57 +191,51 @@ export class MapView {
     this.layer.style.width = `${lay.width}px`;
     this.layer.style.height = `${lay.height}px`;
     const parts = [];
-    for (const b of lay.bands) {
-      const band = mk('div', 'mp-band');
-      band.style.top = `${b.y}px`; band.style.height = `${b.h}px`; band.style.width = `${lay.width}px`;
-      band.dataset.band = b.key;
-      band.append(mk('span', 'lbl', b.label));
-      parts.push(band);
+    for (const c of lay.columns) {
+      const head = mk('div', 'mp-colhead', c.label);
+      head.dataset.column = c.key;
+      head.style.left = `${c.x}px`; head.style.width = `${c.w}px`;
+      parts.push(head);
     }
-    // An open group is framed around its members, with the control that folds it.
-    for (const g of Object.values(groups)) {
-      if (this.folded.has(g.id)) continue;
-      const boxes = g.members.map((m) => lay.pos[m]).filter(Boolean);
-      if (boxes.length < 2) continue;
-      const x = Math.min(...boxes.map((p) => p.x)) - 8; const y = Math.min(...boxes.map((p) => p.y)) - 24;
-      const w = Math.max(...boxes.map((p) => p.x + p.w)) - x + 8; const h = Math.max(...boxes.map((p) => p.y + p.h)) - y + 8;
-      const frame = mk('div', 'mp-group');
-      frame.dataset.group = g.id;
-      frame.style.left = `${x}px`; frame.style.top = `${y}px`; frame.style.width = `${w}px`; frame.style.height = `${h}px`;
-      const fold = mk('button', 'mp-group-fold', `${g.folder}/ · ${t('fold')}`);
-      fold.type = 'button';
-      fold.title = t('Fold the {n} modules under {folder}/ into one card', { n: g.members.length, folder: g.folder });
-      fold.addEventListener('click', () => this.toggleGroup(g.id));
-      frame.append(fold);
-      parts.push(frame);
+    const nameOf = new Map(nodes.map((n) => [n.id, n.name ?? n.label ?? n.id]));
+    for (const s of lay.strips) {
+      const strip = mk('div', 'mp-strip');
+      strip.dataset.strip = s.key;
+      strip.dataset.open = String(s.open);
+      strip.style.top = `${s.y}px`; strip.style.width = `${lay.width}px`; strip.style.height = `${s.h}px`;
+      const head = mk('button', 'mp-strip-head');
+      head.type = 'button';
+      head.setAttribute('aria-expanded', String(s.open));
+      head.append(mk('span', 'lbl', `${s.label} · ${s.ids.length}`));
+      if (!s.open) head.append(mk('span', 'mp-strip-names', s.ids.map((id) => nameOf.get(id)).join(' · ')));
+      head.append(mk('span', 'row-fill'), mk('span', 'sub', s.open ? t('Fold') : t('Open')));
+      head.addEventListener('click', () => this.toggleStrip(s.key));
+      strip.append(head);
+      parts.push(strip);
     }
     const lines = svg('svg', { class: 'mp-lines', width: lay.width, height: lay.height, 'aria-hidden': 'true' });
-    const labels = [];
+    const defs = svg('defs');
+    for (const k of ['base', 'lit']) {
+      const m = svg('marker', { id: `mp-arrow-${k}`, class: `mp-arrow mp-arrow-${k}`, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' });
+      m.append(svg('path', { d: 'M0 0 L10 5 L0 10 z', class: 'mp-arrowhead' }));
+      defs.append(m);
+    }
+    lines.append(defs);
     const routes = routesOf(edges, lay.pos);
     for (const [ei, e] of edges.entries()) {
       const p = routes[ei];
       if (!p) continue;
-      const path = svg('path', { d: p.d, class: 'mp-line' });
+      const on = lit.has(edgeKey(e));
+      const path = svg('path', { d: p.d, class: 'mp-line', 'marker-end': `url(#mp-arrow-${on ? 'lit' : 'base'})` });
       path.dataset.solid = String(e.solid);
       path.dataset.line = e.line;
-      if (shownSel) path.dataset.lit = String(lit.has(edgeKey(e)));
+      if (e.missing) path.dataset.missing = 'true';
+      if (shownSel) path.dataset.lit = String(on);
       lines.append(path);
-      const tags = [];
-      if (EDGE_WORD[e.kind] && !e.calls) tags.push(mk('span', 'mp-badge', EDGE_WORD[e.kind]));
-      if (e.line === 'model') { const m = mk('span', 'mp-pill', 'model'); m.dataset.tone = 'model'; m.title = 'Proposed by the model, not shown by a file'; tags.push(m); }
-      if (e.calls) {
-        tags.push(mk('span', 'mp-pill', e.calls === 1 ? t('{n} call', { n: 1 }) : t('{n} calls', { n: e.calls })));
-        if (e.missing) { const m = mk('span', 'mp-pill', `${e.missing} missing`); m.dataset.tone = 'missing'; tags.push(m); }
-      }
-      if (tags.length) {
-        const tag = mk('div', 'mp-elab');
-        tag.style.left = `${p.mid[0]}px`; tag.style.top = `${p.mid[1]}px`;
-        tag.append(...tags);
-        labels.push(tag);
-      }
     }
-    parts.push(lines, ...labels);
+    parts.push(lines);
     for (const n of nodes) {
+      if (!lay.pos[n.id]) continue;
       const card = this.#card(n, doc, lay.pos[n.id], counts[n.id] ?? 0, chips[n.id], edges, shownSel);
       if (this.query.trim()) card.dataset.match = String(found.has(n.id));
       parts.push(card);
@@ -267,7 +246,7 @@ export class MapView {
     this.#tourBox(doc);
     this.below.replaceChildren(...(this.layers.findings ? [this.#findings(findings)] : []));
     this.#modList(all, counts);
-    const picked = this.selected ? all.find((n) => n.id === this.selected) ?? null : null;
+    const picked = this.selected ? all.find((n) => n.id === this.selected) ?? nodes.find((n) => n.id === this.selected) ?? null : null;
     this.#inspector(picked, doc, allEdges, findings.shown);
   }
 
@@ -332,6 +311,7 @@ export class MapView {
         row.append(s, mk('span', 'sub', text));
         lg.append(row);
       }
+      lg.append(mk('p', 'sub', t('An arrow points from what uses to what is used.')));
       for (const [kind, text] of [['solid', t('A resource a file shows')], ['dashed', t('A resource only inferred')]]) {
         const row = mk('div', 'mp-legend-row');
         const s = mk('span', 'mp-legend-card'); s.dataset.kind = kind;
@@ -363,11 +343,13 @@ export class MapView {
     card.dataset.kind = n.kind;
     card.style.left = `${p.x}px`; card.style.top = `${p.y}px`; card.style.width = `${p.w}px`; card.style.height = `${p.h}px`;
     if (shownSel === n.id) card.dataset.selected = 'true';
-    if (this.pins[n.id]) card.dataset.pinned = 'true';
     if (n.kind === 'external') {
       if (inferredOnly(n, edges)) { card.dataset.inferred = 'true'; card.title = 'Only inferred: no file shows this resource directly'; }
-      card.append(mk('span', 'mp-kind', resourceWord(n.resource)), mk('span', 'mp-ename', n.label ?? n.id));
-      if (!card.title) card.title = (n.hosts ?? []).join(', ');
+      const top = mk('span', 'mp-row');
+      top.append(mk('span', 'mp-kind', resourceWord(n.resource)), mk('span', 'mp-ename', n.label ?? n.id));
+      if (n.more) top.append(mk('span', 'mp-more', `+${n.more}`));
+      card.append(top);
+      if (!card.title) card.title = (n.names ?? n.hosts ?? []).join('\n');
     } else {
       const top = mk('span', 'mp-row');
       const name = mk('span', 'mp-name', n.name ?? n.id);
@@ -375,34 +357,22 @@ export class MapView {
       top.append(name);
       if (count) { const f = mk('span', 'mp-fb', String(count)); f.title = count === 1 ? t('1 finding') : t('{n} findings', { n: count }); top.append(f); }
       top.append(mk('span', 'row-fill'));
-      if (n.kind === 'group') { card.append(top, mk('span', 'sub', `${n.members.length} modules · click to open`)); }
-      else if (n.kind !== 'module') { card.append(top, mk('span', 'sub', cardSub(n, doc))); }
+      if (n.kind !== 'module') { card.append(top, mk('span', 'sub', cardSub(n, doc))); }
       else {
         const c = cardOf(n, doc);
         if (c.kind) top.append(mk('span', 'mp-kind', c.kind));
         card.append(top);
         if (c.chips.length) {
-          const row = mk('span', 'mp-chips');
+          const row = mk('span', 'mp-chips mp-tech');
           for (const t of c.chips) row.append(mk('span', 'mp-chip', t));
           if (c.more) { const m = mk('span', 'mp-chip', `+${c.more}`); m.title = (n.tech ?? []).slice(3).map((t) => t.replace(/@.*$/, '')).join(', '); row.append(m); }
           card.append(row);
         }
-        if (this.layers.external) {
-          const fold = mk('span', `mp-fold${c.outside.length ? '' : ' none'}`, c.outside.length ? `▸ ${c.outside.join(' · ')}` : t('no outside calls'));
-          if (c.outside.length) fold.title = c.outside.join('\n');
-          card.append(fold);
-        }
       }
       if (chips?.length) { const c = mk('span', 'mp-chips'); for (const t of chips) c.append(mk('span', 'mp-chip', t)); card.append(c); }
     }
-    draggable(card, {
-      scale: () => this.vp.view.k,
-      at: () => this.lay?.pos[n.id],
-      move: (x, y) => { card.style.left = `${x}px`; card.style.top = `${y}px`; this.pins[n.id] = { x, y }; },
-      end: () => { this.#persist(); this.render(); },
-    });
-    const act = () => (n.kind === 'group' ? this.toggleGroup(n.id) : this.select(this.selected === n.id ? null : n.id));
-    card.addEventListener('click', () => { if (!swallowClick(card)) act(); });
+    const act = () => this.select(this.selected === n.id ? null : n.id);
+    card.addEventListener('click', act);
     card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } });
     return card;
   }
@@ -519,7 +489,7 @@ export class MapView {
       } else if (this.tab === 'connections') {
         if (!v.byKind.length) sec.append(mk('p', 'sub', t('Nothing on this map.')));
         for (const [kind, { out, in: into }] of v.byKind) {
-          sec.append(mk('span', 'lbl', `${kind} · ${out.length + into.length}`));
+          sec.append(mk('span', 'lbl', `${kindWord(kind)} · ${out.length + into.length}`));
           for (const c of out) sec.append(this.#conn(c, 'out'));
           for (const c of into) sec.append(this.#conn(c, 'in'));
         }
@@ -577,7 +547,7 @@ export class MapView {
   #conn(c, dir = null) {
     const row = mk('div', 'mp-conn');
     const r = mk('div', 'mp-row');
-    r.append(mk('span', 'mp-kind', dir === 'in' ? `← ${c.kind}` : c.kind), mk('span', 'mp-name', c.to), mk('span', 'row-fill'));
+    r.append(mk('span', 'mp-kind', dir === 'in' ? `← ${kindWord(c.kind)}` : kindWord(c.kind)), mk('span', 'mp-name', c.to), mk('span', 'row-fill'));
     if (c.host) r.append(mk('span', 'sub', c.host));
     row.append(r);
     if (c.evidence) {
@@ -587,23 +557,5 @@ export class MapView {
       if (c.line !== 'evidence') row.append(mk('span', 'sub', c.line === 'model' ? 'proposed by the model' : 'inferred'));
     }
     return row;
-  }
-
-  #persist() {
-    const cwd = this.data?.cwd;
-    if (!cwd) return;
-    try {
-      localStorage.setItem(LAYOUT_KEY + cwd, JSON.stringify({ pins: this.pins, folded: [...this.folded] }));
-    } catch { /* kept for this page view only */ }
-  }
-
-  #restore(cwd) {
-    this.pins = {}; this.folded = new Set();
-    if (!cwd) return;
-    try {
-      const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY + cwd) ?? 'null');
-      for (const [id, p] of Object.entries(saved?.pins ?? {})) if (Number.isFinite(p?.x) && Number.isFinite(p?.y)) this.pins[id] = { x: p.x, y: p.y };
-      for (const id of saved?.folded ?? []) if (typeof id === 'string') this.folded.add(id);
-    } catch { /* start from the map's own layout */ }
   }
 }

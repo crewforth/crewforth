@@ -10141,6 +10141,42 @@ if [ "$_paqn" != 10 ]; then fail "FIXTURE: the PermissionRequest scan table ran 
 elif [ -z "$_paqbad" ]; then pass "a PermissionRequest hook is found in project, user and managed settings, an escaped spelling, skill and agent front matter and an installed plugin (7); a clean fixture, a skill body and an escaped backslash are not (3)"
 else fail "the PermissionRequest scan:$_paqbad"; fi
 
+# A PermissionRequest hook that ONLY NOTIFIES (Warp's) leaves the question open, and only in its exact pinned shape.
+# The fixture plugin carries scripts of its own; the pins are set to their blob ids after the file is sourced, so the
+# matcher is what is tested, not Warp's bytes (the shipped pins are measured against the plugin's own repository).
+_pnw="$_PA/ccd/plugins/cache/w/warp/9"
+_pnE='[ { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/on-permission-request.sh" } ] } ]'
+_pnj(){ printf '{"hooks":{"%s":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/on-stop.sh"}]}],\n  "PermissionRequest": %s}}' "${2:-Stop}" "$1"; }
+_pnq="$(_pnj "$_pnE")"
+_pn_plant(){  # $1 = hooks.json text -> a fixture plugin with five scripts, and _PNP: pins for them
+  local s
+  mkdir -p "$_pnw/hooks" "$_pnw/scripts"; printf '%s' "$1" > "$_pnw/hooks/hooks.json"
+  _PNP=""
+  for s in on-permission-request should-use-structured build-payload warp-notify emit-terminal-sequence; do
+    printf '#!/bin/bash\n# %s\n' "$s" > "$_pnw/scripts/$s.sh"
+    _PNP="$_PNP$(git hash-object --no-filters "$_pnw/scripts/$s.sh") scripts/$s.sh"$'\n'
+  done
+}
+_pn_scan(){ ( cd "$_paw" && env $_PAQ_ENV bash -c '. "$1"; _CREW_PRH_PINS="$2"; if _crew_prh_scan; then printf "found %s" "$_PRH"; else printf none; fi' _ "$HOOKS/prompt-approval.sh" "$_PNP" ) 2>/dev/null; }
+_pnbad=""; _pnn=0
+_pn_none(){ _pnn=$((_pnn+1)); [ "$(_pn_scan)" = none ] || _pnbad="$_pnbad [$1 wrongly: $(_pn_scan)]"; _paq_clean; }
+_pn_found(){ _pnn=$((_pnn+1)); case "$(_pn_scan)" in "found "*"$2"*) ;; *) _pnbad="$_pnbad [$1: $(_pn_scan)]" ;; esac; _paq_clean; }
+_paq_clean
+_pn_plant "$_pnq";                                                      _pn_none 'the notify-only plugin, as pinned'
+_pn_plant "$_pnq"; printf ' ' >> "$_pnw/scripts/warp-notify.sh";        _pn_found 'one byte added to a script it runs' hooks.json
+_pn_plant "$_pnq"; rm -f "$_pnw/scripts/build-payload.sh";              _pn_found 'a script it sources is missing' hooks.json
+_pn_plant "$(_pnj '[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/on-permission-request.sh; curl x"}]}]')"; _pn_found 'another command in the entry' hooks.json
+_pn_plant "$(_pnj '[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/on-permission-request.sh"},{"type":"command","command":"x"}]}]')"; _pn_found 'a second hook in the entry' hooks.json
+_pn_plant "$(_pnj '[{"hooks":[{"type":"http","command":"${CLAUDE_PLUGIN_ROOT}/scripts/on-permission-request.sh"}]}]')"; _pn_found 'an http hook of the same shape' hooks.json
+_pn_plant "$(_pnj "$_pnE" 'Permission\u0052equest')";                   _pn_found 'a second key, escaped' hooks.json
+_pn_plant "$(_pnj "$_pnE" permissionrequest)";                          _pn_found 'a second key in another letter case' hooks.json
+_pn_plant "$_pnq"; mkdir -p "$_PA/ccd/plugins/cache/m/p/1/hooks"; printf '%s' "$_PRQ" > "$_PA/ccd/plugins/cache/m/p/1/hooks/hooks.json"
+                                                                        _pn_found 'beside it, another plugin that answers' p/1/hooks
+_pn_plant "$_pnq"; printf '%s' "$_pnq" > "$_paw/.claude/settings.local.json"; _pn_found 'the same entry in project settings' settings.local.json
+if [ "$_pnn" != 10 ]; then fail "FIXTURE: the notify-only table ran $_pnn cases, not 10"
+elif [ -z "$_pnbad" ]; then pass "a plugin's PermissionRequest hook that only notifies, in its pinned shape and content, leaves the question open (1); a changed or missing script, another command, a second hook, an http hook, a second key escaped or in another case, another plugin beside it and the same entry in settings still close it (9)"
+else fail "the notify-only PermissionRequest hook:$_pnbad"; fi
+
 # What it closes: the question, the recording of an answer, and in default the gate's prompt. What it leaves: the typed
 # approval, in default too. Twin: the same fixture without the hook asks (default) and offers the question (auto).
 _paqbad=""

@@ -633,24 +633,27 @@ body[data-role="viewer"] #new-session { display: none; }
 .mp-canvas-pane { position: relative; flex: 1; min-height: 380px; overflow: hidden; cursor: grab; background-color: var(--ground); background-image: radial-gradient(var(--line) 1px, transparent 1.2px); background-size: 20px 20px; touch-action: none; }
 .mp-canvas-pane.cv-panning { cursor: grabbing; }
 .mp-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-.mp-band { position: absolute; left: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; box-sizing: border-box; }
-.mp-group { position: absolute; border: 1px dashed var(--line); border-radius: var(--radius-md); box-sizing: border-box; }
-.mp-group-fold { position: absolute; left: 8px; top: 3px; border: 0; background: none; padding: 0; font: inherit; font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); cursor: pointer; }
-.mp-group-fold:hover { color: var(--ink); }
+.mp-colhead { position: absolute; top: 0; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); border-bottom: 1px solid var(--line); box-sizing: border-box; }
+.mp-strip { position: absolute; left: 0; box-sizing: border-box; border-top: 1px solid var(--line); }
+.mp-strip-head { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 4px; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mp-strip-head:hover .sub { color: var(--ink); }
+.mp-strip-names { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .mp-lines { position: absolute; left: 0; top: 0; pointer-events: none; }
-.mp-line { fill: none; stroke: var(--ink-faint); stroke-width: 1.5; }
+.mp-line { fill: none; stroke: var(--ink-faint); stroke-width: 1.5; opacity: 0.6; }
 .mp-line[data-line="inferred"] { stroke-dasharray: 2 4; }
 .mp-line[data-line="model"] { stroke-dasharray: 7 4; stroke: var(--studio-accent); opacity: 0.7; }
-.mp-line[data-lit="false"] { opacity: 0.35; }
-.mp-line[data-lit="true"] { stroke: var(--studio-accent); stroke-width: 2.2; }
-.mp-elab { position: absolute; transform: translate(-50%, -50%); display: flex; gap: 4px; z-index: 2; }
+.mp-line[data-missing="true"] { stroke: var(--status-bad); }
+.mp-line[data-lit="false"] { opacity: 0.18; }
+.mp-line[data-lit="true"] { stroke: var(--studio-accent); stroke-width: 2.2; opacity: 1; }
+.mp-arrow-base .mp-arrowhead { fill: var(--ink-faint); }
+.mp-arrow-lit .mp-arrowhead { fill: var(--studio-accent); }
 .mp-mod, .mp-ext { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; color: var(--ink); cursor: pointer; border: 1px solid var(--line); border-radius: var(--radius-md); z-index: 1; overflow: hidden; }
 .mp-mod { background: var(--surface); padding: 10px 14px; }
 .mp-mod[data-kind="client"] { border-style: dashed; }
-.mp-mod[data-kind="group"] { background: var(--surface-raised); }
 .mp-ext[data-inferred="true"] { border-style: dashed; }
-.mp-card.cv-dragging { cursor: grabbing; z-index: 3; }
-.mp-ext { background: var(--ground); padding: 6px 10px; justify-content: center; }
+.mp-ext { background: var(--ground); padding: 6px 12px; justify-content: center; }
+.mp-ext .mp-ename { flex: 0 1 auto; min-width: 0; }
+.mp-more { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); flex: none; }
 .mp-card:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 2px; }
 .mp-mod[data-selected="true"], .mp-ext[data-selected="true"] { border-color: var(--studio-accent); box-shadow: 0 0 0 1px var(--studio-accent); }
 .mp-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -690,14 +693,12 @@ body[data-role="viewer"] #new-session { display: none; }
 .mp-cite:hover { color: var(--ink); text-decoration: underline; }
 .mp-pill[data-tone="model"] { color: var(--studio-accent); background: color-mix(in srgb, var(--studio-accent) 14%, transparent); }
 /* A phone shows the findings and a list of the modules in place of the pane (spec §11). */
-/* CM3: a module card names itself in full (the kind line gives way), carries what it is built with, and folds the
-   outside services it calls into one line under it. A search dims what it does not name; the tour sits over the
-   bottom of the pane. */
+/* A module card names itself in full (the kind line gives way) and carries what it is built with. A search dims what
+   it does not name; the tour sits over the bottom of the pane. */
 .mp-mod { gap: 6px; }
 .mp-mod .mp-row .mp-name { flex: none; overflow: visible; }
 .mp-mod .mp-row .mp-kind { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mp-fold { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mp-fold.none { color: var(--ink-faint); }
+.mp-tech { flex-wrap: nowrap; overflow: hidden; }
 .mp-card[data-match="false"] { opacity: 0.3; }
 .mp-card[data-match="true"] { border-color: var(--studio-accent); }
 .mp-search { height: 30px; min-width: 200px; padding: 0 10px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
@@ -1391,6 +1392,10 @@ button.tl-lab { cursor: pointer; }
 .cv-spend-detail dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-dim); }
 /* The plan's to-do list: the same kind of box, in the top right corner, as tall as the pane lets it be. */
 .cv-todo { bottom: auto; top: var(--space-6); width: 280px; max-height: calc(100% - 2 * var(--space-6)); gap: var(--space-1); }
+.cv-todo-grip { position: absolute; left: 0; bottom: 0; width: 14px; height: 14px; cursor: nesw-resize; touch-action: none;
+  background: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%, var(--ink-faint) 58%, transparent 58%, transparent 74%, var(--ink-faint) 74%, var(--ink-faint) 82%, transparent 82%);
+  transform: scaleX(-1); border-bottom-left-radius: var(--radius-md); opacity: .7; }
+.cv-todo-grip:hover { opacity: 1; }
 .cv-todo-name { font-size: 12px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-todo-line { font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .cv-todo-list { display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto; margin-top: var(--space-1); font-size: 12px; }

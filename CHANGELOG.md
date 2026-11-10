@@ -306,6 +306,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Warp no longer closes the one-click approval.** Warp's Claude Code plugin wires a `PermissionRequest` hook that
+  only shows a notification; it cannot answer a prompt. The approval scan found the event's name and closed the
+  question, so in Warp every commit fell back to a typed `/crew-approve`. A plugin hook is now let through when its
+  `PermissionRequest` entry is exactly Warp's and the five scripts it runs have the content pinned from the plugin's
+  repository (the same from 2.1.0 to 2.4.0). Any other shape, a changed script, or the same entry outside the plugin
+  cache still closes the question.
 - **A command that stages and commits in one call no longer commits what the review never saw (§4.6).** The gate
   reads the index before the command runs, so `git add b.txt && git commit` with a review of `a.txt` alone reached
   the approval with `b.txt` in the commit. Such a command is now refused when the add would bring in something not

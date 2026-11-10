@@ -30,11 +30,11 @@ await sleep(3000);                                   // the map, then its layout
 
 const seen = JSON.parse(await ev(`JSON.stringify({
   modules: document.querySelectorAll('#map .mp-mod').length,
-  bands: document.querySelectorAll('#map .mp-band').length,
+  columns: document.querySelectorAll('#map .mp-colhead').length,
   errs: window.__errs ?? [],
 })`));
 if (seen.modules < 4) die(`the Map shows ${seen.modules} modules; the fixture's crew map was not read`);
-if (seen.bands < 2) die(`the Map shows ${seen.bands} bands`);
+if (seen.columns < 2) die(`the Map shows ${seen.columns} columns`);
 if (seen.errs.length) die(`the page reported errors: ${JSON.stringify(seen.errs)}`);
 const leaked = await leaks(ev, MACHINE);
 if (leaked.length) die(`the picture shows something of this machine: ${leaked.join(', ')}`);
@@ -45,5 +45,5 @@ await cdp.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 4, y: 4 });
 await sleep(300);
 const shot = await cdp.call('Page.captureScreenshot', { format: 'png' });
 fs.writeFileSync(OUT, Buffer.from(shot.data, 'base64'));
-console.log(`map: ${seen.modules} modules in ${seen.bands} bands -> ${OUT}`);
+console.log(`map: ${seen.modules} modules in ${seen.columns} columns -> ${OUT}`);
 stage.close();
