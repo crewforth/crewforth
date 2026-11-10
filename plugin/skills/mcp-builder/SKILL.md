@@ -1,8 +1,8 @@
 ---
 name: mcp-builder
 description: |
-  Build a Model Context Protocol (MCP) server so an AI client can call your tools/resources: design tool schemas,
-  pick a transport, handle errors, and test it. For exposing an API, database, or service to Claude and other clients.
+  Use when an API, a database or a service should be exposed to Claude or another AI client as tools,
+  and when building or fixing an MCP server.
 ---
 
 # MCP Builder

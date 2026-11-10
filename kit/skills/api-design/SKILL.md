@@ -1,8 +1,8 @@
 ---
 name: api-design
 description: |
-  API contract design: resource naming, error model, versioning, pagination, backward compatibility, OpenAPI.
-  A predictable interface that evolves without breaking consumers.
+  Use when an API contract is designed or changed: a new endpoint or resource, how its errors and pages
+  are returned, a field to add or remove, or a version to cut without breaking a consumer.
 ---
 
 # API Design

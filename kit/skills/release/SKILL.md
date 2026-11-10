@@ -1,9 +1,7 @@
 ---
 name: release
 description: |
-  Versioning and CHANGELOG: SemVer mapped from Conventional Commits, Keep a Changelog format, tagging,
-  pre-release gates.
-  Use when cutting a version: bumping, writing the CHANGELOG entry, or tagging.
+  Use when cutting a version: bumping it, writing the CHANGELOG entry, or tagging.
 ---
 
 # Release & CHANGELOG

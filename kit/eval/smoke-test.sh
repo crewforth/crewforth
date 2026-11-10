@@ -357,8 +357,8 @@ rm -rf "$_fmd"
 [ -z "$_fmbad" ] && pass "frontmatter lint tells its five fixtures apart (long metadata 5 B passes · 1025 B fails · plain ': ', a bare boolean, a continued ': ' and a date named · a version string and the quoted twin clean)" \
                  || fail "frontmatter lint misreads its fixtures:$_fmbad"
 # A description that summarises the method gets acted on instead of the body (crew-skill §2: say WHEN, not HOW).
-# Warn level first, because a third of the catalogue still has that shape and each rewrite needs a skill-eval
-# measurement before it lands. The shape: an arrow, or three or more comma-separated items of one to three words.
+# Fail level: every model-picked skill now says when, each rewrite measured by skill-eval before it landed. The
+# shape: an arrow, or three or more comma-separated items of one to three words.
 desc_method(){ # SKILL.md -> the description's method-summary shape, if any: an arrow, or 3+ comma-separated items of 1-3 words
   LC_ALL=C awk 'NR==1{next} {sub(/\r$/,"")} $0=="---"{exit}
     /^description:/{d=1; v=$0; sub(/^description:[ \t]*/,"",v); if (v !~ /^[|>]/) t=v; next}
@@ -375,7 +375,7 @@ else
   _dmh=""; for f in "$SKILLS"/*/SKILL.md; do _sn="${f%/SKILL.md}"; _sn="${_sn##*/}"; is_cmd "$_sn" && continue
     _r="$(desc_method "$f")"; [ -n "$_r" ] && _dmh="$_dmh $_sn"; done
   [ -z "$_dmh" ] && pass "no skill description summarises its method (an arrow or a run of three short comma-separated items)" \
-                 || note "skill descriptions that summarise the method instead of saying when:$_dmh (warn level; rewrite with a skill-eval run)"
+                 || fail "skill descriptions that summarise the method instead of saying when:$_dmh (rewrite it to say when, then measure it: node packaging/skill-eval/run.mjs)"
 fi
 rm -rf "$_dmd"
 pass "$(ls -d "$SKILLS"/*/ | wc -l | tr -d ' ') skills scanned (name==dir · name≤64 · name charset · strict YAML · parsed description≤1024, no < >)"
@@ -2859,8 +2859,11 @@ BUDGET_AGENTS=5746   # 3.2.0: 5596 → 5746 (+150), the measured sum: crew-docs-
                      # +crew-performance-expert (~426B) — security, privacy and tests each had an independent
                      # reviewer and performance was the one quality axis where the author audited their own
                      # work. Bought at ~110 tokens per session; the alternative was leaving that gap open.)
-BUDGET_SKILL_LISTING=9194 # the skill listing as Claude Code counts it (eval/lib/skill-listing.awk — the count doctor.sh
-                          # reports too), in CHARACTERS. 3.1.0: 9063 → 9194 (+131) for one new skill, frontend-flutter
+BUDGET_SKILL_LISTING=8056 # the skill listing as Claude Code counts it (eval/lib/skill-listing.awk — the count doctor.sh
+                          # reports too), in CHARACTERS. 9194 → 8056 (−1138, the measured size): eighteen descriptions
+                          # stopped summarising their method and say when instead (six, then twelve, each measured by
+                          # skill-eval), so the listing shrank and the budget follows it down.
+                          # 3.1.0: 9063 → 9194 (+131) for one new skill, frontend-flutter
                           # (47 model-invocable skills): a second stack layer beside frontend-rn-expo, asked for by a
                           # project that carried it as its own skill and was told "unvetted component" every session.
                           # Its listing entry is 130 characters, against 154 for its React Native twin. Before that:

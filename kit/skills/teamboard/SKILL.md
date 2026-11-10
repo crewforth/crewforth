@@ -1,8 +1,8 @@
 ---
 name: teamboard
 description: |
-  Experimental: a shared team board. Claim a work item, hand it over, finish it; the claim is a git-ref
-  lock, so two people cannot take the same item.
+  Experimental. Use when several people share the work: who is on an item, claiming or handing one
+  over, or two people about to start the same thing.
 metadata:
   experimental: "true"
 ---

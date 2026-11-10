@@ -1,8 +1,6 @@
 ---
 name: performance
 description: |
-  Stack-agnostic performance: measure first, find the bottleneck, then optimise. N+1, needless allocation, wrong
-  async boundary, missing index/cache, heavy payload. No premature optimisation.
   Use when something is slow, before optimising anything, and when a change touches a hot path.
 ---
 
