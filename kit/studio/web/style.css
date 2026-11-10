@@ -1271,12 +1271,15 @@ button.tl-lab { cursor: pointer; }
 .cv-tile-sm { width: 18px; height: 18px; }
 
 .cv-pill {
-  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; max-width: 100%;
   height: 20px; padding: 0 6px;
   border-radius: var(--radius-sm); background: var(--surface-raised);
   font-size: 11px; font-weight: 600; color: var(--ink); white-space: nowrap;
 }
 .cv-pill[hidden] { display: none; }
+/* A long word ("Shell command running") is cut to the card instead of spilling out of it; the dot stays whole. */
+.cv-pill > .dot { flex: none; }
+.cv-pill-word { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cv-node[data-kind="agent"][data-state="failed"] .cv-pill { color: var(--cv-fail); }
 
 /* An agent at compact density: one line. */

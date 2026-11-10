@@ -839,6 +839,7 @@ export class Canvas {
     p.pill.el.hidden = !st?.word;
     p.pill.dot.dataset.tone = st?.tone ?? 'none';
     p.pill.word.textContent = st?.word ?? '';
+    p.pill.el.title = st?.word ?? '';
     p.name.textContent = n.gitBranch || shortPath(n.cwd) || n.sessionId || '';
     // Cut to the card's width; hovering says it whole.
     p.name.title = p.name.textContent;
