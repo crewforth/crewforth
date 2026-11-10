@@ -1,7 +1,8 @@
 ---
 name: ci-pipeline
 description: |
-  CI pipeline discipline: lint→build→test→quality→security, fail-fast, deterministic build, secret handling, PR gates.
+  Use when a CI pipeline or workflow is written or changed, when a build or check fails in CI but not
+  locally, and when a PR gate, a build cache or a secret in CI is set up.
 ---
 
 # CI Pipeline

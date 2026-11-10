@@ -1,8 +1,8 @@
 ---
 name: frontend-design
 description: |
-  Visual and UX design quality for interfaces: hierarchy, spacing rhythm, typographic scale, a restrained color
-  system, layout composition, and polished states. The taste layer above frontend architecture and a11y.
+  Use when a screen should look more considered: polishing a UI, setting up or following a design system,
+  or fixing a layout whose spacing, type or colour feels off.
 ---
 
 # Frontend Design (visual & UX quality)

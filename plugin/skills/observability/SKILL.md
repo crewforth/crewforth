@@ -1,8 +1,6 @@
 ---
 name: observability
 description: |
-  Stack-agnostic observability: structured logs, correlation ids, metrics and traces; no PII or secrets in logs.
-  Makes a production issue traceable to why it happened.
   Use when adding a log line, an error path, a metric, or when an incident could not be traced.
 ---
 

@@ -1,8 +1,8 @@
 ---
 name: frontend
 description: |
-  Stack-agnostic frontend discipline (web · mobile · desktop): component structure, state, data fetching,
-  loading/empty/error states, i18n, accessibility, performance. crew-frontend-expert applies it on every stack.
+  Use when writing or changing client code for web, mobile or desktop: a screen or component,
+  its state and data loading, or a bug in the UI.
 ---
 
 # Frontend Discipline (stack-agnostic)

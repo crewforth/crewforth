@@ -1,8 +1,8 @@
 ---
 name: privacy-compliance
 description: |
-  KVKK/GDPR audit method: data inventory, purpose/basis/retention, minimisation, consent, transparency,
-  data-subject rights, cross-border transfer. crew-privacy-agent applies it.
+  Use when code collects or stores personal data, when consent, retention or deleting a person's data
+  comes up, and for a KVKK or GDPR review.
 ---
 
 # Privacy Compliance (KVKK / GDPR)
