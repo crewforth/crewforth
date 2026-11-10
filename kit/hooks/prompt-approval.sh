@@ -473,8 +473,10 @@ _crew_q_op(){  # $1 = the label the user chose -> OP: commit | commit+push | pus
 # NOT READ, and written as the limit in the docs: `--settings` given on the command line, managed settings a server
 # delivers, a plugin loaded with --plugin-dir. A hook added while the session runs is read at the next question:
 # the scan runs at every question and every commit, never cached.
-# _PRH names the first file found, for the message. No process is started; this runs only when a question or a
-# commit is decided, never on an ordinary prompt.
+# EXCEPT a hook that can only notify (_crew_prh_notify_only, below): Warp's, pinned by content.
+# _PRH names the first file found, for the message. No process is started, except one `git hash-object` when a
+# plugin's hook has the notify-only shape; this runs only when a question or a commit is decided, never on an
+# ordinary prompt.
 _crew_prh_text(){  # $1 = json | fm, $2 = text -> 0 when it may wire a PermissionRequest hook
   local t="$2" nc=0 r=1
   shopt -q nocasematch && nc=1; shopt -s nocasematch
@@ -491,6 +493,54 @@ _crew_prh_text(){  # $1 = json | fm, $2 = text -> 0 when it may wire a Permissio
   fi
   [ "$nc" = 0 ] && shopt -u nocasematch
   return "$r"
+}
+# A PermissionRequest HOOK THAT ONLY NOTIFIES. Warp's plugin wires one to show a desktop notification: its script
+# prints {"terminalSequence":…} and nothing else, so it cannot answer a prompt. Found by its name, it closed the
+# question for everyone who runs Claude Code in Warp, and the way left was a typed command (field report, 3.5.0-rc.3).
+# Such a hook is let through only when ALL of this holds; anything else counts as found:
+#   * the file is a plugin's hooks/hooks.json in the plugin cache, with no backslash in it (no escaped spelling can
+#     hide a second key) and the event's name in it once, in any letter case;
+#   * its PermissionRequest entry, with the whitespace outside strings removed, is exactly _CREW_PRH_NOTIFY;
+#   * the script that entry runs, and every script it sources or runs, has the content pinned in _CREW_PRH_PINS, by
+#     git's blob id (git does the hashing, as for the review record: no other hasher is assumed).
+# Pinned from the plugin's public repository: the entry and the five scripts are the same from 2.1.0 to 2.4.0. A
+# version that changes any of them counts as found again until it is pinned here: a pin is a reading of that
+# version's scripts, never a name. The plugin's other events cannot answer a permission prompt.
+_CREW_PRH_NOTIFY='[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/on-permission-request.sh"}]}]'
+_CREW_PRH_PINS='7d46ed2c3c0fafb8f876d90f53b4e2fe3bfa9089 scripts/on-permission-request.sh
+13360e00a959ce23871d2addfbe21c9b1df46930 scripts/should-use-structured.sh
+9ad610ee79f4ba9b4b908309861d127c6e2cd0d4 scripts/build-payload.sh
+f65559a9a035118a7fb76a81827782f3fb2dc99c scripts/warp-notify.sh
+b6a83b986a1cec1285b36adc2f43bca7b2bf9972 scripts/emit-terminal-sequence.sh'
+_CREW_PRH_MEMO=""   # one answer per plugin folder in this process: the scan runs more than once per decision
+_crew_prh_notify_only(){  # $1 = a file the scan found, $2 = its text -> 0 when it is the known notify-only hook
+  local f="$1" t="$2" root rest seg out="" inq=0 m P l want="" got=""
+  local -a files=()
+  case "$f" in */plugins/cache/*/*/*/hooks/hooks.json) ;; *) return 1 ;; esac
+  root="${f%/hooks/hooks.json}"
+  case "$_CREW_PRH_MEMO" in *"|ok:$root|"*) return 0 ;; *"|no:$root|"*) return 1 ;; esac
+  _CREW_PRH_MEMO="$_CREW_PRH_MEMO|no:$root|"
+  case "$t" in *\\*) return 1 ;; esac
+  P='[Pp][Ee][Rr][Mm][Ii][Ss][Ss][Ii][Oo][Nn][Rr][Ee][Qq][Uu][Ee][Ss][Tt]'
+  rest="${t#*$P}"; case "$rest" in *$P*) return 1 ;; esac
+  # Whitespace outside strings goes; with no backslash, a string is plainly what lies between two quotes.
+  rest="$t"
+  while :; do
+    seg="${rest%%\"*}"
+    if [ "$inq" = 0 ]; then out="$out${seg//[[:space:]]/}"; else out="$out$seg"; fi
+    [ "$seg" = "$rest" ] && break
+    out="$out\""; rest="${rest#*\"}"; inq=$((1-inq))
+  done
+  m="${out#*\"PermissionRequest\":}"; [ "$m" != "$out" ] || return 1
+  case "$m" in "$_CREW_PRH_NOTIFY"[,}]*) ;; *) return 1 ;; esac
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    [ -f "$root/${l#* }" ] || return 1
+    want="$want${l%% *}"$'\n'; files+=("$root/${l#* }")
+  done <<< "$_CREW_PRH_PINS"
+  got="$(git hash-object --no-filters -- "${files[@]}" 2>/dev/null)" || return 1
+  [ -n "$got" ] && [ "$got"$'\n' = "$want" ] || return 1
+  _CREW_PRH_MEMO="$_CREW_PRH_MEMO|ok:$root|"
 }
 _crew_prh_fm(){  # $1 = a markdown file -> _FM: its front matter, "" when it has none
   local l n=0
@@ -522,7 +572,9 @@ _crew_prh_scan(){  # -> 0 when a PermissionRequest hook may be wired; _PRH names
   shopt -q nullglob && ng=1; shopt -s nullglob
   for f in "$u"/plugins/cache/*/*/*/*.json "$u"/plugins/cache/*/*/*/hooks/*.json "$u"/plugins/cache/*/*/*/.claude-plugin/*.json; do
     t=""; IFS= read -r -d '' t < "$f" || true
-    _crew_prh_text json "$t" && { _PRH="$f"; r=0; break; }
+    _crew_prh_text json "$t" || continue
+    _crew_prh_notify_only "$f" "$t" && continue
+    _PRH="$f"; r=0; break
   done
   if [ "$r" = 1 ]; then
     for f in "$p"/.claude/skills/*/SKILL.md "$p"/.claude/agents/*.md "$p"/.claude/agents/*/*.md "$p"/.claude/commands/*.md "$p"/.claude/commands/*/*.md \
