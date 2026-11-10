@@ -12,10 +12,11 @@
 //   A poll that changed nothing writes nothing. Each element remembers what it last drew.
 import {
   plan, sequence, crowdFolds, tallestFor, stateOf, GROUPINGS, DENSITIES, INFERRED_NOTE, AUTO,
+  shellLine,
 } from './graph-plan.js';
 import { clock } from './timeline-plan.js';
 import { Viewport, draggable, swallowClick } from './viewport.js';
-import { agentStatus } from './nav.js';
+import { agentStatus, withShell } from './nav.js';
 import { roleName, shownType, hoverOf, originOf, orderTag, modelOf, modelMix, modelFamily, modelBadge } from './names.js';
 import { fmtCount, fmtCost, COST_NOTE } from './usage.js';
 import { t } from './i18n.js';
@@ -792,6 +793,9 @@ export class Canvas {
   #statusOf(n) {
     if (this.waiting.has(n.id)) return { word: t('Needs you'), tone: 'waiting', known: true, state: 'waiting' };
     const s = agentStatus(n.status);
+    // A shell command running in it: still working, and the word says on what. Only ever set while the session is
+    // live and the agent counts as running (graph-plan.js `settle`).
+    if (n.shellNow?.length) return { word: t('Running shell'), tone: s.tone, known: s.known, state: stateOf(n.status), shell: true };
     // A status this panel has no word for keeps its own, exactly as the transcript wrote it.
     return { word: s.known ? cap(s.word) : s.word, tone: s.tone, known: s.known, state: stateOf(n.status) };
   }
@@ -829,9 +833,11 @@ export class Canvas {
 
   #fillSession(el, it) {
     const n = it.node;
-    const st = this.sessionState;
     const bg = n.backgroundNow?.length ?? 0;
-    const sig = JSON.stringify([n.gitBranch, n.cwd, n.turns, n.tokens, st?.word, st?.tone, bg]);
+    const fg = n.shellNow ?? [];
+    // A session whose shell is running is working, whatever the machine's coarser word for it is.
+    const st = withShell(this.sessionState, fg.length + bg);
+    const sig = JSON.stringify([n.gitBranch, n.cwd, n.turns, n.tokens, st?.word, st?.tone, bg, fg.map((c) => c.id)]);
     if (el.sig === sig) return;
     el.sig = sig;
     const p = el.parts;
@@ -852,10 +858,13 @@ export class Canvas {
     p.sub.title = [p.sub.textContent,
       n.context?.toolShare != null ? t('{n}% of the text in context since the last compaction is tool output (characters, not tokens)', { n: n.context.toolShare }) : null,
       n.context?.compactions ? `${t('compacted {n}×', { n: n.context.compactions })}${lc?.before != null ? `, ${t('last {trigger} {before} → {after}', { trigger: lc.trigger ?? '', before: fmtTokens(lc.before), after: fmtTokens(lc.after) })}` : ''}` : null].filter(Boolean).join('\n');
-    // What the session has running that is not an agent: commands sent to the background.
-    p.bg.hidden = !bg;
-    p.bg.textContent = bg ? t('{n} in background', { n: bg }) : '';
-    p.bg.title = bg ? n.backgroundNow.map((c) => `${t('In the background: {tool}', { tool: c.toolName })}${c.detail ? ` · ${c.detail}` : ''}`).join('\n') : '';
+    // What the session has running that is not an agent: the command it is running now, and the ones it sent to
+    // the background.
+    const fgLine = shellLine(fg);
+    p.bg.hidden = !bg && !fgLine;
+    p.bg.textContent = [fgLine?.text, bg ? t('{n} in background', { n: bg }) : null].filter(Boolean).join(' · ');
+    p.bg.title = [fgLine?.title, ...(n.backgroundNow ?? []).map((c) => `${t('In the background: {tool}', { tool: c.toolName })}${c.detail ? ` · ${c.detail}` : ''}`)].filter(Boolean).join('\n');
+    p.bg.classList.toggle('cv-shell', Boolean(fgLine));
     const refused = n.refusedCalls ?? [];
     p.refused.hidden = !refused.length;
     p.refused.textContent = refused.length ? t('{n} refused by the model gate', { n: refused.length }) : '';
@@ -873,8 +882,11 @@ export class Canvas {
     // Its place in the order the session called its agents, and when: "#3 · 09:14". A chip has room for the number.
     const tag = orderTag(n, compact ? null : clock);
     const mdl = modelOf(n);
-    const facts = compact ? '' : factsOf(n);
-    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after, modelBadge(n), facts]);
+    // While a shell command runs in it, the third line is the command: what it is waiting on, cut to the card,
+    // whole on hover. How long it took and what it spent come back when the command is done.
+    const shell = shellLine(n.shellNow);
+    const facts = compact ? '' : (shell ? shell.text : factsOf(n));
+    const sig = JSON.stringify([type, task, st.word, st.tone, st.state, who.source, dim, n.status, tag, after, modelBadge(n), facts, shell?.title]);
     if (el.sig === sig) return;
     el.sig = sig;
     const p = el.parts;
@@ -896,13 +908,19 @@ export class Canvas {
     p.model.hidden = !mdl.ran;
     p.model.title = mdl.title;
     p.model.dataset.differs = String(mdl.differs);
-    if (!compact) { p.facts.textContent = facts; p.facts.title = factsTitle(n); }
+    if (!compact) {
+      p.facts.textContent = facts;
+      p.facts.title = shell ? shell.title : factsTitle(n);
+      p.facts.classList.toggle('cv-shell', Boolean(shell));
+    }
     p.order.title = tag ? t('Called {order} by the session', { order: orderTag(n, clock) }) : '';
     // In the Order view: what had reported before this wave was called. A reading of the order of events.
     el.title = after?.length ? `${t('Called after {who} reported.', { who: after.join(', ') })}\n${INFERRED_NOTE}` : '';
     if (compact) {
       p.dot.dataset.tone = st.tone ?? 'none';
       p.word.textContent = st.word;
+      // A chip has no line for the command; its word carries it on hover.
+      p.word.title = shell ? shell.title : '';
     } else {
       p.pill.dot.dataset.tone = st.tone ?? 'none';
       p.pill.word.textContent = st.word;
@@ -910,7 +928,7 @@ export class Canvas {
     }
     // The card's whole name, whatever it is drawn as: a chip shows less than a card, and what it leaves out
     // still has to reach a screen reader.
-    el.setAttribute('aria-label', `${type}, ${st.word}${task ? `, ${task}` : ''} (${who.title})`);
+    el.setAttribute('aria-label', `${type}, ${st.word}${task ? `, ${task}` : ''}${shell ? `, ${shell.title}` : ''} (${who.title})`);
   }
 
   #fillGroup(el, it, liveCells) {
@@ -998,7 +1016,8 @@ export class Canvas {
       const text = it.type === 'type' ? (n.description || shownType(n) || n.id) : shownType(n);
       const dim = this.dimmed(n);
       const ctag = orderTag(n, it.grid ? null : clock);
-      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag]);
+      const cshell = shellLine(n.shellNow);
+      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title]);
       if (c.sig === csig) continue;
       c.sig = csig;
       c.dataset.state = st.state;
@@ -1008,7 +1027,7 @@ export class Canvas {
       c.parts.name.textContent = text;
       c.parts.order.textContent = ctag;
       c.parts.order.hidden = !ctag;
-      c.title = [hoverOf(n), [modelOf(n).ran, factsOf(n)].filter(Boolean).join(' \u00b7 ')].filter(Boolean).join('\n');
+      c.title = [hoverOf(n), [modelOf(n).ran, factsOf(n)].filter(Boolean).join(' \u00b7 '), cshell?.title].filter(Boolean).join('\n');
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);

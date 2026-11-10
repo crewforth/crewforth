@@ -15,6 +15,7 @@ npx crewforth studio                              # without installing anything
 | In the panel | What it rests on |
 |:--|:--|
 | The delegation of any session, live, as a **Graph**, a **Timeline** or a **List** (`g`, `t`, `l`) | the transcript tree on disk, re-read on a size signature every 700 ms; the three views are drawn from that one reading |
+| An agent or the session inside a shell command — a build, a test run, a server sent to the background — drawn as running, with the command on its card (cut to fit, whole on hover) | the transcript's shell calls that have no answer yet and its background commands no notice has ended, believed only while the machine reports the session running: a quiet file is not an idle agent |
 | **Models** (`m`): which model each kind of task has needed in this project | `.claude/state/model-outcomes.tsv`, the record Crewforth's hooks write when a crew agent stops. Studio reads it and writes nothing |
 | **Map** (`p`): the project's modules, what they connect to and what was found between them | `.crewforth/crew-map.json`, written by Crewforth's scanner. Studio reads it and scans nothing |
 | Sessions the panel starts, driven from the conversation panel | `claude -p` in stream-json, over the child's stdin and stdout |

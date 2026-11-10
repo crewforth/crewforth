@@ -416,7 +416,125 @@ check('prose without a notice yields nothing', none.size === 0);
   check('the page settles what the stream sent against the fleet, and again when the fleet changes its mind',
     /const g = settle\(lastGraph, lastLive\);/.test(appSrc) && /if \(lastGraph && sessionIsLive\(\) !== lastLive\) showGraph\(\);/.test(appSrc)
     && /isection\(t\('In the background'\), \.\.\.rows\)/.test(appSrc)
-    && /p\.bg\.textContent = bg \? t\('\{n\} in background', \{ n: bg \}\) : '';/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+    && /bg \? t\('\{n\} in background', \{ n: bg \}\) : null/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* A shell command running under an agent is work, not silence. A build or a test run writes nothing until it ends,
+   so an agent sitting inside one went quiet, was read as stale, and the page drew it stopped; the main session in
+   the same spot read as idle. Any agent, started in the background or not, and the session itself. */
+{
+  const { buildGraph, shellsIn } = await import(`../../kit/studio/server/lib/graph.js?sh=${Date.now()}`);
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?sh=${Date.now()}`);
+  const nav = await import(`../../kit/studio/web/nav.js?sh=${Date.now()}`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sh-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const MIN = 60_000;
+  const LONG = 'npm test -- --runInBand --coverage --reporters=default --reporters=jest-junit packages/api packages/web';
+  const use = (id, input, msAgo, name = 'Bash') => ({ type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id, name, input }] } });
+  const answer = (id, msAgo, tur = undefined) => ({ type: 'user', timestamp: iso(msAgo), message: { content: [{ type: 'tool_result', tool_use_id: id, content: '' }] }, ...(tur ? { toolUseResult: tur } : {}) });
+  const notice = (id, msAgo) => ({ type: 'user', timestamp: iso(msAgo), message: { content: `<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n</task-notification>` } });
+  const launch = (id, toolUseId, msAgo) => [
+    use(toolUseId, { subagent_type: 'crew-test-expert', description: `task ${id}` }, msAgo, 'Agent'),
+  ];
+  const main = [
+    { type: 'user', timestamp: iso(30 * MIN), message: { content: 'start' } },
+    ...launch('afg', 'tu1', 20 * MIN), ...launch('abg', 'tu2', 20 * MIN), ...launch('aread', 'tu3', 20 * MIN), ...launch('aended', 'tu4', 20 * MIN),
+    use('tu5', { command: 'make build' }, 20 * MIN),
+  ];
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, main.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const agent = (id, toolUseId, records, quietMs) => {
+    fs.writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ agentType: `crew-${id}-expert`, description: `task ${id}`, toolUseId }));
+    const f = path.join(sub, `agent-${id}.jsonl`);
+    fs.writeFileSync(f, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    fs.utimesSync(f, new Date(now - quietMs), new Date(now - quietMs));
+  };
+  // One type each, so every agent is a card of its own.
+  // Waited on, not in the background, and ten minutes inside one test run.
+  agent('afg', 'tu1', [use('f1', { command: LONG }, 10 * MIN)], 10 * MIN);
+  // Sent a server to the background, then waited on it with a read that has no answer either.
+  agent('abg', 'tu2', [use('b1', { command: 'npm run dev', run_in_background: true }, 9 * MIN), answer('b1', 9 * MIN, { backgroundTaskId: 'bsrv' }),
+    use('b2', { command: 'sleep 600' }, 9 * MIN, 'PowerShell')], 9 * MIN);
+  // Quiet inside a call that is not a shell: nothing here says it is working.
+  agent('aread', 'tu3', [use('r1', { file_path: '/x' }, 10 * MIN, 'Read')], 10 * MIN);
+  // Its command ended, by answer and by notice: nothing is running.
+  agent('aended', 'tu4', [use('e1', { command: 'make' }, 10 * MIN), answer('e1', 10 * MIN),
+    use('e2', { command: 'npm run watch', run_in_background: true }, 10 * MIN), answer('e2', 10 * MIN, { backgroundTaskId: 'bw' }), notice('bw', 9 * MIN),
+    { type: 'assistant', timestamp: iso(9 * MIN), message: { content: [{ type: 'text', text: 'Done.' }] } }], 9 * MIN);
+
+  check('the shells a transcript has running: an unanswered shell call, and a background command no notice ended',
+    shellsIn([use('x', { command: 'ls' }, 1), answer('x', 1)]).length === 0
+    && shellsIn([use('x', { command: 'ls' }, 1)])[0]?.detail === 'ls'
+    && shellsIn([use('x', { file_path: '/a' }, 1, 'Read')]).length === 0
+    && shellsIn([use('x', { command: 'srv', run_in_background: true }, 2), answer('x', 2, { backgroundTaskId: 'k' })])[0]?.background === true
+    && shellsIn([use('x', { command: 'srv', run_in_background: true }, 2), answer('x', 2, { backgroundTaskId: 'k' }), notice('k', 1)]).length === 0);
+
+  const g = await buildGraph({ sessionId: 'sh-session', file, subagentsDir: sub });
+  const node = (graph, id) => graph.nodes.find((n) => n.id === id);
+  const sh = (graph, id) => (node(graph, id)?.shells ?? []).map((c) => `${c.background ? 'bg:' : ''}${c.detail}`).sort().join(',');
+  check('each agent carries the shell commands it has running, and only those',
+    sh(g, 'afg') === LONG && sh(g, 'abg') === 'bg:npm run dev,sleep 600' && sh(g, 'aread') === '' && sh(g, 'aended') === '',
+    JSON.stringify(['afg', 'abg', 'aread', 'aended'].map((id) => sh(g, id))));
+  check('the server, reading files, still calls a quiet agent quiet: what is live is the page\'s to say',
+    node(g, 'afg').status === 'stale' && node(g, 'abg').status === 'stale' && node(g, 'afg').background === false);
+  const session = g.nodes.find((n) => n.kind === 'session');
+  check('the session carries the shell command it is running itself',
+    session.shellCommands.length === 1 && session.shellCommands[0].detail === 'make build', JSON.stringify(session.shellCommands));
+
+  const live = gpl.settle(g, true);
+  check('while the session is live, an agent inside a shell command is running, waited on or in the background',
+    node(live, 'afg').status === 'running' && node(live, 'abg').status === 'running'
+    && node(live, 'afg').shellNow.length === 1 && node(live, 'abg').shellNow.length === 2,
+    `${node(live, 'afg').status} / ${node(live, 'abg').status}`);
+  check('one quiet in a call that is not a shell, and one whose command ended, are left as the server read them',
+    node(live, 'aread').status === node(g, 'aread').status && node(live, 'aended').status === node(g, 'aended').status
+    && !node(live, 'aread').shellNow?.length && !node(live, 'aended').shellNow?.length);
+  check('the summary moves with the cards and still adds up',
+    live.stats.byStatus.running === (g.stats.byStatus.running ?? 0) + 2
+    && Object.values(live.stats.byStatus).reduce((a, b) => a + b, 0) === Object.values(g.stats.byStatus).reduce((a, b) => a + b, 0),
+    JSON.stringify(live.stats.byStatus));
+  check('the session\'s own command is drawn only while it is live',
+    live.nodes.find((n) => n.kind === 'session').shellNow.length === 1 && gpl.settle(g, false).nodes.find((n) => n.kind === 'session').shellNow.length === 0);
+  const over = gpl.settle(g, false);
+  check('in a session that is over, or not measured, no agent is called running on a shell, and none shows one',
+    ['afg', 'abg'].every((id) => node(over, id).status === 'stale' && !node(over, id).shellNow?.length && node(gpl.settle(g, null), id).status === 'stale'));
+  check('settling leaves the server\'s graph as it was', node(g, 'afg').status === 'stale' && node(g, 'afg').shellNow === undefined);
+
+  const line = gpl.shellLine(node(live, 'abg').shellNow);
+  check('the line says the command it waits on, and how many more; the tooltip says every one whole',
+    line?.text === '$ sleep 600 (+1)' && /npm run dev/.test(line?.title) && /sleep 600/.test(line?.title) && gpl.shellLine([]) === null,
+    JSON.stringify(line));
+  const busy = { key: 'busy', word: 'Running', tone: 'busy', known: true };
+  const idle = { key: 'idle', word: 'Idle', tone: 'idle', known: true };
+  const waiting = { key: 'waiting', word: 'Needs you', tone: 'waiting', known: true };
+  check('the session card says a shell command is running over "idle" and "running", never over "needs you"',
+    nav.withShell(idle, 1).word === 'Shell command running' && nav.withShell(idle, 1).tone === 'busy'
+    && nav.withShell(busy, 2).word === 'Shell command running' && nav.withShell(waiting, 1) === waiting
+    && nav.withShell(idle, 0) === idle && nav.withShell(null, 1) === null);
+
+  installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?sh=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  c.setSession('sh');
+  c.setDensity?.('comfortable');
+  c.setSessionState(idle);
+  c.render({ nodes: live.nodes, edges: [] });
+  const card = c.els.get('afg')?.parts;
+  check('the agent card says it is running a shell, and its third line is the command, cut, whole on hover',
+    card && card.pill.word.textContent === 'Running shell' && card.facts.textContent === `$ ${LONG}`
+    && card.facts.title.includes(LONG) && card.facts.classList.contains('cv-shell'),
+    card ? `"${card.pill.word.textContent}" / "${card.facts.textContent}"` : 'no card');
+  const sp = c.els.get('session')?.parts;
+  check('the session card says its command and that a shell command is running, not idle',
+    sp && sp.bg.hidden === false && sp.bg.textContent === '$ make build' && sp.pill.word.textContent === 'Shell command running',
+    sp ? `"${sp.bg.textContent}" / "${sp.pill.word.textContent}"` : 'no session card');
+  c.render({ nodes: over.nodes, edges: [] });
+  check('and once the session is over, both are gone',
+    c.els.get('afg').parts.facts.classList.contains('cv-shell') === false && c.els.get('session').parts.bg.hidden === true);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

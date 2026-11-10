@@ -1113,6 +1113,8 @@ button.tl-lab { cursor: pointer; }
 .cv-model[data-differs="true"] { color: var(--status-waiting); }
 .cv-third { gap: 6px; }
 .cv-facts { flex: 1 1 auto; min-width: 0; font-size: 11px; line-height: 16px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* A shell command running in the agent or the session: the command itself, in the type commands are written in. */
+.cv-shell { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink-dim); }
 .cv-totals { font-variant-numeric: tabular-nums; }
 /* The same badge outside the graph: a Timeline row, a List row, a delegation card. */
 .tl-model, .ls-model, .deleg-model {

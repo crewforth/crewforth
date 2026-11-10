@@ -15,6 +15,7 @@ npx crewforth studio                              # hiçbir şey kurmadan
 | Panelde ne var | Neye dayanıyor |
 |:--|:--|
 | Herhangi bir oturumun delegasyonu, canlı; **Graph**, **Timeline** ya da **List** olarak (`g`, `t`, `l`) | diskteki transcript ağacı; 700 ms'de bir boyut imzası okunuyor, imza değiştiyse ağaç yeniden kuruluyor. Üç görünüm de bu tek okumadan çiziliyor |
+| Bir kabuk komutunun içindeki ajan ya da oturum (bir derleme, bir test koşusu, arka plana gönderilmiş bir sunucu) çalışıyor olarak çiziliyor; komut kartında duruyor, sığmazsa kesiliyor, üstüne gelince tamamı görünüyor | transcript'te henüz cevabı gelmemiş kabuk çağrıları ve hiçbir bildirimin bitirmediği arka plan komutları; yalnız makine oturumu çalışıyor dediği sürece geçerli: sessiz bir dosya boşta bir ajan demek değil |
 | **Models** (`m`): bu projede her iş türüne hangi model gerekmiş | `.claude/state/model-outcomes.tsv`; bir crew ajanı durduğunda Crewforth'un hook'larının yazdığı kayıt. Studio onu okuyor, hiçbir şey yazmıyor |
 | **Map** (`p`): projenin modülleri, neye bağlandıkları ve aralarında ne bulunduğu | `.crewforth/crew-map.json`; Crewforth'un tarayıcısı yazıyor. Studio onu okuyor, hiçbir şey taramıyor |
 | Panelin başlattığı oturumlar, konuşma panelinden sürülüyor | stream-json biçiminde bir `claude -p`; komut da cevap da alt sürecin stdin ve stdout'undan geçiyor |
