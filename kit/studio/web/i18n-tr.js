@@ -674,6 +674,8 @@ export const TR = {
   "{name} unreachable — {reason}": "{name} erişilemiyor — {reason}",
   "{n} hidden session(s) shown": "{n} gizli oturum gösteriliyor",
   "{n} session(s) hidden from this list": "{n} oturum bu listeden gizlendi",
+  "{n} project(s) without Crewforth hidden": "Crewforth kurulu olmayan {n} proje gizlendi",
+  "Showing {n} project(s) without Crewforth": "Crewforth kurulu olmayan {n} proje gösteriliyor",
   "{n} project(s) hidden — their directories no longer exist": "{n} proje gizlendi — dizinleri artık yok",
   "Showing projects whose directories no longer exist": "Dizinleri artık olmayan projeler gösteriliyor",
   "This is not the same as \"nothing is running\" — nothing was read.": "Bu, \"hiçbir şey çalışmıyor\" demek değil — hiçbir şey okunmadı.",
