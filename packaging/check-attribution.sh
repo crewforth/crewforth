@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Reads a pull request's title and body on stdin and exits 1 when they carry an assistant's signature line: a
-# tool's "generated" footer, a co-author trailer naming Claude or Anthropic, or a claude.ai/code link. Nothing in
+# tool's "generated" footer, a co-author trailer naming Claude or Anthropic, a claude.ai/code link, or a hosted
+# session's attribution block (its hidden marker comment and the italic "Requested by **name**" line). Nothing in
 # this repository is signed by a tool, in a commit, a PR description or a comment, and the rule has no exception.
 # The patterns are written with [-] and [ ] so that this file's own lines do not trip the commit trace scan.
 #
@@ -12,7 +13,7 @@
 set -uo pipefail
 
 text="$(cat)"
-hits="$(printf '%s\n' "$text" | grep -nE '(^|[^[:alpha:]])Generated[ ]with|claude\.ai/code' ;
+hits="$(printf '%s\n' "$text" | grep -nE '(^|[^[:alpha:]])Generated[ ]with|claude\.ai/code|claude[-]projects[-]attribution|^_Requested[ ]by[ ]\*\*' ;
         printf '%s\n' "$text" | grep -niE 'co-authored[-]by:.*(claude|anthropic)')"
 if [ -n "$hits" ]; then
   printf 'attribution: this text carries a signature line, and none is allowed here:\n'

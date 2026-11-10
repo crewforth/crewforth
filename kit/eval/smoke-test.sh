@@ -13623,7 +13623,7 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
     # "Generated with" footer on its own, and one reached a description. ci.yml reads the PR title and body from
     # the event and fails the run when a signature line is there. The script is driven both ways here — a fixture
     # carrying each signature form must fail, and a clean one with the near misses ("regenerated with", a human
-    # co-author, the product named in prose) must pass — and the wiring is pinned: pull_request only, the text
+    # co-author, the product named in prose, "requested by" in a sentence) must pass — and the wiring is pinned: pull_request only, the text
     # handed over through env so a description is never run as a command.
     CAT="$SGR/packaging/check-attribution.sh"
     if [ ! -f "$CAT" ]; then fail "packaging/check-attribution.sh is missing — a signed PR description would pass CI"
@@ -13633,12 +13633,14 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       # not stop this file; bash joins them back into the exact text.
       for _fx in $'feat: x\n\nok\n\n\xf0\x9f\xa4\x96 Generated with [Tool](https://example.com)\n' \
                  $'fix: y\n\nCo-Authored'$'-By: Claude Opus <noreply@anthropic.com>\n' \
+                 $'fix: w\n<!-- claude-projects'$'-attribution: {"github_login":"x"} -->\nok\n' \
+                 $'fix: v\n_Requested'$' by **Jane**_\n\nok\n' \
                  $'see https://claude.ai/code/session_x\n'; do
         printf '%s' "$_fx" | bash "$CAT" >/dev/null 2>&1; [ $? = 1 ] || _ca="$_ca signed-passed"
       done
-      printf '%s' $'feat: z\nThe plugin edition was regenerated with no diff.\nCo-Authored'$'-By: Jane Doe <jane@example.com>\nClaude Code merged commands into skills.\n' \
+      printf '%s' $'feat: z\nThe plugin edition was regenerated with no diff.\nCo-Authored'$'-By: Jane Doe <jane@example.com>\nClaude Code merged commands into skills.\nRequested by the reviewer in the thread.\n' \
         | bash "$CAT" >/dev/null 2>&1; [ $? = 0 ] || _ca="$_ca clean-failed"
-      [ -z "$_ca" ] && pass "check-attribution.sh: each of the 3 signature forms fails (rc 1), the clean text with its near misses passes (rc 0)" \
+      [ -z "$_ca" ] && pass "check-attribution.sh: each of the 5 signature forms fails (rc 1), the clean text with its near misses passes (rc 0)" \
                     || fail "check-attribution.sh gave the wrong verdict:$_ca"
       _cy="$SGR/.github/workflows/ci.yml"
       _cstep="$(awk '/- name: No signature line/{f=1} f&&/^      - name:/&&!/No signature line/{f=0} f' "$_cy")"
