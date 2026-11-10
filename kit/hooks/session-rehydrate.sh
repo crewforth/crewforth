@@ -83,12 +83,39 @@ if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir
 fi
 [ -n "$HOOKMSG" ] && MSG="${MSG:+$MSG }$HOOKMSG"
 
+# THE DEPENDENCY AUDIT IS OLD. §4.7 audits a lockfile when it changes; a CVE is published without it changing (a field
+# project: a pyasn1 advisory against a lockfile untouched for weeks). At a session START only, at most once in 7 days,
+# and only where the repository tracks a lockfile: one line, offered, never run. No network. The record's age is read
+# first with builtins, so a fresh audit costs nothing; the lockfile listing (one git call) runs at most once a week,
+# stamped in the git directory whatever it finds. Silent under CI, an unattended session, and CREW_DEPS_AUDIT_DAYS=0.
+DEPSMSG=""
+_rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+_dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
+if [ "$SRC" = startup ] && [ "$_dd" -gt 0 ] && [ -z "${CI:-}" ] && [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" != 0 ] \
+   && [ -f "$_rh/../eval/lib/gate-log.sh" ] && [ -f "$_rh/../eval/lib/lockfiles.sh" ] \
+   && . "$_rh/../eval/lib/gate-log.sh" && . "$_rh/../eval/lib/lockfiles.sh" && crew_git_dir "$ROOT"; then
+  crew_deps_audit_age "$ROOT"
+  if [ "$CREW_DEPS_AGE" -lt 0 ] || [ "$CREW_DEPS_AGE" -ge "$_dd" ]; then
+    _ds=0; [ -f "$_CREW_GD/crewforth-deps-reminded" ] && { IFS= read -r _ds < "$_CREW_GD/crewforth-deps-reminded" || :; }
+    _ds="${_ds//[!0-9]/}"; : "${_ds:=0}"
+    crew_now
+    if [ "$CREW_NOW" -gt 0 ] && [ $(( CREW_NOW - _ds )) -ge 604800 ]; then
+      printf '%s\n' "$CREW_NOW" > "$_CREW_GD/crewforth-deps-reminded" 2>/dev/null
+      crew_tracked_lockfiles "$ROOT"
+      if [ "${#CREW_LOCKS[@]}" -gt 0 ]; then
+        if [ "$CREW_DEPS_AGE" -ge 0 ]; then _dw="last ran $CREW_DEPS_AGE days ago"; else _dw="has never been recorded"; fi
+        DEPSMSG="The dependency audit of this repository's lockfiles $_dw (limit $_dd days); a vulnerability is published without the lockfile changing. Tell the user once in one line and offer to apply the dependency-audit skill (a read-only report, recorded with its record.sh --periodic); it does not change your task, and nothing runs unless they say so. CREW_DEPS_AUDIT_DAYS=0 turns this reminder off."
+      fi
+    fi
+  fi
+fi
+[ -n "$DEPSMSG" ] && MSG="${MSG:+$MSG }$DEPSMSG"
+
 # THE STATE BEFORE THE COMPACTION. precompact-snapshot.sh wrote it just before this context was compacted: the
 # branch, the uncommitted files, the last gate refusal, the findings on record. Read back only after a compaction and
 # only into the session that wrote it (same session id); its summary, skills and prompts are already JSON-escaped, so it is put into the
 # output as it is, and the rest of MSG stays fixed text that needs no escaping and no extra process.
 SNAP=""; SKIP=""
-_rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
 [ "$SRC" = compact ] && [ ! -f "$_rh/../eval/lib/gate-log.sh" ] && SKIP="eval/lib/gate-log.sh is missing (update Crewforth: npx crewforth update)"
 if [ "$SRC" = compact ] && [ -f "$_rh/../eval/lib/gate-log.sh" ]; then
   . "$_rh/../eval/lib/gate-log.sh"

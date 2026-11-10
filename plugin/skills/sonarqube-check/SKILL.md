@@ -117,6 +117,19 @@ Re-run step 1's scan, re-read step 2, and report the **difference**: counts befo
 disappeared, which remain, which are new. "It should be clean now" is not a result — a second analysis is.
 Repeat until the gate says `OK`, or every remaining finding has a user-approved suppression. Nothing here closes on a first pass.
 
+## The record — what /crew-ship checks before it commits
+
+A verdict is about the code that was analysed. Record it, with the code it covers, after step 2 and again after the
+final re-scan of step 4 — and for path (c), record why no analysis ran (Bash tool, not PowerShell):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/sonarqube-check/scripts/record.sh" <clean|unverified> "<gate status + analysis date, or why no analysis ran>"
+```
+
+`/crew-ship` runs `scripts/freshness.sh` before it proposes a commit: an edit made after the analysis (staged or
+not, a new file too) makes the record stale and stops the ship until a re-scan is recorded. `declined` in
+`Quality analysis:` passes as "no analysis ran — unverified". A failing gate is not recorded — it is step 3's list.
+
 ## What even a local SonarQube cannot see
 
 Community Build has no **taint/injection analysis** (data flow from user input to a dangerous sink — SQLi, XSS,
@@ -129,7 +142,8 @@ is not proof of injection safety: cover that with the **`security-scan`** and **
   ran (project server or local container).
 - Every finding closed by a code change, or by a suppression the user explicitly approved with a written reason.
 - Hotspots reviewed in the UI, not merely edited around.
-- A re-scan ran after the fixes and the before → after diff by rule id is reported.
+- A re-scan ran after the fixes and the before → after diff by rule id is reported, and its verdict is recorded
+  (`scripts/record.sh`) for the code as it stands.
 - Injection risk stated separately (taint analysis is not in Community Build).
 - Coverage is a measured figure from a report passed to the analysis, or written "not measured" — never a bare 0%.
 - A gate read with `"period": null` is reported by its overall ratings, not as "passed".

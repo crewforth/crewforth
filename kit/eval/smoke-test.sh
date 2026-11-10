@@ -4075,7 +4075,8 @@ _n47=$((_n47+3))
 #    lockfile changed in the work tree, or new and untracked, it is refused; with none, it goes on to the ask.
 r47st "echo '{\"v\":4}' > package-lock.json" 'git add package-lock.json && git commit -m x'; _n47=$((_n47+1))
 { [ "$_rc" = 2 ] && [[ "$_e" == *"stages and commits in one call"* ]]; } || _b47="$_b47 chained-add-commit-allowed(rc=$_rc)"
-r47st "git add package-lock.json && r47ok u && echo d >> a.txt" 'git add a.txt && git commit -m x'; _n47=$((_n47+1))
+#    (a.txt is staged first: an add that would bring in an unstaged change is §4.6's refusal now, not §4.7's silence.)
+r47st "git add package-lock.json && r47ok u && echo d >> a.txt && git add a.txt" 'git add a.txt && git commit -m x'; _n47=$((_n47+1))
 { [ "$(gdec "$_o")" = ask ] && [[ "$_e" != *"§4.7"* ]]; } || _b47="$_b47 chained-with-no-lockfile-refused(rc=$_rc)"
 r47st "mkdir -p n && echo x > n/Cargo.lock" 'git add -A && git commit -m x'; _n47=$((_n47+1))
 { [ "$_rc" = 2 ] && [[ "$_e" == *"stages and commits in one call"* ]]; } || _b47="$_b47 chained-untracked-lockfile-allowed(rc=$_rc)"
@@ -4096,7 +4097,7 @@ _o="$(cd "$_bs" && printf '{"cwd":"%s","tool_name":"Bash","permission_mode":"def
   | env -u CLAUDE_GIT_OK bash 'x\hooks\guard-bash.sh' 2>"$R47/.err")"; _rc=$?
 _n47=$((_n47+1)); [ "$(gdec "$_o")" = ask ] || _b47="$_b47 backslash-hook-path-refused(rc=$_rc: $(head -1 "$R47/.err"))"
 # 11. ONE list: no lockfile name that lib/lockfiles.sh lists is spelled in §4.7's part of the hook or in the recorder.
-#     (§4.5's lockfile-delete rule matches command TEXT with a regex of its own, older than this list; it is not §4.7.)
+#     (§4.5's lockfile-delete rule reads the same list; its own cases are in the guard-bash §4.5 block.)
 _l47="$(awk '/^crew_is_lockfile\(\)/{f=1} f && /return 0 ;;/{ s=$0; sub(/\).*/, "", s); gsub(/^[[:space:]]+/, "", s); print s } f && /^}/{exit}' "$ROOT/eval/lib/lockfiles.sh" | tr '|' '\n' | grep -v '\*')"
 [ "$(printf '%s\n' "$_l47" | grep -c .)" -ge 20 ] || _b47="$_b47 fixture:read-only-$(printf '%s\n' "$_l47" | grep -c .)-lockfile-names"
 _s47="$(awk '/# §4\.7 — A STAGED LOCKFILE/{f=1} f{print} /gatelog ALLOW 4\.7/{exit}' "$HOOKS/guard-bash.sh")"
@@ -4108,6 +4109,67 @@ done
 rm -rf "$R47"
 [ -z "$_b47" ] && pass "§4.7: a staged lockfile needs an audit record of that lockfile diff ($_n47 of 16 cases: refused with none, stale, a missing list, or staged and committed in one call; held across a code change, from a sub-folder and from a hook started by a Windows path; silent with no lockfile; a path git quotes; record.sh's refusals)" \
                || fail "§4.7:$_b47"
+# §4.6 — A COMMAND THAT STAGES AND COMMITS IN ONE CALL. The record below covers a.txt alone; the hook reads the index
+# before the command runs, so `git add b.txt && git commit` used to be compared with an index without b.txt, match,
+# and reach the approval with b.txt in the commit. Must-fail cases are read by rc and the gate's own failure text.
+R4C="$(mktemp -d)"; R4C="$(cd -P "$R4C" && pwd)"
+( cd "$R4C" && git init -q . && git config user.email t@example.com && git config user.name t \
+  && echo a > a.txt && echo b > b.txt && git add . && git -c core.hooksPath=/dev/null commit -qm init ) >/dev/null 2>&1
+r4c(){  # $1 = setup after a reset (a.txt staged and reviewed), $2 = command -> _rc, _o, _e
+  ( cd "$R4C" && git reset -q --hard && git clean -qfd && echo a2 >> a.txt && git add a.txt && mkdir -p .claude \
+    && printf '{"diff_oid":"%s","head":"%s","ts":"t"}\n' "$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)" \
+       "$(git rev-parse --verify --quiet HEAD)" > .claude/review-pass.json && eval "$1" ) >/dev/null 2>&1
+  _o="$(cd "$R4C" && gj default "$2" | env -u CLAUDE_GIT_OK bash "$HOOKS/guard-bash.sh" 2>"$R4C/.err")"; _rc=$?; _e="$(cat "$R4C/.err")"; }
+_b4c=""; _n4c=0
+for _c4c in 'echo b2 >> b.txt|git add b.txt && git commit -m x' 'echo n > new.txt|git add -A && git commit -m x' \
+            'echo b2 >> b.txt|git add \"b.txt\" && git commit -m x' 'mkdir -p d && echo z > d/z.txt|git add d && git commit -m x' \
+            'echo a3 >> a.txt|git add a.txt && git commit -m x' 'echo b2 >> b.txt|git add . && git commit -m x' \
+            ':|git stash pop && git commit -m x' ':|git restore --staged a.txt && git commit -m x'; do
+  r4c "${_c4c%%|*}" "${_c4c#*|}"; _n4c=$((_n4c+1))
+  { [ "$_rc" = 2 ] && [[ "$_e" == *"GUARD (§4.6): this command"* ]]; } || _b4c="$_b4c allowed:'${_c4c#*|}'(rc=$_rc)"
+done
+# What must still reach the approval: an add that changes nothing, beside an unrelated unstaged file too; a plain commit.
+for _c4c in ':|git add a.txt && git commit -m x' 'echo b2 >> b.txt|git add a.txt && git commit -m x' \
+            'echo b2 >> b.txt|git commit -m x' 'echo n > new.txt|git add -- a.txt && git commit -m x'; do
+  r4c "${_c4c%%|*}" "${_c4c#*|}"; _n4c=$((_n4c+1))
+  { [ "$(gdec "$_o")" = ask ] && [[ "$_e" != *"§4.6"* ]]; } || _b4c="$_b4c over-blocked:'${_c4c#*|}'(rc=$_rc: ${_e%%$'\n'*})"
+done
+# Text that only names the chain runs nothing.
+r4c 'echo b2 >> b.txt' 'echo \"git add x && git commit\"'; _n4c=$((_n4c+1)); [ "$_rc" = 0 ] || _b4c="$_b4c echo-refused(rc=$_rc)"
+rm -rf "$R4C"
+[ -z "$_b4c" ] && pass "§4.6: a command that stages and commits in one call is refused when it would bring in what the record never saw ($_n4c cases: an add of an unstaged, untracked, quoted or folder path, add -A and add ., stash and restore; an add that changes nothing, a plain commit and an echo still pass)" \
+               || fail "§4.6 chained stage+commit:$_b4c"
+# S2 — /crew-ship's SonarQube freshness check (skills/sonarqube-check/scripts). A verdict is about the code that was
+# analysed: the record names the tree the WORK TREE would commit, and an edit after it — staged or not, a new file —
+# must read stale. Three outcomes plus the twin: no record and stale fail, fresh passes, `declined` is the honest skip.
+_SQ="$ROOT/skills/sonarqube-check/scripts"; RSQ="$(mktemp -d)"; RSQ="$(cd -P "$RSQ" && pwd)"; _esq="$(mktemp)"
+( cd "$RSQ" && git init -q . && git config user.email t@example.com && git config user.name t && echo a > a.txt \
+  && printf '## Stack\nQuality analysis: sonarqube-local\n' > CLAUDE.md && git add . && git -c core.hooksPath=/dev/null commit -qm init ) >/dev/null 2>&1
+sqf(){ _osq="$(cd "$RSQ" && bash "$_SQ/freshness.sh" 2>"$_esq")"; _rsq=$?; }
+sqr(){ ( cd "$RSQ" && bash "$_SQ/record.sh" "$@" ) >/dev/null 2>&1; }
+_bsq=""; _nsq=0
+sqf; _nsq=$((_nsq+1)); { [ "$_rsq" = 1 ] && grep -q "no SonarQube analysis is recorded" "$_esq"; } || _bsq="$_bsq no-record-passed(rc=$_rsq)"
+sqr clean "gate OK, analysis 2026-11-10" || _bsq="$_bsq record.sh-failed"
+sqf; _nsq=$((_nsq+1)); { [ "$_rsq" = 0 ] && [[ "$_osq" == *"clean, for the code as it stands"* ]]; } || _bsq="$_bsq fresh-refused(rc=$_rsq: $(head -1 "$_esq"))"
+# The twin: the same record, the code edited after it. Unstaged, then staged, then a new untracked file.
+( cd "$RSQ" && echo b >> a.txt ); sqf; _nsq=$((_nsq+1)); { [ "$_rsq" = 1 ] && grep -q "stale" "$_esq"; } || _bsq="$_bsq unstaged-edit-not-stale(rc=$_rsq)"
+( cd "$RSQ" && git add a.txt ); sqf; _nsq=$((_nsq+1)); { [ "$_rsq" = 1 ] && grep -q "stale" "$_esq"; } || _bsq="$_bsq staged-edit-not-stale(rc=$_rsq)"
+sqr clean "re-scan OK"; ( cd "$RSQ" && echo n > new.txt ); sqf; _nsq=$((_nsq+1)); { [ "$_rsq" = 1 ] && grep -q "stale" "$_esq"; } || _bsq="$_bsq new-file-not-stale(rc=$_rsq)"
+# Removing it again is the analysed tree again; the review record beside it is not code; the real index is untouched.
+( cd "$RSQ" && rm new.txt && mkdir -p .claude && echo '{}' > .claude/review-pass.json ); sqf; _nsq=$((_nsq+1)); [ "$_rsq" = 0 ] || _bsq="$_bsq review-record-made-it-stale(rc=$_rsq)"
+[ "$(cd "$RSQ" && git diff --cached --name-only)" = a.txt ] || _bsq="$_bsq real-index-changed"
+# No server: an `unverified` record stays unverified; `declined` passes without a record; an empty line is asked.
+sqr unverified "no server: Docker is not installed"; sqf; _nsq=$((_nsq+1)); { [ "$_rsq" = 0 ] && [[ "$_osq" == *"unverified"* ]]; } || _bsq="$_bsq unverified-lost(rc=$_rsq)"
+( cd "$RSQ" && printf '## Stack\nQuality analysis: declined\n' > CLAUDE.md && rm -f "$(git rev-parse --git-dir)/crewforth-sonar.json" ); sqf; _nsq=$((_nsq+1))
+{ [ "$_rsq" = 0 ] && [[ "$_osq" == *"no analysis ran — unverified (declined)"* ]]; } || _bsq="$_bsq declined-refused(rc=$_rsq)"
+( cd "$RSQ" && printf '## Stack\nQuality analysis: <sonarqube-local · sonarqube-server · declined>\n' > CLAUDE.md ); sqf; _nsq=$((_nsq+1))
+{ [ "$_rsq" = 1 ] && grep -q "is empty" "$_esq"; } || _bsq="$_bsq empty-line-passed(rc=$_rsq)"
+# record.sh refuses what it cannot vouch for: a failing or unknown verdict, no note.
+( cd "$RSQ" && bash "$_SQ/record.sh" failed "x" ) >/dev/null 2>&1 && _bsq="$_bsq record.sh-took-an-unknown-verdict"
+( cd "$RSQ" && bash "$_SQ/record.sh" clean "" ) >/dev/null 2>&1 && _bsq="$_bsq record.sh-took-no-note"
+_nsq=$((_nsq+2)); rm -rf "$RSQ" "$_esq"
+[ -z "$_bsq" ] && pass "S2: /crew-ship's SonarQube freshness check ($_nsq cases: no record and an edit after the analysis — unstaged, staged, a new file — fail; the analysed tree passes, the review record and the real index untouched; unverified stays unverified, declined passes, an empty line is asked; record.sh's refusals)" \
+               || fail "S2 sonar freshness:$_bsq"
 # Without the key the hook must stay OUT of the way on `git add`: settings.json owns that prompt, and a hook
 # that answered here would quietly take over a rule the user can see and edit.
 o="$(gj auto 'git add .' | bash "$HOOKS/guard-bash.sh" 2>/dev/null)"
@@ -4674,6 +4736,33 @@ fi
 gj auto 'git add -f dist/bundle.js' | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "git add -f BLOCKED (§4.5)" || fail "git add -f PASSED (§4.5 hole)"
 gj auto 'git add -A'                | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1 && pass "git add -A NOT over-blocked" || fail "git add -A wrongly blocked (gate too strict)"
 gj auto 'rm package-lock.json'      | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "lockfile deletion BLOCKED (§4.5)" || fail "lockfile deletion PASSED (§4.5 hole)"
+# §4.5 reads the ONE lockfile list (eval/lib/lockfiles.sh). Its own regex of 11 names let `rm uv.lock` and 14 more
+# through. Every name the list spells is driven in three forms; the count is printed, so a list the awk misreads
+# shows as a short count, not as a green line over nothing.
+_l45="$(awk '/^crew_is_lockfile\(\)/{f=1} f && /return 0 ;;/{ s=$0; sub(/\).*/, "", s); gsub(/^[[:space:]]+/, "", s); print s } f && /^}/{exit}' "$ROOT/eval/lib/lockfiles.sh" | tr '|' '\n' | sed 's/^\*/app./')"
+_b45=""; _n45=0
+while IFS= read -r _x45; do
+  [ -n "$_x45" ] || continue
+  for _f45 in "rm $_x45" "rm -f dir/$_x45" "git rm $_x45"; do
+    _n45=$((_n45+1)); gj auto "$_f45" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] || _b45="$_b45 allowed:'$_f45'"
+  done
+done <<< "$_l45"
+[ "$(printf '%s\n' "$_l45" | grep -c .)" -ge 26 ] || _b45="$_b45 fixture:read-only-$(printf '%s\n' "$_l45" | grep -c .)-names"
+for _f45 in 'rm \"a b/uv.lock\"' 'rm x.txt; rm pixi.lock;' 'rm {x,bun.lock}' 'rm uv\\\\.lock'; do
+  _n45=$((_n45+1)); gj auto "$_f45" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] || _b45="$_b45 allowed:'$_f45'"
+done
+# A copy, a read and an unrelated delete pass: the word must BE a lockfile, not contain one.
+for _f45 in 'rm notes.txt' 'rm uv.lock.bak' 'cat uv.lock' 'rm -f block.txt'; do
+  _n45=$((_n45+1)); gj auto "$_f45" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 0 ] || _b45="$_b45 over-blocked:'$_f45'"
+done
+# The list missing: a lock-ish name is refused, not waved through; a plain rm still passes.
+_h45="$(mktemp -d)"; mkdir -p "$_h45/eval"; cp -R "$HOOKS" "$_h45/hooks"; cp -R "$ROOT/eval/lib" "$_h45/eval/lib"; rm -f "$_h45/eval/lib/lockfiles.sh"
+_n45=$((_n45+1)); gj auto 'rm uv.lock' | bash "$_h45/hooks/guard-bash.sh" >/dev/null 2>"$_h45/err"; _r45=$?
+{ [ "$_r45" = 2 ] && grep -q "could not be loaded" "$_h45/err"; } || _b45="$_b45 missing-list-allowed(rc=$_r45)"
+_n45=$((_n45+1)); gj auto 'rm notes.txt' | bash "$_h45/hooks/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 0 ] || _b45="$_b45 missing-list-over-blocked"
+rm -rf "$_h45"
+[ -z "$_b45" ] && pass "§4.5: lockfile deletion reads the one list ($_n45 cases: $(printf '%s\n' "$_l45" | grep -c .) names × rm, rm -f dir/, git rm; quoted, chained, braced, escaped; a .bak copy, a read and a plain rm pass; a missing list refuses)" \
+               || fail "§4.5 lockfile deletion:$_b45"
 
 sec "== 7b) guard-bash matcher — audit bypass regressions (unified git_has) =="
 # An adversarial audit found these git-invocation forms slipped the old 'git +subcmd' rules. Each must now be caught.
@@ -5616,6 +5705,41 @@ DOC="$(mktemp -d)"
   chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg
   git config core.hooksPath .claude/hooks )
 bash "$ROOT/eval/doctor.sh" "$DOC" >/dev/null 2>&1 && pass "doctor: healthy install -> exit 0" || fail "doctor flagged a healthy install"
+# D3 — THE DEPENDENCY AUDIT'S AGE. A CVE is published without the lockfile changing, so §4.7 never asks for it. The
+# doctor says how old the last audit is (dependency-audit's record "epoch"), and session-rehydrate says it at a session
+# start at most once a week. Both: silent with no tracked lockfile and with CREW_DEPS_AUDIT_DAYS=0; the hook also under CI.
+D3D="$(mktemp -d)"; cp -R "$DOC/." "$D3D/"; _b3d=""; _n3d=0
+_d3doc(){ ( cd "$D3D" && env CREW_LANG=en "$@" bash "$ROOT/eval/doctor.sh" 2>&1 ); }
+_d3rh(){ printf '{"source":"startup","cwd":"%s"}' "$D3D" | env -u CI CLAUDE_CODE_SESSION_ATTENDED=1 "$@" bash "$HOOKS/session-rehydrate.sh" 2>&1; }
+_d3gd="$(cd "$D3D" && git rev-parse --absolute-git-dir)"
+( cd "$D3D" && echo a > a.txt && git add a.txt && git -c core.hooksPath=/dev/null commit -qm a ) >/dev/null 2>&1
+_n3d=$((_n3d+1)); _o3d="$(_d3doc)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d doctor-spoke-with-no-lockfile"
+_n3d=$((_n3d+1)); _o3d="$(_d3rh)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d hook-spoke-with-no-lockfile"
+( cd "$D3D" && echo '{}' > uv.lock && git add uv.lock && git -c core.hooksPath=/dev/null commit -qm l ) >/dev/null 2>&1
+rm -f "$_d3gd/crewforth-deps-reminded"
+_n3d=$((_n3d+1)); _o3d="$(_d3doc)"; [[ "$_o3d" == *"no dependency audit is recorded for the 1 lockfile"* ]] || _b3d="$_b3d doctor-missing-record-silent"
+_n3d=$((_n3d+1)); _o3d="$(_d3rh)"; [[ "$_o3d" == *"has never been recorded"* ]] || _b3d="$_b3d hook-missing-record-silent"
+_n3d=$((_n3d+1)); _o3d="$(_d3rh)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d hook-said-it-twice-in-a-week"
+# A periodic record makes it fresh; ten days back makes it old (the doctor at once, the hook once its week is over).
+( cd "$D3D" && bash "$ROOT/skills/dependency-audit/scripts/record.sh" --periodic clean "0 vulnerabilities" ) >/dev/null 2>&1 || _b3d="$_b3d record--periodic-failed"
+_n3d=$((_n3d+1)); _o3d="$(_d3doc)"; [[ "$_o3d" == *"dependency audit ran 0 day(s) ago"* ]] || _b3d="$_b3d doctor-fresh-not-said"
+rm -f "$_d3gd/crewforth-deps-reminded"
+_n3d=$((_n3d+1)); _o3d="$(_d3rh)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d hook-spoke-on-a-fresh-audit"
+_e3d="$(sed -n 's/.*"epoch":"\([0-9]*\)".*/\1/p' "$_d3gd/crewforth-deps-audit.json")"
+[ -n "$_e3d" ] && sed "s/\"epoch\":\"$_e3d\"/\"epoch\":\"$((_e3d - 864000))\"/" "$_d3gd/crewforth-deps-audit.json" > "$D3D/.r" && mv "$D3D/.r" "$_d3gd/crewforth-deps-audit.json" \
+  || _b3d="$_b3d fixture:no-epoch-in-the-record"
+_n3d=$((_n3d+1)); _o3d="$(_d3doc)"; [[ "$_o3d" == *"dependency audit last ran 10 days ago (limit 7)"* ]] || _b3d="$_b3d doctor-old-not-said"
+_n3d=$((_n3d+1)); _o3d="$(_d3rh)"; [[ "$_o3d" == *"last ran 10 days ago"* ]] || _b3d="$_b3d hook-old-not-said"
+rm -f "$_d3gd/crewforth-deps-reminded"
+_n3d=$((_n3d+1)); _o3d="$(_d3doc CREW_DEPS_AUDIT_DAYS=0)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d doctor-off-spoke"
+_n3d=$((_n3d+1)); _o3d="$(_d3rh CREW_DEPS_AUDIT_DAYS=0)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d hook-off-spoke"
+_n3d=$((_n3d+1)); _o3d="$(printf '{"source":"startup","cwd":"%s"}' "$D3D" | CI=true bash "$HOOKS/session-rehydrate.sh" 2>&1)"; [[ "$_o3d" != *"dependency audit"* ]] || _b3d="$_b3d hook-spoke-under-CI"
+# --periodic never stands in for §4.7: with a lockfile staged it refuses, and the record it writes carries no diff.
+grep -q '"lock_oid":""' "$_d3gd/crewforth-deps-audit.json" || _b3d="$_b3d periodic-record-carries-a-diff"
+( cd "$D3D" && echo '{"x":1}' > uv.lock && git add uv.lock && bash "$ROOT/skills/dependency-audit/scripts/record.sh" --periodic clean x ) >/dev/null 2>&1 && _b3d="$_b3d periodic-recorded-over-a-staged-lockfile"
+_n3d=$((_n3d+2)); rm -rf "$D3D"
+[ -z "$_b3d" ] && pass "D3: the dependency audit's age ($_n3d cases: doctor and session start say a missing and a 10-day-old audit, not a fresh one; the hook once a week; both silent with no lockfile and with CREW_DEPS_AUDIT_DAYS=0, the hook under CI; --periodic never stands in for §4.7)" \
+               || fail "D3 dependency audit age:$_b3d"
 # Two editions at once, and the advisor (doctor 9c). Driven through a stub `claude` that prints a plugin list, a
 # config dir of its own, and the provider and advisor variables cleared, so the machine running this decides
 # nothing. Advisory: every case keeps the healthy verdict (exit 0).
