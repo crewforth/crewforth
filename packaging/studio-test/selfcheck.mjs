@@ -1771,30 +1771,83 @@ check('prose without a notice yields nothing', none.size === 0);
       && ce.length === 1 && ce[0].to === 'mod:h:api' && ce[0].calls === 1 && ce[0].missing === 1
       && mpl.edgesOf(here, { label: 'x', clients: [{ ...clients[0], calls: [{ method: 'GET', path: '/orders/1' }] }] }).length === 0,
       'a call with no module matched by the server draws no line: the view does not pick one');
-    const lay = mpl.layoutOf(mpl.nodesOf(ws), { width: 720 });
+    const wsView = mpl.outsideOf(mpl.nodesOf(ws), mpl.edgesOf(ws));
+    const lay = mpl.layoutOf(wsView.nodes, wsView.edges);
+    const placedIds = Object.keys(lay.pos);
     const overlap = Object.entries(lay.pos).some(([a, p], i, all) => all.slice(i + 1).some(([, q]) => p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h));
-    check('the layout keeps every card inside its band, no two cards over each other, and bands in the order of the design',
-      !overlap && mpl.nodesOf(ws).every((n) => { const b = lay.bands.find((x) => x.key === n.band); const p = lay.pos[n.id]; return b && p.y >= b.y && p.y + p.h <= b.y + b.h; })
-      && lay.bands.map((b) => b.key).join() === 'clients,entry,core,external,unplaced'
-      && lay.bands.every((b, i) => i === 0 || b.y === lay.bands[i - 1].y + lay.bands[i - 1].h),
-      lay.bands.map((b) => `${b.key}@${b.y}+${b.h}`).join(' '));
+    const colOf = (id) => lay.columns.find((c) => lay.pos[id].x >= c.x && lay.pos[id].x + lay.pos[id].w <= c.x + c.w)?.key;
+    check('the layout puts each card in its column, left to right in the order things are used, no two cards over each other; a folded strip names its modules and gives them no place',
+      !overlap && lay.columns.map((c) => c.key).join() === 'people,serve,shared,outside'
+      && wsView.nodes.filter((n) => mpl.placeOf(n.band) !== 'unplaced').every((n) => colOf(n.id) === mpl.placeOf(n.band))
+      && lay.columns.every((c, i) => i === 0 || c.x > lay.columns[i - 1].x + lay.columns[i - 1].w)
+      && lay.strips.length === 1 && lay.strips[0].key === 'unplaced' && lay.strips[0].open === false && lay.strips[0].ids.join() === 'mod:node:@demo/orphan-lib'
+      && !placedIds.includes('mod:node:@demo/orphan-lib') && lay.strips[0].y >= Math.max(...placedIds.map((id) => lay.pos[id].y + lay.pos[id].h)),
+      `${lay.columns.map((c) => `${c.key}@${c.x}`).join(' ')} · strips ${JSON.stringify(lay.strips.map((x) => [x.key, x.open, x.ids.length]))}`);
+    {
+      const open = mpl.layoutOf(wsView.nodes, wsView.edges, { open: new Set(['unplaced']) });
+      const o = open.pos['mod:node:@demo/orphan-lib'];
+      const columnsBottom = Math.max(...placedIds.map((id) => lay.pos[id].y + lay.pos[id].h));
+      check('an open strip lays its cards out under the columns, inside the strip, and the columns do not move',
+        Boolean(o) && o.strip === true && o.y > columnsBottom && o.y + o.h <= open.strips[0].y + open.strips[0].h
+        && placedIds.every((id) => JSON.stringify(open.pos[id]) === JSON.stringify(lay.pos[id])),
+        JSON.stringify(o));
+      // A card sits near what it is joined to: two modules in the second column, each joined to one card of the first.
+      const chain = [
+        { id: 'u1', kind: 'module', band: 'ui', name: 'a' }, { id: 'u2', kind: 'module', band: 'ui', name: 'b' },
+        { id: 's1', kind: 'module', band: 'api', name: 'a' }, { id: 's2', kind: 'module', band: 'api', name: 'b' },
+      ];
+      const crossed = mpl.layoutOf(chain, [{ from: 'u1', to: 's2', kind: 'calls' }, { from: 'u2', to: 's1', kind: 'calls' }]);
+      const plain = mpl.layoutOf(chain, []);
+      check('in a column a card sits as near as it can to the cards it is joined to, so lines cross less; joined to none, cards go by name',
+        crossed.pos.s2.y < crossed.pos.s1.y && plain.pos.s1.y < plain.pos.s2.y, `crossed s1@${crossed.pos.s1.y} s2@${crossed.pos.s2.y}`);
+    }
     {
       // Lines that share a side of a card are spread along it (k/(N+1) by where the other end sits), so a card with
-      // three dependents shows three lines, not one; a side with one line keeps the middle, as before. Measured on
-      // the crew-map-test fixtures and Crewforth's own map first: 48 line ends shared a pixel across 46 edges.
-      const P = { a: { x: 0, y: 0, w: 100, h: 40 }, b: { x: 0, y: 100, w: 100, h: 40 }, c: { x: 200, y: 100, w: 100, h: 40 }, d: { x: 400, y: 0, w: 100, h: 40 } };
+      // three dependents shows three lines, not one; a side with one line keeps the middle. Across columns a line
+      // leaves the facing side; within one column it bows out of the right side of both; to a strip it runs down.
+      const P = { a: { x: 0, y: 0, w: 100, h: 40 }, b: { x: 300, y: 0, w: 100, h: 40 }, c: { x: 300, y: 100, w: 100, h: 40 }, d: { x: 0, y: 100, w: 100, h: 40 }, s: { x: 0, y: 300, w: 100, h: 40, strip: true } };
       const two = mpl.routesOf([{ from: 'a', to: 'b' }, { from: 'a', to: 'c' }], P);
       const ends = two.map((r) => /^M([-\d.]+) ([-\d.]+)/.exec(r.d).slice(1).map((v) => Math.round(Number(v))).join(','));
       const one = mpl.routesOf([{ from: 'a', to: 'b' }], P)[0];
       check('two lines out of one side of a card leave it at two points, in the order of their other ends; one line keeps the middle',
-        ends[0] === '33,40' && ends[1] === '67,40' && one.d === mpl.pathOf(P.a, P.b).d,
+        ends[0] === '100,13' && ends[1] === '100,27' && one.d === mpl.pathOf(P.a, P.b).d,
         ends.join(' | '));
-      const side = mpl.pathOf(P.a, { x: 300, y: 10, w: 100, h: 40 }, 0.5, 0.75);
-      const level = mpl.pathOf(P.a, { x: 300, y: 0, w: 100, h: 40 });
-      check('a sideways line between ends at two heights turns square halfway, never runs on a slant; level ends stay one line',
-        side.d === 'M100 20 H200 V40 H300' && level.d === 'M100 20 L300 20', `${side.d} | ${level.d}`);
-      const ring = mpl.routesOf([{ from: 'a', to: 'd' }, { from: 'x', to: 'a' }], P);
-      check('a line with an end that is not placed is left out, the rest still drawn', ring[1] === null && ring[0] !== null);
+      const across = mpl.pathOf(P.a, P.c); const back = mpl.pathOf(P.c, P.a); const same = mpl.pathOf(P.a, P.d); const down = mpl.pathOf(P.a, P.s);
+      const nums = (p) => p.d.match(/-?[\d.]+/g).map(Number);
+      const [ax1, ay1, ac1x, ac1y, ac2x, ac2y, ax2, ay2] = nums(across);
+      const [sx1, , sc1x, , sc2x, , sx2] = nums(same);
+      const [dx1, dy1, , dc1y, , dc2y, dx2, dy2] = nums(down);
+      check('a line across columns leaves the facing side and enters the other square to it; one within a column bows out of the right side; one to a strip runs down',
+        ax1 === 100 && ay1 === 20 && ax2 === 300 && ay2 === 120 && ac1y === ay1 && ac2y === ay2 && ac1x > ax1 && ac2x < ax2
+        && nums(back)[0] === 300 && nums(back)[6] === 100
+        && sx1 === 100 && sx2 === 100 && sc1x > 100 && sc2x > 100
+        && dx1 === 50 && dy1 === 40 && dx2 === 50 && dy2 === 300 && dc1y > dy1 && dc2y < dy2,
+        `${across.d} | ${same.d} | ${down.d}`);
+      const built = mpl.routesOf([{ from: 'b', to: 'a', kind: 'builds' }], P)[0];
+      check('a container that builds a module is drawn as the module running in it: the line goes from the module to the container',
+        built.d === mpl.pathOf(P.a, P.b).d && mpl.endsOf({ from: 'x', to: 'y', kind: 'builds' }).join() === 'y,x' && mpl.endsOf({ from: 'x', to: 'y', kind: 'calls' }).join() === 'x,y',
+        built.d);
+      const ring = mpl.routesOf([{ from: 'a', to: 'z' }, { from: 'x', to: 'a' }], P);
+      check('a line with an end that is not placed is left out, the rest still drawn', ring[1] === null && ring[0] === null && mpl.routesOf([{ from: 'a', to: 'b' }, { from: 'x', to: 'a' }], P)[0] !== null);
+    }
+    {
+      // Outside services are cards: web addresses called by the same modules are one, everything else its own.
+      const ex = (id, resource, label) => ({ id, kind: 'external', resource, label, hosts: [label] });
+      const nodes = [ex('e1', 'http-api', 'b.io'), ex('e2', 'http-api', 'a.io'), ex('e3', 'http-api', 'c.io'), ex('e4', 'db', 'pg'), ex('e5', 'db', 'my'),
+        { id: 'm1', kind: 'module' }, { id: 'm2', kind: 'module' }];
+      const L = (from, to, confidence = 'evidence') => ({ from, to, kind: 'uses-http-api', confidence, line: confidence === 'inferred' ? 'inferred' : 'evidence', solid: confidence !== 'inferred' });
+      const lines = [L('m1', 'e1', 'inferred'), L('m1', 'e2'), L('m1', 'e3'), L('m2', 'e3'), { ...L('m1', 'e4'), kind: 'uses-db' }, { ...L('m1', 'e5'), kind: 'uses-db' }];
+      const v = mpl.outsideOf(nodes, lines);
+      const g = v.nodes.find((n) => n.members);
+      check('web addresses called by the same modules are one outside card, named by its first and how many more, its line solid when any was; a database, or an address another module also calls, keeps its own card',
+        g && g.members.join() === 'e2,e1' && g.label === 'a.io' && g.more === 1 && v.nodes.filter((n) => n.kind === 'external').length === 4
+        && v.edges.filter((e) => e.to === g.id).length === 1 && v.edges.find((e) => e.to === g.id).line === 'evidence'
+        && v.edges.length === 5 && v.nodes.some((n) => n.id === 'e3') && v.nodes.some((n) => n.id === 'e4') && v.nodes.some((n) => n.id === 'e5')
+        && mpl.outsideOf(nodes.slice(2), lines.slice(2)).nodes.length === 5,
+        JSON.stringify(v.nodes.map((n) => n.members ?? n.id)));
+      const gi = mpl.inspectOf(g, { nodes }, lines, []);
+      check('the inspector of a folded outside card lists every address it stands for and the lines into each',
+        gi.path === 'a.io, b.io' && gi.connections.in.length === 2, JSON.stringify([gi.path, gi.connections.in.length]));
     }
     {
       // CM3: the layer /crew-map wrote is the band; without one the scan's band stands. A card says its kind, three of
@@ -1807,21 +1860,17 @@ check('prose without a notice yields nothing', none.size === 0);
       apiN.tech = ['Express', 'TypeScript', 'Vitest', 'Docker', 'Prisma'];
       apiN.structure = { folders: [{ folder: 'src', files: 4 }], testFiles: 2 };
       const nodes2 = mpl.nodesOf(lw);
-      const lay2 = mpl.layoutOf(nodes2, { width: 960 });
+      const lay2 = mpl.layoutOf(nodes2, mpl.edgesOf(lw));
       const card = mpl.cardOf(apiN, lw);
-      const root = lw.nodes.find((n) => n.id === 'mod:node:demo-root');
       const tour = mpl.tourOf({ ...lw, tour: [{ node: apiN.id, text: 'a', cites: [c1] }, { node: 'mod:x:gone', text: 'b', cites: [] }] });
       const ins = mpl.inspectOf(nodes2.find((n) => n.id === apiN.id), lw, mpl.edgesOf(lw), []);
       check('a module /crew-map gave a layer is drawn in that layer\'s band, and a module it did not keeps the band the scan gives it',
         nodes2.find((n) => n.id === apiN.id).band === 'api' && nodes2.find((n) => n.id === 'mod:node:@demo/shared').band === mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared').band
-        && lay2.bands.some((b) => b.key === 'api' && lay2.pos[apiN.id].y >= b.y && lay2.pos[apiN.id].y < b.y + b.h) && mpl.nodesOf({ ...ws, nodes: [{ ...apiN, narrative: { ...apiN.narrative, layer: 'backend' } }] })[0].band !== 'backend',
-        lay2.bands.map((b) => b.key).join());
-      check('a card says its domain and what it is built with, three of it and how many more, and the outside services it calls, by name',
-        card.kind.startsWith('orders') && card.chips.join() === 'Express,TypeScript,Vitest' && card.more === 2
-        && mpl.cardOf(root, lw).outside.join() === [...new Set(lw.edges.filter((e) => e.from === root.id && e.to.startsWith('ext:'))
-          .map((e) => { const x = lw.nodes.find((n) => n.id === e.to); return x.label && x.label !== 'unknown' ? x.label : x.hosts[0]; }))].sort().join()
-        && mpl.cardOf(root, lw).outside.length === 4 && mpl.cardOf(lw.nodes.find((n) => n.id === 'mod:node:@demo/shared'), lw).outside.length === 0,
-        JSON.stringify([card, mpl.cardOf(root, lw).outside]));
+        && lay2.columns.some((c) => c.key === mpl.placeOf('api') && lay2.pos[apiN.id].x >= c.x && lay2.pos[apiN.id].x < c.x + c.w) && mpl.nodesOf({ ...ws, nodes: [{ ...apiN, narrative: { ...apiN.narrative, layer: 'backend' } }] })[0].band !== 'backend',
+        lay2.columns.map((c) => c.key).join());
+      check('a card says its domain and what it is built with, three of it and how many more',
+        card.kind.startsWith('orders') && card.chips.join() === 'Express,TypeScript,Vitest' && card.more === 2 && !('outside' in card),
+        JSON.stringify(card));
       check('the tour keeps the stops on this map, by name; a search names by name, folder and what a module is built with, and an empty one names none',
         tour.length === 1 && tour[0].name === apiN.name && mpl.searchOf('vitest', nodes2).has(apiN.id) && mpl.searchOf('SRC', nodes2).has(apiN.id)
         && mpl.searchOf('orders', nodes2).has(apiN.id) && mpl.searchOf('  ', nodes2).size === 0 && !mpl.searchOf('vitest', nodes2).has('mod:node:@demo/shared'),
@@ -1875,23 +1924,21 @@ check('prose without a notice yields nothing', none.size === 0);
         sel.value = '/q'; sel.emit('change');
         const esc = view.escape();
         const after = walkAll(root, isLine).filter((p) => p.dataset.lit !== undefined).length;
-        // An outside service is not a card (CM3): it is named on the line under the card of every module that calls it.
-        const kindOf = new Map(ws.nodes.map((n) => [n.id, n.kind]));
-        const drawn = ws.nodes.filter((n) => n.kind !== 'external');
-        const between = ws.edges.filter((e) => kindOf.get(e.from) !== 'external' && kindOf.get(e.to) !== 'external');
-        const folds = Object.fromEntries(cards.map((c) => [c.dataset.id, walkAll(c, (e) => String(e.className).startsWith('mp-fold'))[0]?.textContent ?? '']));
-        const unfolded = ws.edges.filter((e) => kindOf.get(e.to) === 'external').filter((e) => {
-          const x = ws.nodes.find((n) => n.id === e.to); return !(folds[e.from] ?? '').includes(x.label && x.label !== 'unknown' ? x.label : x.hosts[0]);
-        });
-        check('the view draws one card for each module and service, one line for each edge between them, one row for each shown finding, and how far behind the map is; every outside service is named under the card of each module that calls it',
-          reading === 'Reading the map…' && empty === 'No map yet \u2014 no map here'
+        // Outside services are cards (folded where the same modules call them); a module in a folded strip has no card
+        // and no line, and the strip names it.
+        const sv = mpl.outsideOf(mpl.nodesOf(ws), mpl.edgesOf(ws));
+        const folded = new Set(mpl.layoutOf(sv.nodes, sv.edges).strips.flatMap((x) => x.ids));
+        const drawn = sv.nodes.filter((n) => !folded.has(n.id));
+        const between = sv.edges.filter((e) => !folded.has(e.from) && !folded.has(e.to));
+        const stripText = walkAll(root, (e) => e.className === 'mp-strip-names').map((e) => e.textContent).join();
+        const heads = walkAll(root, (e) => e.className === 'mp-colhead').map((e) => e.textContent);
+        check('the view draws a card for each module, service and outside card, a line for each edge between drawn cards with an arrowhead and no words on it, one row for each shown finding, column titles, the folded strip\'s names, and how far behind the map is',
+          reading === 'Reading the map\u2026' && empty === 'No map yet \u2014 no map here'
           && cards.length === drawn.length && paths.length === between.length && rows.length === fw.shown.length && pill === '2 commits behind'
-          && unfolded.length === 0 && ws.edges.some((e) => kindOf.get(e.to) === 'external'),
-          `${cards.length} cards, ${paths.length} lines, ${rows.length} rows; not named under their caller: ${unfolded.map((e) => `${e.from}>${e.to}`).join(' ')}`);
-        check('selecting a module lights its lines only; its findings copy as a task; Compare asks for the other project; Esc lets the selection go',
-          litNow === between.filter((e) => e.from === 'mod:node:@demo/api' || e.to === 'mod:node:@demo/api').length && litNow > 0
-          && copied.length === 1 && /Evidence: /.test(copied[0]) && compared.join() === '/q' && esc === true && after === 0 && view.escape() === false,
-          `${litNow} lit; copied ${copied.length}; compared ${compared.join()}`);
+          && paths.every((p) => /^url\(#mp-arrow-/.test(p.getAttribute('marker-end') ?? '')) && walkAll(root, (e) => e.className === 'mp-elab').length === 0
+          && heads.join() === 'What people use,What serves them,Shared code,Outside services' && stripText === '@demo/orphan-lib'
+          && cards.some((c) => c.dataset.kind === 'external'),
+          `${cards.length}/${drawn.length} cards, ${paths.length}/${between.length} lines, ${rows.length} rows; heads ${heads.join('|')}; strip ${stripText}`);
         // CM3: a map /crew-map described is drawn by its layers, and steps through its tour; a search dims what it does not name.
         const lw = JSON.parse(JSON.stringify(ws));
         const api = lw.nodes.find((n) => n.id === 'mod:node:@demo/api');
@@ -1934,10 +1981,10 @@ check('prose without a notice yields nothing', none.size === 0);
     const vpSrc = read(path.join(WEB_ROOT, 'viewport.js')) ?? '';
     const cvSrc = read(path.join(WEB_ROOT, 'canvas.js')) ?? '';
     const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
-    check('the map pans, zooms and places cards with the graph\'s own code: one viewport, used by both, and no second copy of the wheel or the drag',
+    check('the map pans and zooms with the graph\'s own code, one viewport used by both and no second copy of the wheel; its cards are not dragged, so nothing on it is left behind',
       /export class Viewport/.test(vpSrc) && /export function draggable/.test(vpSrc)
       && /this\.vp = new Viewport\(this\.root, this\.viewport,/.test(cvSrc) && /draggable\(el, \{/.test(cvSrc)
-      && /this\.vp = new Viewport\(this\.pane, this\.layer,/.test(mapSrc) && /draggable\(card, \{/.test(mapSrc)
+      && /this\.vp = new Viewport\(this\.pane, this\.layer,/.test(mapSrc) && !/draggable/.test(mapSrc)
       && !/addEventListener\('wheel'/.test(cvSrc + mapSrc) && (vpSrc.match(/addEventListener\('wheel'/g) ?? []).length === 1);
     const e = (o) => ({ from: 'a', to: 'b', kind: 'k', ...o });
     check('a line is drawn as what it rests on: a file, an inference, or the model; a resource only inferred is drawn as only inferred',
@@ -1946,43 +1993,6 @@ check('prose without a notice yields nothing', none.size === 0);
       && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' })]) === true
       && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' }), e({ from: 'c', to: 'x', confidence: 'evidence' })]) === false
       && mpl.inferredOnly({ id: 'x', kind: 'external' }, []) === false && mpl.inferredOnly({ id: 'x', kind: 'module' }, [e({ to: 'x', confidence: 'inferred' })]) === false);
-    const mods = [
-      { id: 'm1', kind: 'module', band: 'core', path: 'src/a' }, { id: 'm2', kind: 'module', band: 'core', path: 'src/b' },
-      { id: 'm3', kind: 'module', band: 'entry', path: 'src/c' }, { id: 'm4', kind: 'module', band: 'core', path: 'lib' },
-      { id: 'x', kind: 'external', band: 'external' },
-    ];
-    const groups = mpl.groupsOf(mods);
-    const gid = 'grp:core:src';
-    const lines = [e({ from: 'm1', to: 'x', kind: 'uses-db', confidence: 'inferred' }), e({ from: 'm2', to: 'x', kind: 'uses-db', confidence: 'evidence' }), e({ from: 'm1', to: 'm2', kind: 'references' }), e({ from: 'm3', to: 'm1', kind: 'references' })].map((l) => ({ ...l, line: mpl.lineOf(l), solid: l.confidence !== 'inferred' }));
-    const fv = mpl.foldView(mods, lines, groups, new Set([gid]));
-    const open = mpl.foldView(mods, lines, groups, new Set());
-    check('modules of one band under one folder fold into one card; a module alone in its folder, or in another band, is in no group; folded, their lines are the group\'s, once each, solid when any was',
-      Object.keys(groups).join() === gid && groups[gid].members.join() === 'm1,m2'
-      && fv.nodes.map((n) => n.id).join() === 'grp:core:src,m3,m4,x' && fv.nodes[0].kind === 'group'
-      && fv.edges.length === 2 && fv.edges.find((l) => l.to === 'x').line === 'evidence' && !fv.edges.some((l) => l.from === l.to)
-      && fv.edges.some((l) => l.from === 'm3' && l.to === gid) && open.nodes.length === 5 && open.edges.length === 4,
-      fv.edges.map((l) => `${l.from}>${l.to}:${l.line}`).join(' '));
-    const lay = mpl.layoutOf(mods.map((n) => ({ ...n })), { width: 900 });
-    const pl = mpl.placed(lay, { m1: { x: 1500, y: 900 }, gone: { x: 1, y: 1 } });
-    check('a card placed by hand is drawn where it was put, the picture grows to hold it, and a placing for a card that is not drawn is ignored',
-      pl.pos.m1.x === 1500 && pl.pos.m1.y === 900 && pl.pos.m2.x === lay.pos.m2.x && pl.width >= 1500 + lay.pos.m1.w && pl.height >= 900 + lay.pos.m1.h && !pl.pos.gone);
-    {
-      // A folded card, then an open group of two, in one band: the group's frame must hold its own cards and no other.
-      const row = [{ id: 'gA', kind: 'group', band: 'core' }, { id: 'p', kind: 'module', band: 'core' }, { id: 'q', kind: 'module', band: 'core' }];
-      const key = (n) => (n.id === 'p' || n.id === 'q' ? 'grp:core:tools' : null);
-      const frameHoldsOther = (l) => {
-        const b = ['p', 'q'].map((id) => l.pos[id]);
-        const fx = Math.min(...b.map((v) => v.x)); const fy = Math.min(...b.map((v) => v.y));
-        const fx2 = Math.max(...b.map((v) => v.x + v.w)); const fy2 = Math.max(...b.map((v) => v.y + v.h));
-        const g = l.pos.gA; return g.x < fx2 && g.x + g.w > fx && g.y < fy2 && g.y + g.h > fy;
-      };
-      // Two cards to a row, so the group's second card wraps under the folded one: that is the frame's trap.
-      const keyed = mpl.layoutOf(row, { width: 900, rowKey: key });
-      const plain = mpl.layoutOf(row, { width: 900 });
-      check('an open group starts a row of its own, so its frame holds its own cards and no other; without that the frame took in a folded neighbour',
-        !frameHoldsOther(keyed) && frameHoldsOther(plain) && keyed.pos.p.y > keyed.pos.gA.y,
-        `with rows: ${JSON.stringify(keyed.pos)}`);
-    }
     const ws2 = JSON.parse(read(path.join(HERE, 'fixtures', 'crew-map', 'node-ws.json')) ?? 'null');
     const api = mpl.nodesOf(ws2).find((n) => n.id === 'mod:node:@demo/api');
     const ins = mpl.inspectOf(api, ws2, mpl.edgesOf(ws2), mpl.findingsOf(ws2).shown);
@@ -2023,7 +2033,7 @@ check('prose without a notice yields nothing', none.size === 0);
       const docListeners = [];
       document.addEventListener = (t, fn) => docListeners.push([t, fn]);
       try {
-        const { MapView, LAYOUT_KEY } = await import(`../../kit/studio/web/map.js?v2=${Date.now()}`);
+        const { MapView } = await import(`../../kit/studio/web/map.js?v2=${Date.now()}`);
         const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
         const copied = []; const zooms = [];
         const root = document.createElement('div');
@@ -2033,26 +2043,24 @@ check('prose without a notice yields nothing', none.size === 0);
           edges: [...ws2.edges, { from: 'mod:node:extra', to: 'mod:node:@demo/shared', kind: 'references', confidence: 'evidence', source: 'scanner', evidence: [] }] };
         view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
         const card = (id) => walkAll(root, (x) => x.dataset?.id === id && String(x.className).startsWith('mp-card'))[0];
-        const frames = walkAll(root, (x) => x.className === 'mp-group');
-        // drag a card 50 px at 100%: it is placed, kept for this project, and the click that ends the drag selects nothing
+        // a press and a move on a card move nothing; its click selects it; Reset layout has nothing to forget
         const c = card('mod:node:@demo/api');
-        const at = { ...view.lay.pos['mod:node:@demo/api'] };
+        const at = JSON.stringify(view.lay.pos['mod:node:@demo/api']);
         c.emit('pointerdown', { clientX: 0, clientY: 0, pointerId: 1 }); c.emit('pointermove', { clientX: 50, clientY: 20 }); c.emit('pointerup'); c.emit('click');
-        const saved = JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`) ?? 'null');
-        const placedOk = view.pins['mod:node:@demo/api']?.x === at.x + Math.round(50 / view.zoom) && saved?.pins?.['mod:node:@demo/api'] && view.selected === null;
-        // another project starts from its own layout, and coming back restores this one
-        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-b', doc: ws2, behind: { count: 0 }, others: [], compare: null });
-        const otherClean = view.moved === 0;
-        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
-        const back = view.moved === 1;
-        const undo = view.resetLayout(); const reset = view.moved === 0 && undo && view.restoreLayout(undo) && view.moved === 1;
-        // fold the folder of two modules in one band, and open it again from its card
-        const fold = walkAll(root, (x) => x.className === 'mp-group-fold')[0];
-        fold?.emit('click');
-        const foldedCard = walkAll(root, (x) => x.dataset?.kind === 'group')[0];
-        const foldedOk = Boolean(foldedCard) && !card('mod:node:extra') && JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`)).folded.length === 1;
-        foldedCard?.emit('click');
-        const reopened = Boolean(card('mod:node:extra')) && !walkAll(root, (x) => x.dataset?.kind === 'group').length;
+        const still = JSON.stringify(view.lay.pos['mod:node:@demo/api']) === at && view.selected === 'mod:node:@demo/api' && view.moved === 0 && view.resetLayout() === null;
+        view.escape();
+        // a folded strip opens from its head, and folds back; selecting a module in it opens it
+        const head = () => walkAll(root, (x) => x.className === 'mp-strip-head')[0];
+        const closedFirst = !card('mod:node:@demo/orphan-lib') && head()?.getAttribute('aria-expanded') === 'false';
+        head().emit('click');
+        const opened1 = Boolean(card('mod:node:@demo/orphan-lib')) && head().getAttribute('aria-expanded') === 'true';
+        head().emit('click');
+        const refolded = !card('mod:node:@demo/orphan-lib');
+        view.select('mod:node:@demo/orphan-lib');
+        const bySelect = Boolean(card('mod:node:@demo/orphan-lib')) && card('mod:node:@demo/orphan-lib').dataset.selected === 'true';
+        head().emit('click');
+        const foldsWhileSelected = !card('mod:node:@demo/orphan-lib') && view.selected === 'mod:node:@demo/orphan-lib';
+        view.escape();
         // the legend opens, a press inside keeps it, a press outside closes it
         walkAll(root, (x) => x.tagName === 'BUTTON' && x.textContent === 'Legend')[0].emit('click');
         const opened = walkAll(root, (x) => x.className === 'mp-legend-box').length === 1;
@@ -2071,10 +2079,10 @@ check('prose without a notice yields nothing', none.size === 0);
         walkAll(root, (x) => String(x.className).includes('mp-cite'))[0]?.emit('click');
         const cite = copied.find(([w]) => w === 'path');
         const modRows = walkAll(root, (x) => x.className === 'mp-mrow').length;
-        check('a card dragged is placed and kept for its project, its click selects nothing, another project keeps its own, and Reset forgets and Undo brings back',
-          placedOk && otherClean && back && reset && frames.length === 1, `pins ${JSON.stringify(view.pins)}; frames ${frames.length}`);
-        check('a folder is folded into one card and opened again from it, and the fold is kept for the project',
-          foldedOk && reopened);
+        check('a card is not dragged: a press and a move leave it where the layout put it, its click selects it, and Reset layout has nothing to forget',
+          still, `at ${at} → ${JSON.stringify(view.lay.pos['mod:node:@demo/api'])}; selected ${view.selected}`);
+        check('a folded strip opens into cards from its head and folds back; selecting a module in it opens it, and it folds again while that module stays selected',
+          closedFirst && opened1 && refolded && bySelect && foldsWhileSelected, JSON.stringify([closedFirst, opened1, refolded, bySelect, foldsWhileSelected]));
         check('the legend is a popover: a press inside keeps it open, a press anywhere else closes it',
           opened && kept && closed);
         check('a finding row selects its module and brings its card to the middle of the pane; a file:line copies, as a path',

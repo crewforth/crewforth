@@ -107,62 +107,6 @@ export function inferredOnly(node, edges) {
   return into.length > 0 && into.every((e) => lineOf(e) !== 'evidence');
 }
 
-/**
- * The folders that hold two or more modules of one band: a group the view can fold into one card. A module at the
- * project's root, or alone in its folder, is in no group. { groupId: { id, band, folder, members: [ids] } }
- */
-export function groupsOf(nodes) {
-  const by = new Map();
-  for (const n of nodes) {
-    if (n.kind !== 'module' || typeof n.path !== 'string' || !n.path.includes('/')) continue;
-    const folder = n.path.slice(0, n.path.lastIndexOf('/'));
-    const id = `grp:${n.band}:${folder}`;
-    const g = by.get(id) ?? by.set(id, { id, band: n.band, folder, members: [] }).get(id);
-    g.members.push(n.id);
-  }
-  return Object.fromEntries([...by].filter(([, g]) => g.members.length > 1));
-}
-
-/**
- * The nodes and edges with the folded groups folded: each folded group is one card in place of its members, and
- * the members' lines are its lines, one per (from, to, kind), drawn solid when any of them is.
- */
-export function foldView(nodes, edges, groups, folded) {
-  const into = new Map();
-  for (const g of Object.values(groups)) if (folded.has(g.id)) for (const m of g.members) into.set(m, g.id);
-  if (!into.size) return { nodes, edges };
-  const out = [];
-  const seen = new Set();
-  for (const n of nodes) {
-    const gid = into.get(n.id);
-    if (!gid) { out.push(n); continue; }
-    if (seen.has(gid)) continue;
-    seen.add(gid);
-    const g = groups[gid];
-    out.push({ id: gid, kind: 'group', band: g.band, name: `${g.folder}/`, folder: g.folder, members: g.members });
-  }
-  const em = new Map();
-  for (const e of edges) {
-    const from = into.get(e.from) ?? e.from;
-    const to = into.get(e.to) ?? e.to;
-    if (from === to) continue;
-    const k = `${from}>${to}>${e.kind}`;
-    const was = em.get(k);
-    if (!was) em.set(k, { ...e, from, to });
-    else if (lineOf(e) === 'evidence' && was.line !== 'evidence') em.set(k, { ...was, solid: true, line: 'evidence' });
-  }
-  return { nodes: out, edges: [...em.values()] };
-}
-
-/** The layout with the viewer's own placings over it: a card placed by hand stays where it was put. */
-export function placed(lay, pins) {
-  const pos = { ...lay.pos };
-  for (const [id, p] of Object.entries(pins ?? {})) if (pos[id]) pos[id] = { ...pos[id], x: p.x, y: p.y };
-  const right = Object.values(pos).reduce((m, p) => Math.max(m, p.x + p.w), lay.width);
-  const bottom = Object.values(pos).reduce((m, p) => Math.max(m, p.y + p.h), lay.height);
-  return { ...lay, pos, width: right, height: bottom };
-}
-
 /** Which lines a selection lights: the selected node's own, in and out. With nothing selected, none is lit. */
 export function litEdges(edges, selected) {
   if (!selected) return new Set();
@@ -219,28 +163,67 @@ export function cardSub(node, doc) {
 
 /**
  * What a module's card says, as the Map draws it: a kind line (its domain, else its stack, and how many endpoints it
- * provides), up to three of what it is built with, and the outside services it calls, folded into one line under it.
+ * provides) and up to three of what it is built with. What it calls outside is a card of its own (outsideOf).
  */
 export const CARD_CHIPS = 3;
 export function cardOf(node, doc) {
   const provided = (doc.provides?.endpoints ?? []).filter((e) => e.module === node.id).length;
   const kind = [node.narrative?.domain ?? node.stack ?? null, provided ? endpoints(provided) : null].filter(Boolean).join(' · ');
   const tech = (node.tech ?? []).map((t) => t.replace(/@.*$/, ''));
-  return { kind, chips: tech.slice(0, CARD_CHIPS), more: Math.max(0, tech.length - CARD_CHIPS), outside: outsideOf(node, doc) };
+  return { kind, chips: tech.slice(0, CARD_CHIPS), more: Math.max(0, tech.length - CARD_CHIPS) };
 }
 
-/** The outside services a module calls, by name, in the order they are named: what its card folds under it. */
-export function outsideOf(node, doc) {
-  const byId = new Map((doc.nodes ?? []).map((n) => [n.id, n]));
-  const names = [];
-  for (const e of doc.edges ?? []) {
-    if (e.from !== node.id) continue;
-    const to = byId.get(e.to);
-    if (to?.kind !== 'external') continue;
-    const name = to.label && to.label !== 'unknown' ? to.label : (to.hosts ?? [])[0] ?? to.id.replace(/^ext:[^:]+:/, '');
-    if (!names.includes(name)) names.push(name);
+const extName = (n) => (n.label && n.label !== 'unknown' ? n.label : (n.hosts ?? [])[0] ?? n.id.replace(/^ext:[^:]+:/, ''));
+
+/**
+ * The outside services as the Map draws them. A database, cache, queue or sign-in service is a card of its own. Web
+ * addresses called by exactly the same modules are one card ("eur-lex.europa.eu +17"), so a module that calls twenty
+ * sites draws one line, not twenty; the card's lines are the same lines its addresses had, solid when any was.
+ * Nothing is merged that a selection could tell apart.
+ * @returns { nodes, edges } with the outside nodes and the lines into them replaced
+ */
+export function outsideOf(nodes, edges) {
+  const isExt = new Set(nodes.filter((n) => n.kind === 'external').map((n) => n.id));
+  const callers = new Map();
+  for (const e of edges) if (isExt.has(e.to)) (callers.get(e.to) ?? callers.set(e.to, new Set()).get(e.to)).add(e.from);
+  const byKey = new Map();
+  for (const n of nodes) {
+    if (!isExt.has(n.id)) continue;
+    const web = n.resource === 'http-api' || n.resource == null;
+    const key = web ? `web|${[...(callers.get(n.id) ?? [])].sort().join(',')}` : n.id;
+    (byKey.get(key) ?? byKey.set(key, []).get(key)).push(n);
   }
-  return names.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const into = new Map();
+  const cards = new Map();
+  for (const members of byKey.values()) {
+    if (members.length === 1) continue;
+    // Named by its first address, a masked one last: a card called "[masked] +10" says nothing.
+    const sortName = (n) => `${extName(n).startsWith('[') ? '~' : ''}${extName(n)}`;
+    members.sort((a, b) => (sortName(a) < sortName(b) ? -1 : sortName(a) > sortName(b) ? 1 : 0));
+    const id = `extg:${members[0].id}`;
+    for (const m of members) into.set(m.id, id);
+    cards.set(id, {
+      id, kind: 'external', resource: 'http-api', band: 'external', label: extName(members[0]), more: members.length - 1,
+      members: members.map((m) => m.id), names: members.map(extName), hosts: members.flatMap((m) => m.hosts ?? []),
+      evidence: members.flatMap((m) => m.evidence ?? []),
+    });
+  }
+  if (!into.size) return { nodes, edges };
+  const out = [];
+  for (const n of nodes) {
+    const gid = into.get(n.id);
+    if (!gid) out.push(n);
+    else if (cards.has(gid)) { out.push(cards.get(gid)); cards.delete(gid); }
+  }
+  const em = new Map();
+  for (const e of edges) {
+    const to = into.get(e.to) ?? e.to;
+    const k = `${e.from}>${to}>${e.kind}`;
+    const was = em.get(k);
+    if (!was) em.set(k, to === e.to ? e : { ...e, to });
+    else if (lineOf(e) === 'evidence' && was.line !== 'evidence') em.set(k, { ...was, solid: true, line: 'evidence' });
+  }
+  return { nodes: out, edges: [...em.values()] };
 }
 
 /** The tour /crew-map wrote, the stops whose node is on this map, each with the node's name. */
@@ -296,14 +279,16 @@ export function inspectOf(node, doc, edges, findings) {
     kind: e.kind, to: nameOf(other), host: byId.get(other)?.hosts?.[0] ?? null,
     evidence: e.evidence?.[0] ? `${e.evidence[0].file}:${e.evidence[0].line}` : null, solid: e.solid, line: e.line ?? lineOf(e),
   });
-  const out = edges.filter((e) => e.from === node.id).map((e) => line(e, e.to));
-  const into = edges.filter((e) => e.to === node.id).map((e) => line(e, e.from));
+  // An outside card that stands for several addresses has their lines.
+  const mine = new Set([node.id, ...(node.members ?? [])]);
+  const out = edges.filter((e) => mine.has(e.from)).map((e) => line(e, e.to));
+  const into = edges.filter((e) => mine.has(e.to)).map((e) => line(e, e.from));
   // Connections, by the kind of line: what the inspector's second tab lists.
   const byKind = {};
   for (const [dir, list] of [['out', out], ['in', into]]) for (const c of list) (byKind[c.kind] ??= { out: [], in: [] })[dir].push(c);
   return {
     title: node.name ?? node.label ?? node.id,
-    path: node.path ?? (node.kind === 'external' ? (node.hosts ?? []).join(', ') : null),
+    path: node.path ?? (node.kind === 'external' ? (node.names ?? node.hosts ?? []).join(', ') : null),
     chips: (node.tech ?? []).map((t) => t.replace('@', ' ')),
     // /crew-map's description: { text, cites }, each cite a file:line of this node's evidence (eval/lib/crew-map/narrative.mjs).
     narrative: typeof node.narrative?.text === 'string' ? node.narrative.text : null,
@@ -354,94 +339,151 @@ export function emptyNote(data) {
   return null;
 }
 
-// A module card holds its name and kind, a row of what it is built with, and the line of outside services under it.
-export const CARD = { module: [280, 104], service: [280, 104], client: [280, 104], group: [280, 104], external: [104, 52] };
-const GAP_X = 24;
-const GAP_Y = 20;
-const LEFT = 140;      // the band's label sits in this column
-const PAD_Y = 18;
+// The Map is drawn in columns, left to right in the order things are used: what people use, what serves them, the
+// code they share, what they run on, and the outside services. A line points from the module that uses to the one
+// used, so most lines run left to right. Tools and modules the map does not place sit in strips under the columns,
+// folded to a line of names until opened. Cards do not move by hand: the layout is the map's, the same every time.
+export const COLUMNS = [
+  ['people', t('What people use'), ['ui', 'clients']],
+  ['serve', t('What serves them'), ['api', 'entry', 'service']],
+  ['shared', t('Shared code'), ['core', 'data', 'library']],
+  ['infra', t('Infrastructure'), ['infra']],
+  ['outside', t('Outside services'), ['external']],
+];
+export const STRIPS = [['tool', t('Tools')], ['unplaced', t('Unplaced')]];
+const COLUMN_OF = Object.fromEntries(COLUMNS.flatMap(([k, , bands]) => bands.map((b) => [b, k])));
+/** The column a band is drawn in, or the strip it folds into. */
+export const placeOf = (band) => COLUMN_OF[band] ?? (STRIPS.some(([k]) => k === band) ? band : 'unplaced');
+
+export const CARD = { module: [240, 76], service: [240, 76], client: [240, 76], external: [200, 48] };
+const COL_GAP = 110;   // the room between two columns, where their lines run
+const ROW_GAP = 14;
+const HEAD = 44;       // a column's title sits in this strip at its top
+const STRIP_GAP = 36;
+const STRIP_CLOSED = 44;
 const CHIP_ROW = 26;   // one row of endpoint chips under a card, when the Endpoints layer is on
 export const CHIPS_MAX = 4;
 
+const sizeOf = (n, chips) => {
+  const [w, h] = CARD[n.kind] ?? CARD.module;
+  return [w, h + Math.ceil(Math.min(chips[n.id] ?? 0, CHIPS_MAX + 1) / 2) * CHIP_ROW];
+};
+const byName = (a, b) => { const x = String(a.name ?? a.label ?? a.id); const y = String(b.name ?? b.label ?? b.id); return x < y ? -1 : x > y ? 1 : 0; };
+
 /**
- * Where everything sits: bands from top to bottom, each as tall as its rows of cards; cards left to right,
- * wrapping at `width`. Empty bands are not drawn. A card with endpoint chips (`chips[id]`) is taller. With
- * `rowKey`, a run of cards that share a key (an open folder group) starts a row of its own and the next card after
- * it does too, so a frame drawn around the run holds those cards and no other.
- * @returns { bands: [{ key, label, y, h }], pos: { id: { x, y, w, h } }, width, height }
+ * Where everything sits. Empty columns are not drawn. In a column, a card sits as near as it can to the cards it is
+ * joined to in the columns before it (the mean of their middles, one pass, left to right), so lines cross less; a
+ * card joined to none comes after, by name. A strip is one line of names while folded (`open` lacks it) and a row of
+ * cards, wrapping at the columns' width, while open; a folded strip's cards have no place, so their lines are not drawn.
+ * @returns { columns: [{ key, label, x, w }], strips: [{ key, label, y, h, open, ids }], pos: { id: { x, y, w, h, strip? } }, width, height }
  */
-export function layoutOf(nodes, { width = 960, chips = {}, rowKey = null } = {}) {
+export function layoutOf(nodes, edges = [], { chips = {}, open = new Set() } = {}) {
   const pos = {};
-  const bands = [];
-  let y = 0;
-  for (const [key, label] of BANDS) {
-    const members = nodes.filter((n) => n.band === key);
-    if (!members.length) continue;
-    let x = LEFT; let rowY = y + PAD_Y; let rowH = 0; let prev = null;
-    for (const n of members) {
-      const key = rowKey?.(n) ?? null;
-      if (x > LEFT && key !== prev && (key || prev)) { x = LEFT; rowY += rowH + GAP_Y; rowH = 0; }
-      prev = key;
-      const [w, h0] = CARD[n.kind] ?? CARD.module;
-      const extra = Math.ceil(Math.min(chips[n.id] ?? 0, CHIPS_MAX + 1) / 2) * CHIP_ROW;
-      const h = h0 + extra;
-      if (x > LEFT && x + w > width) { x = LEFT; rowY += rowH + GAP_Y; rowH = 0; }
-      pos[n.id] = { x, y: rowY, w, h };
-      x += w + GAP_X; rowH = Math.max(rowH, h);
-    }
-    const h = rowY + rowH + PAD_Y - y;
-    bands.push({ key, label, y, h });
-    y += h;
+  const columns = [];
+  const near = new Map();
+  for (const e of edges) {
+    (near.get(e.from) ?? near.set(e.from, []).get(e.from)).push(e.to);
+    (near.get(e.to) ?? near.set(e.to, []).get(e.to)).push(e.from);
   }
-  const right = Object.values(pos).reduce((m, p) => Math.max(m, p.x + p.w), LEFT);
-  return { bands, pos, width: Math.max(width, right + GAP_X), height: y };
+  let x = 0; let bottom = HEAD;
+  for (const [key, label] of COLUMNS) {
+    const members = nodes.filter((n) => placeOf(n.band) === key);
+    if (!members.length) continue;
+    const at = (n) => {
+      const ys = (near.get(n.id) ?? []).map((id) => pos[id]).filter((p) => p && !p.strip).map((p) => p.y + p.h / 2);
+      return ys.length ? ys.reduce((s, v) => s + v, 0) / ys.length : Infinity;
+    };
+    const order = members.map((n) => ({ n, at: at(n) })).sort((a, b) => (a.at - b.at) || byName(a.n, b.n));
+    let y = HEAD; let w = 0;
+    for (const { n } of order) {
+      const [cw, ch] = sizeOf(n, chips);
+      pos[n.id] = { x, y, w: cw, h: ch };
+      y += ch + ROW_GAP; w = Math.max(w, cw);
+    }
+    // Cards narrower than their column sit in its middle, so a column's lines leave and enter at one edge.
+    for (const { n } of order) pos[n.id].x = x + (w - pos[n.id].w) / 2;
+    columns.push({ key, label, x, w });
+    bottom = Math.max(bottom, y - ROW_GAP);
+    x += w + COL_GAP;
+  }
+  const width = Math.max(720, x - COL_GAP);
+  const strips = [];
+  let y = bottom + STRIP_GAP;
+  for (const [key, label] of STRIPS) {
+    const members = nodes.filter((n) => placeOf(n.band) === key).sort(byName);
+    if (!members.length) continue;
+    const isOpen = open.has(key);
+    let h = STRIP_CLOSED;
+    if (isOpen) {
+      let cx = 0; let cy = y + STRIP_CLOSED; let rowH = 0;
+      for (const n of members) {
+        const [cw, ch] = sizeOf(n, chips);
+        if (cx > 0 && cx + cw > width) { cx = 0; cy += rowH + ROW_GAP; rowH = 0; }
+        pos[n.id] = { x: cx, y: cy, w: cw, h: ch, strip: true };
+        cx += cw + ROW_GAP; rowH = Math.max(rowH, ch);
+      }
+      h = cy + rowH - y;
+    }
+    strips.push({ key, label, y, h, open: isOpen, ids: members.map((n) => n.id) });
+    y += h + ROW_GAP;
+  }
+  return { columns, strips, pos, width, height: strips.length ? y - ROW_GAP : bottom };
+}
+
+/** The two ends a line is drawn between: from the one that uses to the one used. A container builds a module, so that
+ * line is drawn from the module to the container it runs in, the way the columns read. */
+export const endsOf = (e) => (e.kind === 'builds' ? [e.to, e.from] : [e.from, e.to]);
+
+/**
+ * The side of a card a line leaves or enters: across columns, the facing sides; within one column, the right side of
+ * both (the line bows out into the gap); to or from a strip, the bottom of the upper card and the top of the lower.
+ */
+function sidesOf(a, b) {
+  if (a.strip || b.strip) return a.y + a.h <= b.y ? ['bottom', 'top'] : ['top', 'bottom'];
+  if (a.x + a.w <= b.x) return ['right', 'left'];
+  if (b.x + b.w <= a.x) return ['left', 'right'];
+  return ['right', 'right'];
+}
+function portOf(p, side, f) {
+  if (side === 'right') return [p.x + p.w, p.y + p.h * f];
+  if (side === 'left') return [p.x, p.y + p.h * f];
+  if (side === 'bottom') return [p.x + p.w * f, p.y + p.h];
+  return [p.x + p.w * f, p.y];
 }
 
 /**
- * A line between two cards: out of the bottom of the upper one into the top of the lower, or side to side.
- * `pa` and `pb` say where along its side the line leaves `a` and enters `b`, as a fraction of that side (½ = the
- * middle); `routesOf` spreads them so lines that share a side do not share a pixel.
+ * A line from card `a` to card `b`, a smooth curve that leaves and enters each side square to it. `pa` and `pb` say
+ * where along its side the line leaves `a` and enters `b`, as a fraction of that side (½ = the middle); `routesOf`
+ * spreads them so lines that share a side do not share a pixel. `end` is where the arrowhead sits.
  */
 export function pathOf(a, b, pa = 0.5, pb = 0.5) {
   if (!a || !b) return null;
-  const down = b.y >= a.y + a.h;
-  const up = a.y >= b.y + b.h;
-  if (down || up) {
-    const [s, t, fs, ft] = down ? [a, b, pa, pb] : [b, a, pb, pa];
-    const x1 = s.x + s.w * fs; const y1 = s.y + s.h; const x2 = t.x + t.w * ft; const y2 = t.y;
-    const m = (y1 + y2) / 2;
-    return { d: `M${x1} ${y1} C${x1} ${m} ${x2} ${m} ${x2} ${y2}`, mid: [(x1 + x2) / 2, m] };
-  }
-  const [s, t, fs, ft] = a.x <= b.x ? [a, b, pa, pb] : [b, a, pb, pa];
-  const x1 = s.x + s.w; const y1 = s.y + s.h * fs; const x2 = t.x; const y2 = t.y + t.h * ft;
-  const mx = (x1 + x2) / 2;
-  // Level ends are one straight line; ends at two heights turn square halfway, so no line runs on a slant.
-  if (y1 === y2) return { d: `M${x1} ${y1} L${x2} ${y2}`, mid: [mx, y1] };
-  return { d: `M${x1} ${y1} H${mx} V${y2} H${x2}`, mid: [mx, (y1 + y2) / 2] };
+  const [sa, sb] = sidesOf(a, b);
+  const [x1, y1] = portOf(a, sa, pa); const [x2, y2] = portOf(b, sb, pb);
+  const out = { right: [1, 0], left: [-1, 0], bottom: [0, 1], top: [0, -1] };
+  const reach = sa === sb ? 36 + Math.abs(y2 - y1) * 0.12 : Math.max(36, (Math.abs(x2 - x1) + Math.abs(y2 - y1)) * 0.4);
+  const [ax, ay] = out[sa]; const [bx, by] = out[sb];
+  const d = `M${x1} ${y1} C${x1 + ax * reach} ${y1 + ay * reach} ${x2 + bx * reach} ${y2 + by * reach} ${x2} ${y2}`;
+  return { d, mid: [(x1 + x2) / 2, (y1 + y2) / 2], end: [x2, y2] };
 }
 
 /**
  * Every edge's line, with the lines that leave or enter one side of one card spread along it: the k-th of N at
- * k/(N+1), ranked by where the other end sits, so neighbours do not cross. Measured on the crew-map-test fixtures and
- * Crewforth's own map before this: 48 line ends shared a pixel with another across 46 edges, so a card with three
- * dependents showed one line. A side with one line keeps the middle, as before.
+ * k/(N+1), ranked by where the other end sits, so neighbours do not cross. A side with one line keeps the middle.
+ * A line with an end that has no place (a folded strip's card, a node not drawn) is null.
  */
 export function routesOf(edges, pos) {
   const sides = new Map();
   const add = (key, i, c) => { if (!sides.has(key)) sides.set(key, []); sides.get(key).push({ i, c }); };
   const geo = edges.map((e, i) => {
-    const a = pos[e.from]; const b = pos[e.to];
-    if (!a || !b) return null;
-    const vertical = b.y >= a.y + a.h || a.y >= b.y + b.h;
-    if (vertical) {
-      const aBelow = a.y >= b.y + b.h;
-      const ka = `${e.from}:${aBelow ? 'top' : 'bottom'}`; const kb = `${e.to}:${aBelow ? 'bottom' : 'top'}`;
-      add(ka, i, b.x + b.w / 2); add(kb, i, a.x + a.w / 2);
-      return { a, b, ka, kb };
-    }
-    const aLeft = a.x <= b.x;
-    const ka = `${e.from}:${aLeft ? 'right' : 'left'}`; const kb = `${e.to}:${aLeft ? 'left' : 'right'}`;
-    add(ka, i, b.y + b.h / 2); add(kb, i, a.y + a.h / 2);
+    const [from, to] = endsOf(e);
+    const a = pos[from]; const b = pos[to];
+    if (!a || !b || from === to) return null;
+    const [sa, sb] = sidesOf(a, b);
+    const vertical = sa === 'top' || sa === 'bottom';
+    const ka = `${from}:${sa}`; const kb = `${to}:${sb}`;
+    add(ka, i, vertical ? b.x + b.w / 2 : b.y + b.h / 2);
+    add(kb, i, vertical ? a.x + a.w / 2 : a.y + a.h / 2);
     return { a, b, ka, kb };
   });
   const at = new Map();
