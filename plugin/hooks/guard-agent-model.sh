@@ -28,7 +28,11 @@
 #     the commit-msg hook (seen on a real project: a commit message proposed on sonnet for that reason alone).
 #   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh),
 #     until the user lowers it again with /crew-loosen (one model, once for each raise).
-#   * a card whose verify failed is not run again on the same or a lower model, and not a third time at all.
+#   * a card whose verify failed is not run again on the same or a lower model, and not after the repeat one
+#     model up. EFFORT BEFORE MODEL: a first run that named an effort below `high` may be repeated once on the same
+#     model at `high`; then one model up; then the user. A run whose effort is unknown goes one model up, as before.
+#   * CLAUDE_CODE_SUBAGENT_MODEL_FORCE runs every subagent on one model, whatever the call names: the gate judges
+#     that model, and refuses when it is below the card's floor, since no model in the call can change it.
 #   * critical work with a verify command is not sent to the background (run_in_background true), where its
 #     result does not reach the session. A call that leaves the field out passes: not every Agent tool has it.
 # THE WORDING IS READ BY ANOTHER PROGRAM (the Studio panel): a refusal is one line that begins
@@ -42,6 +46,7 @@
 # SWITCHES, read from the session's environment:
 #   CREW_MODEL_ROUTING=off   nothing here does anything, which is how it was before 3.1.0.
 #   CREW_ALLOW_FABLE=1       `fable` may be named; without it a call that names it is refused.
+#   CLAUDE_CODE_EFFORT_LEVEL Claude Code's own: it outranks the call's `effort`, so the gate reads the effort from it.
 # HONEST SCOPE: the card is written by the caller and can be wrong. The write-time check and the verify command are
 # what bound that; neither reads intent.
 set -uo pipefail
@@ -352,6 +357,15 @@ _am_rank(){  # $1 = haiku|sonnet|opus|fable -> _AMR 1..4, 0 for anything else
   case "$1" in haiku) _AMR=1 ;; sonnet) _AMR=2 ;; opus) _AMR=3 ;; fable) _AMR=4 ;; *) _AMR=0 ;; esac; }
 _am_name(){  # $1 = 1..4 -> _AMN
   case "$1" in 1) _AMN=haiku ;; 2) _AMN=sonnet ;; 3) _AMN=opus ;; 4) _AMN=fable ;; *) _AMN="" ;; esac; }
+_am_erank(){  # $1 = low|medium|high|xhigh|max -> _AME 1..5, 0 for anything else (an effort nobody named)
+  case "$1" in low) _AME=1 ;; medium) _AME=2 ;; high) _AME=3 ;; xhigh) _AME=4 ;; max) _AME=5 ;; *) _AME=0 ;; esac; }
+_am_forced(){  # -> _AMFORCE: the tier every subagent is forced onto, "" when nothing forces one, "?" when unreadable
+  # CLAUDE_CODE_SUBAGENT_MODEL alone is a DEFAULT, below the call's own model (Claude Code 2.1.251 and later).
+  # With CLAUDE_CODE_SUBAGENT_MODEL_FORCE also set, every subagent runs on it, whatever the call names.
+  _AMFORCE=""
+  case "${CLAUDE_CODE_SUBAGENT_MODEL_FORCE:-}" in ''|0|false|FALSE|False) return 0 ;; esac
+  [ -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ] || return 0
+  _am_tier "$CLAUDE_CODE_SUBAGENT_MODEL"; _AMFORCE="${_AMT:-?}"; return 0; }
 _am_tier(){  # $1 = a model as a call or a transcript names it -> _AMT haiku|sonnet|opus|fable, "" unknown
   local nc=0; shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$1" in *haiku*) _AMT=haiku ;; *sonnet*) _AMT=sonnet ;; *opus*) _AMT=opus ;; *fable*) _AMT=fable ;; *) _AMT="" ;; esac
@@ -543,13 +557,18 @@ _am_digest(){  # after _am_card -> CARD_ID: 12 hex of what the card says, so "th
 #     would have had an opus floor for it, so the way round the crew must not be the cheaper one. Nothing is raised.
 #   * It names no model, and the agent takes the session's (general-purpose, or a project or user agent whose
 #     definition has no model of its own): it runs on sonnet, unless the session itself is on haiku, read from the
-#     end of its transcript. An agent whose definition names a model (Explore, claude-code-guide) is left to it:
-#     a model in the call would override a cheaper one there.
+#     end of its transcript. An agent whose definition names a model (claude-code-guide, a project's Explore) is
+#     left to it: a model in the call would override a cheaper one there.
+#   * Explore is held to haiku, not sonnet: it searches and reads, which the vendor's model guidance gives to haiku.
+#     The built-in Explore has no model of its own (it takes the session's; opus when the session is on fable).
 # Measured on 2.1.299: a general-purpose call that named no model ran on the session's model; CLAUDE_CODE_SUBAGENT_MODEL
 # in the project's settings `env` did not change that (in the shell's environment it did), so the hook sets it.
 _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
-  local m pr to=sonnet ui name="$2" f d l ln inherit=0 tp last
+  local m pr to=sonnet ui name="$2" f d l ln inherit=0 tp last own=0
   case "$name" in ''|*[!A-Za-z0-9._-]*) name="an agent" ;; esac
+  # Explore only searches and reads: the vendor's guidance runs it on haiku, and the built-in one runs on the
+  # session's model (opus when the session is on fable), so it is held to haiku unless its task says why not.
+  [ "$name" = Explore ] && to=haiku
   _json_keycount "$1" prompt; [ "$_KC" = 1 ] || return 0
   _json_slice "$1" prompt >/dev/null; pr="${_JS:0:6000}"; _json_unescape "$pr" >/dev/null; pr=$'\n'"${_JU//$'\r'/}"
   case "$pr" in *$'\n'above:*|*$'\n'[$' \t']above:*) return 0 ;; esac
@@ -560,13 +579,15 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
       'an agent') ;;
       *) for d in "${CLAUDE_PROJECT_DIR:-.}/.claude/agents" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents"; do
            f="$d/$name.md"; [ -f "$f" ] || continue
-           inherit=1; ln=0
+           inherit=1; own=1; ln=0
            while IFS= read -r l || [ -n "$l" ]; do
              ln=$((ln+1)); [ "$ln" -le 40 ] || break
              case "$l" in ---*) [ "$ln" -gt 1 ] && break ;; model:*) case "${l#model:}" in *inherit*|'') ;; *) inherit=0 ;; esac ;; esac
            done < "$f"
            break
-         done ;;
+         done
+         # No definition of its own: the built-in Explore, which takes the session's model.
+         [ "$name" = Explore ] && [ "$own" = 0 ] && inherit=1 ;;
     esac
     [ "$inherit" = 1 ] || return 0
     _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; tp="$_JU"
@@ -578,7 +599,7 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
   else
     [ "$_KC" = 1 ] || return 0
     _json_slice "$1" model >/dev/null; _json_unescape "$_JS" >/dev/null; _am_tier "$_JU"; m="$_AMT"
-    case "$m" in opus|fable) ;; *) return 0 ;; esac
+    case "$m" in opus|fable) ;; sonnet) [ "$to" = haiku ] || return 0 ;; *) return 0 ;; esac
   fi
   if _am_card "$pr"; then
     [ -z "$CARD_ABOVE" ] || return 0
@@ -835,7 +856,7 @@ _am_agent_floor(){  # $1 = agent -> floor (rank) and why. The agent's own floor,
 floor=0; why=""
 case "$1" in
   crew-security-expert) floor=3; why="the security audit" ;;
-  crew-privacy-agent|crew-review-agent|crew-planner|crew-database-expert) floor=2; why="this agent's floor" ;;
+  crew-privacy-agent|crew-review-agent|crew-planner|crew-database-expert|crew-docs-agent) floor=2; why="this agent's floor" ;;
 esac
 return 0
 }
@@ -870,7 +891,7 @@ _crew_stop(){  # $1 = what happened
 trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
 # ---- /CREW-FAILCLOSED
 _gate_main(){
-local tn st m ti rank=0 floor=0 fname="" why="" prompt bg tid here nf=0 l d f p pm vrc r a b c t
+local tn st m ti rank=0 floor=0 fname="" why="" prompt bg tid here nf=0 l d f p pm vrc r a b c t eff="" erank=0 lo=9 pe=0 e
 [ "${CREW_MODEL_ROUTING:-}" = off ] && exit 0
 IFS= read -r -d '' INPUT || true
 _json_slice "$INPUT" tool_name >/dev/null; tn="$_JS"
@@ -903,6 +924,27 @@ if [ "$rank" = 4 ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ]; then
   echo "GUARD (agent model): fable is not used for a crew agent unless the user has set CREW_ALLOW_FABLE=1 for the session.${fname:+ $st runs on $fname or above.} Repeat the call to $st with haiku, sonnet or opus, by the table in CLAUDE.md." >&2
   _am_log "fable not allowed"; exit 2
 fi
+# ---- the effort it runs at: the call's own, unless Claude Code's environment variable outranks it ----
+# Read from the tool_input object itself, not by key name over the rest of the payload: Claude Code puts the
+# session's own effort at the top level ("effort":{"level":…}), and the order of top-level keys is not a contract.
+# Two awk reads, only when the word is there at all.
+_json_find "$ti" '"effort"'
+if [ "$_JF" -ge 0 ]; then
+  a="$(printf '%s' "$INPUT" | awk -v op=keys -v path=tool_input -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null | grep -c '^effort$')"
+  if [ "${a:-0}" -gt 1 ]; then echo "GUARD (agent model): this call names effort more than once, so which effort it asks for cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
+  if [ "${a:-0}" = 1 ]; then
+    eff="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input.effort -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)"
+    case "$eff" in '"'*'"') eff="${eff#\"}"; eff="${eff%\"}" ;; '') eff="?" ;; esac
+  fi
+fi
+case "$eff" in ''|low|medium|high|xhigh|max) ;; *)
+  echo "GUARD (agent model): '${eff:0:20}' is not an effort level. Repeat the call to $st with effort low, medium or high, by the table in CLAUDE.md." >&2
+  _am_log "unknown effort"; exit 2 ;; esac
+case "${CLAUDE_CODE_EFFORT_LEVEL:-}" in low|medium|high|xhigh|max) eff="$CLAUDE_CODE_EFFORT_LEVEL" ;; esac
+_am_erank "$eff"; erank="$_AME"
+# ---- a model forced onto every subagent: that is the model this call runs on, so it is the one judged ----
+_am_forced
+if [ -n "$_AMFORCE" ]; then _am_rank "$_AMFORCE"; [ "$_AMR" -gt 0 ] && { m="$_AMFORCE"; rank="$_AMR"; }; fi
 # ---- the card ----
 _json_keycount "$ti" prompt
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names prompt more than once, so its task card cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
@@ -931,23 +973,49 @@ if [ -n "$_AMF_EFF" ]; then
   _am_rank "$_AMF_EFF"
   if [ "$_AMR" -gt "$floor" ]; then floor="$_AMR"; why="this class ($st, $CARD_CHANGE, $CARD_RISK) failed its first try too often on the model below"; [ "$_AMF_LOOSE" = 1 ] && why="$why; lowered once by the user, from $_AMF_TIER"; fi
 fi
-# A card whose verify failed: not on the same or a lower model again, and not a third time.
+# A card whose verify failed. Effort before model: a first run that named an effort below high may be repeated ONCE on
+# the same model at high (or one model up straight away); after that, one model up; after a repeat one model up, the
+# user. Each line of the record is "<model> <effort>"; a line with no effort (written before 3.5.0) counts as unknown,
+# and an unknown effort goes one model up, which is what every failure did before.
 p=""
 if [ -f "$_AMD/fails/$CARD_ID" ]; then
   d=0
-  while IFS= read -r l || [ -n "$l" ]; do l="${l%$'\r'}"; [ -n "$l" ] || continue; nf=$((nf+1)); _am_rank "$l"; if [ "$_AMR" -gt "$d" ]; then d="$_AMR"; p="$l"; fi; done < "$_AMD/fails/$CARD_ID"
+  while IFS= read -r l || [ -n "$l" ]; do
+    l="${l%$'\r'}"; [ -n "$l" ] || continue; nf=$((nf+1))
+    e="-"; case "$l" in *' '*) e="${l#* }"; l="${l%% *}" ;; esac
+    _am_rank "$l"; r="$_AMR"; [ "$r" -lt "$lo" ] && lo="$r"
+    if [ "$r" -gt "$d" ]; then d="$r"; p="$l"; pe=0; fi
+    if [ "$r" = "$d" ]; then _am_erank "$e"; [ "$_AME" -gt "$pe" ] && pe="$_AME"; fi
+  done < "$_AMD/fails/$CARD_ID"
 fi
-if [ "$nf" -ge 2 ]; then
-  echo "GUARD (agent model): this card's verify command has failed twice, the second time one model up, so it is not run a third time. Ask the user what to do (AskUserQuestion): what failed, on which models, and the choices. A changed task is a new card." >&2
+if [ "$nf" -ge 3 ] || { [ "$nf" -ge 2 ] && [ "$d" -gt "$lo" ]; }; then
+  echo "GUARD (agent model): this card's verify command has failed $nf times, the last one model up, so it is not run again. Ask the user what to do (AskUserQuestion): what failed, on which models, and the choices. A changed task is a new card." >&2
   _am_log "a third run of a failed card"; exit 2
 fi
-if [ "$nf" = 1 ]; then
-  _am_rank "$p"; d=$((_AMR+1))
+if [ "$nf" = 1 ] && [ "$pe" -ge 1 ] && [ "$pe" -lt 3 ] && [ "$rank" -le "$d" ]; then
+  # The effort step: the same model, at high. Below it, or at the same effort again, is refused.
+  if [ -n "$_AMFORCE" ] && [ "$rank" -lt "$d" ]; then :   # the forced model is below it: said just below
+  elif [ "$rank" -lt "$d" ] || [ "$erank" -lt 3 ]; then
+    _am_name $((d+1)); a="$_AMN"
+    echo "GUARD (agent model): this card's verify command failed on $p at a lower effort, so the repeat runs on $p at effort high${a:+, or on $a}. Repeat the same call with model $p and effort high." >&2
+    _am_log "a failed card repeated without more effort"; exit 2
+  fi
+  if [ "$d" -gt "$floor" ]; then floor="$d"; why="its verify command failed on $p, so the repeat is on $p at effort high"; fi
+elif [ "$nf" -ge 1 ]; then
+  d=$((d+1))
   if [ "$d" -gt 3 ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ]; then
     echo "GUARD (agent model): this card's verify command failed on $p and there is no model above it to repeat on. Ask the user what to do (AskUserQuestion). A changed task is a new card." >&2
     _am_log "a failed card with no model above"; exit 2
   fi
   if [ "$d" -gt "$floor" ]; then floor="$d"; why="its verify command failed on $p, so the repeat goes one model up"; fi
+fi
+if [ -n "$_AMFORCE" ]; then
+  # Every subagent runs on the forced model: the model in the call does not decide anything, so no call can fix it.
+  _am_name "$floor"; fname="$_AMN"; _am_rank "$_AMFORCE"
+  if [ "$_AMR" -lt "$floor" ] || [ "$_AMR" = 0 ]; then
+    echo "GUARD (agent model): every subagent of this session runs on ${CLAUDE_CODE_SUBAGENT_MODEL:0:40}, because CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set, and $st runs on ${fname:-a model this gate knows} or above for this card${why:+ ($why)}. A model in the call cannot change that: ask the user to unset CLAUDE_CODE_SUBAGENT_MODEL_FORCE, or to set CLAUDE_CODE_SUBAGENT_MODEL to ${fname:-haiku} or above." >&2
+    _am_log "a forced model below the floor of the card"; exit 2
+  fi
 fi
 _am_name "$floor"; fname="$_AMN"
 if [ "$rank" -lt "$floor" ]; then
@@ -961,7 +1029,7 @@ fi
 # 2.1.299: a call asking for opus ran on haiku alone). The rewrite is one awk over the payload, on this path only.
 lowered=""
 low=$floor; [ "$low" -lt 1 ] && low=1
-if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ]; then
+if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ] && [ -z "$_AMFORCE" ]; then
   _am_name "$low"; to="$_AMN"
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || ui=""
   case "$ui" in '{'*'}') ;; *) ui="" ;; esac
@@ -997,7 +1065,7 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
   # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
-  { printf 'agent=%s\ntier=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
 # The call, on the floor: the same input with `model` replaced, and allowed. Nothing else is printed on this path.
 if [ -n "$lowered" ]; then

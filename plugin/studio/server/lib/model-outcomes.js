@@ -49,6 +49,7 @@ export const NORMAL_TIER = 'sonnet';
 export const AGENT_FLOORS = {
   'crew-security-expert': 'opus',
   'crew-privacy-agent': 'sonnet', 'crew-review-agent': 'sonnet', 'crew-planner': 'sonnet', 'crew-database-expert': 'sonnet',
+  'crew-docs-agent': 'sonnet',
 };
 const rankOf = (t) => TIERS.indexOf(t) + 1;   // 1..4, 0 for no tier: the gate's _am_rank
 
