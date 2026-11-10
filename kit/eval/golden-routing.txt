@@ -94,7 +94,11 @@ the context is full, check the token budget before we continue|token-budget
 # class of request while every gate stayed green.
 i am not sure what we want here yet, help me scope it|brainstorm
 review the code I just wrote before I push|crew-code-review
-write a commit message for the staged changes|commit-message
+# Staged work goes to the agent, which carries commit-message: skill-eval measured it 0 of 6 as a main-thread
+# Skill call (Sonnet, old and new description alike), all six delegated. The skill's own row is the one that
+# needs no diff: judging a subject line.
+write a commit message for the staged changes|crew-commit-agent
+is "fixed stuff" a good conventional commit subject, or should it be feat or fix?|commit-message
 add column last_login to the users table|db-migration
 add a query handler with a validator for this module|backend-architecture
 the settings screen needs a state management fix|frontend
