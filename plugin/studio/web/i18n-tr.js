@@ -468,6 +468,7 @@ export const TR = {
   "Minimap": "Mini harita",
   "Session summary": "Oturum özeti",
   "Close the plan": "Planı kapat",
+  "Resize the plan (double-click to reset)": "Planı yeniden boyutlandır (sıfırlamak için çift tıkla)",
   "Hide the plan's to-do list": "Planın yapılacaklar listesini gizle",
   "Show the plan's to-do list": "Planın yapılacaklar listesini göster",
   "Not read: {reason}": "Okunmadı: {reason}",

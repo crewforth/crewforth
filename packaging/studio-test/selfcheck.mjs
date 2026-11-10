@@ -7654,6 +7654,17 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   check('no plan, no box; closed, it stays closed until View options opens it again',
     hiddenNoPlan && box.el.hidden && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
   box.show(true);
+  // Resizable: the size outlives the page, a hover shows the whole title, and a stored size that is not a size is ignored.
+  localStorage.setItem('crewforth-studio-todo-size', JSON.stringify({ w: 420, h: 300 }));
+  const sized = new tb.TodoBox();
+  localStorage.setItem('crewforth-studio-todo-size', '{"w":"x"}');
+  const junk = tb.readSize();
+  localStorage.removeItem('crewforth-studio-todo-size');
+  box.render({ ...data, modifiedAt: 3 });
+  check('the plan box remembers the size it was dragged to, ignores a stored size that is not one, and shows full titles on hover',
+    sized.el.style.width === '420px' && sized.el.style.height === '300px' && junk === null && tb.readSize() === null
+    && all(box.listEl).filter((e) => /cv-todo-(task|phase)/.test(e.className ?? '')).every((e) => e.title),
+    JSON.stringify([sized.el.style.width, junk]));
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   const srvSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   check('the page asks for the plan of the session on screen while the graph is the view, and View options toggles the box',
