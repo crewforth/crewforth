@@ -1562,8 +1562,8 @@ check('prose without a notice yields nothing', none.size === 0);
      "raised", though the floor that held was the lowered one. The rule for "does this lowering stand" is the
      gate's own (hooks/guard-agent-model.sh, _am_floor_now). */
   {
-    const floor = { agent: 'crew-docs-agent', change: 'text', risk: 'normal', model: 'sonnet', calls: 5, notFirstTry: 2, when: '2026-01-02T00:00:00Z' };
-    const low = (ts, from = 'sonnet', to = 'haiku', agent = 'crew-docs-agent') => ({ ts, agent, change: 'text', risk: 'normal', from, to });
+    const floor = { agent: 'crew-frontend-expert', change: 'text', risk: 'normal', model: 'sonnet', calls: 5, notFirstTry: 2, when: '2026-01-02T00:00:00Z' };
+    const low = (ts, from = 'sonnet', to = 'haiku', agent = 'crew-frontend-expert') => ({ ts, agent, change: 'text', risk: 'normal', from, to });
     check('a lowering stands when it is not older than the raise, from the raised model, one model down; the same second counts',
       mo.loweringOf(floor, [low('2026-01-02T00:00:01Z')])?.to === 'haiku' && mo.loweringOf(floor, [low('2026-01-02T00:00:00Z')])?.to === 'haiku'
       && mo.loweringOf(floor, []) === null);
@@ -1577,7 +1577,7 @@ check('prose without a notice yields nothing', none.size === 0);
     check('that rule is the gate\'s, line for line: not older than the raise, from its model, one down',
       /\[\[ "\$ts" < "\$_AMF_WHEN" \]\] && continue/.test(gateSrc2) && /\[ "\$lf" = "\$_AMF_TIER" \] \|\| continue/.test(gateSrc2)
       && /\[ "\$_AMR" = \$\(\(n-1\)\) \] \|\| continue/.test(gateSrc2), 'compared with _am_floor_now in hooks/guard-agent-model.sh');
-    const one = [{ agentId: 'x1', agent: 'crew-docs-agent', change: 'text', risk: 'normal', model: 'sonnet', verify: 'pass', fixes: 0, at: Date.parse('2026-01-02T01:00:00Z'), line: 1 }];
+    const one = [{ agentId: 'x1', agent: 'crew-frontend-expert', change: 'text', risk: 'normal', model: 'sonnet', verify: 'pass', fixes: 0, at: Date.parse('2026-01-02T01:00:00Z'), line: 1 }];
     const held = mp.classRow(mo.classesOf(one, [floor], [])[0]);
     const lowered = mp.classRow(mo.classesOf(one, [floor], [low('2026-01-05T10:00:00Z')])[0]);
     check('a class whose floor the user lowered says "lowered", with what raised it and when it was lowered; one still held says "raised"',
