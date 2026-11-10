@@ -316,6 +316,48 @@ export function openCalls(records) {
   return [...open.values()];
 }
 
+// The tools that run a command in a shell. A call to one of them that has no answer yet is a command running now
+// (or waiting to be allowed: the transcript does not say which, and an approval the page knows about wins).
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+
+/**
+ * The shell commands a transcript has running: calls to a shell tool with no answer yet, and commands sent to the
+ * background that no notice has ended. Oldest first. `background` says which of the two each one is.
+ *
+ * An agent can sit inside one of these for ten minutes and write nothing, so a quiet file is not an idle agent;
+ * the page uses this to say what it is doing (graph-plan.js `settle`). Whether the session around it is still
+ * running is the machine's to say, not this file's.
+ */
+export function shellsIn(records) {
+  const open = openCalls(records).filter((c) => SHELL_TOOLS.has(c.toolName))
+    .map((c) => ({ id: c.toolUseId, toolName: c.toolName, detail: c.detail, startedAt: c.at, background: false }));
+  const commands = new Map();
+  const background = new Map();
+  const ended = new Map();
+  for (const r of records) {
+    let at = Date.parse(r?.timestamp ?? '');
+    if (!Number.isFinite(at)) at = null;
+    const content = r?.message?.content;
+    if (r?.type === 'assistant' && Array.isArray(content)) {
+      for (const c of content) {
+        if (c?.type === 'tool_use' && c.id && SHELL_TOOLS.has(c.name)) commands.set(c.id, { toolName: c.name, detail: detailOf(c.input) });
+      }
+    }
+    if (r?.type === 'assistant' || r?.type === 'user') harvestCompletions(textOf(content), ended, at);
+    if (r?.type === 'attachment') harvestCompletions(JSON.stringify(r.attachment ?? ''), ended, at);
+    const tur = r?.toolUseResult;
+    if (tur && typeof tur === 'object' && typeof tur.backgroundTaskId === 'string') {
+      const id = Array.isArray(content) ? (content.find((c) => c?.type === 'tool_result')?.tool_use_id ?? null) : null;
+      background.set(tur.backgroundTaskId, { toolUseId: id, startedAt: at });
+    }
+  }
+  const running = [...background].filter(([id]) => !ended.has(id)).map(([id, b]) => {
+    const cmd = commands.get(b.toolUseId) ?? null;
+    return { id, toolName: cmd?.toolName ?? 'Bash', detail: cmd?.detail?.slice(0, OPEN_DETAIL_MAX) ?? null, startedAt: b.startedAt, background: true };
+  });
+  return [...open, ...running].sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0));
+}
+
 /** Roll one agent's own transcript into the numbers its node shows. */
 async function scanAgent(file, usage = null, agentId = null) {
   const { records } = await readAll(file);
@@ -371,6 +413,7 @@ async function scanAgent(file, usage = null, agentId = null) {
   stats.lastText = reportIn(records).text?.slice(-400) ?? null;
   stats.midTurn = midTurn(records);
   stats.open = openCalls(records);
+  stats.shells = shellsIn(records);
   return stats;
 }
 
@@ -474,6 +517,10 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       .filter(([id]) => !main.completions.has(id))
       .map(([id, b]) => ({ id, toolName: 'Bash', detail: main.commands.get(b.toolUseId) ?? null, startedAt: b.startedAt }))
       .sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0)),
+    // Shell commands the session itself is running in the foreground: calls to a shell tool with no answer yet.
+    // The background ones are `backgroundCommands`; both are shown only while the session is live.
+    shellCommands: openCalls(records).filter((c) => SHELL_TOOLS.has(c.toolName))
+      .map((c) => ({ id: c.toolUseId, toolName: c.toolName, detail: c.detail, startedAt: c.at })),
     // The newest call nothing has answered, the session's own or an agent's. Null when every call has its result.
     openCall: [
       ...openCalls(records).map((c) => ({ ...c, agentId: null, agentType: null })),
@@ -536,6 +583,9 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       // page decides (graph-plan.js `settle`), not this file.
       background: link?.status === 'async_launched',
       midTurn: a.stats?.midTurn ?? false,
+      // Shell commands it has running, in the foreground or sent to the background; the page shows them, and draws
+      // an agent that is quiet inside one as working, only while the session is live.
+      shells: a.stats?.shells ?? [],
       parentId,
       tools: a.stats?.tools ?? {},
       toolCount: a.stats?.toolCount ?? 0,

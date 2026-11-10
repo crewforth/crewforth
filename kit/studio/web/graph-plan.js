@@ -302,7 +302,7 @@ export function tallestFor(paneHeight) {
 }
 
 /** A session's card: one line taller for commands running in the background, one for refused agent calls. */
-export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ? SIZE.session.line : 0)
+export const sessionHeight = (n) => SIZE.session.h + ((n?.backgroundNow?.length || n?.shellNow?.length) ? SIZE.session.line : 0)
   + (n?.refusedCalls?.length ? SIZE.session.line : 0);
 
 /* ----------------------------------------------------------------- plan --- */
@@ -678,32 +678,57 @@ export function fitZoom(width, height, paneW, paneH) {
  * An agent started in the background can sit inside one tool call for twenty minutes and write nothing. The
  * server, reading files, calls that `stale` or `ended`; it cannot tell it from an agent whose session was closed
  * under it. The machine can: while the session is running, an agent whose transcript stops in the middle of a
- * turn is working. So is a command sent to the background that no notice has ended.
+ * turn is working. So is a command sent to the background that no notice has ended, and so is an agent — any
+ * agent, started in the background or not — with a shell command running: a long build or test run writes
+ * nothing until it ends.
+ *
+ * The shell commands themselves are drawn only while the session is live (`shellNow` on an agent, `shellNow` and
+ * `backgroundNow` on the session): in a session that is over nothing is running, whatever the transcript says.
  *
  * @param graph  the server's { nodes, stats }
  * @param live   true when the machine reports the session as running; anything else changes nothing
- * @returns the graph to draw: the same object when nothing in it needed saying differently
+ * @returns the graph to draw; the server's own objects are never changed
  */
 export function settle(graph, live) {
   const nodes = graph?.nodes ?? [];
-  const quiet = (n) => n.kind === 'agent' && n.background && n.midTurn && (n.status === 'stale' || n.status === 'ended');
-  const session = nodes.find((n) => n.kind === 'session');
-  const commands = live === true ? (session?.backgroundCommands ?? []) : [];
-  if (live !== true || !nodes.some(quiet)) {
-    if (!session || (session.backgroundNow ?? []).length === commands.length) {
-      return session ? { ...graph, nodes: nodes.map((n) => (n === session ? { ...n, backgroundNow: commands } : n)) } : graph;
-    }
-  }
-  const byStatus = { ...(graph.stats?.byStatus ?? {}) };
+  const on = live === true;
+  const quiet = (n) => n.kind === 'agent' && (n.status === 'stale' || n.status === 'ended')
+    && ((n.background && n.midTurn) || (n.shells?.length ?? 0) > 0);
+  let byStatus = null;
   const out = nodes.map((n) => {
-    if (n === session) return { ...n, backgroundNow: commands };
-    if (live !== true || !quiet(n)) return n;
-    byStatus[n.status] -= 1;
-    if (!byStatus[n.status]) delete byStatus[n.status];
-    byStatus.running = (byStatus.running ?? 0) + 1;
-    return { ...n, status: 'running', quiet: true };
+    if (n.kind === 'session') {
+      return { ...n, backgroundNow: on ? (n.backgroundCommands ?? []) : [], shellNow: on ? (n.shellCommands ?? []) : [] };
+    }
+    if (n.kind !== 'agent') return n;
+    let status = n.status;
+    let extra = null;
+    if (on && quiet(n)) {
+      byStatus ??= { ...(graph.stats?.byStatus ?? {}) };
+      byStatus[status] -= 1;
+      if (!byStatus[status]) delete byStatus[status];
+      byStatus.running = (byStatus.running ?? 0) + 1;
+      status = 'running';
+      extra = { status, quiet: true };
+    }
+    // A finished agent can leave a command behind in the background; the card says how the agent went, not that.
+    const shellNow = on && (status === 'running' || status === 'starting') ? (n.shells ?? []) : [];
+    if (!extra && !shellNow.length && !n.shellNow) return n;
+    return { ...n, ...extra, shellNow };
   });
-  return { ...graph, nodes: out, stats: graph.stats ? { ...graph.stats, byStatus } : graph.stats };
+  return { ...graph, nodes: out, stats: byStatus && graph.stats ? { ...graph.stats, byStatus } : graph.stats };
+}
+
+/** The word an agent's card says while a shell command runs in it, and the command, whole, for its tooltip. */
+export function shellLine(cmds) {
+  const list = cmds ?? [];
+  if (!list.length) return null;
+  const first = list.find((c) => !c.background) ?? list[0];
+  const text = `$ ${first.detail ?? first.toolName ?? 'shell'}`;
+  const more = list.length - 1;
+  return {
+    text: more > 0 ? `${text} (+${more})` : text,
+    title: list.map((c) => `${c.background ? t('In the background: {tool}', { tool: c.toolName ?? 'Bash' }) : (c.toolName ?? 'Bash')}${c.detail ? ` · ${c.detail}` : ''}`).join('\n'),
+  };
 }
 
 /* ------------------------------------------------------------ attention --- */

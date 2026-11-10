@@ -786,6 +786,7 @@ export const TR = {
   "all": "tümü",
   "Quiet for {span}": "{span} sessiz",
   "Shell command running": "Kabuk komutu çalışıyor",
+  "Running shell": "Kabukta çalışıyor",
   "was {state}": "önceki durum: {state}",
   "End": "Sonlandır",
   "End this session…": "Bu oturumu sonlandır…",

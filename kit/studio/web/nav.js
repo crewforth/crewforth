@@ -100,6 +100,18 @@ export function rowStatus(row, now = null) {
 }
 
 /**
+ * The session card's word, once the graph has said what shell commands the session has running (`shells`, a count
+ * that is 0 unless the session is live). The machine calls a session that ended its turn with a command still
+ * running in the background "idle", and one inside a long foreground command plain "busy"; both are a command
+ * running. Waiting on someone, and a state that was not read, are left as they are: the first outranks it, and
+ * the second is not measured.
+ */
+export function withShell(status, shells) {
+  if (!shells || !status || (status.key !== 'idle' && status.key !== 'busy')) return status;
+  return { ...status, key: 'busy', word: t('Shell command running'), tone: 'busy', known: true, waitingFor: null };
+}
+
+/**
  * @param fleet the /api/fleet answer, or null before the first one
  * @returns { key, word, tone, known } — key is 'unmeasured' when the fleet was not read: that is not "ended".
  */
