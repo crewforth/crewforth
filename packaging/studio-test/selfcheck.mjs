@@ -3280,9 +3280,12 @@ process.stdout.write('\n== §12b the question and the plan ==\n');
     const transcript = path.join(repo, '..', `${path.basename(repo)}.jsonl`);
     fs.writeFileSync(transcript, '{"type":"user"}\n');
     const record = path.join(repo, '.git', 'crewforth-approval');
+    // The hooks read the user's config dir (settings, plugin hooks). Point them at an empty one, or a
+    // PermissionRequest hook installed on this machine (a terminal's plugin, say) turns "ask" into a refusal.
+    const config = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-gate-config-'));
     const gate = (mode, command) => {
       const r = spawnSync('bash', [path.join(hooks, 'guard-bash.sh')], {
-        cwd: repo, encoding: 'utf8', env: { ...process.env, CREW_GATE_LOG: '/dev/null' },
+        cwd: repo, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: config, CREW_GATE_LOG: '/dev/null' },
         input: JSON.stringify({ session_id: 's', cwd: repo, permission_mode: mode, tool_name: 'Bash', tool_input: { command } }),
       });
       let decision = null;
@@ -3290,7 +3293,7 @@ process.stdout.write('\n== §12b the question and the plan ==\n');
       return { rc: r.status, decision, err: r.stderr };
     };
     const typed = (prompt, attended) => {
-      const env = { ...process.env };
+      const env = { ...process.env, CLAUDE_CONFIG_DIR: config };
       delete env.CLAUDE_CODE_SESSION_ATTENDED;
       if (attended !== null) env.CLAUDE_CODE_SESSION_ATTENDED = attended;
       return spawnSync('bash', [path.join(hooks, 'prompt-approval.sh')], {
@@ -3353,6 +3356,7 @@ process.stdout.write('\n== §12b the question and the plan ==\n');
     perm.cleanup(gsid);
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(remote, { recursive: true, force: true });
+    fs.rmSync(config, { recursive: true, force: true });
     fs.rmSync(transcript, { force: true });
   }
 
