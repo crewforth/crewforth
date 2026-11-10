@@ -1,6 +1,6 @@
 # Written by packaging/skill-eval/run.mjs; read by check.mjs. One line per case: does the description pick the
 # skill (kind is) or keep away from a neighbour's request (kind not). claude 2.1.322 · model sonnet ·
-# cost ~$2.81 at list price · complete
+# cost ~$0.18 at list price · complete
 case	skill	kind	source	description	score	worst	runs
 holdout-is-a11y-5f4c0d38	a11y	is	holdout	d4531a946ead2a11	1.000	1.000	3
 holdout-is-adr-46301897	adr	is	holdout	46cfbae699cb4b02	1.000	1.000	3
@@ -32,7 +32,7 @@ working-is-backend-architecture-a5f85bc6	backend-architecture	is	working	b4cda17
 working-is-backend-architecture-f8fecd51	backend-architecture	is	working	b4cda17c9ea8df0b	0.000	0.000	3
 working-is-brainstorm-7707f09c	brainstorm	is	working	5b5fbaf6a5bb645d	1.000	1.000	3
 working-is-ci-pipeline-c3af3bfd	ci-pipeline	is	working	33ae669b1dfb555d	0.000	0.000	3
-working-is-commit-message-d4ecd786	commit-message	is	working	02761b54040a1408	0.000	0.000	3
+working-is-commit-message-3ca58872	commit-message	is	working	02761b54040a1408	1.000	1.000	3
 working-is-confidence-check-dee759c9	confidence-check	is	working	59d87922a98635e8	1.000	1.000	3
 working-is-crew-code-review-35f66095	crew-code-review	is	working	8b6418ddbbe9ea48	1.000	1.000	3
 working-is-crew-code-review-57a6eab5	crew-code-review	is	working	8b6418ddbbe9ea48	1.000	1.000	3
