@@ -2,7 +2,7 @@
 
 Üç kademe derine inen bir delegasyon, terminalde çoktan kaybettiğiniz bir kaydırma geçmişidir. **Crewforth Studio** onu çizen yerel bir panel: her ajana bir kart düşüyor; kart, ajan doğduğu anda beliriyor ve ajanın durumunu, aldığı görevi ve koştuğu modeli taşıyor. Karta tıklayınca ajanın en son hangi aracı kullandığı, ne harcadığı ve geri ne bildirdiği açılıyor. Aynı oturum üç biçimde okunuyor: kimin kimi başlattığını gösteren bir grafik, saate karşı bir zaman çizelgesi ve kime ihtiyaç olduğuna göre sıralı bir liste. Dördüncü görünüm, **Models**, oturumu değil projeyi okuyor: her iş türüne hangi model gerekmiş.
 
-Panel `~/.claude/projects` dizinini okuyor; Claude Code bu makinedeki bütün oturumları orada tutuyor. Dolayısıyla çalışan tek bir panel hepsini birden görüyor: projede Crewforth kurulu olsun ya da olmasın, panelin o projenin içinde başlatılmış olması da gerekmiyor.
+Panel `~/.claude/projects` dizinini okuyor; Claude Code bu makinedeki bütün oturumları orada tutuyor. Dolayısıyla çalışan tek bir panel hepsini birden görüyor: projede Crewforth kurulu olsun ya da olmasın, panelin o projenin içinde başlatılmış olması da gerekmiyor. Gezginde Crewforth kurulu projeler önde duruyor; kurulu olmayanlar **göster** bağlantısının arkasında katlı, arama ise onların içine de bakıyor.
 
 ```bash
 /crew-studio                                       # Crewforth kurulu her projede

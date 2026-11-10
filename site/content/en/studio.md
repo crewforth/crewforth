@@ -2,7 +2,7 @@
 
 A delegation three levels deep is, in a terminal, a scrollback you have already lost. **Crewforth Studio** is a local panel that draws it instead: one card per agent, appearing as they spawn, each carrying its status, the task it was given and the model it ran on. Selecting a card opens what the agent last reached for, what it has spent and what it reported back. The same session can be read as a graph of who started whom, as a timeline against the clock, and as a list sorted by what needs someone; a fourth view, **Models**, reads the project instead of the session: which model each kind of task has needed.
 
-It reads `~/.claude/projects` — where Claude Code keeps every session on this machine — so one running panel sees all of them at once, whether or not a project has Crewforth installed, and without being started inside any of them.
+It reads `~/.claude/projects` — where Claude Code keeps every session on this machine — so one running panel sees all of them at once, whether or not a project has Crewforth installed, and without being started inside any of them. In the navigator the projects that have Crewforth come first; the ones without it fold away behind a **show** link, and a search looks in them too.
 
 ```bash
 /crew-studio                                       # in any project that has Crewforth

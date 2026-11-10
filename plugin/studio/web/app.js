@@ -1687,6 +1687,7 @@ let fleetData = null;
 let expanded = new Set();
 let filterText = '';
 let showMissing = false;
+let showBare = false;          // projects without Crewforth files stay folded away until asked for
 let showHidden = false;
 let renaming = null;          // the session whose name is being typed
 
@@ -1892,8 +1893,14 @@ function paintProjects() {
   // Typing a search is an explicit request, so it looks everywhere — including
   // the projects whose directories are gone. Hiding a result someone asked for
   // by name is worse than showing a dead path.
-  const pool = (showMissing || filterText) ? data.projects : data.projects.filter((p) => p.exists);
-  const missing = data.projects.length - pool.length;
+  const reachable = (showMissing || filterText) ? data.projects : data.projects.filter((p) => p.exists);
+  const missing = data.projects.length - reachable.length;
+  // Projects with Crewforth come first; the rest fold away. The project you are standing in always stays, and a
+  // project whose kit was not read is not assumed bare.
+  const isBare = (p) => Boolean(p.kit) && !p.kit.installed && !p.current;
+  const withKit = reachable.filter((p) => !isBare(p));
+  const bare = reachable.filter(isBare);
+  const pool = (showBare || filterText) ? [...withKit, ...bare] : withKit;
 
   const frag = document.createDocumentFragment();
   let shown = 0;
@@ -1969,6 +1976,14 @@ function paintProjects() {
       showHidden ? t('{n} hidden session(s) shown', { n: hiddenIds.size }) : t('{n} session(s) hidden from this list', { n: hiddenCount }),
       showHidden ? t('hide') : t('show'),
       () => { showHidden = !showHidden; paintProjects(); },
+    ));
+  }
+  if (bare.length && !filterText) {
+    frag.append(lineWith(
+      showBare ? t('Showing {n} project(s) without Crewforth', { n: bare.length })
+        : t('{n} project(s) without Crewforth hidden', { n: bare.length }),
+      showBare ? t('hide') : t('show'),
+      () => { showBare = !showBare; paintProjects(); },
     ));
   }
   if (missing > 0 && !filterText) {
