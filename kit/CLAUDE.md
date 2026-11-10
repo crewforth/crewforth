@@ -66,11 +66,12 @@ text → **crew-docs-agent** · what to build →
 | `model` (`guard-agent-model.sh`: floor = default; `above: <why>` for more) | the card |
 |---|---|
 | `haiku` | text, commit agent; test-run, mechanical work with `verify:` |
-| `sonnet` | feature, fix-known, refactor, test-write, audit, review; other `verify: none`; critical-path prose; floor: crew-privacy-agent, -review-agent, -planner, -database-expert |
+| `sonnet` | feature, fix-known, refactor, test-write, audit, review; other `verify: none`; critical-path prose; floor: crew-privacy-agent, -review-agent, -planner, -database-expert, -docs-agent |
 | `opus` | **critical**: migration, security, architecture, fix-unknown, or a critical-path file (auth, payments, legal…), its referees; crew-security-expert always |
 
-The referee follows the RISK, not the author's model. Verify fails → the agent fixes once; again → re-run ONCE one
-model up; again → AskUserQuestion. The same for a report that ends `confidence: low`.
+The referee follows the RISK, not the author's model. Name `effort` too: `medium`, `low` for test-run, never above
+`high`. Verify fails → the agent fixes once; again → re-run ONCE at `high` if it ran below, then ONCE one model up at
+`medium`; again → AskUserQuestion. A report ending `confidence: low` → one model up.
 
 **Naming an agent in prose is a hope; `@agent-<name>` is a guarantee** — measured here: 0/3 vs 3/3. Use that form
 whenever an agent must run, and tell the user they can too.

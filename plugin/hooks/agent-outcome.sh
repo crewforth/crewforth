@@ -325,6 +325,7 @@ case "$EV" in
     # A record written before the gate kept its reason has none: that is "-", not a reason made up here.
     _am_rec_get "$REC" why; RW="${_AMV:--}"; RW="${RW//$'\t'/ }"
     _am_rec_get "$REC" asked || _am_rec_get "$REC" tier; ASK="$_AMV"
+    _am_rec_get "$REC" effort; EFF="${_AMV:--}"; case "$EFF" in low|medium|high|xhigh|max) ;; *) EFF=- ;; esac
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
     SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
@@ -420,8 +421,8 @@ case "$EV" in
     if [ -s "$_AMD/ran/$AID" ]; then IFS= read -r RAN < "$_AMD/ran/$AID" || true
     elif [ -f "$ATP" ]; then RAN="$(grep -m1 -o '"model":"[^"]*"' "$ATP" 2>/dev/null)" || RAN=""; RAN="${RAN#\"model\":\"}"; RAN="${RAN%\"}"; fi
     case "$RAN" in ''|*[!A-Za-z0-9._:\[\]-]*) RAN=- ;; esac
-    [ "$RES" = fail ] && printf '%s\n' "$ASK" >> "$_AMD/fails/$CID" 2>/dev/null
-    printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
+    [ "$RES" = fail ] && printf '%s %s\n' "$ASK" "$EFF" >> "$_AMD/fails/$CID" 2>/dev/null
+    printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\neffort=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$EFF" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
     [ -n "$VSTEP" ] && printf 'step=%s\n' "$VSTEP" >> "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
@@ -496,7 +497,7 @@ case "$EV" in
       exit 0
     fi
     _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
-    _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"
+    _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"; _am_rec_get "$R" effort; EF="$_AMV"
     case "$RES" in fail|blocked|timeout) ;; *) [ "$CONF" = low ] || exit 0 ;; esac
     if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
       # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
@@ -511,9 +512,14 @@ case "$EV" in
     else MSG="the agent closed its report with confidence: low."; TAILM="What the agent left is in the tree; read its report for what it could not do."; fi
     # A write refused on a critical path is not helped by one model up: that file takes opus.
     if [ "$ESCL" = 1 ] && [ "$TI" != opus ] && [ "$TI" != fable ]; then UP=opus; MSG="$MSG It was refused a write to a critical path, which only an agent on opus may make; name that file in the card."; fi
-    if [ "$ESC" != - ] && [ -n "$ESC" ]; then MSG="$MSG This was already the repeat one model up (first run: $ESC). Do not run it a third time: ask the user what to do (AskUserQuestion), with what failed and on which models."
-    elif [ -z "$UP" ] || [ "$UP" = fable ]; then MSG="$MSG It ran on $TI and there is no model above it to repeat on: ask the user what to do (AskUserQuestion)."
-    else MSG="$MSG Re-run this task once with $UP: the same card, the same agent, model $UP. If that also fails, ask the user."; fi
+    # Effort before model (the vendor's own guidance): a first failure at an effort below high is repeated on the same
+    # model at high; a failure at high, at an unknown effort, or of that repeat goes one model up at medium; a failure
+    # one model up goes to the user. fable is "a model above" only where the user allowed it (CREW_ALLOW_FABLE=1).
+    [ "$UP" = fable ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ] && UP=""
+    if [ "$ESC" != - ] && [ -n "$ESC" ] && [ "$ESC" != "$TI" ]; then MSG="$MSG This was already the repeat one model up (first run: $ESC). Do not run it a third time: ask the user what to do (AskUserQuestion), with what failed and on which models."
+    elif [ "$RES" = fail ] && [ "$ESCL" != 1 ] && [ "$ESC" = - ] && { [ "$EF" = low ] || [ "$EF" = medium ]; }; then MSG="$MSG It ran at effort $EF. Re-run this task once on $TI at effort high: the same card, the same agent, model $TI, effort high.${UP:+ If that also fails, once with $UP at effort medium; then ask the user.}"
+    elif [ -z "$UP" ]; then MSG="$MSG It ran on $TI and there is no model above it to repeat on: ask the user what to do (AskUserQuestion)."
+    else MSG="$MSG Re-run this task once with $UP: the same card, the same agent, model $UP, effort medium. If that also fails, ask the user."; fi
     _ao_json "Crewforth: $MSG $TAILM"
     printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
     exit 0 ;;

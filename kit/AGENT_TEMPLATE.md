@@ -69,7 +69,7 @@ Otherwise `normal`.
 | `test-run` | `haiku` | `haiku` (running the tests is objective) |
 | `test-write`, `audit` | `sonnet` or above | `opus` |
 | `feature`, `fix-known`, `refactor` (not the commit agent) | `sonnet` or above | `opus` |
-| `crew-review-agent`, `crew-privacy-agent`, `crew-planner`, `crew-database-expert` | `sonnet` or above | `opus` |
+| `crew-review-agent`, `crew-privacy-agent`, `crew-planner`, `crew-database-expert`, `crew-docs-agent` | `sonnet` or above | `opus` |
 | `crew-security-expert` | `opus` | `opus` |
 | `verify: none` | `sonnet` or above | `opus` |
 
@@ -77,11 +77,15 @@ Otherwise `normal`.
   their model is set by the risk of the work. In normal work an author on Opus does not pull the review up to Opus;
   in critical work the review is on Opus whoever wrote the code.
 - **Verify, then escalate.** When the agent stops, `hooks/agent-outcome.sh` runs the card's `verify` command. Red
-  once: the agent is kept running and told to fix it. Red again: the agent ends, the session is told to repeat the
-  task once, one model up, and the gate refuses the same card on the same or a lower model. Red there too: the user
-  is asked; there is no third run.
+  once: the agent is kept running and told to fix it. Red again: the agent ends. When the call named an effort below
+  `high`, the session is told to repeat the task once on the same model at `high`, and the gate refuses it on a lower
+  model or at a lower effort; otherwise, and after that repeat, once one model up at `medium`, and the gate refuses
+  the same or a lower model. Red there too: the user is asked; there is no further run. (Effort before model: past
+  `high`, one more level costs about as much as the next model.)
 - **At write time.** An agent that is not on Opus cannot write to a critical path, whatever its card said. When that
   refusal comes, stop and say so (the lines below).
+- **Name the effort** on the call: `medium`, `low` for `test-run`, never above `high`. `CLAUDE_CODE_EFFORT_LEVEL`
+  outranks it, and the gate reads it from there when it is set.
 - **Use a tier ALIAS** (`haiku`/`sonnet`/`opus`), not a dated model ID. `fable` is refused for a crew agent unless
   the user set `CREW_ALLOW_FABLE=1`. `CREW_MODEL_ROUTING=off` turns all of this off.
 - **A frontmatter `model` is the exception**, for an agent whose every task is the same tier (`crew-commit-agent`:

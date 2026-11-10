@@ -163,6 +163,19 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **Effort before model, by the vendor's own model guidance.** A crew call names `effort` too: `medium`, `low` for a
+  test run, never above `high`, since one more level past it costs about as much as the next model. When an agent's
+  verify fails twice and its call named an effort below `high`, the repeat is on the same model at `high`; only after
+  that, or when the effort is unknown, does it go one model up, at `medium`. The gate refuses the same card on a
+  lower model or at a lower effort, and after the repeat one model up the user is asked, as before. Where the user
+  allowed `fable` (`CREW_ALLOW_FABLE=1`), a card that fails on `opus` may go up to it instead of to the user.
+  `CLAUDE_CODE_EFFORT_LEVEL` outranks the call's effort, so the gate reads it from there when it is set.
+- **Explore runs on `haiku`, and the docs agent on `sonnet`.** The built-in Explore agent takes the session's model
+  (on Opus when the session is on Fable); it only searches and reads, which the guidance gives to Haiku, so a
+  call to it is run on `haiku` unless its task says `above: <why>`. A project's own Explore with a model of its own is
+  left alone. Everyday document writing goes to Sonnet in the same guidance, so `crew-docs-agent` has a `sonnet`
+  floor.
+
 - **An agent's verify command runs without the user having to know a command for it.** On a real project
   (3.5.0-rc.2) 22 of 56 agents finished with their verify not run, 21 of them because the command was a chain
   (`cd web && npm run lint && npm test`, `uv run ruff check . && uv run pytest -q`). Steps joined by ` && ` now run in
@@ -281,6 +294,11 @@ versioning follows [SemVer](https://semver.org/).
   empty, where every `new_*` condition reads `OK` with nothing to judge.
 
 ### Fixed
+
+- **A model forced onto every subagent is judged.** With `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` set, every subagent
+  runs on `CLAUDE_CODE_SUBAGENT_MODEL` whatever the call names, so a security audit asked for on `opus` could run on
+  `haiku` while the gate and the write-time check counted it as `opus`. The gate now judges the forced model: below
+  the card's floor the call is refused with what the user can change, and the record names the model that runs.
 
 - **A bug of unknown cause goes to its area's crew agent, not to general-purpose.** The routing line sent every
   unknown cause to Claude Code's general-purpose agent, so a session with the whole crew installed opened its first
