@@ -356,6 +356,10 @@ versioning follows [SemVer](https://semver.org/).
   option, a second branch, `-c`, `-C` or a changed directory, an older git, or one of those settings: asked as before.
   On 553 real pull commands, 31 refusals become allowed and nothing else changes; on 4 485 real commit and push
   commands, no approval is lost.
+- **Per-agent and per-session state no longer piles up.** The record kept for each agent (so a resumed one is not
+  judged twice) and the loop guard's file for each session were never removed; a long-used project held thousands of
+  them. At a session's start, one `find` removes agent records older than 14 days and loop files older than 2 days.
+  The history of results, `model-outcomes.tsv`, stays.
 
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
