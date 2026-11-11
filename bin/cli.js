@@ -18,12 +18,13 @@ if (sub === '--help' || sub === '-h' || sub === 'help') {
   console.log(`Crewforth
 
 Usage:
-  npx crewforth [init] [--private|--shared] [--yes] [--preset <name|file.json>]
+  npx crewforth [init] [--private|--shared] [--ignore-local] [--yes] [--preset <name|file.json>]
       Set up Crewforth in a fresh project (start.sh wizard). Every install ships everything and
       is stack-agnostic: the stack is recorded per project in CLAUDE.md ## Stack.
       (--dotnet was removed in 3.0; it is still accepted, warns, and installs the same setup.)
-  npx crewforth adopt [--preset <name|file.json>]
+  npx crewforth adopt [--preset <name|file.json>] [--ignore-local]
       Hand Crewforth over onto an existing project (adopt.sh).
+      --ignore-local writes the ignore lines to .git/info/exclude, leaving the tracked .gitignore alone.
       --preset applies an organisation preset (default, strict, solo, or your own JSON file).
   npx crewforth@latest update
       Refresh a project that already has Crewforth. Alias of 'adopt': it reads .claude/kit.conf,

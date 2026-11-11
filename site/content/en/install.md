@@ -48,7 +48,7 @@ What it costs: the list is then sent whole every turn, about 3,700 tokens. On a 
 ## New project
 
 ```bash
-bash start.sh [--private|--shared] [--lang tr|en] [--yes] [--version] [-h]
+bash start.sh [--private|--shared] [--ignore-local] [--lang tr|en] [--yes] [--version] [-h]
 ```
 
 The wizard first asks for its language (English or Turkish), then who the install is for, and ends with a summary you approve before anything is written. Every prompt and message follows the language you pick; the files it installs stay English.
@@ -61,6 +61,7 @@ No client stack is a default either: the first client task reads `Client:` in `#
 |:--|:--|:--|
 | Language | `--lang en` · `--lang tr` | what the installer prints — nothing it writes |
 | Who it is for | `--private` · `--shared` | whether `.claude/` and `CLAUDE.md` are gitignored or committed for the team |
+| Where the ignore lines go | `--ignore-local` (answer 3) | `.git/info/exclude`, which only this clone reads, instead of the tracked `.gitignore`; `adopt` takes it too |
 
 **The backend is stack-agnostic.** The installer does not ask for a stack. On the first backend task the `backend-architecture` skill resolves it — your request, then the `## Stack` section of `CLAUDE.md`, then the repo's manifests (`package.json`, `go.mod`, `pyproject.toml`, `*.csproj`, …) — and only in an empty repo asks at most four multiple-choice questions, each with a recommended answer and a "Decide for me" option. The answer is written to `## Stack` and recorded as an ADR, so it is asked once. Node, Go, Python, .NET and the JVM are supported alike, and a project that ships its own pattern skill under `.claude/skills/` has it applied instead.
 
@@ -102,6 +103,10 @@ Where the change lands is a choice. A first adopt opens a `kit-adopt-<timestamp>
 Inside a session, **`/crew-update`** does the version check, runs the updater, verifies with `/crew-doctor`, then prompts `/clear` so a new session loads the refreshed discipline. **`/crew-doctor`** checks a live install at any time — hooks executable, `core.hooksPath` set, gates wired, the discipline actually imported — and prints an advisory readiness score for the project itself.
 
 If a project's `CLAUDE.md` carries the discipline **inline** instead of importing it, updates cannot reach it. The updater detects this, shows the affected lines, and offers to replace them with the single `@.claude/DISCIPLINE.md` import — writing a backup first, on a branch you review. Decline and nothing is touched.
+
+## Parallel sessions in worktrees
+
+claude-squad and similar tools start each session in its own git worktree. When `.claude/` is gitignored, which is how `npx crewforth init` leaves it, a new worktree has no Crewforth files, so a Claude Code session started there runs none of Crewforth's hooks. The git hooks still run there, because `core.hooksPath` is written as an absolute path. Copy `.claude/` into the worktree before you start the session. `/crew-doctor` at the project root names every worktree that has no `.claude/settings.json`. A tracked `.claude/` needs no copy: the worktree checks it out.
 
 ## Removing
 

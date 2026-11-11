@@ -50,6 +50,11 @@ const DEBUG = [
   { files: /\.dart$/, re: /^\s*print\(/, what: 'a print call' },
 ];
 const SCRIPT_DIR = /(^|\/)(bin|scripts?|tools?|tool)\//;
+// A cast that switches the type checker off for one value: `as any`, or `as unknown as T`, which forces any type.
+const TYPED = /\.(m?tsx?|cts|vue|svelte)$/;
+const SILENCED = /(^|[^A-Za-z0-9_$])as\s+(any|unknown\s+as)([^A-Za-z0-9_$]|$)/;
+// A replay in progress: its staged diff mixes the replayed commits with the author's own change.
+const REPLAY = [['rebase-merge', 'a rebase'], ['rebase-apply', 'a rebase or am'], ['MERGE_HEAD', 'a merge'], ['CHERRY_PICK_HEAD', 'a cherry-pick'], ['REVERT_HEAD', 'a revert']];
 // A marker opens a comment; the word inside a string, a pattern or prose that names it is not one.
 const TODO = /(?:\/\/|#|\/\*|^\s*\*|--|<!--)\s*(TODO|FIXME|XXX|HACK)\b/;
 const PROSE = /\.(md|markdown|txt|rst|adoc)$/i;
@@ -124,6 +129,9 @@ export function prepass(root = '.', { base = null } = {}) {
 
   const doc = { schema: SCHEMA_ID, producer: { name: NAME, version: '1' }, findings: [], notMeasured: [] };
   const seen = new Set();
+  const gd = git(rootReal, ['rev-parse', '--absolute-git-dir']);
+  const replay = gd.status === 0 ? REPLAY.find(([f]) => fs.existsSync(path.join(gd.stdout.trim(), f))) : null;
+  if (replay) doc.notMeasured.push({ what: 'the change itself', reason: `${replay[1]} is in progress: the staged lines mix the commits it replays with the author's own edit, so which lines are this change's was not told apart` });
   const machine = [rootReal, os.homedir()].filter((p) => p && p.length > 1);
   const add = (rule, severity, confidence, title, at, detail, quote = true) => {
     // A line that carries this machine's directory, or must not be quoted, is cited by its hash.
@@ -162,6 +170,7 @@ export function prepass(root = '.', { base = null } = {}) {
       }
       if (debug && !test && !script && debug.re.test(a.text)) add('prepass-debug-call', 'low', 'proven', `An added ${debug.what}`, a);
       if (!PROSE.test(f) && !test && TODO.test(a.text)) add('prepass-todo', 'info', 'proven', `An added ${TODO.exec(a.text)[1]}`, a);
+      if (TYPED.test(f) && !test && !/^\s*(\/\/|\*)/.test(a.text) && SILENCED.test(a.text)) add('prepass-silenced-checker', 'low', 'proven', `An added \`as ${SILENCED.exec(a.text)[2].replace(/\s+/g, ' ')}\` cast`, a, 'It switches the type checker off for this value, so a wrong type now passes the check; type the value, or say in the description why the cast is safe.');
     }
     if (list.length > LARGE && !GENERATED.test(f)) add('prepass-large-change', 'low', 'proven', `${list.length} lines added to one file`, list[0], 'A change this size is hard to review in one pass; split it, or say in the description what to read first.');
   }
@@ -218,14 +227,17 @@ function main(argv) {
   try { doc = prepass(root, { base }); } catch (e) { console.error(`prepass: ${e.message}`); return 2; }
   const count = (s) => doc.findings.filter((f) => f.severity === s).length;
   const line = `review-prepass: ${doc.findings.length} finding(s) · high ${count('high')} · medium ${count('medium')} · low ${count('low')} · info ${count('info')} · ${doc.notMeasured.length} not measured${base ? ` · ${doc.untracked} untracked read` : ''}`;
+  // Every skip is named where the reader stops reading, not only inside the document: a count alone reads as covered.
+  const notChecked = doc.notMeasured.length ? `not checked: ${doc.notMeasured.map((n) => `${n.what} (${n.reason})`).join('; ')}` : '';
   if (stdout) {
     const r = validate(doc, root);
     if (!r.ok) { for (const p of r.problems) console.error(`prepass: ${p.at} ${p.code}: ${p.message}`); return 1; }
-    process.stdout.write(serialize(doc)); console.error(line); return 0;
+    process.stdout.write(serialize(doc)); console.error(line); if (notChecked) console.error(notChecked); return 0;
   }
   const r = write(doc, root, NAME);
   if (!r.ok) { for (const p of r.problems) console.error(`prepass: ${p.at} ${p.code}: ${p.message}`); return 1; }
   console.log(`${line} → ${r.file}`);
+  if (notChecked) console.log(notChecked);
   return 0;
 }
 

@@ -1064,6 +1064,37 @@ else
   rm -rf "$SR"
 fi
 rm -rf "$BD"
+# 5g. AN UNREACHABLE REMOTE. Where neither `timeout` nor `gtimeout` exists (stock macOS) a network git call was not
+# bounded at all: a black-holed origin held `board.sh status` for 75 s, then said "none on 'origin'" about a remote
+# it never reached. _gitnet's watchdog is driven here as written in board.sh, on a stub git that stalls, fails or
+# succeeds, so the branch is proved on every platform, the ones that have `timeout` too.
+_gnf="$(awk '/^_gitnet\(\)\{/{f=1} f{print} f&&/^}/{exit}' "$HOOKS/board.sh")"
+if [ -z "$_gnf" ]; then fail "FIXTURE: no _gitnet in board.sh"
+else
+  _gnr="$(bash -c "$_gnf"'
+    _TMO=""; CREW_NET_TIMEOUT=1
+    git(){ case "$1" in stall) sleep 20 ;; fail) return 3 ;; *) return 0 ;; esac; }
+    s=$SECONDS; _gitnet stall; a=$?; t=$((SECONDS - s)); _gitnet fail; b=$?; _gitnet ok; c=$?
+    echo "$a $b $c $t"' 2>/dev/null)"
+  set -- $_gnr
+  if [ "${1:-}" = 124 ] && [ "${2:-}" = 3 ] && [ "${3:-}" = 0 ] && [ "${4:-99}" -le 3 ]; then
+    pass "without timeout, a stalled network git is stopped at CREW_NET_TIMEOUT (rc 124 in ${4}s for a 1 s bound); a failure keeps its own rc, success is 0"
+  else fail "_gitnet's watchdog: stall/fail/ok answered '${_gnr:-<nothing>}', want '124 3 0 <=3'"; fi
+  set --
+fi
+_bon="$(mktemp -d)"
+( cd "$_bon" && git init -q --bare r.git && git init -q w && cd w && git config user.email b@x && git config user.name b \
+  && git commit -q --allow-empty -m seed && git remote add origin "$_bon/r.git" ) >/dev/null 2>&1
+_bo1="$(cd "$_bon/w" && bash "$HOOKS/board.sh" status 2>&1)"
+( cd "$_bon/w" && git remote set-url origin "$_bon/missing.git" ) >/dev/null 2>&1
+_bo2="$(cd "$_bon/w" && bash "$HOOKS/board.sh" status 2>&1)"
+rm -rf "$_bon"
+case "$_bo1|$_bo2" in
+  *"none on 'origin'"*"|"*"could not be reached"*)
+    case "$_bo2" in *"none on"*) fail "an unreachable origin is still reported as holding no board: $_bo2" ;;
+      *) pass "board status tells a reachable origin with no board from one it could not reach" ;; esac ;;
+  *) fail "board status, reachable / unreachable origin: '${_bo1%%$'\n'*}' / '${_bo2%%$'\n'*}'" ;;
+esac
 else
   fail "hooks/board.sh missing or not executable"
 fi
@@ -2837,6 +2868,9 @@ BUDGET_DISC=17161    # Discipline rules: 17030 → 17161 (+131, the measured siz
                      # and the wrong one winning silently. The only rule in this file that is about the OTHER
                      # rules, so it cannot live in the README the way the compaction note does. Plus the Audit
                      # row naming crew-performance-expert — an agent nothing routes to is an idle component.)
+BUDGET_AGENT_BODIES=78562 # every crew agent's body, after its frontmatter, summed: a subagent pays its own body in full on
+                          # every call, so it is a per-delegation cost the description budget does not see. The measured sum
+                          # (14 agents, 2026-11-11); raise it on a decision, never to make room.
 BUDGET_AGENTS=5746   # 3.2.0: 5596 → 5746 (+150), the measured sum: crew-docs-agent is a 14th agent (195 B, its description cut to one line first; the other 13 sum to 5551). Raised on the user's decision, not to make room. 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
                      # agents' descriptions rewritten stack-agnostic, +55 B). Before that 5527, measured 2026-09-20 by reading this suite's
                      # own printed line rather than a hand-rolled counter (a hand-rolled one answered 5503 and
@@ -2894,6 +2928,14 @@ elif [ -f "$ROOT/DISCIPLINE.md" ]; then
   DB="$(wc -c < "$ROOT/DISCIPLINE.md" | tr -d ' ')"; DBCR="$(tr -dc '\r' < "$ROOT/DISCIPLINE.md" | wc -c | tr -d ' ')"
 else DB=0; DBCR=0; fi
 AB=0; for f in "$AGENTS"/*.md;      do [ -e "$f" ] && AB=$((AB + $(fm_bytes "$f"))); done
+# The bodies are cut with head/tail, not awk, for the reason disc_text gives: Git Bash's awk drops carriage returns.
+body_text(){ local n; n="$(grep -n '^---' "$1" | sed -n 2p | cut -d: -f1)"; [ -n "$n" ] && tail -n +"$((n + 1))" "$1"; }
+ABB=0; ABBCR=0
+for f in "$AGENTS"/*.md; do [ -e "$f" ] || continue
+  ABB=$((ABB + $(body_text "$f" | wc -c))); ABBCR=$((ABBCR + $(body_text "$f" | tr -dc '\r' | wc -c))); done
+_bbf="$(mktemp)"; printf -- '---\nname: x\ndescription: y\n---\nabc\n---\nde\n' > "$_bbf"
+[ "$(body_text "$_bbf" | wc -c | tr -d ' ')" = 11 ] || fail "FIXTURE: body_text read $(body_text "$_bbf" | wc -c | tr -d ' ') bytes of an 11-byte body (abc, a --- rule, de)"
+rm -f "$_bbf"
 # The skill listing is counted by eval/lib/skill-listing.awk, the file doctor.sh uses: a skill with
 # `disable-model-invocation: true` is not listed, every other one costs its name and description as Claude Code counts
 # them. The counter is pinned first on the fixtures Claude Code itself was measured on, so a drift in the awk (or in an
@@ -2946,6 +2988,7 @@ bud(){ # $1 name  $2 measured  $3 budget  $4 (optional) carriage returns in the 
        else pass "$1 $2 $u (over Crewforth's $3 baseline — your project's own additions, not gated in an install)"; fi; }
 bud "discipline"         "$DB" "$BUDGET_DISC" "$DBCR"
 bud "agent descriptions" "$AB" "$BUDGET_AGENTS"
+bud "agent bodies" "$ABB" "$BUDGET_AGENT_BODIES" "$ABBCR"
 bud "skill listing" "$SL" "$BUDGET_SKILL_LISTING" 0 chars
 echo "   always-on: discipline + agents $((DB+AB)) bytes (budget $((BUDGET_DISC+BUDGET_AGENTS))) · skill listing $SL chars for ${SLN:-0} skills (budget $BUDGET_SKILL_LISTING)"
 # The clauses that keep a short reply from losing meaning are pinned by their words, so a later trim of the style
@@ -10574,7 +10617,9 @@ case "$_sar" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additio
 # 860 → 1020 (P15-01): an agent that stops short says why on its first line (stopped: too-big, needs-confirm,
 # ambiguous, regressed), a cut list says +N omitted, and a cited path:line is one it read. Every crew agent ends a
 # task this way, so the rule belongs where every one of them gets it, not in fourteen files. Measured: 1005.
-[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 1020 ] || _sab="$_sab over-1020-bytes"
+# 1020 → 1085 (P07-01): a Read stops at 2000 lines without saying so, and an agent that judged a whole file from
+# that cut judged part of it. One sentence, cut to its shortest. Measured: 1081.
+[ "$(printf '%s' "$_sar" | wc -c | tr -d ' ')" -le 1085 ] || _sab="$_sab over-1085-bytes"
 [ -z "$_san" ] || _sab="$_sab non-crew-agent-got:[${_san:0:60}]"
 printf '%s' "$_sar" | json_ok; case $? in 0) ;; 2) ;; *) _sab="$_sab not-json" ;; esac
 rm -rf "$_sad"

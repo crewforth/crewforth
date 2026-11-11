@@ -90,15 +90,22 @@ _remote(){ printf '%s\n' "${_C_REMOTE:-${_L_REMOTE:-origin}}"; }
 # `timeout` is coreutils and macOS does not ship it; Homebrew's coreutils installs it as `gtimeout`. Looking for
 # both is not the same as ASSUMING one — an assumed binary would fail silently, a searched one either bounds the
 # call or is honestly absent. When neither exists the prompt suppression above still applies and the call is
-# NOT time-bounded: measured against a black-holed remote, 15s with the bound and 21s without, where the 21s is
-# git giving up on its own. So the unbounded case is slower, not infinite — the infinite case is the credential
-# prompt, and that one is closed on every platform.
+# bounded by a watchdog here instead: git in the background, polled against $SECONDS (the clock, not a count of
+# polls, so a slow fork does not stretch the bound) and killed past it. Measured on macOS, which ships no timeout,
+# against a black-holed remote: 75 s unbounded (git gives up only at the TCP connect timeout), and an earlier
+# figure of 21 s written here was not what this machine does.
 _TMO="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
 _gitnet(){
   if [ -n "$_TMO" ]; then
     GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never "$_TMO" "${CREW_NET_TIMEOUT:-15}" git "$@"
   else
-    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"
+    local p end=$((SECONDS + ${CREW_NET_TIMEOUT:-15}))
+    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@" & p=$!
+    while kill -0 "$p" 2>/dev/null; do
+      [ "$SECONDS" -lt "$end" ] || { kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 124; }
+      sleep 0.05
+    done
+    wait "$p"
   fi
 }
 
@@ -570,8 +577,15 @@ cmd_status(){
   # the next thing the reader does is decide what to work on.
   #
   # Fails open: an unreachable remote falls through to whatever is local, so the view still appears offline.
-  _fetch >/dev/null 2>&1 || true
-  _have_board || { echo "No board in this repo yet (and none on '$(_remote)'). Create one: $(_act init)"; return 0; }
+  local frc=0; _fetch >/dev/null 2>&1 || frc=$?
+  if ! _have_board; then
+    # _fetch: 1 = the remote could not be reached, so whether it holds a board is not known. Saying "none on origin"
+    # there was a wrong sentence (measured: a black-holed origin, 75 s, then "none on 'origin'").
+    if [ "$frc" = 1 ]; then echo "No board in this repo yet, and '$(_remote)' could not be reached to look for one. Run $(_act status) again when the remote is reachable, or create one: $(_act init)"
+    else echo "No board in this repo yet (and none on '$(_remote)'). Create one: $(_act init)"; fi
+    return 0
+  fi
+  [ "$frc" = 1 ] && echo "board: '$(_remote)' could not be reached — showing the last known state"
   local me p c id st ow ti dep bl now stale_h
   me="$(_me)"; now="$(_now_epoch)"; stale_h="$(_conf stale_hours 8)"
   # HELD is not decoration: "who holds it" without "for how long" is the question a teammate actually asks, and

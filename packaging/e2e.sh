@@ -133,7 +133,7 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 # start-legacy has a shard of its own: start ran three installs, each with an install-scope smoke, and on a slow
 # Windows runner that one block reached 35 minutes alone (2026-11-07, 2068 s), past the job's limit.
 # migrate-dotnet sits in shard 1: shard 2 measured 1990 s on Windows against the 35-minute limit, shard 1 820 s.
-E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf migrate-dotnet
+E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf migrate-dotnet ignore-local
 2 adopt-brownfield legacy-sweep wizard star-line trace-gate-keep install-count planted-hooks
 3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename
 4 start-legacy'
@@ -253,6 +253,36 @@ echo "[trace-4.2] start.sh --dotnet leaves the vendor name commented too"
 
 
 fi
+
+if _e2e_mine ignore-local; then
+# K12: --ignore-local writes the ignore lines to this clone's .git/info/exclude and leaves the tracked .gitignore
+# alone, for init and for adopt. Asked of git afterwards: the file did not change and .claude/ (init) or docs/
+# (adopt) is still ignored. The default is unchanged, so one install without the flag must still write .gitignore.
+# The fixture's package.json has no "dependencies": that shape stopped init with rc 1 under set -e (verify-detect), and
+# this block is where an init runs in a repository that holds one.
+_k12(){   # $1 = label -> _K: a repository with a tracked .gitignore, at $WORK/k12-$1 (not in $( ): its exit must stop the run)
+  local d="$WORK/k12-$1"; rm -rf "$d"; mkdir -p "$d"
+  ( cd "$d" && git init -q . && git config user.email k@x && git config user.name k && printf 'node_modules\n' > .gitignore \
+      && printf '{"name":"k"}' > package.json && git add -A && git -c core.hooksPath=/dev/null commit -qm seed ) >/dev/null 2>&1 \
+    || { echo "FAIL: FIXTURE — the k12 repository could not be made"; exit 1; }
+  _K="$d"
+}
+_k12 init; cp start.sh "$_K/"; cp -R kit "$_K/"
+_slog; ( cd "$_K" && printf 'yes\n' | bash start.sh --ignore-local ) >"$_L" 2>&1 || _evidence "start.sh --ignore-local in $_K" "$_L" $?
+( cd "$_K" && git diff --quiet -- .gitignore ) || { echo "FAIL [ignore-local/init]: the tracked .gitignore changed"; exit 1; }
+( cd "$_K" && git check-ignore -q .claude && grep -qx '.claude/' "$(git rev-parse --git-path info/exclude)" ) \
+  || { echo "FAIL [ignore-local/init]: .claude/ is not ignored through .git/info/exclude"; exit 1; }
+_k12 adopt; cp adopt.sh "$_K/"; cp -R kit "$_K/"; cp VERSION "$_K/"
+run_adopt "$_K" --yes --here --ignore-local
+[ "$ADOPT_RC" = 0 ] || { echo "FAIL [ignore-local/adopt]: adopt.sh exited $ADOPT_RC"; printf '%s\n' "$ADOPT_OUT" | tail -5; exit 1; }
+( cd "$_K" && git diff --quiet HEAD -- .gitignore ) || { echo "FAIL [ignore-local/adopt]: the tracked .gitignore changed"; exit 1; }
+( cd "$_K" && git check-ignore -q docs/x && grep -qx 'docs/' "$(git rev-parse --git-path info/exclude)" ) \
+  || { echo "FAIL [ignore-local/adopt]: docs/ is not ignored through .git/info/exclude"; exit 1; }
+_k12 default; cp start.sh "$_K/"; cp -R kit "$_K/"
+_slog; ( cd "$_K" && printf 'yes\n' | bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $_K" "$_L" $?
+( cd "$_K" && grep -qx '.claude/' .gitignore ) || { echo "FAIL [ignore-local/default]: without the flag .gitignore was not written — the default moved"; exit 1; }
+echo "[ignore-local] init and adopt leave .gitignore alone and ignore through .git/info/exclude; without the flag .gitignore is written"
+fi
 # ---- adopt.sh: a brownfield .NET project (solution under ./backend) + agent-overlap takeover ----
 if _e2e_mine adopt-brownfield; then
 # Since 3.0 a .NET repo is adopted exactly like any other: stack=generic, no pattern skill, the stack is left to
@@ -313,7 +343,9 @@ case "$DOUT" in *"enforces the §4.6 review gate"*) ;;
 # fork too and is not counted — the number is a floor, which is the right side to err on for a ceiling gate.
 fork_words(){   # $1 = xtrace file, $2 = the traced script (for its function names) -> one line per external command
   { compgen -b; compgen -k; echo '(('
-    grep -hoE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\(\)' "$2" | tr -d ' ()' | sort -u; } > "$1.excl"
+    # ...and the functions of the libraries it sources (eval/lib): `crew_is_lockfile` is a call, not a process. Counted
+    # as one, eight calls of it alone read as eight forks and put doctor over budget on a machine where it was not.
+    grep -hoE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\(\)' "$2" "${2%/*}"/lib/*.sh 2>/dev/null | tr -d ' ()' | sort -u; } > "$1.excl"
   # Read as BYTES (LC_ALL=C). An xtrace is not always valid text: bash 3.2 prints a four-byte character it assigns
   # half escaped (`_l=$'\xf0\237\xa4\226'` for the robot emoji of the trace blocklist, which doctor now reads line by
   # line), and BSD sed under a UTF-8 locale stops on it with "RE error: illegal byte sequence". Measured: this e2e

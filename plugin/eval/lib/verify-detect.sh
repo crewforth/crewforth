@@ -33,7 +33,10 @@ _vd_node(){  # $1 = folder holding package.json, $2 = the JSON reader
     esac
   done <<< "$keys"
   [ "$pm" = npm ] || return 0
-  deps="$(awk -v op=keys -v path=devDependencies -f "$sj" "$d/package.json" 2>/dev/null; awk -v op=keys -v path=dependencies -f "$sj" "$d/package.json" 2>/dev/null)"
+  # `|| true`: the reader answers non-zero for a key the file does not have, and this file is sourced by installers
+  # that run under `set -e` — a package.json without "dependencies" stopped `npx crewforth init` here, silently, before
+  # it wrote .gitignore or set core.hooksPath (measured: rc 1). What was read is kept either way.
+  deps="$(awk -v op=keys -v path=devDependencies -f "$sj" "$d/package.json" 2>/dev/null; awk -v op=keys -v path=dependencies -f "$sj" "$d/package.json" 2>/dev/null)" || true
   while IFS= read -r k; do
     case "${k%$'\r'}" in
       vitest) _vd_add "npx vitest run" ;;

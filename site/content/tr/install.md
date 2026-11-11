@@ -48,7 +48,7 @@ Bedeli: liste bundan sonra her turda bütün hâlinde gönderilir; bu yaklaşık
 ## Yeni proje
 
 ```bash
-bash start.sh [--private|--shared] [--lang tr|en] [--yes] [--version] [-h]
+bash start.sh [--private|--shared] [--ignore-local] [--lang tr|en] [--yes] [--version] [-h]
 ```
 
 Sihirbaz önce hangi dilde konuşacağını sorar (Türkçe ya da İngilizce), ardından kurulumu kimin kullanacağını; sonunda hiçbir şey yazılmadan önce onaylayacağınız bir özet gösterir. Seçtiğiniz dil tüm sorulara ve mesajlara uygulanır; kurulan dosyalar İngilizce kalır.
@@ -61,6 +61,7 @@ Sihirbaz önce hangi dilde konuşacağını sorar (Türkçe ya da İngilizce), a
 |:--|:--|:--|
 | Dil | `--lang tr` · `--lang en` | kurulumun ekrana yazdıkları — diske yazdığı hiçbir şey değil |
 | Kimin için | `--private` · `--shared` | `.claude/` ve `CLAUDE.md`'nin gitignore'a mı gireceği, yoksa ekip için commit mi edileceği |
+| Yok sayma satırları nereye | `--ignore-local` (3. cevap) | izlenen `.gitignore` yerine yalnız bu klonun okuduğu `.git/info/exclude`; `adopt` da kabul eder |
 
 **Backend yığından bağımsızdır.** Kurulum yığın sormaz. İlk backend işinde `backend-architecture` skill'i yığını çözer: önce isteğiniz, sonra `CLAUDE.md`'deki `## Stack` bölümü, sonra deponun manifest dosyaları (`package.json`, `go.mod`, `pyproject.toml`, `*.csproj`, …); yalnız boş bir depoda, her birinde önerilen bir cevap ve "Decide for me" seçeneği olan en fazla dört çoktan seçmeli soru sorar. Cevap `## Stack` bölümüne yazılır ve bir ADR ile kaydedilir; yani bir kez sorulur. Node, Go, Python, .NET ve JVM eşit desteklenir; `.claude/skills/` altına kendi desen skill'ini koyan projede o uygulanır.
 
@@ -102,6 +103,10 @@ Değişikliğin nereye ineceği bir tercih. İlk devir `kit-adopt-<zaman damgas�
 Oturum içinde **`/crew-update`** sürüm kontrolünü yapar, güncelleyiciyi koşturur, `/crew-doctor` ile doğrular ve ardından `/clear` önerir; böylece tazelenen disiplin yeni bir oturumda yüklenir. **`/crew-doctor`** ise canlı bir kurulumu istediğiniz an denetler (hook'lar çalıştırılabilir mi, `core.hooksPath` ayarlı mı, kapılar bağlı mı, disiplin gerçekten import edilmiş mi) ve projenin kendisi için tavsiye niteliğinde bir hazırlık puanı basar.
 
 Bir projenin `CLAUDE.md` dosyası disiplini import etmek yerine **satır içinde** taşıyorsa güncellemeler oraya ulaşamaz. Güncelleyici bunu fark eder, etkilenen satırları gösterir ve onları tek bir `@.claude/DISCIPLINE.md` import'uyla değiştirmeyi önerir; önce yedek alır, işi de sizin inceleyeceğiniz bir dalda yapar. Reddederseniz hiçbir şeye dokunulmaz.
+
+## Worktree'lerde paralel oturumlar
+
+claude-squad ve benzeri araçlar her oturumu ayrı bir git worktree'sinde başlatır. `.claude/` gitignore'daysa (`npx crewforth init` onu öyle bırakır) yeni bir worktree'de Crewforth dosyası yoktur, bu yüzden orada başlatılan bir Claude Code oturumu Crewforth'un hiçbir hook'unu koşmaz. Git hook'ları orada da koşar, çünkü `core.hooksPath` mutlak yol olarak yazılır. Oturumu başlatmadan önce `.claude/` klasörünü worktree'ye kopyalayın. Proje kökünde `/crew-doctor`, `.claude/settings.json` olmayan her worktree'yi adıyla söyler. İzlenen (tracked) bir `.claude/` için kopya gerekmez: worktree onu checkout eder.
 
 ## Kaldırma
 
