@@ -21,7 +21,7 @@
 #      CREW_STUDIO_NODE_VERSION  pin a version instead of asking nodejs.org for the newest LTS
 set -u
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
 
 # The floor is stated here and in eval/preflight.sh. Two copies, because preflight ships

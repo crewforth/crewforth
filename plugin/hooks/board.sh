@@ -27,7 +27,7 @@
 #   as BOTH an ISO string for humans and an epoch integer for arithmetic, so nothing ever has to be re-parsed.
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
 
 # ---------------------------------------------------------------- repo primitives
@@ -40,7 +40,7 @@ _git_dir(){ git rev-parse --git-common-dir 2>/dev/null; }
 # Claude reads must give it the command it can run itself — this script — and name the slash form for the user.
 # The plugin edition's copy lives outside the project, so it names its own absolute path. Only called when a message
 # is printed, never on the hot path.
-_selfcmd(){ local d="${BASH_SOURCE%/*}"; [ "$d" = "$BASH_SOURCE" ] && d=.   # run by bare name: the name has no slash
+_selfcmd(){ local d="${BASH_SOURCE//\\//}"; d="${d%/*}"; [ "$d" = "${BASH_SOURCE//\\//}" ] && d=.   # run by bare name: the name has no slash
   d="$(cd "$d" 2>/dev/null && pwd)"
   if [ -f "$d/../.claude-plugin/plugin.json" ]; then _SELF="bash \"$d/board.sh\""; else _SELF='bash .claude/hooks/board.sh'; fi; }
 _act(){ _selfcmd; printf '%s %s (Bash tool, not PowerShell — or the user can type /crew-board %s)' "$_SELF" "$1" "${2:-$1}"; }

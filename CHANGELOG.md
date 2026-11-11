@@ -32,6 +32,15 @@ versioning follows [SemVer](https://semver.org/).
 - **No update check when the environment says no traffic.** `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` or
   `DISABLE_TELEMETRY` now means the session-start check sends nothing and writes no cache.
 
+- **More ways round the destructive and gate-file rules are closed.** `rm -rf` aimed at `$HOME`, `${HOME}`, `$PWD`,
+  `${PWD}` or `$(pwd)`, quoted or not, is refused like `rm -rf .`; `cd .. && rm -rf dir`, `find -delete` and
+  `xargs rm` stay free. A force push, `reset --hard` or `clean -f` is still refused when git is held in a variable the
+  same command set to git (`g=git; $g push --force`, also `"$g"` and `${g}`), when the subcommand is filled in inside
+  `bash -c '…'`, and when a Bash call starts PowerShell with `Start-Process git`; a variable set to another program
+  stays free. A write to `.git/info/attributes`, the system `etc/gitconfig`, a path built from
+  `$(git rev-parse --git-dir)` or `--git-path`, or any file after `cd .git` is refused, in the shell and in the
+  Write/Edit tools.
+
 ### Added
 
 - **`/crew-ship` checks that the SonarQube verdict is about the code it ships.** `sonarqube-check` records its
@@ -325,6 +334,11 @@ versioning follows [SemVer](https://semver.org/).
   empty, where every `new_*` condition reads `OK` with nothing to judge.
 
 ### Fixed
+
+- **A hook started by a Windows path finds its own files.** Every hook and the doctor, preflight and gate-report
+  scripts fold backslashes before taking their own directory, so `C:\…\hooks\x.sh` no longer looks for its
+  libraries and siblings in the project. Started that way, `guard-write.sh` skipped the agent-model check.
+- **`sonarqube-check` reads its token from `SONAR_TOKEN`.** Its scan and API commands used `$T`, which nothing set.
 
 - **Warp no longer closes the one-click approval.** Warp's Claude Code plugin wires a `PermissionRequest` hook that
   only shows a notification; it cannot answer a prompt. The approval scan found the event's name and closed the

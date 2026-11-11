@@ -38,12 +38,14 @@ token: **`references/stand-up-server.md`**. No licence, no external account, not
 > report "unverified" rather than installing anything to make a number appear.
 
 Scan with whatever runner the project's stack uses — the scanner is the same product for every language:
+The token is read from the `SONAR_TOKEN` environment variable (set it in your shell or an untracked env file) — never
+pasted into chat, a command line literal, or a committed file.
 
 | Project | Scan command |
 |---|---|
-| Any stack (generic) | `sonar-scanner -Dsonar.projectKey=app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.token=$T` |
-| Maven / Gradle | `mvn sonar:sonar -Dsonar.host.url=… -Dsonar.token=$T` · `gradle sonarqube …` |
-| .NET | `dotnet sonarscanner begin /k:app /d:sonar.host.url=… /d:sonar.token=$T` → `dotnet build` → `dotnet sonarscanner end /d:sonar.token=$T` |
+| Any stack (generic) | `sonar-scanner -Dsonar.projectKey=app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.token=$SONAR_TOKEN` |
+| Maven / Gradle | `mvn sonar:sonar -Dsonar.host.url=… -Dsonar.token=$SONAR_TOKEN` · `gradle sonarqube …` |
+| .NET | `dotnet sonarscanner begin /k:app /d:sonar.host.url=… /d:sonar.token=$SONAR_TOKEN` → `dotnet build` → `dotnet sonarscanner end /d:sonar.token=$SONAR_TOKEN` |
 | JS/TS, Python, Go, PHP, Ruby | the generic `sonar-scanner` above, with the coverage report below |
 
 **Coverage first: SonarQube runs no tests, it reads a report.** Produce one before the scan and pass its path, or
@@ -77,10 +79,10 @@ measure from getting worse: **`references/ratchet.md`**.
 
 ```bash
 S=http://localhost:9000; K=app          # or the project's own host/key
-curl -sfu "$T:" "$S/api/qualitygates/project_status?projectKey=$K"     # pass / fail, and which condition failed
-curl -sfu "$T:" "$S/api/issues/search?componentKeys=$K&resolved=false&ps=500"   # rule id + file + line per finding
-curl -sfu "$T:" "$S/api/hotspots/search?projectKey=$K&status=TO_REVIEW"          # hotspots are a SEPARATE endpoint
-curl -sfu "$T:" "$S/api/measures/component?component=$K&metricKeys=alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,reliability_rating,security_rating,sqale_rating"
+curl -sfu "$SONAR_TOKEN:" "$S/api/qualitygates/project_status?projectKey=$K"     # pass / fail, and which condition failed
+curl -sfu "$SONAR_TOKEN:" "$S/api/issues/search?componentKeys=$K&resolved=false&ps=500"   # rule id + file + line per finding
+curl -sfu "$SONAR_TOKEN:" "$S/api/hotspots/search?projectKey=$K&status=TO_REVIEW"          # hotspots are a SEPARATE endpoint
+curl -sfu "$SONAR_TOKEN:" "$S/api/measures/component?component=$K&metricKeys=alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,reliability_rating,security_rating,sqale_rating"
 ```
 
 Also read the gate's definition (`/api/qualitygates/show`): most gates judge **new code**, not the whole project.
@@ -93,7 +95,7 @@ the version has not changed, `project_status` returns `"period": null` and every
 carry an E rating. When that is what you read:
 - report the **overall** ratings and counts (the `measures` call above) as the verdict, and say the gate had no new
   code to evaluate — never "the gate passed";
-- propose a baseline so the next analysis has new code to judge: `curl -sfu "$T:" -X POST
+- propose a baseline so the next analysis has new code to judge: `curl -sfu "$SONAR_TOKEN:" -X POST
   "$S/api/new_code_periods/set?project=$K&type=NUMBER_OF_DAYS&value=30"` (or `REFERENCE_BRANCH` with the main branch).
   It changes the project's settings, so it is the user's yes, like any other change.
 

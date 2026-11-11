@@ -45,7 +45,7 @@
 # look like a release before it is ever printed into the model's context.
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
 # How an install's own version is read and ordered (an rc before its final): one definition, eval/lib/version.sh.
 [ -f "$_crew_d/../eval/lib/version.sh" ] && . "$_crew_d/../eval/lib/version.sh"; unset _crew_d

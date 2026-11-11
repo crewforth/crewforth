@@ -686,7 +686,7 @@ _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog
 #           allowed beforehand, so there the list allows nothing and only a or b does.
 #   5. THE SHELL GATE AGREES, asked under a session id that is not the session's: only "nothing to say" or an
 #      explicit allow passes.
-_AM_HERE="${BASH_SOURCE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE}" ] && _AM_HERE=.
+_AM_HERE="${BASH_SOURCE//\\//}"; _AM_HERE="${_AM_HERE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE//\\//}" ] && _AM_HERE=.
 [ -f "$_AM_HERE/../eval/lib/gate-log.sh" ] && . "$_AM_HERE/../eval/lib/gate-log.sh"   # where the gate log goes
 # CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
 _AM_RUNNERS=('npm test' 'npm t' 'pnpm test' 'yarn test' 'bun test' 'deno test'

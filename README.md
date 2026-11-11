@@ -15,7 +15,7 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain,<br>
-40 skills that hold the method, 17 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 18 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 

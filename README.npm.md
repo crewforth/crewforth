@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Crewforth/crewforth/main/assets/logo.svg" alt="Crewforth" width="420"></p>
 
-**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain, 40 skills that hold the method, 17 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain, 40 skills that hold the method, 18 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 ```bash
 npx crewforth init              # set up a new project

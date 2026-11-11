@@ -593,7 +593,7 @@ _crew_prh_scan(){  # -> 0 when a PermissionRequest hook may be wired; _PRH names
 # guard-bash.sh offers it in a refusal; agent-outcome.sh offers it when crew-commit-agent is called in `auto`, so the
 # click is on offer before any commit is tried (B-2, a real session: with the refusal as the only way to it, a session
 # that asked for /crew-approve first never showed it). The text the user is asked stays _CREW_Q_JSON, here only.
-_CREW_Q_HERE="${BASH_SOURCE[0]%/*}"; [ "$_CREW_Q_HERE" = "${BASH_SOURCE[0]}" ] && _CREW_Q_HERE=.
+_CREW_Q_HERE="${BASH_SOURCE[0]//\\//}"; _CREW_Q_HERE="${_CREW_Q_HERE%/*}"; [ "$_CREW_Q_HERE" = "${BASH_SOURCE[0]//\\//}" ] && _CREW_Q_HERE=.
 _crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (guard-question.sh, then this file)
   local f t d="${CLAUDE_PROJECT_DIR:-.}"
   d="${d//\\//}"; d="${d%/}"
@@ -972,7 +972,7 @@ if [ "$OP" = loosen ]; then
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || nol "this is the first message of this session, or the session keeps no transcript."
-  _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
+  _lh="${BASH_SOURCE//\\//}"; _lh="${_lh%/*}"; [ "$_lh" = "${BASH_SOURCE//\\//}" ] && _lh=.
   [ -f "$_lh/guard-agent-model.sh" ] || nol "model routing is not installed beside this hook."
   [ "${CREW_MODEL_ROUTING:-}" = off ] && nol "model routing is switched off (CREW_MODEL_ROUTING=off), so no floor is in force."
   CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"; . "$_lh/guard-agent-model.sh"
@@ -1016,7 +1016,7 @@ if [ "$OP" = allowverify ]; then
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) noa "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || noa "this is the first message of this session, or the session keeps no transcript."
-  _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
+  _lh="${BASH_SOURCE//\\//}"; _lh="${_lh%/*}"; [ "$_lh" = "${BASH_SOURCE//\\//}" ] && _lh=.
   [ -f "$_lh/../eval/lib/verify-cmd.sh" ] || noa "Crewforth's verify reading is not installed beside this hook (eval/lib/verify-cmd.sh)."
   . "$_lh/../eval/lib/verify-cmd.sh"
   _avr="${CLAUDE_PROJECT_DIR:-$CWD}"; _avr="${_avr//\\//}"; _avr="${_avr%/}"
