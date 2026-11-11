@@ -1895,16 +1895,29 @@ function paintProjects() {
   // by name is worse than showing a dead path.
   const reachable = (showMissing || filterText) ? data.projects : data.projects.filter((p) => p.exists);
   const missing = data.projects.length - reachable.length;
-  // Projects with Crewforth come first; the rest fold away. The project you are standing in always stays, and a
-  // project whose kit was not read is not assumed bare.
-  const isBare = (p) => Boolean(p.kit) && !p.kit.installed && !p.current;
+  // Projects with Crewforth come first under their own heading; the rest sit under another and fold away. A project
+  // whose kit was not read is not assumed bare. The group opens by itself while the session on screen is in it.
+  const isBare = (p) => Boolean(p.kit) && !p.kit.installed;
   const withKit = reachable.filter((p) => !isBare(p));
   const bare = reachable.filter(isBare);
-  const pool = (showBare || filterText) ? [...withKit, ...bare] : withKit;
+  const bareOpen = showBare || Boolean(filterText) || Boolean(current && isBare(findSessionRow(current)?.project ?? {}));
+  const pool = bareOpen ? [...withKit, ...bare] : withKit;
+  const sectionHead = (text, label, run) => {
+    const line = node('div', 'nav-section');
+    line.append(node('span', null, text));
+    if (label) {
+      const btn = node('button', 'link', label);
+      btn.type = 'button';
+      btn.addEventListener('click', run);
+      line.append(btn);
+    }
+    return line;
+  };
 
   const frag = document.createDocumentFragment();
   let shown = 0;
   let hiddenCount = 0;
+  let section = null;
 
   for (const p of pool) {
     const projectHit = filterText && p.label.toLowerCase().includes(filterText);
@@ -1914,6 +1927,13 @@ function paintProjects() {
     });
     if (filterText && !projectHit && !sessions.length) continue;
     shown += 1;
+    const here = isBare(p) ? 'bare' : 'kit';
+    if (here !== section && bare.length) {
+      section = here;
+      frag.append(here === 'kit'
+        ? sectionHead(t('With Crewforth · {n}', { n: withKit.length }))
+        : sectionHead(t('Without Crewforth · {n}', { n: bare.length }), showBare && !filterText ? t('hide') : null, () => { showBare = false; paintProjects(); }));
+    }
 
     const open = expanded.has(p.key) || Boolean(filterText);
     const group = node('div', 'proj');
@@ -1978,13 +1998,8 @@ function paintProjects() {
       () => { showHidden = !showHidden; paintProjects(); },
     ));
   }
-  if (bare.length && !filterText) {
-    frag.append(lineWith(
-      showBare ? t('Showing {n} project(s) without Crewforth', { n: bare.length })
-        : t('{n} project(s) without Crewforth hidden', { n: bare.length }),
-      showBare ? t('hide') : t('show'),
-      () => { showBare = !showBare; paintProjects(); },
-    ));
+  if (bare.length && !bareOpen) {
+    frag.append(sectionHead(t('Without Crewforth · {n}', { n: bare.length }), t('show'), () => { showBare = true; paintProjects(); }));
   }
   if (missing > 0 && !filterText) {
     frag.append(lineWith(
