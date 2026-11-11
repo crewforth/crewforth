@@ -1137,8 +1137,10 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Z
 # real commands whose later text held a backslash (a here-document's \n).
 _RMNL=$'\n'
 _RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\.\.?|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\}|\$\(pwd\)|\$USERPROFILE|\$\{USERPROFILE\})["'"'"']?([[:space:];&|)}]|$)'
-# a Windows path by its drive (`C:\Users\me`, `'C:\'`, `D:/x`), as a target of this rm's own segment only
-_RMWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?[A-Za-z]:[/\\]'
+# a Windows path, as a target of this rm's own segment only: by its drive (`C:\Users\me`, `'C:\'`, `D:/x`), and the
+# drive-less forms Git Bash resolves too (measured on Windows): `..\..` (the real parent), `\\host\c$` (a share that
+# reaches the drive's root), `\Users\me` (rooted on the current drive). `my\ dir`, an escaped space, is none of them.
+_RMWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?([A-Za-z]:[/\\]|\.\.?\\|\\\\[A-Za-z0-9]|\\[A-Za-z])'
 # the whole temp root by its name — unless this call sets that name itself (`TMP=$(mktemp -d); …; rm -rf "$TMP"` is
 # the usual clean-up of its own folder: measured, 2 real commands)
 _RMTMPV='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\$TEMP|\$\{TEMP\}|\$TMP|\$\{TMP\}|\$TMPDIR|\$\{TMPDIR\})["'"'"']?([[:space:];&|)}]|$)'
