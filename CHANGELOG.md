@@ -55,7 +55,10 @@ versioning follows [SemVer](https://semver.org/).
   plan is paused, so a stopped plan no longer stands in for the work that replaced it. The plan tells whoever works it
   to set that line when the user stops the work; `/crew-todo pause` and `/crew-todo resume` set it directly.
   `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat. The drawing is cached
-  until the plan changes, so a status line refresh starts no process for it.
+  until the plan changes, so a status line refresh starts no process for it. With no plan file yet, `/crew-todo`
+  writes an empty one, and each call brings the file up to date with the plan made in the conversation (plan mode,
+  `crew-planner`, or a task added or finished since), so the panel and Studio show it. A file that keeps several
+  plans is read at the last `Tasks` heading that holds a task, not at the first.
 - **A compaction no longer loses what the user asked for.** The PreCompact snapshot keeps the user's first and last
   three prompts and the skills used in the session, and gives them back after the compaction, in the same session
   only; secrets and `<private>` text are left out. The `handoff` template carries the user's words, the dead ends

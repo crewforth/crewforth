@@ -15,7 +15,9 @@
 # line carries only the count ("📋 7/12"). Nothing here decides or blocks anything. The plan's own boxes are the record
 # ([ ] open · [x] done · [~] in work), ticked by whoever does the work, and its `status:` line says whether it is the
 # work in progress: a paused, dropped or done plan gives no count and no tasks, so a stopped plan does not stand in for
-# the work that replaced it. The plan is written only by pause and resume, and only that one line.
+# the work that replaced it. The plan is written only by pause and resume, and only that one line, and created when it
+# is missing: on, show and the toggle write an empty one (a title, `status: active`, a `## Tasks` heading with no task
+# under it), so the file the panel and Studio read is there for the plan's tasks to go into.
 #
 # State, per project, under .claude/state/todo/: `open` (present = the panel is open) and `path` (the plan file, when
 # it is not docs/PLAN.md); `view` is a cache of the drawing, made again only when the plan, todo.awk or the settings
@@ -79,10 +81,21 @@ case "$cmd" in on|off|toggle|show|status|pause|resume) ;; -h|--help) sed -n '2,1
 esac
 case "$file" in *$'\n'*|*$'\r'*) echo "todo: a file name with a line break is not read" >&2; exit 2 ;; esac
 
+# The plan file, written when it is missing: the head spec-planning's plans start with and a Tasks heading with no task
+# under it, for whoever holds the plan to fill. Its directory is made too. Says so in one line on stdout.
+crew_todo_create(){
+  [ -e "$1" ] && return 0
+  case "$1" in */*) mkdir -p "${1%/*}" 2>/dev/null ;; esac
+  printf '%s\n' '# Plan' 'status: active' '## Tasks (order)' \
+    'Progress: tick a task [x] when its check passes, mark the one in work [~]; status: paused above when this work stops.' \
+    > "$1" 2>/dev/null || { echo "todo: cannot write $1" >&2; return 1; }
+  echo "todo: created $1, with no task in it yet"
+}
+
 if [ "$cmd" = show ]; then
   # Drawn here, not from the cache, and coloured only on a terminal: this may go to a chat that does not take colour.
   crew_todo_plan; [ -n "$file" ] && _CREW_TODO_PLAN="$file"
-  if [ ! -f "$_CREW_TODO_PLAN" ]; then echo "📋 no plan at $_CREW_TODO_PLAN yet: /crew-plan writes one"; exit 0; fi
+  crew_todo_create "$_CREW_TODO_PLAN" || exit 1
   c=0; [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && c=1
   LC_ALL=C awk -v color="$c" -v maxl=999 -v name="$_CREW_TODO_PLAN" -f "$_CREW_TODO_LIB/todo.awk" "$_CREW_TODO_PLAN" | sed 1,2d
   exit 0
@@ -92,7 +105,7 @@ if [ "$cmd" = pause ] || [ "$cmd" = resume ]; then
   # The one line this script writes in a plan: `status:` in its head (above the first ## heading), replaced where it
   # is, else put under the `commit:` line, else under the title, else on top. Line endings follow the file's.
   crew_todo_plan; [ -n "$file" ] && _CREW_TODO_PLAN="$file"
-  if [ ! -f "$_CREW_TODO_PLAN" ]; then echo "todo: no plan at $_CREW_TODO_PLAN" >&2; exit 1; fi
+  if [ ! -f "$_CREW_TODO_PLAN" ]; then echo "todo: no plan at $_CREW_TODO_PLAN to $cmd (/crew-todo writes one)" >&2; exit 1; fi
   w=paused; [ "$cmd" = resume ] && w=active
   # The line ending is read here, not in awk: Git Bash's awk drops the CR of a CRLF line as it reads it, so it would
   # neither see one nor write one back, and the whole plan would come out LF.
@@ -125,9 +138,9 @@ fi
 
 mkdir -p "$_CREW_TODO_DIR" 2>/dev/null || { echo "todo: cannot write $_CREW_TODO_DIR" >&2; exit 1; }
 if [ -n "$file" ]; then
-  [ -f "$file" ] || echo "todo: $file does not exist yet; the panel will read it once it does"
   if [ "$file" = docs/PLAN.md ]; then rm -f "$_CREW_TODO_DIR/path"; else printf '%s\n' "$file" > "$_CREW_TODO_DIR/path"; fi
 fi
+case "$cmd" in on|toggle) crew_todo_plan; crew_todo_create "$_CREW_TODO_PLAN" || exit 1 ;; esac
 [ "$cmd" = toggle ] && { if [ -e "$_CREW_TODO_DIR/open" ]; then cmd=off; else cmd=on; fi; }
 case "$cmd" in
   on) : > "$_CREW_TODO_DIR/open" ;;

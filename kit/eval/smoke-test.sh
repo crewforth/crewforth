@@ -13883,6 +13883,19 @@ PLAN
       && [ "$_to9" = "🔋 12% · ~\$0.50" ] && [ "$_to10" = "🔋 12% · ~\$0.50 · 📋 4/6" ] && [ "$_tcr" = "5/status: paused" ] \
       && pass "plan panel: a paused plan gives no count closed and one line open; pause adds only its status line, resume sets it back; 'on hold' (bold key) is paused, any other word active; a named file set without moving the panel, its CRLF kept" \
       || fail "plan panel status: pause said '$_tp', changed '$_tpd' · closed='$_to6' · open='$_to7' · resumed line='$_tpr' line='$_to8' · on hold='$_to9' · other word='$_to10' · crlf='$_tcr' (want 5/status: paused)"
+    # No plan yet: the toggle, on and show write an empty one (its directory too) for the plan's tasks to go into, and
+    # say so; off, status and pause create nothing. The file it writes is one the panel reads: active, no task yet.
+    _tn(){ rm -rf "$_sl/n" && mkdir -p "$_sl/n/.claude" && (cd "$_sl/n" && env -u CLAUDE_PROJECT_DIR bash "$ROOT/eval/lib/todo.sh" "$@" 2>&1) | head -n 1 | tr '\n' ' '; [ -f "$_sl/n/docs/PLAN.md" ] && printf 'made'; [ -f "$_sl/n/w/x.md" ] && printf 'made-named'; return 0; }
+    _tc0="$(_tn)"; _tch="$(head -n 2 "$_sl/n/docs/PLAN.md" 2>/dev/null | tr '\n' '|')"
+    _tc1="$(_tn on)"; _tc2="$(_tn show)"; _tc3="$(_tn w/x.md)"
+    _tc4="$(_tn off)"; _tc5="$(_tn status)"; _tc6="$(_tn pause)"
+    [ "$_tc0" = "todo: created docs/PLAN.md, with no task in it yet made" ] && [ "$_tch" = "# Plan|status: active|" ] \
+      && [ "$_tc1" = "$_tc0" ] && [ "$_tc2" = "$_tc0" ] && [ "$_tc3" = "todo: created w/x.md, with no task in it yet made-named" ] \
+      && case "$_tc4" in "plan panel: closed · docs/PLAN.md · the file does not exist yet ") true ;; *) false ;; esac \
+      && case "$_tc5" in "plan panel: closed · docs/PLAN.md · the file does not exist yet ") true ;; *) false ;; esac \
+      && case "$_tc6" in "todo: no plan at docs/PLAN.md to pause"*) true ;; *) false ;; esac \
+      && pass "plan panel: with no plan, the toggle, on, show and a named file write an empty active one (its directory too) and say so; off, status and pause create nothing" \
+      || fail "plan panel with no plan: toggle='$_tc0' head='$_tch' · on='$_tc1' · show='$_tc2' · named='$_tc3' · off='$_tc4' · status='$_tc5' · pause='$_tc6'"
   else
     skip scope "plan panel checks skipped (this project has no eval/lib/todo.sh)"
   fi
