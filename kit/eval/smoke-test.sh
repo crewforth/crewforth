@@ -6675,6 +6675,22 @@ FK="$(mktemp -d)"; mkdir -p "$FK/docs" "$FK/.claude/.state"; printf 'state\n' > 
 case "$(printf '{"hook_event_name":"SessionStart","source":"fork","cwd":"%s"}' "$FK" | CLAUDE_PROJECT_DIR="$FK" bash "$HOOKS/session-rehydrate.sh" 2>/dev/null)" in
   *SESSION_STATE.md*) pass "session-rehydrate.sh, fed a fork, points the forked session at the handover" ;;
   *) fail "session-rehydrate.sh said nothing to a forked session" ;; esac
+# Per-agent and per-session state is pruned at a session's start, and nothing else: old agent records and old loop
+# files go, recent ones, the outcome history and every other state file stay; a compaction removes nothing.
+_stf="$(mktemp -d)"; _sts="$_stf/.claude/state"; mkdir -p "$_sts/crew-model/agents" "$_sts/crew-model/results"
+( cd "$_stf" && git init -q . ) >/dev/null 2>&1
+for _x in agents/old agents/old.used results/old; do touch -t 202001010000 "$_sts/crew-model/$_x"; done
+touch "$_sts/crew-model/agents/new" "$_sts/crew-model/results/new" "$_sts/loop-cur.txt"
+touch -t 202001010000 "$_sts/loop-old.txt" "$_sts/model-outcomes.tsv" "$_sts/crew-critical-paths.auto" "$_sts/crew-model/keep.tsv"
+_stl(){ ( cd "$_sts" && find . -type f | LC_ALL=C sort | tr '\n' ' ' ); }
+_strun(){ printf '{"hook_event_name":"SessionStart","source":"%s","cwd":"%s"}' "$1" "$_stf" | CLAUDE_PROJECT_DIR="$_stf" bash "$HOOKS/session-rehydrate.sh" >/dev/null 2>&1; }
+_strun compact; _st1="$(_stl)"; _strun startup; _st2="$(_stl)"
+_stw2='./crew-critical-paths.auto ./crew-model/agents/new ./crew-model/keep.tsv ./crew-model/results/new ./loop-cur.txt ./model-outcomes.tsv '
+case "$_st1" in *agents/old*'loop-old.txt'*) ;; *) _st1bad=1 ;; esac
+if [ -n "${_st1bad:-}" ]; then fail "session-rehydrate pruned state on a compaction: $_st1"
+elif [ "$_st2" = "$_stw2" ]; then pass "session start prunes agent records older than 14 days and loop files older than 2 days; recent ones, the outcome history and other state stay, and a compaction prunes nothing"
+else fail "session start pruning left: $_st2 (want: $_stw2)"; fi
+rm -rf "$_stf"; unset _st1bad
 for _h in skill-trust.sh board-sync.sh; do
   ( printf '{"hook_event_name":"SessionStart","source":"fork","cwd":"%s"}' "$FK" | CLAUDE_PROJECT_DIR="$FK" bash "$HOOKS/$_h" ) >/dev/null 2>&1 \
     && pass "$_h runs to completion on a fork payload (rc=0)" || fail "$_h failed on a fork payload"
@@ -12465,6 +12481,41 @@ _cf_big 'git -C \"$PWD\" status; echo '"$_cfa"
 _cf_big 'git status; echo '"$_cfa"
 { [ "$_cfr" = 0 ] && [ -z "$_cfd" ]; } \
   || _cfbad="$_cfbad [a $_cfsz-byte call of git with no expansion: rc=$_cfr decision=$_cfd, want rc 0 and no decision — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+# 3b-ii) text is not a git call: the same words only inside the body `cat` or `tee` writes pass at that size (they
+#     were refused unread; `push` and `commit` are left out of the text, the approval gate asks about those at any size); the same body handed to bash is a program and keeps the limit, and so does a git call
+#     with an expansion after the body
+_cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
+{ [ "$_cfr" = 0 ] && [ -z "$_cfd" ] && [ "$_cfsz" -gt 32768 ]; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte cat here-document whose text names git with an expansion: rc=$_cfr decision=$_cfd, want rc 0 — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+_cf_big 'tee notes.md <<-EOF >/dev/null\nrun git checkout $BRANCH here '"$_cfa"'\n\tEOF'
+{ [ "$_cfr" = 0 ] && [ -z "$_cfd" ]; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte tee <<- here-document with a tab-indented end: rc=$_cfr decision=$_cfd, want rc 0 — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+_cf_big 'bash <<'"$_cfq"'EOF'"$_cfq"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
+{ [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte here-document handed to bash that names git with an expansion: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+for _cfp2 in 'cat <<'"$_cfq"'EOF'"$_cfq"' | bash' 'tee >(sh) <<'"$_cfq"'EOF'"$_cfq"; do   # a body piped to a shell is a program too
+  _cf_big "$_cfp2"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
+  { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
+    || _cfbad="$_cfbad [a $_cfsz-byte here-document fed to a shell by '$_cfp2': rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+done
+# 3b-iii) the same at any size, for §4.4 and §4.6: a note `cat` or `tee` writes that says "git commit" or "git push"
+#     commits and pushes nothing (it was refused by §4.6, or asked about by §4.4, in default and in auto). A body
+#     handed to a shell still is a commit or a push. Each row: default rc/decision, auto rc/decision.
+_cfq3="$_cfq"
+while IFS= read -r _hl; do [ -n "$_hl" ] || continue
+  _hw="${_hl%% @@ *}"; _hc="${_hl#* @@ }"; _hc="${_hc//@Q@/$_cfq3}"
+  _cf_run default "$_hc"; _hg="$_cfr/$_cfd"; _cf_run auto "$_hc"; _hg="$_hg $_cfr/$_cfd"
+  [ "$_hg" = "$_hw" ] || _cfbad="$_cfbad [a here-document's text and §4.4/§4.6: $_hc → $_hg, want $_hw]"
+done <<'HDT'
+0/ 0/ @@ cat > notes.md <<@Q@EOF@Q@\nTo publish, run git commit -m x and then git push.\nEOF
+0/ 0/ @@ tee notes.md <<-EOF >/dev/null\nRun git push origin main when ready.\n\tEOF
+0/ask 2/ @@ bash <<@Q@EOF@Q@\ngit push origin main\nEOF
+0/ask 2/ @@ cat <<@Q@EOF@Q@ | sh\ngit push origin main\nEOF
+0/ask 2/ @@ tee >(bash) <<@Q@EOF@Q@\ngit push origin main\nEOF
+HDT
+_cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\n'"$_cfa"'\nEOF\ngit -C \"$PWD\" status'
+{ [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte call with git and an expansion after a cat here-document: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
 # 3c) a PowerShell call that names one of the git commands judged by their arguments is read by that reader too:
 #     the same limit, its own message; the same size without such a word is not read and passes
 _cf_big 'Write-Output push; Write-Output '"$_cfa" PowerShell
