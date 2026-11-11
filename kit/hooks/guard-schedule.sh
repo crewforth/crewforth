@@ -53,8 +53,9 @@ _crew_stop(){  # $1 = what happened
 trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
 # ---- /CREW-FAILCLOSED
 _gate_main(){
-local here="${BASH_SOURCE%/*}" strs sv tn sch=0
-[ "$here" = "${BASH_SOURCE}" ] && here=.
+local here="${BASH_SOURCE//\\//}" strs sv tn sch=0
+here="${here%/*}"
+[ "$here" = "${BASH_SOURCE//\\//}" ] && here=.
 IFS= read -r -d '' INPUT || true
 if [ ! -f "$here/prompt-approval.sh" ]; then
   echo "GUARD (§4.4): prompt-approval.sh is not beside this gate, so a scheduled prompt cannot be checked for an approval and the call is refused. Update Crewforth." >&2

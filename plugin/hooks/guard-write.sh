@@ -71,7 +71,7 @@ trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esa
 # ---- /CREW-FAILCLOSED
 _gate_main(){
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
 [ -f "$_crew_d/../eval/lib/gate-log.sh" ] && . "$_crew_d/../eval/lib/gate-log.sh"; unset _crew_d   # where the gate log goes
 # Read with the builtin, as guard-powershell.sh does: `INPUT="$(cat)"` is a subshell plus a process on EVERY call
@@ -456,7 +456,7 @@ _json_unescape "$_raw" >/dev/null; FP="$_JU"
 # block on a file whose own path says `.claude/…hooks`, which is the trade this gate exists to make.
 if [ -z "$FP" ]; then
   case "$INPUT" in
-    *.claude*hooks*|*.git*hooks*|*DISCIPLINE.md*|*crewforth-approval*|*.git/config*|*.git\\config*|*git-shim*|*.gitconfig*|*.config/git/config*) FP="(unparsed payload naming a gate path)"; block "gate-file edit (unparsed payload)" "$WHY_SCRIPT" ;;
+    *.claude*hooks*|*.git*hooks*|*DISCIPLINE.md*|*crewforth-approval*|*.git/config*|*.git\\config*|*git-shim*|*.gitconfig*|*.config/git/config*|*.git/info/attributes*|*etc/gitconfig*|*etc\\gitconfig*) FP="(unparsed payload naming a gate path)"; block "gate-file edit (unparsed payload)" "$WHY_SCRIPT" ;;
   esac
   exit 0
 fi
@@ -556,12 +556,13 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
       GATE_RULE="gate-file edit (model routing record)"; GATE_WHY="$WHY_MODEL"; return 0 ;;
   esac
   # core.hooksPath lives in git's configuration files: the repository's (.git/config, with a linked worktree's and a
-  # submodule's own) and the user's (~/.gitconfig, ~/.config/git/config). Writing one switches the git hooks off without
+  # submodule's own) and the user's (~/.gitconfig, ~/.config/git/config). .git/info/attributes and the system
+  # file (etc/gitconfig) are on it too: attributes choose the filter and diff drivers a commit runs. Writing one switches the git hooks off without
   # touching a hook. guard-bash.sh carries the same list for the shell. The path gets a slash in front, so one pattern
   # serves both `<dir>/.git/config` and a bare `.git/config`; matched by name, not against $HOME — on Windows the
   # payload says C:\Users\… where the shell says /c/Users/…, and two spellings of one path never compare equal.
   case "/$1" in
-    */.[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]|*/.[Gg][Ii][Tt]/[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]|*/.[Gg][Ii][Tt]/[Mm][Oo][Dd][Uu][Ll][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Cc][Oo][Nn][Ff][Ii][Gg]/[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg])
+    */.[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]|*/.[Gg][Ii][Tt]/[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg].[Ww][Oo][Rr][Kk][Tt][Rr][Ee][Ee]|*/.[Gg][Ii][Tt]/[Mm][Oo][Dd][Uu][Ll][Ee][Ss]/*/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Cc][Oo][Nn][Ff][Ii][Gg]/[Gg][Ii][Tt]/[Cc][Oo][Nn][Ff][Ii][Gg]|*/.[Gg][Ii][Tt]/[Ii][Nn][Ff][Oo]/[Aa][Tt][Tt][Rr][Ii][Bb][Uu][Tt][Ee][Ss]|*/[Ee][Tt][Cc]/[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg])
       GATE_RULE="git-config edit (Write/Edit tools)"; GATE_WHY="$WHY_GITCFG"; return 0 ;;
   esac
   # ...and not only the gate scripts it knew by name: everything under the plugin root's hooks/ (hooks.json, the
@@ -619,7 +620,7 @@ done
 # One definition of "critical path" and of "which model is this agent on": hooks/guard-agent-model.sh, sourced.
 case "$INPUT" in *'"agent_id"'*)
   if [ "${CREW_MODEL_ROUTING:-}" != off ]; then
-    _gwm="${BASH_SOURCE%/*}"; [ "$_gwm" = "${BASH_SOURCE}" ] && _gwm=.
+    _gwm="${BASH_SOURCE//\\//}"; _gwm="${_gwm%/*}"; [ "$_gwm" = "${BASH_SOURCE//\\//}" ] && _gwm=.
     if [ -f "$_gwm/guard-agent-model.sh" ]; then
       . "$_gwm/guard-agent-model.sh"
       declare -F _am_write_check >/dev/null 2>&1 && _am_write_check "$INPUT" "$FP"
@@ -639,7 +640,7 @@ case "$INPUT" in *'"agent_id"'*)
   # which Studio's Gates tab and the status line read. The same definition of "critical path" the agents are held
   # to; a file outside the project is not the project's critical path.
   if [ "${CREW_MODEL_ROUTING:-}" != off ] && [ -n "${FP:-}" ]; then
-    _gwm="${BASH_SOURCE%/*}"; [ "$_gwm" = "${BASH_SOURCE}" ] && _gwm=.
+    _gwm="${BASH_SOURCE//\\//}"; _gwm="${_gwm%/*}"; [ "$_gwm" = "${BASH_SOURCE//\\//}" ] && _gwm=.
     if [ -f "$_gwm/guard-agent-model.sh" ]; then
       . "$_gwm/guard-agent-model.sh"
       if declare -F _am_crit_path >/dev/null 2>&1 && _am_crit_path "$FP"; then
@@ -667,7 +668,7 @@ if [ -n "$GD" ] && [ -f "$GD/crew-board-guard" ]; then
     */docs/*|docs/*|*/.claude/*|.claude/*) ;;   # planning notes and kit config are not the work being claimed
     *)
       # /crew-board is user-only: name the command Claude can run itself, then the slash form for the user.
-      _gwd="${BASH_SOURCE%/*}"; _gwd="$(cd "$_gwd" 2>/dev/null && pwd)"
+      _gwd="${BASH_SOURCE//\\//}"; _gwd="${_gwd%/*}"; _gwd="$(cd "$_gwd" 2>/dev/null && pwd)"
       if [ -f "$_gwd/../.claude-plugin/plugin.json" ]; then _BB="bash \"$_gwd/board.sh\""; else _BB='bash .claude/hooks/board.sh'; fi
       echo "BOARD GATE: you hold no work item, so nobody else can see what you are starting." >&2
       echo "Claim one first (Bash tool, not PowerShell): $_BB claim <id> — $_BB status lists what is free, what is blocked and who holds the rest (or the user can type /crew-board claim <id>)." >&2

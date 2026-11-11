@@ -57,8 +57,9 @@ _crew_stop(){  # $1 = what happened
 trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
 # ---- /CREW-FAILCLOSED
 _gate_main(){
-local here="${BASH_SOURCE%/*}"
-[ "$here" = "${BASH_SOURCE}" ] && here=.
+local here="${BASH_SOURCE//\\//}"
+here="${here%/*}"
+[ "$here" = "${BASH_SOURCE//\\//}" ] && here=.
 IFS= read -r -d '' INPUT || true
 case "$INPUT" in *'Crewforth approval'*) ;; *) exit 0 ;; esac      # not the approval question: nothing to decide
 if [ ! -f "$here/prompt-approval.sh" ]; then

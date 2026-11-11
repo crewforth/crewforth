@@ -9,7 +9,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/kit"
-OUT="$ROOT/plugin"
+# CREW_PLUGIN_OUT builds the edition somewhere else, so verify.sh can compare it with plugin/ without touching it. The
+# directory is removed first, so its last component must be `plugin`: a stray value cannot empty another folder.
+OUT="${CREW_PLUGIN_OUT:-$ROOT/plugin}"
+case "${OUT%/}" in */plugin) ;; *) echo "CREW_PLUGIN_OUT must end in /plugin: $OUT" >&2; exit 2 ;; esac
 
 rm -rf "$OUT"
 mkdir -p "$OUT/.claude-plugin" "$OUT/hooks"

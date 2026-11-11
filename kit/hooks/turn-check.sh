@@ -34,7 +34,7 @@ trap 'exit 0' EXIT
 export LC_ALL=C
 IN=""; IFS= read -r -d '' -t "${CREW_STDIN_TIMEOUT:-2}" IN 2>/dev/null; [ "$?" -gt 128 ] && exit 0
 
-_TC_HERE="${BASH_SOURCE%/*}"; [ "$_TC_HERE" = "${BASH_SOURCE}" ] && _TC_HERE=.
+_TC_HERE="${BASH_SOURCE//\\//}"; _TC_HERE="${_TC_HERE%/*}"; [ "$_TC_HERE" = "${BASH_SOURCE//\\//}" ] && _TC_HERE=.
 P="${CLAUDE_PROJECT_DIR:-$PWD}"; cd "$P" 2>/dev/null || exit 0
 
 # The declared command, read with the builtin `read`: a project that declared none pays no process at all.

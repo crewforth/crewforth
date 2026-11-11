@@ -15,7 +15,7 @@
 **Crewforth, Claude Code için mühendislik ekibinizdir.**
 
 Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 14 uzman ajan,<br>
-yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 17 komut ve önemli kuralları uygulayan hook'lar.
+yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 18 komut ve önemli kuralları uygulayan hook'lar.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 

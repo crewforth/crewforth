@@ -492,7 +492,7 @@ ref_toc_audit(){ # dir... (each holds */references/*.md) -> "skill/references/fi
       [ -f "$f" ] || continue
       n="$(tr -d '\r' < "$f" | wc -l | tr -d ' ')"
       [ "$n" -gt 100 ] || continue
-      tr -d '\r' < "$f" | head -n 20 | grep -q '^## Contents$' && continue
+      grep -q '^## Contents$' <<< "$(tr -d '\r' < "$f" | head -n 20)" && continue
       printf ' %s(%s lines)' "${f#"${f%/*/references/*}"/}" "$n"
     done
   done; }
@@ -570,7 +570,7 @@ for d in "$SKILLS"/*/; do
     [ -e "$af" ] || continue
     grep -qE "[^a-z0-9-]$sname([^a-z0-9-]|$)" "$af" 2>/dev/null || continue   # this agent applies the skill
     found=1
-    grep -m1 '^tools:' "$af" | grep -q "$req" \
+    grep -q "$req" <<< "$(grep -m1 '^tools:' "$af")" \
       || CAPFAIL="$CAPFAIL $(basename "$af" .md)(needs $req for $sname)"
   done
   [ "$found" = 1 ] || note "skill '$sname' declares Requires-tool: $req but no agent applies it"
@@ -595,7 +595,7 @@ _webtrust(){ # $1 = agents dir -> prints each offender as name(reason)
   done; }
 _wtd="$(mktemp -d)"; printf -- '---\nname: planted\ntools: Read, WebFetch, Edit\n---\nBody.\n' > "$_wtd/planted.md"
 _wtc="$(_webtrust "$_wtd")"; rm -rf "$_wtd"
-_wtn=0; for _af in "$AGENTS"/*.md; do grep -m1 '^tools:' "$_af" 2>/dev/null | grep -qE 'WebFetch|WebSearch' && _wtn=$((_wtn+1)); done
+_wtn=0; for _af in "$AGENTS"/*.md; do grep -qE 'WebFetch|WebSearch' <<< "$(grep -m1 '^tools:' "$_af" 2>/dev/null)" && _wtn=$((_wtn+1)); done
 _wto="$(_webtrust "$AGENTS")"
 if [ "$_wtc" != " planted(no trust line) planted(fetches and writes)" ]; then
   fail "the fetching-agent check did not flag a planted agent with WebFetch, Edit and no trust line (got '$_wtc') — it checks nothing"
@@ -883,7 +883,7 @@ else
   CONTRA=0
   for cid in $CLAIMABLE; do
     [ "$cid" = none ] && continue
-    printf '%s' "$SV" | grep -qE "^#$cid +blocked" && CONTRA=1
+    grep -qE "^#$cid +blocked" <<< "$SV" && CONTRA=1
   done
   [ "$CONTRA" = 0 ] && pass "the status view never marks a claimable item as blocked (state is derived, not stored)" \
                     || fail "status contradicts itself: an item is listed claimable AND shown blocked"
@@ -910,7 +910,7 @@ else
   # which is the same as not sending it.
   ( cd "$BD/ali" && bash ../board.sh decide "Refresh tokens travel in a header" "Mobile drops cookies; every client sends X-Tenant on refresh." "001" ) >/dev/null 2>&1
   ( cd "$BD/ayse" && bash ../board.sh sync ) >/dev/null 2>&1
-  ( cd "$BD/ayse" && bash ../board.sh decisions 2>/dev/null | grep -q "Refresh tokens travel in a header" ) \
+  ( cd "$BD/ayse" && grep -q "Refresh tokens travel in a header" <<< "$(bash ../board.sh decisions 2>/dev/null)" ) \
     && pass "a decision recorded by one teammate arrives in another's clone" \
     || fail "the decision never reached the second clone — decisions stay as local as the ADRs they replace"
   rm -f "$BD/ayse/.git/crew-board-seen"
@@ -1054,7 +1054,7 @@ else
   ) >/dev/null 2>&1 || SR_OK=0
   if [ "$SR_OK" = 0 ]; then fail "init --remote could not put the board in a separate repository"
   else
-    ( cd "$SR/boardonly.git" && git for-each-ref --format='%(refname)' ) 2>/dev/null | grep -q 'refs/crew/board' \
+    grep -q 'refs/crew/board' <<< "$( cd "$SR/boardonly.git" && git for-each-ref --format='%(refname)' 2>/dev/null )" \
       && pass "init --remote puts the board in a separate repository (no git config knowledge needed)" \
       || fail "init --remote recorded the remote but the board did not land in it"
     ( cd "$SR/app" && git remote get-url origin ) >/dev/null 2>&1 \
@@ -1149,7 +1149,7 @@ pmline(){ printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s","permi
 [ "$(pmline bypassPermissions pm2)" = 1 ] && pass "bypassPermissions is announced too"                     || fail "bypassPermissions was not announced"
 [ "$(pmline default pm3)" = 0 ]     && pass "default says nothing — the prompt reaches a person there"     || fail "the line fires in default, where there is no turn to save"
 [ "$(pmline acceptEdits pm4)" = 0 ] && pass "acceptEdits says nothing either"                              || fail "the line fires in acceptEdits, where the gate does not fail closed"
-if printf '{"hook_event_name":"UserPromptSubmit","session_id":"pm5"}' | TMPDIR="$PMD" bash "$HOOKS/context-usage.sh" 2>/dev/null | grep -q '🔒'; then
+if grep -q '🔒' <<< "$(printf '{"hook_event_name":"UserPromptSubmit","session_id":"pm5"}' | TMPDIR="$PMD" bash "$HOOKS/context-usage.sh" 2>/dev/null)"; then
   fail "the line was emitted with no permission_mode in the payload"
 else
   pass "no permission_mode in the payload -> silent, not a guess"
@@ -1369,7 +1369,7 @@ crew_nojq_path(){   # $@ = the tools the code under test needs on PATH
   if [ -L "$d/$1" ] \
      && ! PATH="$d" "$probe" -c 'command -v jq'      >/dev/null 2>&1 \
      && ! PATH="$d" "$probe" -c 'command -v python3' >/dev/null 2>&1; then
-    if PATH="$d" "$probe" -c 'printf x | grep -q x' 2>/dev/null; then
+    if PATH="$d" "$probe" -c 'printf x | grep -q x' 2>/dev/null; then   # pipe-ok: fixture text, not this file's own pipe
       CREW_NOJQ_MODE="minimal"; printf '%s' "$d"; return 0
     fi
     CREW_NOJQ_WHY="canary failed: the minimal PATH cannot run grep"; rm -rf "$d"; return 1
@@ -1382,7 +1382,7 @@ crew_nojq_path(){   # $@ = the tools the code under test needs on PATH
   # Both halves, or the tier under test is not the tier that runs: the stub must RESOLVE and must FAIL.
   PATH="$d:$PATH" "$probe" -c 'command -v jq' >/dev/null 2>&1 || { CREW_NOJQ_WHY="the jq stub does not resolve"; rm -rf "$d"; return 1; }
   PATH="$d:$PATH" "$probe" -c 'jq --version'  >/dev/null 2>&1 && { CREW_NOJQ_WHY="the jq stub RUNS — it would not force the fallback"; rm -rf "$d"; return 1; }
-  PATH="$d:$PATH" "$probe" -c 'printf x | grep -q x' 2>/dev/null || { CREW_NOJQ_WHY="canary failed: grep unusable behind the stubs"; rm -rf "$d"; return 1; }
+  PATH="$d:$PATH" "$probe" -c 'printf x | grep -q x' 2>/dev/null || { CREW_NOJQ_WHY="canary failed: grep unusable behind the stubs"; rm -rf "$d"; return 1; }   # pipe-ok: fixture text, not this file's own pipe
   CREW_NOJQ_MODE="stubbed"; printf '%s' "$d:$PATH"; return 0
 }
 # ---- /CREW-NOJQ-PATH --------------------------------------------------------------------------------------
@@ -2305,7 +2305,7 @@ if [ "$IS_KIT" = 1 ]; then
     if [ -d "$KR/kit" ]; then
       cp -R "$KR/kit" "$VS/"
       vout="$(cd "$VS" && bash start.sh --no-such-flag 2>&1)"; vrc=$?
-      if [ "$vrc" = 1 ] && printf '%s' "$vout" | grep -q 'Unknown parameter: --no-such-flag'; then
+      if [ "$vrc" = 1 ] && grep -q 'Unknown parameter: --no-such-flag' <<< "$vout"; then
         pass "start.sh still refuses an unknown flag"
       else
         fail "start.sh --no-such-flag: rc=$vrc, output '$(printf '%s' "$vout" | head -1)'"
@@ -2388,7 +2388,7 @@ if [ "$IS_KIT" = 1 ]; then
     [ "$(_rc_case v3.0.0-rc.1 3.0.0 3.0.0-rc.1 '## [Unreleased] — 3.0.0')" = "1 " ]  || _rc_bad="$_rc_bad rc-suffix-committed-passed"
     # The workflow uses it, and an rc stays off every channel but npm `next`.
     grep -Fq 'run: bash packaging/release-check.sh "$GITHUB_REF_NAME"' "$RY" || _rc_bad="$_rc_bad release.yml-does-not-run-it"
-    awk '/- name: Publish the plugin edition/{f=1;next} f&&/^      - /{exit} f' "$RY" | grep -Fq "if: steps.v.outputs.prerelease != 'true'" \
+    grep -Fq "if: steps.v.outputs.prerelease != 'true'" <<< "$(awk '/- name: Publish the plugin edition/{f=1;next} f&&/^      - /{exit} f' "$RY")" \
       || _rc_bad="$_rc_bad rc-advances-plugin-stable"
     grep -Fq 'npm publish --access public --tag "${{ steps.v.outputs.npm_tag }}"' "$RY" || _rc_bad="$_rc_bad npm-publish-ignores-the-dist-tag"
     grep -Fq "needs.release.outputs.prerelease != 'true'" "$RY" || _rc_bad="$_rc_bad rc-publishes-the-site"
@@ -3059,7 +3059,7 @@ NO_CUE=""
 for f in $(agent_quality_files); do
   [ -e "$f" ] || continue
   a="$(basename "$f" .md)"
-  awk '/^---$/{c++; next} c==1' "$f" | grep -qiE "use proactively|immediately after|use [a-z ]*when" \
+  grep -qiE "use proactively|immediately after|use [a-z ]*when" <<< "$(awk '/^---$/{c++; next} c==1' "$f")" \
     || NO_CUE="$NO_CUE $a"
 done
 if   [ -z "$NO_CUE" ]; then pass "every agent carries an auto-delegation cue (proactive/immediately-after/use … when)"
@@ -3300,7 +3300,7 @@ gbr(){ ( cd "$REVIEWED" && bash "$HOOKS/guard-bash.sh" ); }                     
 gbrx(){ ( cd "$REVIEWED" && PATH="$GBX" "$GBBASH" "$HOOKS/guard-bash.sh" ); }     # …the stripped-PATH variant
 # The fixture carries its own correctness claim. If it does not actually satisfy §4.6, every case using it is
 # measuring §4.6 instead of what it says it measures — and that is invisible from the outside.
-if gj default 'git commit -m x' | gbr 2>&1 >/dev/null | grep -q '4\.6'; then
+if grep -q '4\.6' <<< "$(gj default 'git commit -m x' | gbr 2>&1 >/dev/null)"; then
   fail "the §4.6 fixture does not satisfy the gate — every §4.4 commit case below would measure the wrong gate"
 else pass "§4.6 fixture is clean, so the §4.4 commit cases below reach §4.4"; fi
 # KEY ORDER MUST NOT CHANGE A VERDICT. Every fixture in this suite puts `permission_mode` before `tool_input`
@@ -3504,8 +3504,8 @@ case "$_L46_AFTER" in
 esac
 # Calibration of that fixture: the staged diff the hook would have hashed must NOT have contained the line, or
 # the case above proves nothing (it would be measuring a stage, not a leak).
-if ( cd "$_L46" && git diff --cached >/dev/null; printf '%s' "$_L46_STAGED" | grep -q '^[0-9a-f]\{40\}$' ) \
-   && ! ( cd "$_L46" && git show "$_L46_STAGED" 2>/dev/null | grep -q unreviewed ); then
+if ( cd "$_L46" && git diff --cached >/dev/null; grep -q '^[0-9a-f]\{40\}$' <<< "$_L46_STAGED" ) \
+   && ! ( cd "$_L46" && grep -q unreviewed <<< "$(git show "$_L46_STAGED" 2>/dev/null)" ); then
   pass "§4.6 premise calibrated: the reviewed (staged) diff did not carry the leaked line"
 else fail "§4.6 premise fixture is broken — the staged diff already contained the unreviewed line"; fi
 rm -rf "$_L46"
@@ -4474,8 +4474,8 @@ cp -R "$HOOKS" "$_gcp/.claude/hooks"; mkdir -p "$_gcp/.claude/eval"; cp -R "$ROO
   && git -c core.hooksPath=/dev/null commit -qm base && echo b >> a.txt && git add a.txt ) >/dev/null 2>&1
 # The last calibration line puts a CUT multi-byte character into the trace (three of an emoji's four bytes): that is
 # what a scanner's trace carries, and a counter that stops on it printed nothing on the macOS runner.
-printf '%s\n' 'f(){ :; }' 'X="$(echo hi)"' 'Y="$(echo hi | tr a-z A-Z)"' 'cat </dev/null' 'printf x | grep -q x' '[ -n "$X" ] && f' '. ./inc.sh; eval "W=1"' "N=\$'\\360\\237\\244'; : \"\$N\"" > "$_GCT/cal.sh"
-echo 'V=2' > "$_GCT/inc.sh"; { cat "$_GCT/cal.sh"; echo 'Z="$(printf a)"; printf x | grep -q x'; } > "$_GCT/cal2.sh"; : > "$_GCT/empty"
+printf '%s\n' 'f(){ :; }' 'X="$(echo hi)"' 'Y="$(echo hi | tr a-z A-Z)"' 'cat </dev/null' 'printf x | grep -q x' '[ -n "$X" ] && f' '. ./inc.sh; eval "W=1"' "N=\$'\\360\\237\\244'; : \"\$N\"" > "$_GCT/cal.sh"   # pipe-ok: fixture text, not this file's own pipe
+echo 'V=2' > "$_GCT/inc.sh"; { cat "$_GCT/cal.sh"; echo 'Z="$(printf a)"; printf x | grep -q x'; } > "$_GCT/cal2.sh"; : > "$_GCT/empty"   # pipe-ok: fixture text, not this file's own pipe
 ( cd "$_GCT" && _gcost cal.sh empty t0 && printf '%s' "$_GCN" > c1 && _gcost cal2.sh empty t0 && printf '%s' "$_GCN" > c2 )
 _gc1="$(cat "$_GCT/c1" 2>/dev/null)"; _gc2="$(cat "$_GCT/c2" 2>/dev/null)"
 if [ "$_gc1" != 5 ] || [ "$_gc2" != 7 ]; then
@@ -4781,7 +4781,7 @@ gj auto 'git -c core.hooksPath=/dev/null commit -m x' | CLAUDE_GIT_OK=1 bash "$H
 gj default 'eval \"git commit -m x\"' | gbr >/dev/null 2>"$TMPDIR_H1"; _h1=$?
 { [ "$_h1" = 2 ] && grep -q 'where its arguments cannot be read' "$TMPDIR_H1"; } && pass "eval-wrapped commit is REFUSED: its arguments cannot be read (H1)" || fail "eval-wrapped commit slipped (H1): rc=$_h1"
 # Precision: a commit whose MESSAGE contains 'reset --hard' (no git-before-reset) ASKs as a commit, is not blocked.
-o="$(gj default 'git commit -m \"reset --hard bug\"' | gbr 2>/dev/null)"; echo "$o" | grep -q '"permissionDecision":"ask"' && pass "commit msg with 'reset --hard' NOT over-blocked" || fail "commit msg 'reset --hard' wrongly blocked: $o"
+o="$(gj default 'git commit -m \"reset --hard bug\"' | gbr 2>/dev/null)"; grep -q '"permissionDecision":"ask"' <<< "$o" && pass "commit msg with 'reset --hard' NOT over-blocked" || fail "commit msg 'reset --hard' wrongly blocked: $o"
 # Fallback (no jq AND no python3 — stock Git Bash on Windows): the matchers must still fire on the raw JSON blob (M1).
 GBBASH="$(type -P bash 2>/dev/null || echo bash)"
 gb_unbuildable(){   # $1 = which block, for the message
@@ -4853,7 +4853,7 @@ GBDIR="${GBX%%:*}"; case "$GBX" in *:*) GB_MODE="stubbed" ;; ?*) GB_MODE="minima
 
 if [ -n "$GBX" ]; then
   o="$(gj default 'git commit -m x' | gbrx 2>/dev/null)"
-  echo "$o" | grep -q '"permissionDecision":"ask"' && pass "stripped-PATH: commit still ASKs (M1 fallback closed)" || fail "stripped-PATH: commit gate FAILS OPEN (M1): $o"
+  grep -q '"permissionDecision":"ask"' <<< "$o" && pass "stripped-PATH: commit still ASKs (M1 fallback closed)" || fail "stripped-PATH: commit gate FAILS OPEN (M1): $o"
   gj auto 'git reset --hard' | PATH="$GBX" CLAUDE_GIT_OK=1 "$GBBASH" "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "stripped-PATH: reset --hard still BLOCKED" || fail "stripped-PATH: reset --hard PASSED (§4.5 fallback hole)"
   # The write side lands on the same tier, and this is the branch a stock Windows install actually runs. Its
   # pre-2.6.x fallback read only `file_path`, so NotebookEdit — whose path key is `notebook_path` — walked
@@ -4929,12 +4929,12 @@ gjs(){ printf '{"session_id":"5d3e9c10-f872-4a21-9b07-2c6ea4d1b3f5","tool_name":
 if [ -n "$GBX" ]; then
   # 1) FALSE POSITIVE: an ordinary push must not inherit `-f` from the session id.
   o="$(gjs default 'git push origin feature/x' | PATH="$GBX" "$GBBASH" "$HOOKS/guard-bash.sh" 2>/dev/null)"; r=$?
-  { [ "$r" != 2 ] && printf '%s' "$o" | grep -q '"permissionDecision":"ask"'; } \
+  { [ "$r" != 2 ] && grep -q '"permissionDecision":"ask"' <<< "$o"; } \
     && pass "stripped-PATH: plain push ASKs, not force-blocked by the session id" \
     || fail "stripped-PATH: plain push mis-blocked as force (rc=$r) — the fallback is matching the payload, not the command"
   # 2) APPROVAL INTEGRITY: §4.4 must show the command. A prompt quoting the payload is consent theatre.
   o="$(gjs default 'git push origin feature/x' | PATH="$GBX" "$GBBASH" "$HOOKS/guard-bash.sh" 2>/dev/null)"
-  { printf '%s' "$o" | grep -q 'git push origin feature/x' && ! printf '%s' "$o" | grep -q 'session_id'; } \
+  { grep -q 'git push origin feature/x' <<< "$o" && ! grep -q 'session_id' <<< "$o"; } \
     && pass "stripped-PATH: the §4.4 prompt shows the command, not the raw payload" \
     || fail "stripped-PATH: the §4.4 prompt leaked the payload (the human cannot read what they approve)"
   # 3) NO NEW HOLE: the slice takes the FIRST \"command\" key, so a decoy inside the command cannot relocate it.
@@ -4946,7 +4946,7 @@ if [ -n "$GBX" ]; then
   [ "$?" = 2 ] && pass "stripped-PATH: --no-verify inside an escaped-quote command still BLOCKED" \
                 || fail "stripped-PATH: escaped quotes hid --no-verify from §4.5"
   o="$(gjs default 'git commit -F C:\\\\Users\\\\b\\\\msg.txt' | gbrx 2>/dev/null)"
-  printf '%s' "$o" | grep -q '"permissionDecision":"ask"' \
+  grep -q '"permissionDecision":"ask"' <<< "$o" \
     && pass "stripped-PATH: a Windows backslash path still reaches the §4.4 ask" \
     || fail "stripped-PATH: backslash path derailed the parse (out=$o)"
   # 5) NOT OVER-BLOCKING: an ordinary command stays allowed even with the dirty session id.
@@ -5325,7 +5325,7 @@ else
     && printf '{"diff_oid":"%s","head":"NONE","ts":"fixture"}\n' "$(printf '' | git hash-object --stdin)" \
          > .claude/review-pass.json )
   o="$(cd "$CANRV" && gj default 'git commit -m x' | bash "$HOOKS/guard-bash.sh" 2>/dev/null)"
-  printf '%s' "$o" | grep -q '"permissionDecision":"ask"' \
+  grep -q '"permissionDecision":"ask"' <<< "$o" \
     && pass "canary: the installed guard-bash ASKS for §4.4" \
     || fail "canary: no §4.4 ask from the installed hook (out=$o)"
 fi
@@ -5694,6 +5694,31 @@ elif [ -f "$PHJ" ]; then
 else
   fail "plugin/hooks/hooks.json missing — run packaging/build-plugin.sh"
 fi
+# A script handed a Windows path (`C:\…\hooks\x.sh`: Node's path.join, a native CLAUDE_PLUGIN_ROOT) has no `/` in
+# BASH_SOURCE, so `${BASH_SOURCE%/*}` is the whole name, the fallback makes the directory `.`, and every sibling or
+# ../eval/lib lookup misses without a word. ONE spelling folds first: `${BASH_SOURCE//\\//}` then `%/*` (or cuts at
+# either separator, `%[/\\]*`). Static half: no code line takes the directory of an unfolded BASH_SOURCE.
+_bsre='BASH_SOURCE(\[0\])?%/\*'
+grep -qE "$_bsre" <<< '_d="${BASH_SOURCE%/*}"' || fail "FIXTURE: the unfolded-dirname pattern does not match its own known-bad line"
+_bsn=0; _bsbad=""
+while IFS= read -r _bsf; do
+  _bsn=$((_bsn+1))
+  _bsl="$(grep -nE "$_bsre" "$_bsf" | grep -vE '^[0-9]+:[[:space:]]*#')" && _bsbad="$_bsbad ${_bsf#"$ROOT"/}:${_bsl%%:*}"
+done < <(grep -rlE 'BASH_SOURCE' "$HOOKS" "$ROOT/eval" "$ROOT/studio" --include='*.sh' 2>/dev/null | grep -v '/eval/smoke-test\.sh$')   # this file spells the pattern
+if [ "$_bsn" -lt 20 ]; then fail "FIXTURE: only $_bsn scripts read BASH_SOURCE — the scan did not see the hooks"
+elif [ -n "$_bsbad" ]; then fail "BASH_SOURCE directory taken without folding backslashes (a Windows path reads as '.'):$_bsbad"
+else pass "every BASH_SOURCE directory folds backslashes first ($_bsn scripts read BASH_SOURCE, 0 unfolded)"; fi
+# Behaviour half: guard-write started as `x\hooks\guard-write.sh` must still find its sibling guard-agent-model.sh
+# and refuse an agent's write to .claude/settings.json (before the fold: rc 0, the sibling looked for in the cwd).
+_bsw="$(mktemp -d)"; mkdir -p "$_bsw/x/hooks" "$_bsw/x/eval"; cp -R "$ROOT/eval/lib" "$_bsw/x/eval/lib"
+cp "$HOOKS/guard-agent-model.sh" "$HOOKS/guard-write.sh" "$_bsw/x/hooks/"; cp "$HOOKS/guard-write.sh" "$_bsw/x\\hooks\\guard-write.sh" 2>/dev/null || true
+_bsj="$(printf '{"cwd":"%s","tool_name":"Write","agent_id":"a1","agent_type":"crew-backend-expert","tool_input":{"file_path":"%s/.claude/settings.json","content":"{}"}}' "$_bsw" "$_bsw")"
+_bsr1="$(cd "$_bsw" && printf '%s' "$_bsj" | bash 'x\hooks\guard-write.sh' >/dev/null 2>&1; echo "$?")"
+_bsr2="$(cd "$_bsw" && printf '%s' "$_bsj" | bash x/hooks/guard-write.sh >/dev/null 2>&1; echo "$?")"
+[ "$_bsr2" = 2 ] || fail "FIXTURE: guard-write by a POSIX path did not refuse an agent's settings write (rc=$_bsr2) — the case proves nothing"
+[ "$_bsr1" = 2 ] && pass "guard-write started by a Windows path finds its sibling guard-agent-model.sh (rc 2, same as by a POSIX path)" \
+                 || fail "guard-write started by a Windows path missed its sibling guard-agent-model.sh (rc=$_bsr1, POSIX path rc=$_bsr2)"
+rm -rf "$_bsw"
 
 sec "== 7e) install doctor + installer hygiene (P7) =="
 [ -x "$ROOT/eval/doctor.sh" ] && pass "doctor.sh +x" || fail "doctor.sh missing/not executable"
@@ -7213,16 +7238,16 @@ RHALSO
   # So the hook accepts both names and these three rows check the half the cases above cannot.
   rhjson(){ printf '%s' "$1" | CLAUDE_PROJECT_DIR="$RHDIR" bash "$RH" 2>/dev/null; }
   UI_ROUTE='{"hook_event_name":"UserPromptSubmit","prompt_id":"550e8400","permission_mode":"default","user_input":"write a migration and an index for the invoices table"}'
-  rhjson "$UI_ROUTE" | grep -q 'crew-database-expert' \
+  grep -q 'crew-database-expert' <<< "$(rhjson "$UI_ROUTE")" \
     && pass "route-hint reads the documented 'user_input' field, not only 'prompt'" \
     || fail "route-hint ignored 'user_input' — on a CLI that sends that name, routing is silently dead"
-  rhjson '{"hook_event_name":"UserPromptSubmit","user_input":"<task-notification>the agent finished the migration</task-notification>"}' \
-    | grep -q . && fail "the notification guard does not cover the 'user_input' shape" \
+  [ -n "$(rhjson '{"hook_event_name":"UserPromptSubmit","user_input":"<task-notification>the agent finished the migration</task-notification>"}')" ] \
+    && fail "the notification guard does not cover the 'user_input' shape" \
     || pass "the notification guard covers both field names"
   # `prompt_id` is a different field that starts with the same six letters. If the slice ever loses its closing
   # quote it would match a UUID and route on it, which is a wrong route dressed as a working kit.
-  rhjson '{"hook_event_name":"UserPromptSubmit","prompt_id":"550e8400-e29b-41d4-a716-446655440000"}' \
-    | grep -q . && fail "route-hint matched 'prompt_id' as if it were the prompt" \
+  [ -n "$(rhjson '{"hook_event_name":"UserPromptSubmit","prompt_id":"550e8400-e29b-41d4-a716-446655440000"}')" ] \
+    && fail "route-hint matched 'prompt_id' as if it were the prompt" \
     || pass "route-hint does not mistake 'prompt_id' for the prompt text"
 
   # --- cost gate: this hook runs on EVERY prompt, so its cost is the session's floor ------------------
@@ -7685,6 +7710,11 @@ if [ "$IS_KIT" = 1 ]; then
     grep -qE "(\*\*Commands\*\*|\*\*Komut\*\*) \| $TC \||\*\*$TC commands\*\*|\*\*$TC komut\*\*" "$KR/$r" \
       && pass "$r states the real command count ($TC)" \
       || fail "$r does not state $TC commands — the count drifted from the command skills"
+    # ...and no OTHER number is claimed anywhere on the page: the gate above only looked for the right count, so the
+    # intro sentence said 17 beside a list of 18 and stayed green. Every "N commands" / "N komut" must be N = TC.
+    _wc="$(grep -noE '(^|[^0-9])[0-9]+\*{0,2} (commands|komut)' "$KR/$r" | grep -vE "(^|[^0-9])$TC\*{0,2} (commands|komut)")"
+    [ -z "$_wc" ] && pass "$r claims no other command count than $TC" \
+      || fail "$r claims another command count than $TC: $(printf '%s' "$_wc" | tr '\n' ' ')"
     # ...and every command must actually be listed beside that number, or the count is right and the list is stale.
     MISSING_CMD=""
     for f in $CMD_FILES; do
@@ -8462,6 +8492,17 @@ RMT='2 @@ PowerShell @@ Remove-Item -Recurse -Force C:\\proj\\*
 0 @@ Bash @@ grep -rn \"rm -rf node_modules\" .
 0 @@ Bash @@ npm rm -r lodash .
 0 @@ Bash @@ docker run --rm -r x .
+2 @@ Bash @@ rm -rf $HOME
+2 @@ Bash @@ rm -rf \"$HOME\"
+2 @@ Bash @@ rm -rf ${HOME}
+2 @@ Bash @@ rm -rf $PWD
+2 @@ Bash @@ rm -rf $(pwd)
+2 @@ Bash @@ rm -fr -- \"${PWD}\"
+0 @@ Bash @@ cd .. && rm -rf myproj
+0 @@ Bash @@ find . -name x.tmp -delete
+0 @@ Bash @@ ls -A | xargs rm -rf
+0 @@ Bash @@ rm -rf $HOME_OLD
+0 @@ Bash @@ echo rm -rf $HOME
 2 @@ PowerShell @@ Remove-Item -Recurse:$true -Force:$true C:\\proj
 2 @@ PowerShell @@ Remove-Item -Rec:1 -Fo:1 .\\a
 2 @@ PowerShell @@ Remove-Item -Recurse: $true -Force: $true .\\a
@@ -8481,8 +8522,8 @@ while IFS= read -r _rl; do [ -z "$_rl" ] && continue
   RMN=$((RMN+1)); [ "$_rw" = 0 ] && RM0=$((RM0+1)); [ "$_rw" = 2 ] && RM2=$((RM2+1))
   [ "$_rg" = "$_rw" ] || RMF="$RMF | want $_rw got $_rg: [$_rt] $_rc"
 done <<< "$RMT"
-if [ "$RMN" != 65 ] || [ "$RM2" != 43 ] || [ "$RM0" != 22 ]; then fail "recursive-delete table: read $RMN rows ($RM2 stop, $RM0 pass), want 65 (43, 22) — the table was not read as written"
-elif [ -z "$RMF" ]; then pass "recursive forced removal: $RM2 forms stopped ('.' / '..', paths, piped, chained, colon and long-dash flags, and the line-wide floor), $RM0 everyday forms passed ($RMN rows)"
+if [ "$RMN" != 76 ] || [ "$RM2" != 49 ] || [ "$RM0" != 27 ]; then fail "recursive-delete table: read $RMN rows ($RM2 stop, $RM0 pass), want 76 (49, 27) — the table was not read as written"
+elif [ -z "$RMF" ]; then pass "recursive forced removal: $RM2 forms stopped ('.' / '..', \$HOME / \$PWD, paths, piped, chained, colon and long-dash flags, and the line-wide floor), $RM0 everyday forms passed ($RMN rows)"
 else fail "recursive-delete table:$RMF"; fi
 
 sec "== 12b) Crewforth's own scripts sent through PowerShell go back to the Bash tool =="
@@ -10421,7 +10462,7 @@ rm -rf "$_amd"
 _cfb=""; _cfn=0
 for _cf in "$ROOT/AGENT_TEMPLATE.md" "$ROOT"/agents/crew-*.md; do [ -f "$_cf" ] || continue; _cfn=$((_cfn+1))
   grep -qF '`confidence: high`' "$_cf" && grep -qF '`confidence: low`' "$_cf" || _cfb="$_cfb ${_cf##*/}:not-both-spelled"
-  grep -oE 'confidence: [A-Za-z|]+' "$_cf" | grep -vxE 'confidence: (high|low)' | grep -q . && _cfb="$_cfb ${_cf##*/}:another-value"
+  [ -n "$(grep -oE 'confidence: [A-Za-z|]+' "$_cf" | grep -vxE 'confidence: (high|low)')" ] && _cfb="$_cfb ${_cf##*/}:another-value"
   grep -qiE '^(Confidence|CONFIDENCE) ?[:=]|confidence=(high|low)|confidence : ' "$_cf" && _cfb="$_cfb ${_cf##*/}:another-spelling"
 done
 if [ "$_cfn" -lt 11 ]; then fail "FIXTURE: only $_cfn file(s) read for the confidence line"
@@ -11358,7 +11399,7 @@ printf '# ours\n- docs/**\n' > "$_vdp/.claude/crew-model-rules"
 _vd(){ ( cd "$_vdp" && CREW_SJ_AWK="$ROOT/eval/lib/settings-json.awk" bash -c '. "$1/verify-cmd.sh"; . "$1/verify-detect.sh"; crew_verify_detect_apply .; printf "%s" "$_VD_ADDED"' _ "$ROOT/eval/lib" ); }
 _vda="$(_vd)"
 [ "$_vda" = "uv run pytest, uv run ruff check, npm test, npm run lint, npx vitest run, npx tsc --noEmit" ] || _v2b="$_v2b [added: $_vda]"
-[ "$(grep -c '^verify ' "$_vdp/.claude/crew-model-rules")" = 6 ] && head -2 "$_vdp/.claude/crew-model-rules" | grep -q '^- docs/\*\*$' || _v2b="$_v2b [rules file: $(tr '\n' '|' < "$_vdp/.claude/crew-model-rules")]"
+[ "$(grep -c '^verify ' "$_vdp/.claude/crew-model-rules")" = 6 ] && grep -q '^- docs/\*\*$' <<< "$(head -2 "$_vdp/.claude/crew-model-rules")" || _v2b="$_v2b [rules file: $(tr '\n' '|' < "$_vdp/.claude/crew-model-rules")]"
 grep -q 'npm run dev' "$_vdp/.claude/crew-model-rules" && _v2b="$_v2b [a script that is no check was added]"
 [ -z "$(_vd)" ] || _v2b="$_v2b [a second run added again]"
 grep -v '^verify npm test$' "$_vdp/.claude/crew-model-rules" > "$_v2/r" && cat "$_v2/r" > "$_vdp/.claude/crew-model-rules"
@@ -11407,7 +11448,7 @@ rm -f "$_v2st"/pending/*
 _v2call crew-backend-expert sonnet 'src/ui/race.ts' text true
 _v2start r1 & _v2start r2 & wait
 _rn=0; [ -f "$_v2st/agents/r1" ] && _rn=$((_rn+1)); [ -f "$_v2st/agents/r2" ] && _rn=$((_rn+1)); [ "$_rn" = 1 ] || _v2b="$_v2b [one record, two agents: $_rn got it]"
-ls "$_v2st/agents" 2>/dev/null | grep -qE '\.(take|claim)$' && _v2b="$_v2b a-lock-or-claim-left-behind"
+grep -qE '\.(take|claim)$' <<< "$(ls "$_v2st/agents" 2>/dev/null)" && _v2b="$_v2b a-lock-or-claim-left-behind"
 # A record another hook holds the lock on is not taken: the agent goes on to the next one (the lock is what keeps
 # two agents off one record where a rename alone did not, on Windows).
 rm -rf "$_v2st/agents"; rm -f "$_v2st"/pending/*
@@ -11845,9 +11886,9 @@ _cf_new; ( cd "$_cfw" && mkdir -p hk && printf '#!/bin/sh\nexit 1\n' > hk/pre-co
 _cf_new; _cfh="$( cd "$_cfw" && git rev-list --count HEAD )"
 ( cd "$_cfw" && git commit -q --amen -m x ) >/dev/null 2>&1; [ "$( cd "$_cfw" && git rev-list --count HEAD )" = "$_cfh" ] || _cfp="$_cfp --amen-did-not-amend"
 _cf_new; ( cd "$_cfw" && git commit -q -mxm b.txt ) >/dev/null 2>&1
-{ [ "$( cd "$_cfw" && git log -1 --format=%s )" = xm ] && ( cd "$_cfw" && git show HEAD:b.txt | grep -q unreviewed ); } || _cfp="$_cfp -mxm-b.txt-did-not-commit-b.txt-under-the-message-xm"
+{ [ "$( cd "$_cfw" && git log -1 --format=%s )" = xm ] && grep -q unreviewed <<< "$( cd "$_cfw" && git show HEAD:b.txt )"; } || _cfp="$_cfp -mxm-b.txt-did-not-commit-b.txt-under-the-message-xm"
 _cf_new; ( cd "$_cfw" && git commit -q -m x 2>&1 -a ) >/dev/null 2>&1
-( cd "$_cfw" && git show HEAD:b.txt | grep -q unreviewed ) || _cfp="$_cfp a-trailing--a-after-2>&1-did-not-commit-the-working-tree"
+grep -q unreviewed <<< "$( cd "$_cfw" && git show HEAD:b.txt )" || _cfp="$_cfp a-trailing--a-after-2>&1-did-not-commit-the-working-tree"
 [ -z "$_cfp" ] && pass "commit-form premises, run against git: -n and --no-veri skip a failing hook, --amen amends, -mxm b.txt commits b.txt under the message 'xm', and -a after 2>&1 commits the working tree" \
                || fail "commit-form premises changed, re-derive the rows that rest on them:$_cfp"
 
@@ -12119,8 +12160,7 @@ else fail "a git subcommand the shell fills in:$_cfsb$_cfbad"; fi
 # `Start-Process git -ArgumentList 'push','--force'` and `& $g push --force` run the same git command as the plain
 # form, and the rules that read a git command by its words saw neither (measured: 21 of 23 such forms passed; the two
 # that did not hold core.hooksPath, which its own rule finds as one word). The arguments are judged as the git command they make, by the same
-# function that judges the plain form. What is not in §4.5 stays as it was, and so does a Bash call: the rule is for
-# the PowerShell tool.
+# function that judges the plain form. What is not in §4.5 stays as it was.
 CSA='2 2 @@ Start-Process git -ArgumentList \x27push\x27,\x27--force\x27,\x27origin\x27,\x27main\x27 -NoNewWindow -Wait
 2 2 @@ Start-Process git -ArgumentList \x27push\x27,\x27-f\x27,\x27origin\x27,\x27main\x27
 2 2 @@ Start-Process git -ArgumentList \x27push\x27,\x27origin\x27,\x27+main\x27 -Wait
@@ -12164,12 +12204,32 @@ _cf_new; _cf_table "$CSA" PowerShell; _cfsb="$_cfbad"; _cfsn="$_cfn"
 _cf_run default 'Start-Process git -ArgumentList '"$_cfq"'push'"$_cfq"','"$_cfq"'--force'"$_cfq"','"$_cfq"'origin'"$_cfq"' -Wait' 0 PowerShell
 { [ "$_cfr" = 2 ] && grep -q "'git push --force' stopped" "$_CF/err" && grep -q 'read from the arguments.*: git push --force origin$' "$_CF/err"; } \
   || _cfsb="$_cfsb [the refusal does not say what was read: rc=$_cfr — $(tr '\n' '|' < "$_CF/err" | cut -c1-200)]"
-# the same two shapes through the Bash tool are not this rule's
-_cf_table '0 0 @@ g=git; $g push --force origin main
-0 0 @@ git --version; \"$BIN\" clean -f'
-if [ "$_cfsn $_cfn" != "38 2" ]; then fail "FIXTURE: the PowerShell argument tables have $_cfsn and $_cfn rows, not 38 and 2"
-elif [ -z "$_cfsb$_cfbad" ]; then pass "through the PowerShell tool, git's arguments handed to Start-Process or to a command held in a variable are judged as the git command they make: 22 forms of push --force (-f, +ref, --force-with-lease, one string or a list), reset --hard, clean -f and core.hooksPath are refused in every session and the refusal says what was read; 16 calls outside §4.5, or of another program, are judged as before; the Bash tool is not touched (40 rows)"
-else fail "PowerShell, git's arguments handed over:$_cfsb$_cfbad"; fi
+# The same shapes through the Bash tool (A14, each measured rc 0 before): a command word held in a variable THIS
+# command set to git — `$g`, `"$g"`, `${g}`, a path to git, kept across `export` — a git subcommand filled in inside a
+# quoted script, and PowerShell started from Bash with Start-Process git. A variable set to anything else, or not set
+# here at all (`"$BIN" clean -f`), runs some other program and stays free; so does a quoted script whose expansion is
+# an option's value (`git -C "$d" status`).
+_cf_table '2 2 @@ g=git; $g push --force origin main
+2 2 @@ g=git; \"$g\" push --force origin main
+2 2 @@ g=git; ${g} push -f origin main
+2 2 @@ g=\x27git\x27; $g reset --hard HEAD~1
+2 2 @@ g=/usr/bin/git; $g clean -fdx
+2 2 @@ g=git; export g; $g push --force origin main
+2 2 @@ export G=git; $G push --force origin main
+2 2 @@ bash -c \x27git pu${z}sh --force origin main\x27
+2 2 @@ powershell -Command \"Start-Process git -ArgumentList \x27push\x27,\x27--force\x27,\x27origin\x27,\x27main\x27\"
+2 2 @@ powershell -Command \"Start-Process git -ArgumentList \x27push --force origin main\x27\"
+0 0 @@ git --version; \"$BIN\" clean -f
+0 0 @@ PY=python3; $PY tool.py clean -f
+0 0 @@ g=git; unset g; $g push --force x
+0 0 @@ g=git; $g status
+0 0 @@ sh -c \x27apt-get update && apt-get install -y git $EXTRA_PKGS\x27
+0 0 @@ bash -c \x27echo using git $(git --version)\x27
+0 0 @@ bash -c \x27git -C \"$d\" status\x27
+0 0 @@ powershell -Command \"Start-Process git -ArgumentList \x27push\x27,\x27origin\x27,\x27main\x27\"'
+if [ "$_cfsn $_cfn" != "38 18" ]; then fail "FIXTURE: the PowerShell and Bash argument tables have $_cfsn and $_cfn rows, not 38 and 18"
+elif [ -z "$_cfsb$_cfbad" ]; then pass "git's arguments handed to Start-Process or to a command held in a variable are judged as the git command they make: through the PowerShell tool 22 forms of push --force (-f, +ref, --force-with-lease, one string or a list), reset --hard, clean -f and core.hooksPath are refused and the refusal says what was read, 16 calls outside §4.5 or of another program are judged as before; through the Bash tool 10 forms (a variable set to git, also by export, a subcommand filled in inside bash -c, powershell -Command Start-Process) are refused, 8 of another program, outside §4.5, or with git as a word that is not the command are free (56 rows)"
+else fail "git's arguments handed over:$_cfsb$_cfbad"; fi
 
 # ---- a diff that prints nothing is still a different diff -------------------------------------------------------
 _cf_new; _cfbad=""
@@ -12221,6 +12281,11 @@ CGT='2 @@ Bash @@ printf \x27[core]\\n\\thooksPath = /dev/null\\n\x27 >> .git/co
 2 @@ Bash @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git merge topic
 2 @@ Bash @@ git push --no-verif origin feat/x
 2 @@ Bash @@ git merge --no-veri topic
+2 @@ Bash @@ cd .git && printf x >> config
+2 @@ Bash @@ printf x >> $(git rev-parse --git-dir)/config
+2 @@ Bash @@ printf x >> $(git rev-parse --git-path hooks)/pre-commit
+2 @@ Bash @@ echo x >> .git/info/attributes
+2 @@ Bash @@ tee -a /etc/gitconfig
 0 @@ Bash @@ cat .git/config
 0 @@ Bash @@ grep -n hooksPath .git/config
 0 @@ Bash @@ git config user.name x
@@ -12238,7 +12303,14 @@ CGT='2 @@ Bash @@ printf \x27[core]\\n\\thooksPath = /dev/null\\n\x27 >> .git/co
 0 @@ Bash @@ cat src/config.ts && ls config/
 0 @@ Bash @@ ls -la .claude/git-shim
 0 @@ Bash @@ printf x > .github/config.yml
-0 @@ Bash @@ grep -rn include src/'
+0 @@ Bash @@ grep -rn include src/
+0 @@ Bash @@ cd .git && ls > /dev/null
+0 @@ Bash @@ cat $(git rev-parse --git-dir)/config
+0 @@ Bash @@ echo x > \"$(git rev-parse --git-dir)/COMMIT_EDITMSG\"
+0 @@ Bash @@ cat /etc/gitconfig
+0 @@ Bash @@ echo x >> .gitattributes
+0 @@ Bash @@ echo hi > a.txt; cd .git; ls
+0 @@ Bash @@ echo x >> .git/info/attributes2'
 _cf_sidedoors(){  # runs the side-door table and the Write cases -> _cfn, _cfbad
   _cfn=0; _cfbad=""
   while IFS= read -r _cl; do [ -z "$_cl" ] && continue
@@ -12247,16 +12319,16 @@ _cf_sidedoors(){  # runs the side-door table and the Write cases -> _cfn, _cfbad
   done <<< "$CGT"
   _cfwr(){ printf '{"cwd":"%s","permission_mode":"auto","tool_name":"%s","tool_input":{"file_path":"%s","content":"x"}}' "$_cfw" "$1" "$2" \
     | ( cd "$_cfw" && CREW_GATE_LOG=/dev/null env ${_cfloc:+LC_ALL=$_cfloc} bash "$HOOKS/guard-write.sh" >/dev/null 2>"$_CF/err" ); _cfr=$?; }
-  for _cf in "$_cfw/.git/config" ".git/config" "$_cfw/.git/config.worktree" "$_cfw/.git/worktrees/wt/config.worktree" "$_cfw/.git/modules/sub/config" "$_cfw/.GIT/Config" "$_cfw/.claude/git-shim/pre-commit" "$_cfw/.claude/git-shim" "/home/dev/.gitconfig" "C:\\\\Users\\\\dev\\\\.gitconfig" "/home/dev/.config/git/config" ".git/worktrees/w/config.worktree" ".git/modules/m/config" ".git/modules/sub/sub2/config" ".gitconfig"; do
+  for _cf in "$_cfw/.git/config" ".git/config" "$_cfw/.git/config.worktree" "$_cfw/.git/worktrees/wt/config.worktree" "$_cfw/.git/modules/sub/config" "$_cfw/.GIT/Config" "$_cfw/.claude/git-shim/pre-commit" "$_cfw/.claude/git-shim" "/home/dev/.gitconfig" "C:\\\\Users\\\\dev\\\\.gitconfig" "/home/dev/.config/git/config" ".git/worktrees/w/config.worktree" ".git/modules/m/config" ".git/modules/sub/sub2/config" ".gitconfig" ".git/info/attributes" "/etc/gitconfig"; do
     _cfn=$((_cfn+1)); _cfwr Write "$_cf"; [ "$_cfr" = 2 ] || _cfbad="$_cfbad [Write $_cf → $_cfr, want 2]"
   done
-  for _cf in "$_cfw/.github/config.yml" "$_cfw/config/app.json" "$_cfw/src/git/config.ts" "$_cfw/.gitconfig.sample" "$_cfw/config/git/config.json"; do
+  for _cf in "$_cfw/.github/config.yml" "$_cfw/config/app.json" "$_cfw/src/git/config.ts" "$_cfw/.gitconfig.sample" "$_cfw/config/git/config.json" "$_cfw/.gitattributes"; do
     _cfn=$((_cfn+1)); _cfwr Write "$_cf"; [ "$_cfr" = 0 ] || _cfbad="$_cfbad [Write $_cf → $_cfr, want 0]"
   done
 }
 _cf_sidedoors
-if [ "$_cfn" != 76 ]; then fail "FIXTURE: the git-config table ran $_cfn cases, not 76"
-elif [ -z "$_cfbad" ]; then pass "core.hooksPath cannot be reached by the side doors: 38 shell commands (a write to .git/config, a worktree's or a submodule's config, the user's own ~/.gitconfig and ~/.config/git/config, and the git shim, in both shells; git config --edit, include.path / includeIf, also as -c; a quoted -c core.hooksPath; GIT_CONFIG_ variables; an abbreviated --no-verify on push and merge) and 15 Write calls (absolute and relative) are refused, 18 reads and ordinary settings and 5 look-alike files pass (76 cases)"
+if [ "$_cfn" != 91 ]; then fail "FIXTURE: the git-config table ran $_cfn cases, not 91"
+elif [ -z "$_cfbad" ]; then pass "core.hooksPath cannot be reached by the side doors: 43 shell commands (a write to .git/config, a worktree's or a submodule's config, .git/info/attributes, the user's own ~/.gitconfig and ~/.config/git/config, the system etc/gitconfig, and the git shim, in both shells; a write after cd .git or through $(git rev-parse --git-dir);  git config --edit, include.path / includeIf, also as -c; a quoted -c core.hooksPath; GIT_CONFIG_ variables; an abbreviated --no-verify on push and merge) and 17 Write calls (absolute and relative) are refused, 25 reads, ordinary settings and writes before a cd, and 6 look-alike files pass (91 cases)"
 else fail "git config side doors:$_cfbad"; fi
 # ---- a large commit command is judged, not timed out ------------------------------------------------------------
 # A PreToolUse hook that reaches its timeout does not block. guard-bash.sh used `${text//x/y}` on the whole command
@@ -13132,10 +13204,21 @@ for _h in guard-bash.sh guard-commit-scan.sh; do
   [ "$_cfn" = 0 ] || _cfbad="$_cfbad [$_h: $_cfn line(s) pipe into grep]"
   grep -q '^_grep(){' "$HOOKS/$_h" || _cfbad="$_cfbad [$_h: no _grep]"
 done
-printf 'x() { echo "$CMD" | grep -q y; }\n' > "$_CF/pipe.sh"
+printf 'x() { echo "$CMD" | grep -q y; }\n' > "$_CF/pipe.sh"   # pipe-ok: fixture text, not this file's own pipe
 [ "$(grep -vE '^[[:space:]]*#' "$_CF/pipe.sh" | grep -cE '\|[[:space:]]*grep[[:space:]]')" = 1 ] || _cfbad="$_cfbad [FIXTURE: the count reads 0 on a line that pipes into grep]"
 [ -z "$_cfbad" ] && pass "guard-bash.sh and guard-commit-scan.sh pipe nothing into grep: every match on the command goes through _grep (a line that does is counted as 1)" \
                  || fail "a pipe into grep:$_cfbad"
+# ...and this file pipes nothing into a grep that leaves early either. `writer | grep -q` under pipefail is the same
+# race: grep exits on its first match, a writer still writing dies of SIGPIPE and the pipeline reads as "no match"
+# (a board cache once flipped this way on the Linux runner). The match reads a here-string or `[ -n "$( … )" ]`.
+# A line whose pipe is TEXT for another program (a fixture written to a file) says so with `pipe-ok:`.
+_spre='(^|[^|])\|[[:space:]]*grep[[:space:]]+-[A-Za-z]*q'
+_spt="$_CF/spipe.sh"; printf '%s\n' "x=1; echo \"\$x\" | gr""ep -q 1 && :" "y | gr""ep -Fq z" "a || gr""ep -q b f" > "$_spt"
+_spc="$(grep -vE '^[[:space:]]*#' "$_spt" | grep -cE "$_spre")"
+_spl="$(grep -nE "$_spre" "$HERE/smoke-test.sh" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -v 'pipe-ok:' | cut -d: -f1 | tr '\n' ' ')"
+if [ "$_spc" != 2 ]; then fail "FIXTURE: the pipe-into-grep -q count reads $_spc on its three-line fixture, want 2 (two pipes, one ||)"
+elif [ -z "$_spl" ]; then pass "smoke-test.sh pipes nothing into an early-exiting grep -q (the fixture's two pipes are counted, its || is not)"
+else fail "smoke-test.sh pipes into grep -q at line(s) ${_spl% } — read a here-string instead"; fi
 
 # ---- a large Write or Edit is judged, not timed out -------------------------------------------------------------
 # The file tools are not limited in size, so their gate must stay cheap at any size. It was not: the look for a
@@ -13355,8 +13438,8 @@ else
     _cf_run auto "$_cc" 0 "$_ct"; [ "$_cfr" = "$_cw" ] || _thbad="$_thbad [$_ct: $_cc → $_cfr, want $_cw]"
   done <<< "$THT"
   _cfloc=""
-  if [ "$_thn" != 249 ]; then fail "FIXTURE: the gate tables under $_th ran $_thn rows, not 249"
-  elif [ -z "$_thbad" ]; then pass "under $_th guard-bash and guard-write give the verdicts they give under C: 249 rows (the commit forms, the everyday calls, the PowerShell forms, the side doors and Write calls, a recursive Remove-Item, a nested .env, ID_RSA by case) — $_thkind"
+  if [ "$_thn" != 264 ]; then fail "FIXTURE: the gate tables under $_th ran $_thn rows, not 264"
+  elif [ -z "$_thbad" ]; then pass "under $_th guard-bash and guard-write give the verdicts they give under C: 264 rows (the commit forms, the everyday calls, the PowerShell forms, the side doors and Write calls, a recursive Remove-Item, a nested .env, ID_RSA by case) — $_thkind"
   else fail "verdicts that change under $_th:$_thbad"; fi
   # (2) the two git hooks, and the scan guard-commit-scan runs ahead of a commit
   _thbad=""
@@ -13431,7 +13514,7 @@ SGR="$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [ -f "$SGR/VERSION" ] && [ -d "$SGR/kit" ]; then
   NOEOL=""
   for f in $(git -C "$SGR" ls-files 2>/dev/null | grep -E '(^|/)hooks/[^/.]+$'); do
-    git -C "$SGR" check-attr eol -- "$f" 2>/dev/null | grep -q ': eol: lf$' || NOEOL="$NOEOL $f"
+    grep -q ': eol: lf$' <<< "$(git -C "$SGR" check-attr eol -- "$f" 2>/dev/null)" || NOEOL="$NOEOL $f"
   done
   [ -z "$NOEOL" ] && pass "every extensionless shipped hook is pinned to LF in .gitattributes" \
                   || fail "not pinned to LF — a Windows/WSL checkout gets CRLF and the hook dies on its shebang:$NOEOL"
@@ -13542,12 +13625,12 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
     # hold means the two states are the same state wherever the environment disagrees with the developer.
     SKOUT="$(env PATH=/usr/bin:/bin NO_COLOR=1 CREW_VERIFY_STRICT=0 bash "$SGR/packaging/verify.sh" manifests 2>&1)"; SKRC=$?
     STOUT="$(env PATH=/usr/bin:/bin NO_COLOR=1 CREW_VERIFY_STRICT=1 bash "$SGR/packaging/verify.sh" manifests 2>&1)"; STRC=$?
-    if [ "$SKRC" = 0 ] && printf '%s' "$SKOUT" | grep -q '0 passed'; then
+    if [ "$SKRC" = 0 ] && grep -q '0 passed' <<< "$SKOUT"; then
       pass "verify.sh: an absent tool is reported skipped and counted as 0 passed, not as a pass"
     else
       fail "verify.sh counted a skipped step as a pass (rc=$SKRC) — a check that did not run read like one that succeeded: $SKOUT"
     fi
-    if [ "$STRC" = 1 ] && printf '%s' "$STOUT" | grep -q 'FAILED'; then
+    if [ "$STRC" = 1 ] && grep -q 'FAILED' <<< "$STOUT"; then
       pass "verify.sh: the same skip FAILS under CREW_VERIFY_STRICT, which is what CI sets"
     else
       fail "verify.sh let a skip pass under CREW_VERIFY_STRICT (rc=$STRC) — CI would report success for a gate nobody ran: $STOUT"
@@ -13675,7 +13758,7 @@ if [ -n "$SGR" ] && [ -f "$SGR/.gitattributes" ] && [ -d "$SGR/packaging" ] && [
       if grep -q "if: github.event_name == 'pull_request'" <<<"$_cstep" \
          && grep -q 'PR_BODY: \${{ github.event.pull_request.body }}' <<<"$_cstep" \
          && grep -q 'bash packaging/check-attribution.sh' <<<"$_cstep" \
-         && ! grep -E 'run:|printf|bash' <<<"$_cstep" | grep -q '\${{'; then
+         && ! grep -q '\${{' <<< "$(grep -E 'run:|printf|bash' <<<"$_cstep")"; then
         pass "ci.yml checks the PR title and body for a signature line, on pull_request, through env"
       else fail "ci.yml's signature-line step is missing or changed: pull_request only, title and body through env, no \${{ }} in the command"; fi
     fi
@@ -13983,7 +14066,7 @@ if [ -f "$STAR" ]; then
     _SG="$(mktemp -d)"; ( cd "$_SG" && git init -q . ) >/dev/null 2>&1; mkdir -p "$_SG/.claude"; printf '9.9.0\n' > "$_SG/.claude/VERSION"
     env -u CI -u CREW_NO_STAR -u CSK_NO_STAR bash "$STAR" --once "$_SG" >/dev/null 2>&1
     _gm="$(cd "$_SG" && git rev-parse --git-path crewforth-star 2>/dev/null)"
-    [ -f "$_SG/$_gm" ] && [ ! -e "$_SG/.claude/star-shown" ] && ! (cd "$_SG" && git status --porcelain --untracked-files=all --ignored 2>/dev/null) | grep -q 'star' \
+    [ -f "$_SG/$_gm" ] && [ ! -e "$_SG/.claude/star-shown" ] && ! grep -q 'star' <<< "$(cd "$_SG" && git status --porcelain --untracked-files=all --ignored 2>/dev/null)" \
       && pass "inside git the marker lives in the git dir ($_gm) and git status cannot see it" \
       || fail "inside git the marker is not in the git dir (git-path '$_gm'), or it shows up in git status"
     rm -rf "$_SG"
@@ -14034,8 +14117,8 @@ if [ "$IS_KIT" = 1 ]; then
   elif [ -z "$(fp_order "$_fpt" "$FP_EN" 1)" ]; then fail "the front-page check passed a README whose overview was moved below the quick start — it reads nothing"
   else pass "front page: definition → overview → npx crewforth init on both GitHub READMEs (overview once), definition before install on npm; an overview moved below is caught"; fi
   # Two strings that must never reach a README: VIDEO_URL, the placeholder the video link is written over, so a
-  # placeholder cannot be merged by accident; and overview-poster.jpg, the image the video replaced — the file
-  # stays in assets/, so nothing else would notice it coming back. Each has a must-fail twin: the real README
+  # placeholder cannot be merged by accident; and overview-poster.jpg, the image the video replaced — deleted from
+  # assets/, and a README naming it again would only show up as a broken image. Each has a must-fail twin: the real README
   # with the string planted must be caught, or the check is reading nothing.
   fp_forbid(){ # $1 fixed string, rest files -> " name(count)" for every file that holds it
     local n="$1" f c o=""; shift
@@ -14690,7 +14773,7 @@ if [ -f "$_EVR" ]; then
   printf '#!/usr/bin/env bash\necho "PASS always"\n' > "$_calt/x/grade.sh"
   _calw="$(CREW_EVAL_CASES="$_calt" bash "$_EVR" --calibrate 2>&1)"; _calwr=$?; rm -rf "$_calt"
   _caln="$(printf '%s\n' "$_cal" | sed -n 's/.*calibrated \([0-9]*\) of \([0-9]*\) case.*/\1 \2/p')"
-  if [ "$_calwr" != 1 ] || ! printf '%s' "$_calw" | grep -q 'MISGRADED x .*bad:no-FAIL'; then
+  if [ "$_calwr" != 1 ] || ! grep -q 'MISGRADED x .*bad:no-FAIL' <<< "$_calw"; then
     fail "FIXTURE: a grader that passes everything was not named MISGRADED (rc $_calwr), so the calibration checks nothing"
   elif [ "$_calr" = 0 ]; then
     pass "evals: every grader is calibrated ($_caln) — known-good passes, known-bad fails, free and without a model"
@@ -14741,9 +14824,9 @@ _ALZ=0; _cal="$(mktemp)"
 printf '1\tp1\n2\tp2\n3\tRUN-1\n4\tRUN-2\n5\tRUN-3\n3\tp3\n4\tp4\n5\tSON\n' > "$_cal"
 _co="$(_analyse "$_cal" 4)"
 if [ "$(printf '%s' "$_co" | sed -n 's/^HITS=//p')" = 4 ] \
-   && printf '%s' "$_co" | grep -q 'RUN-1' && printf '%s' "$_co" | grep -q 'RUN-2' \
-   && printf '%s' "$_co" | grep -q 'RUN-3' && printf '%s' "$_co" | grep -q 'SON' \
-   && ! printf '%s' "$_co" | grep -qE '>> p[1-4]$'; then
+   && grep -q 'RUN-1' <<< "$_co" && grep -q 'RUN-2' <<< "$_co" \
+   && grep -q 'RUN-3' <<< "$_co" && grep -q 'SON' <<< "$_co" \
+   && ! grep -qE '>> p[1-4]$' <<< "$_co"; then
   _ALZ=1
 else
   fail "assertion-log analyser failed its own calibration — not looking for losses (out: $(printf '%s' "$_co" | tr '\n' ' '))"

@@ -158,7 +158,7 @@ _crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_
 # What a stopped or asked command would have touched (eval/lib/preview.sh), read only when one is stopped or asked.
 _CREW_PV_LIB="$_crew_d/../eval/lib/preview.sh"
 # The lockfile list and the audit record's shape (eval/lib/lockfiles.sh), loaded only when a commit reaches §4.7.
-_CREW_LF_LIB="$_crew_d/../eval/lib/lockfiles.sh"; unset _crew_d
+_CREW_LF_LIB="$_crew_d/../eval/lib/lockfiles.sh"; _GB_HERE="$_crew_d"; unset _crew_d
 # The preview of a command. ALWAYS called as "$(_pv_line …)": the command substitution is the subshell that keeps an
 # exit or a failure in the library from ending this hook or changing its decision (smoke plants both).
 _pv_line(){ [ -f "$_CREW_PV_LIB" ] || return 0; . "$_CREW_PV_LIB" 2>/dev/null && crew_preview "$1" "$2" 2>/dev/null && printf '%s' "${_CREW_PV:-}"; return 0; }
@@ -1128,8 +1128,10 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Z
 # purpose, so that it adds no noise: `rm` must stand at a command position, `sudo` or not (`git rm -r --cached .`, `npm rm`,
 # `docker run --rm` and a quoted "rm -r ." are not it), the dot must be an argument of its own in that rm's segment
 # (`.git`, `./x`, `a.` are not), and a `#` ends the look (a comment is not a target), and so does a line break (`rm -rf dist⏎npx tsc -p .`). A builtin match: no process.
+# The same holds for `$HOME`, `${HOME}`, `$PWD`, `${PWD}` and `$(pwd)`, quoted or not: one argument, no `/`, and the
+# whole home or working tree (all five passed). `$HOME_OLD`, `cd .. && rm -rf dir`, `find -delete` and `xargs rm` stay free.
 _RMNL=$'\n'
-_RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?\.\.?["'"'"']?([[:space:];&|)}]|$)'
+_RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\.\.?|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\}|\$\(pwd\))["'"'"']?([[:space:];&|)}]|$)'
 case "$CMD" in *[Rr][Mm]*)
   _rmc="$CMD"
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
@@ -1397,7 +1399,7 @@ fi
 # the shell is Turing-complete, so this is defence-in-depth — guard-write.sh covers the Write/Edit tools (the
 # model's natural path to a file), and install-time read-only hook files would be the airtight layer.
 _GP='[/\\]+(\.[/\\]+)*'      # a path separator as the shell and the filesystem take it: `/`, `\`, doubled, with `/./` between
-GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|settings\.local\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$))'
+GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|settings\.local\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|info'"$_GP"'attributes([^A-Za-z0-9_.-]|$)|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$)|(^|[^A-Za-z0-9_.-])etc'"$_GP"'gitconfig([^A-Za-z0-9_.-]|$)|\$\(git[^)]*rev-parse[^)]*(--(git-dir|git-common-dir|absolute-git-dir)[^)]*\)["'"'"']?'"$_GP"'|--git-path[[:space:]]+["'"'"']?)(config|hooks|info'"$_GP"'attributes))'
 # .git/config (with a worktree's and a submodule's own) is on the list because core.hooksPath LIVES there: the rules
 # above stop `git config core.hooksPath …`, and a plain `printf '[core]\n\thooksPath = /dev/null\n' >> .git/config`
 # walked past them — after it a commit from the user's own terminal skips the trace and secret scans (measured, 3.1.0
@@ -1544,7 +1546,9 @@ _c47_read(){  # $1 = command -> _C47_T: separators as ` ; `; every quoted span a
                  case "$body" in *\\*) _C47_QD="$_C47_QD $n " ;; esac   # an escape in it is turned into another character
                  _C47_Q[n]="$body"; out="$out$_C47_M$n$_C47_M"; n=$((n+1)) ;;
             '(('*) case "$s" in *'))'*) pre="${s%%'))'*}"; s="${s:${#pre}+2}" ;; *) s="" ;; esac; out="$out\$" ;;   # $(( … )): arithmetic, `<<` in it is a shift
-            '{'*)  case "$s" in *'}'*) pre="${s%%'}'*}"; s="${s:${#pre}+1}" ;; *) s="" ;; esac; out="$out\$" ;;     # ${ … }: one expansion, `#` in it is no comment
+            '{'*)  case "$s" in *'}'*) pre="${s%%'}'*}"; s="${s:${#pre}+1}" ;; *) s="" ;; esac     # ${ … }: one expansion, `#` in it is no comment
+                   # A plain `${name}` keeps its name, so a command word held in it can be told apart (`g=git; ${g} push`).
+                   case "${pre#\{}" in ''|[0-9]*|*[!A-Za-z0-9_]*) out="$out\$" ;; *) out="$out\$$pre}" ;; esac ;;
             *) out="$out\$" ;;
           esac ;;
       "$nl") if [ -n "$hd" ]; then                                 # the lines up to the delimiter are the here-document
@@ -1638,7 +1642,7 @@ _c47_q(){  # _C47_T -> _C47_TQ: the same text with every quoted span and escaped
   _C47_TQ="$o"; _C47_TQS="$_C47_T"
 }
 # The four rules below cost a grep each, so they run only for a command that could name a gate file at all. Builtin.
-_gate_named(){ case "$CMD" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|*[Gg][Ii][Tt][/\\]*[Cc][Oo][Nn][Ff][Ii][Gg]*|*[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]*|*.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]*) return 0 ;; esac; return 1; }
+_gate_named(){ case "$CMD" in *[Cc][Ll][Aa][Uu][Dd][Ee]*|*[Hh][Oo][Oo][Kk][Ss]*|*[Gg][Ii][Tt][/\\]*[Cc][Oo][Nn][Ff][Ii][Gg]*|*[Gg][Ii][Tt]-[Ss][Hh][Ii][Mm]*|*.[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]*|*[Gg][Ii][Tt][/\\]*[Ii][Nn][Ff][Oo]*|*[Ee][Tt][Cc][/\\]*[Gg][Ii][Tt][Cc][Oo][Nn][Ff][Ii][Gg]*|*[Rr][Ee][Vv]-[Pp][Aa][Rr][Ss][Ee]*) return 0 ;; esac; return 1; }
 # CREW-NOT-A-RUNG: same — `perl`, `python3`, `ruby`, `node` here are names the gate REFUSES when they are
 # pointed at a gate file, not readers this hook uses.
 # A COMMAND THAT NAMES A GATE FILE IS ON A SHORT LIST, OR IT IS REFUSED. This rule used to look for a write VERB
@@ -1810,7 +1814,7 @@ _GT_BIND='(^|[;&|[:space:](])(xargs|parallel|read|mapfile|readarray)([[:space:]]
 # A shell with no script reads its commands from the pipe in front of it: `… | sh`.
 _GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
 _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is refused; 0 otherwise
-  local cwd="" taint=0 named=0 globby=0 any=0 here=0 seg w x t f u i j sp=$'\002'
+  local cwd="" taint=0 indir=0 ixs=0 from=0 named=0 globby=0 any=0 here=0 seg w x t f u i j sp=$'\002'
   local -a SEG=() SEGF=() W=()     # set, not only declared: bash 4.4 and later call a declared, empty array unbound under `set -u`
   _GTW=""
   if _gate_named && _gt_named "$CMD_UQ"; then named=1; fi
@@ -1818,7 +1822,7 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
   case "$INPUT" in *.claude*|*.git*)
     _json_slice "$INPUT" cwd >/dev/null; cwd="${_JS//\\\\//}"
     shopt -s nocasematch
-    if [[ "$cwd" =~ $_GT_CWD1 ]] || [[ "$cwd" =~ $_GT_CWD2 ]]; then taint=2; fi
+    if [[ "$cwd" =~ $_GT_CWD1 ]] || [[ "$cwd" =~ $_GT_CWD2 ]]; then taint=2; indir=1; fi
     shopt -u nocasematch ;;
   esac
   case "$CMD_UQ" in *[*?[{]*)
@@ -1858,13 +1862,14 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
       [[ "$CMD_UQ" =~ $_GT_BIND ]] && taint=1
       case "$CMD" in *'$('*|*'`'*) taint=1 ;; esac
       for seg in "${SEG[@]}"; do
+        ixs=$((ixs+1))
         read -r -a W <<< "$seg"; i=0
         while [ "$i" -lt "${#W[@]}" ]; do
           case "${W[i]}" in
             then|do|else|elif|if|while|until|'!'|'{'|time) ;;
             [A-Za-z_]*=*) [ "$taint" != 0 ] || { _gt_named "${W[i]#*=}" && taint=1; } ;;
             for) _gt_named "$seg" && [ "$taint" = 0 ] && taint=1; break ;;
-            cd|pushd) { _gt_named "$seg" || [[ "$seg" =~ $_GT_DOTGIT ]]; } && taint=2; break ;;
+            cd|pushd) { _gt_named "$seg" || [[ "$seg" =~ $_GT_DOTGIT ]]; } && { [ "$indir" = 1 ] || from=$ixs; taint=2; indir=1; }; break ;;
             *) break ;;
           esac
           i=$((i+1))
@@ -1880,6 +1885,15 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
       case "$seg" in *'$'*) x=1 ;; *) [[ "$seg" =~ $_GT_BIND ]] && x=1 ;; esac
     fi
     if [ "$taint" = 2 ] || [ "$x" = 1 ]; then
+      # Standing in a gate directory, a redirect writes there by a short name whatever the command word is:
+      # `cd .git && printf x >> config` (measured: rc 0, printf is a reader). An absolute target is the redirect rule's (it names a gate path or it is elsewhere), and a descriptor is no file.
+      if [ "$indir" = 1 ] && [ "$j" -ge "$from" ]; then   # from the segment of the cd on (j counts from 1 here)
+        t="$seg"
+        while [[ $t =~ (^|[^0-9\&\<\>])[0-9]*\>[\>\|]?[[:space:]]*([^\&[:space:]][^[:space:]]*) ]]; do
+          case "${BASH_REMATCH[2]}" in /*) ;; *)  _GTW="a redirect writes '${BASH_REMATCH[2]}' in a call that stands in a gate directory"; return 1 ;; esac
+          t="${t#*"${BASH_REMATCH[0]}"}"
+        done
+      fi
       _gt_ok "$seg" "$taint" "$f" || { _GTW="$_GTW, in a call that can reach a gate file by another name (a variable, a loop, a cd, a substitution, a here-document, xargs, or a word that changes what a command runs)"; return 1; }
       continue
     fi
@@ -1992,8 +2006,7 @@ _appr_word(){  # $1 = a word of the command -> 0 when it, or what follows its fi
 _appr_in_claude_call(){  # 0 = a word of this command is an approval (OP names it)
   # The command AS IT WAS SENT: the prompt of a plain `claude -p "…"` has been taken out of CMD by now (it is text for
   # another session, not a command of this one), and it is exactly the word this rule has to read.
-  local s="${CMD_REAL:-$CMD}" w="" pre c body inw=0 nc=0 here="${BASH_SOURCE%/*}"
-  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  local s="${CMD_REAL:-$CMD}" w="" pre c body inw=0 nc=0 here="$_GB_HERE"
   shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$s" in *claude*) [ "$nc" = 0 ] && shopt -u nocasematch ;; *) [ "$nc" = 0 ] && shopt -u nocasematch; return 1 ;; esac
   [ -f "$here/prompt-approval.sh" ] || return 1          # no recording hook: no approval can be recorded at all
@@ -2669,8 +2682,7 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
 # for the script's name after the event's name; it is not parsed, and managed settings are not read. A wrong answer
 # changes a sentence, never the verdict: the command is refused either way. eval/doctor.sh does the parsed check.
 _appr_wired(){  # 0 = prompt-approval.sh is beside this hook and a settings file wires it; else _APRW names what was read
-  local f t d="${CLAUDE_PROJECT_DIR:-.}" seen="" here="${BASH_SOURCE%/*}"
-  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  local f t d="${CLAUDE_PROJECT_DIR:-.}" seen="" here="$_GB_HERE"
   d="${d//\\//}"; d="${d%/}"
   _APRW="no prompt-approval.sh beside this hook"
   [ -f "$here/prompt-approval.sh" ] || return 1
@@ -2690,8 +2702,7 @@ _q_wired(){ declare -F _crew_q_wired >/dev/null 2>&1 && _crew_q_wired; }   # def
 # from there. Without that file there is no other approval to fall back to, so the answer is "no" and the gate
 # asks as it always has.
 _gb_prh(){  # 0 = a PermissionRequest hook may be wired; _PRH names where
-  local here="${BASH_SOURCE%/*}"
-  [ "$here" = "${BASH_SOURCE}" ] && here=.
+  local here="$_GB_HERE"
   [ -f "$here/prompt-approval.sh" ] || return 1
   declare -F _crew_prh_scan >/dev/null 2>&1 || . "$here/prompt-approval.sh"
   declare -F _crew_prh_scan >/dev/null 2>&1 || return 1
@@ -2780,7 +2791,7 @@ _gate_written(){
   # and the session picked the typed one 7 times in 9 (a real `auto` session on rc.3, 2026-10-18): the user was told
   # to type a command for what one click does. The typed way is now the fallback, said as one.
   _QOFF=0
-  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "${BASH_SOURCE%/*}/guard-question.sh" ]; then
+  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "$_GB_HERE/guard-question.sh" ]; then
     _QOFF=1
     echo "$_CREW_Q_ASK" >&2
     echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
@@ -2926,8 +2937,9 @@ _c47_args(){  # $1 = 1: the words after `git` (Start-Process git …) | 0: all o
 _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_AM _C47_UNK _C47_EXP _C47_ENV _C47_SH _C47_CFG
               #                   _C47_CD (0 none · 1 one plain target, in _C47_CDT · 2 a target that cannot be read)
   local tok ph=cmd unglob=0 body c v m i raw rcd=0 rcdt="" envf=0 wrapped=0 novars=0 vc=0
-  _C47_VARS=" "
+  _C47_VARS=" "; _C47_GITV=" "
   _C47_SHRE='(^|[^A-Za-z0-9_-])git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit([[:space:]]|$)'
+  _C47_SHSUB='(^|[;&|({`]|\$\()[[:space:]]*((sudo|command|exec|nohup|time|builtin)[[:space:]]+)*git[[:space:]]+((-[Cc]|--(git-dir|work-tree|namespace|exec-path|super-prefix|config-env))[[:space:]]+[^[:space:]]+[[:space:]]+|(-[Cc][^[:space:]]+|-[^-Cc[:space:]][^[:space:]]*|--[^[:space:]]*=[^[:space:]]*|--(bare|no-pager|paginate|no-replace-objects|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs|no-optional-locks|no-lazy-fetch|no-advice))[[:space:]]+)*([$`]|[^[:space:];&|-][^[:space:];&|]*[$`])'
   _C47_N=0; _C47_WT=""; _C47_NV=""; _C47_AM=""; _C47_UNK=""; _C47_EXP=""; _C47_ENV=""; _C47_SH=""; _C47_CFG=""; _C47_UNR=""; _C47_SUB=""; _C47_ARGS=""; _C47_CD=0; _C47_CDT=""
   _C47_MK=""; _mk_sub=""
   _c47_read "$1"; m="$_C47_M"
@@ -2938,7 +2950,7 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
     raw="$1"; shift
     [ "$raw" = ";" ] && { [ "$ph" = mk ] && _c47_mk_close; ph=cmd; wrapped=0; vc=0; continue; }
     _WAT=0
-    case "$raw" in "$m"*|*"$m"*) _c47_w "$raw" ;; *) _W="$raw"; _WQ=0; case "$raw" in *[\$\*\?\[\{]*) _WX=1 ;; *) _WX=0 ;; esac ;; esac
+    case "$raw" in "$m"*|*"$m"*) _c47_w "$raw" ;; *) _W="$raw"; _WQ=0; _WAT=0; _WE=0; case "$raw" in *[\$\*\?\[\{]*) _WX=1 ;; *) _WX=0 ;; esac ;; esac
     tok="$_W"
     # THE VARIABLES THAT CHANGE WHAT GIT READS — the repository, the index, the object store, the configuration —
     # wherever in the call they are set or exported: in front of the commit, in an earlier command, as an argument
@@ -2970,13 +2982,21 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
               c="${tok#*=}"
               [ "$v" = IFS ] && novars=1
               case "$novars$_WX$c" in 1*|01*|*[$' \t\n']*|*[\*\?\[\{\$\`]*|00) _C47_VARS="${_C47_VARS/ $v / }" ;; *) _C47_VARS="$_C47_VARS$v " ;; esac
+              # ...and whether that word is git: in a Bash call only such a name runs git as a command word (`g=git; $g push`).
+              _c47_w "$c"; case "$_WX$_W" in 0git|0git.exe|0*/git|0*/git.exe) _C47_GITV="$_C47_GITV$v " ;; *) _C47_GITV="${_C47_GITV/ $v / }" ;; esac
               [ "$novars" = 1 ] && _C47_VARS=" " ;;
             esac ;;
           '{'|'}'|'!'|if|then|else|elif|fi|do|done|while|until|time|sudo|command|builtin|exec|nohup|nice) wrapped=1 ;;   # the command follows
           -*) [ "$wrapped" = 1 ] || ph=skip ;;                                           # an option of that wrapper
-          export|declare|typeset|readonly|local|read|unset|let|source|.|for|select|getopts|mapfile|readarray) novars=1; _C47_VARS=" "; ph=skip ;;
+          export|declare|typeset|readonly|local)   # a name set to git keeps it, and one set here is remembered too
+            novars=1; _C47_VARS=" "; ph=skip
+            for v in "$@"; do
+              [ "$v" = ";" ] && break
+              _c47_w "$v"; case "$_WX$_W" in 0[A-Za-z_]*=git|0[A-Za-z_]*=git.exe|0[A-Za-z_]*=*/git|0[A-Za-z_]*=*/git.exe) _C47_GITV="$_C47_GITV${_W%%=*} " ;; esac
+            done ;;
+          read|unset|let|source|.|for|select|getopts|mapfile|readarray) novars=1; _C47_VARS=" "; _C47_GITV=" "; ph=skip ;;
           set|shift) ph=skip ;;
-          printf) case " $* " in *" -v "*) novars=1; _C47_VARS=" " ;; esac; ph=skip ;;
+          printf) case " $* " in *" -v "*) novars=1; _C47_VARS=" "; _C47_GITV=" " ;; esac; ph=skip ;;
           env) ph=env ;;
           cd|pushd|chdir|Set-Location|sl|Push-Location)
             # Where the commit will run. One plain target can be resolved and compared; anything else cannot.
@@ -3004,11 +3024,25 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
               # Invoke-Expression takes an expression: `Invoke-Expression ('git commit -' + 'n -m x')` puts the script
               # behind a parenthesis, which reads as a separator here, so for it the look goes on to the end of the call.
               [ "$v" = ";" ] && { case "$tok" in Invoke-Expression|iex) continue ;; esac; break; }
-              case "$v" in *"$m"*) _c47_w "$v"; [[ $_W =~ $_C47_SHRE ]] && _C47_SH="$tok" ;; esac
+              case "$v" in *"$m"*) _c47_w "$v"; [[ $_W =~ $_C47_SHRE ]] && _C47_SH="$tok"
+                # ...and a git subcommand the shell fills in, inside that script: `bash -c 'git pu${z}sh --force'`
+                # (measured: passed, while the same words outside the quotes were refused).
+                [[ $_W =~ $_C47_SHSUB ]] && _C47_SUB="$tok: ${BASH_REMATCH[0]:0:40}"
+                # PowerShell started from a Bash call: `powershell -Command "Start-Process git -ArgumentList
+                # 'push','--force'"` hands git its arguments as the PowerShell tool's own call does (measured: passed).
+                case "$tok" in pwsh|powershell|pwsh.exe|powershell.exe)
+                  [[ $_W =~ (^|[^A-Za-z-])(Start-Process|saps|start)[[:space:]]+git ]] && { v="${_W//\'/}"; v="${v//\"/}"; _c47_args 1 $v; } ;;
+                esac ;; esac
             done
             case "$tok" in eval|xargs) wrapped=1 ;; *) ph=skip ;; esac ;;                # after eval / xargs the command is read on
           git|git.exe|*/git|*/git.exe) ph=git ;;
-          *) [ "$_WX" = 1 ] && { vc=1; _c47_args 0 "$@"; }; ph=skip ;;
+          *) [ "$_WX" = 1 ] && vc=1
+             # A command word held in a variable: in a PowerShell call (`& $g push --force`) every such word is read as
+             # git; in a Bash call only a name this command set to git (`g=git; $g push --force`, quoted or not):
+             # `"$BIN" clean -f` runs some other program.
+             if [ "${_c47_ps:-0}" = 1 ]; then [ "$_WX" = 1 ] && _c47_args 0 "$@"
+             elif [ "$_WX$_WE" != 00 ]; then v="${tok#\$}"; v="${v#\{}"; v="${v%\}}"; case "$_C47_GITV" in *" $v "*) _c47_args 0 "$@" ;; esac; fi
+             ph=skip ;;
         esac ;;
       env)
         case "$tok" in
@@ -3179,6 +3213,9 @@ esac
 # that holds one of those three words is read too, and its arguments are judged as the git command they make.
 _c47_psd=0
 [ "$_c47_ps" = 1 ] && case "$CMD_UQ" in *[Pp][Uu][Ss][Hh]*|*[Rr][Ee][Ss][Ee][Tt]*|*[Cc][Ll][Ee][Aa][Nn]*) _c47_psd=1 ;; esac
+# The same reading for a Bash call that starts PowerShell (`powershell -Command "Start-Process git …"`).
+[ "$_c47_ps" = 0 ] && case "$CMD_UQ" in *[Pp][Ww][Ss][Hh]*|*[Pp][Oo][Ww][Ee][Rr][Ss][Hh][Ee][Ll][Ll]*)
+  case "$CMD_UQ" in *[Pp][Uu][Ss][Hh]*|*[Rr][Ee][Ss][Ee][Tt]*|*[Cc][Ll][Ee][Aa][Nn]*) _c47_psd=1 ;; esac ;; esac
 if [ "$_c47_seen" = 1 ] || [ "$_c47_try" = 1 ] || [ "$_c47_sub" = 1 ] || [ "$_c47_psd" = 1 ]; then
   # A SIZE THIS READING IS NOT ASKED TO EXCEED. A PreToolUse hook that reaches its timeout (600 s) stops nothing, and
   # the reading below costs the square of the size for some shapes — measured on macOS, a commit followed by `2>&1`
@@ -3219,7 +3256,7 @@ if [ "$_c47_seen" = 1 ] || [ "$_c47_try" = 1 ] || [ "$_c47_sub" = 1 ] || [ "$_c4
     "this call runs git with a subcommand the shell fills in ($_C47_SUB), so which git command it is cannot be read." \
     "Every rule about a git command looks for it by name. Write the subcommand out: git commit …, git push …"
   fi
-  if [ "$_c47_ps" = 1 ] && [ -n "$_C47_ARGS" ]; then
+  if [ -n "$_C47_ARGS" ]; then
     while IFS= read -r _t; do
       # What block() prints names the rule; this line says where the command was read from.
       ( _git_d45 "$_t"; exit 0 ) \

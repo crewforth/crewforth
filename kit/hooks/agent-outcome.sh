@@ -47,7 +47,7 @@
 set -uo pipefail
 export LC_ALL=C
 [ "${CREW_MODEL_ROUTING:-}" = off ] && exit 0
-_ao_here="${BASH_SOURCE%/*}"; [ "$_ao_here" = "${BASH_SOURCE}" ] && _ao_here=.
+_ao_here="${BASH_SOURCE//\\//}"; _ao_here="${_ao_here%/*}"; [ "$_ao_here" = "${BASH_SOURCE//\\//}" ] && _ao_here=.
 [ -f "$_ao_here/guard-agent-model.sh" ] || exit 0
 . "$_ao_here/guard-agent-model.sh"
 declare -F _am_state >/dev/null 2>&1 || exit 0
