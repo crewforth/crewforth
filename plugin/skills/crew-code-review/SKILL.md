@@ -34,6 +34,8 @@ no hook runs the pre-pass or reads `review.json`.
 ## 1. Scope
 - **Review the lines this change adds or edits.** Deleted code is context for understanding them, not a target.
 - Code that is correct, or that the change did not touch, gets no comment.
+- **Nothing staged and no range given: ask which change to review.** Never fall back to `HEAD~1`; that reviews a
+  commit nobody named.
 - **An empty result is a result.** Do not invent findings to show the review happened.
 - **Be sure before you write.** A finding you are not sure of is not a finding yet: read the surrounding code until
   you are. A false alarm costs more than a small miss — it spends the attention the next real problem needs.
@@ -90,6 +92,11 @@ requirement into an any-of one; or relaxes the rule the code is there to enforce
 uniqueness or referential constraint, an exception list holding exactly the failing case. Ask not "does it pass
 now" but **"does the system still do what this check was protecting"**. Retiring a genuinely obsolete check is
 legitimate: say so in the diff and name what covers it now.
+
+**A silenced checker** is the same failure written as a cast or a comment: `as any`, `as unknown as T`, a
+`@ts-ignore` or a lint-disable on a changed line. The pre-pass flags the casts (`prepass-silenced-checker`); ask what
+type error the cast hides. **A replaced pattern left half-migrated** — the new way added beside the old one, with
+callers still on the old — is a finding too: name the call sites that did not move.
 
 ## 8. Two-stage verdict (fact-check before you report)
 Finding a problem and confirming it are two acts. A first-pass "this looks wrong" is a **candidate**, not a verdict.

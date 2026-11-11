@@ -43,6 +43,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **`--ignore-local` keeps the tracked `.gitignore` untouched.** `npx crewforth init` (or answer 3 to "who is this
+  install for") and `npx crewforth adopt` write their ignore lines to `.git/info/exclude`, which only this clone
+  reads. The default is unchanged.
+- **The review pre-pass flags a silenced checker and names what it skipped.** `prepass-silenced-checker` reports an
+  added `as any` or `as unknown as` in TypeScript; a rebase, merge or cherry-pick in progress is reported as not
+  measured; the summary ends with a `not checked:` line. `crew-code-review` asks which change to review when nothing
+  is staged, and treats a half-migrated pattern as a finding; receiving a review on a pull request now says to push
+  before resolving a thread and never to resolve a person's thread without a reply.
+
 - **`/crew-ship` checks that the SonarQube verdict is about the code it ships.** `sonarqube-check` records its
   verdict with the work tree it analysed (`scripts/record.sh clean|unverified`), and `/crew-ship` runs
   `scripts/freshness.sh` before it proposes a commit: no recorded analysis, or an edit made after it (staged or not,
@@ -334,6 +343,12 @@ versioning follows [SemVer](https://semver.org/).
   empty, where every `new_*` condition reads `OK` with nothing to judge.
 
 ### Fixed
+
+- **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
+  the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
+- **The team board does not hang on an unreachable remote.** Where neither `timeout` nor `gtimeout` exists (stock
+  macOS), a network call is bounded by `CREW_NET_TIMEOUT` (15 s) instead of the TCP timeout (75 s measured), and
+  `board.sh status` says the remote could not be reached instead of "no board on origin".
 
 - **A hook started by a Windows path finds its own files.** Every hook and the doctor, preflight and gate-report
   scripts fold backslashes before taking their own directory, so `C:\…\hooks\x.sh` no longer looks for its

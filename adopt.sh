@@ -40,6 +40,7 @@ Crewforth'u MEVCUT bir projeye kurar ya da kurulu olanı yeniler. Önce projeyi 
 projenin kendi dosyalarına, hook'larına ve status line'ına dokunmaz. Değişiklikleri hazırlar (stage), commit atmaz.
   --here         değişiklikleri şu anki dalda yap
   --new-branch   değişiklikleri yeni bir inceleme dalında yap (ilk kurulumda varsayılan)
+  --ignore-local yok sayılacak satırları .gitignore yerine .git/info/exclude'a yaz (yalnız bu klon)
   --yes, -y      her soruya evet de (gözetimsiz kurulum)
   --lang tr|en   dil (verilmezse sorulur)
   --version, -v  Crewforth sürümünü yazdırıp çık
@@ -52,6 +53,7 @@ Installs Crewforth into an EXISTING project, or refreshes an install. It reads t
 will do; the project's own files, hooks and status line are left alone. Changes are staged, never committed.
   --here         make the changes on the current branch
   --new-branch   make the changes on a fresh review branch (the default for a first adopt)
+  --ignore-local write the ignore lines to .git/info/exclude instead of .gitignore (this clone only)
   --yes, -y      answer yes at every gate (unattended)
   --lang tr|en   language (asked when not given)
   --version, -v  print Crewforth's version and exit
@@ -88,6 +90,7 @@ for _a in "$@"; do
   --preset)     _preset_take=1 ;;
   --here)       BRANCH_MODE=here ;;
   --new-branch) BRANCH_MODE=new  ;;
+  --ignore-local) GI_LOCAL=1 ;;     # ignore lines go to .git/info/exclude, not the tracked .gitignore (K12)
   --yes|-y)     ASSUME_YES=1     ;;   # assume "yes" at every gate — for agent-driven / CI updates (no TTY to prompt)
   --lang=*)     _lang_flag="${_a#--lang=}" ;;
   --lang)       _lang_take=1 ;;
@@ -462,20 +465,21 @@ ask_yes(){ local a q w
 #     collected a second, redundant line. `git check-ignore` asks about the PATH rather than the spelling,
 #     which is the technique this script already uses at the #4 share branch and never applied to its own
 #     writes. Outside a repository there is nothing to ask, so the literal test stays as the fallback.
-gi_add() {   # $@ = entries to ensure in ./.gitignore; sets GI_WROTE to what it actually added
+gi_add() {   # $@ = entries to ensure in $GI_FILE (./.gitignore unless --ignore-local); sets GI_WROTE to what it added
   local e
   GI_WROTE=""
-  [ -e .gitignore ] || : > .gitignore
+  local gf="${GI_FILE:-.gitignore}"
+  mkdir -p "$(dirname "$gf")" 2>/dev/null; [ -e "$gf" ] || : > "$gf"
   for e in "$@"; do
     if git rev-parse --git-dir >/dev/null 2>&1; then
       git check-ignore -q --no-index "$e" 2>/dev/null && continue   # --no-index: a dir holding tracked files (docs/HANDOVER.md) still counts as ignored
     else
-      grep -qxF "$e" .gitignore 2>/dev/null && continue
+      grep -qxF "$e" "$gf" 2>/dev/null && continue
     fi
-    if [ -s .gitignore ] && [ "$(tail -c 1 .gitignore | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
-      printf '\n' >> .gitignore
+    if [ -s "$gf" ] && [ "$(tail -c 1 "$gf" | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
+      printf '\n' >> "$gf"
     fi
-    printf '%s\n' "$e" >> .gitignore
+    printf '%s\n' "$e" >> "$gf"
     GI_WROTE="$GI_WROTE $e"
   done
   GI_WROTE="${GI_WROTE# }"
@@ -2086,6 +2090,10 @@ fi
 # adoption was receiving its own threat model and security findings along with it.
 # `.claude/.state/` for the same reason as the review record: it is this machine's runtime state (the update
 # check's cache and answers, the pre-update snapshot) and a tracked .claude/ would otherwise put it in git status.
+# K12: --ignore-local sends these lines to this clone's info/exclude (asked of git, so a worktree finds the shared
+# one) and leaves the tracked .gitignore alone. adopt always runs in a repository, so the path always resolves.
+GI_FILE=.gitignore
+[ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
 gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.

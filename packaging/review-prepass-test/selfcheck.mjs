@@ -200,5 +200,26 @@ check('an unknown argument: rc 2', cli(A.root, '--bogus').status === 2);
 const r = addedLines('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/y b/y\n--- a/y\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\ndiff --git a/i.png b/i.png\nBinary files a/i.png and b/i.png differ\n');
 check('the diff reader: one added line at 1, the deleted file and the binary give no line', JSON.stringify(r.added) === JSON.stringify([{ file: 'x', line: 1, text: 'b' }]) && r.binary[0] === 'i.png', JSON.stringify(r));
 
+// ---- 6. a silenced checker, a replay in progress, and every skip named on the summary ---------------------------
+const SC = repo('silenced', { 'src/s.ts': 'export const a = 1;\n' }, {
+  'src/s.ts': 'export const a = 1;\nconst b = (x as any).y;\nconst c = x as unknown as Foo;\nconst d = asAny(x);\nconst e = x as anyThing;\n// a comment: x as any\n',
+  'src/s.test.ts': 'const m = (x as any).y;\n', 'notes.md': 'write x as any here\n',
+});
+const docSC = prepass(SC.root);
+check('silenced checker: `as any` and `as unknown as` on added lines are found',
+  has(docSC, 'prepass-silenced-checker', 'src/s.ts:2') && has(docSC, 'prepass-silenced-checker', 'src/s.ts:3'), got(docSC).join(', '));
+check('silenced checker near misses: asAny(), `as anyThing`, a comment, a test file and prose are silent',
+  docSC.findings.filter((f) => f.rule === 'prepass-silenced-checker').length === 2, got(docSC).join(', '));
+const RM = repo('replay', { 'a.ts': 'export const a = 1;\n' }, { 'a.ts': 'export const a = 2;\n' });
+const docR0 = prepass(RM.root);
+fs.writeFileSync(path.join(RM.root, '.git', 'MERGE_HEAD'), `${g(RM.root, 'rev-parse', 'HEAD').trim()}\n`);
+const docRM = prepass(RM.root);
+check('a merge in progress is said as not measured; with none, nothing is said about it',
+  docRM.notMeasured.some((x) => x.what === 'the change itself' && x.reason.includes('a merge is in progress')) && !docR0.notMeasured.some((x) => x.what === 'the change itself'),
+  docRM.notMeasured.map((x) => `${x.what}: ${x.reason}`).join('; '));
+const ncl = cli(RM.root, '--stdout');
+check('the summary is followed by a "not checked:" line naming each skip, and a clean run prints none',
+  ncl.status === 0 && /\nnot checked: the change itself \(a merge is in progress/.test(ncl.stderr) && !/not checked:/.test(cli(SC.root, '--stdout').stderr), ncl.stderr);
+
 console.log(`\nreview-prepass selfcheck: ${pass} passed · ${fail} failed`);
 process.exit(fail ? 1 : 0);
