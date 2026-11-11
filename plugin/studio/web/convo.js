@@ -3,7 +3,7 @@
 // The same shapes come from two places: the server's reading of a transcript (history, and sessions Studio only
 // watches) and the live stream of a session started here. Both go through these functions, so a tool row reads
 // the same whichever way it arrived.
-import { roleName, modelOf } from './names.js';
+import { roleName, modelOf, effortOf } from './names.js';
 import { t, numLocale } from './i18n.js';
 
 // How much of a tool's output the page keeps for a live result: the same tail the server keeps for history.
@@ -23,6 +23,7 @@ export function toolBlock(c) {
     subagentType: typeof i.subagent_type === 'string' ? i.subagent_type : null,
     // The model a delegation asks for; null when the call names none.
     model: typeof i.model === 'string' ? i.model : null,
+    effort: effortOf(i.effort),
     result: null,
   };
 }
@@ -86,7 +87,7 @@ export function delegationCard(block, nodes) {
     agentId: node?.id ?? null,
     status: node?.status ?? null,
     // What it ran on once the graph knows the agent; before that, what the call asked for.
-    model: modelOf({ model: node?.model ?? null, modelAsked: block.model ?? node?.modelAsked ?? null }),
+    model: modelOf({ model: node?.model ?? null, modelAsked: block.model ?? node?.modelAsked ?? null, effort: node?.effort ?? block.effort ?? null }),
   };
 }
 

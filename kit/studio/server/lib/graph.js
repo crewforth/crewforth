@@ -24,6 +24,10 @@ import { detailOf } from './permissions.js';
 
 const SESSION_NODE = 'session';
 
+// The levels Claude Code names an effort by, the ones hooks/guard-agent-model.sh accepts. Anything else is not shown as one.
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const effortOf = (v) => (typeof v === 'string' && EFFORTS.includes(v) ? v : null);
+
 function textOf(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -216,6 +220,8 @@ function scanMain(records) {
                 calledAt: at,
                 // The model the call asked for: its own `model` field. Absent, the agent runs on its default.
                 model: typeof c.input?.model === 'string' ? c.input.model : null,
+                // The effort the call asked for (low, medium, high, xhigh, max); null when it named none or something else.
+                effort: effortOf(c.input?.effort),
               });
             }
           }
@@ -571,6 +577,8 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       model: a.stats?.model ?? link?.model ?? null,
       // The model the call asked for; null when the call named none and the agent ran on its default.
       modelAsked: call?.model ?? null,
+      // The effort the call asked for; null when it named none (the agent runs at its own default, which the record does not hold).
+      effort: call?.effort ?? null,
       // Set when the model gate refused this call the first time it was made: what was asked then, and why not.
       firstTry: call?.firstTry ?? null,
       // `confidence: high|low`, the line a crew agent's report closes with; null when it has none.
@@ -887,6 +895,7 @@ export async function conversation(session, { limit = 400 } = {}) {
             id: typeof c.id === 'string' ? c.id : null,
             // Only a delegation has one. The agent's type is what the card in the conversation is named after.
             subagentType: typeof i.subagent_type === 'string' ? i.subagent_type : null,
+            effort: effortOf(i.effort),
             result: (typeof c.id === 'string' ? results.get(c.id) : null) ?? null,
           });
         }

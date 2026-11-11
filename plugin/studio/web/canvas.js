@@ -1027,7 +1027,7 @@ export class Canvas {
       c.parts.name.textContent = text;
       c.parts.order.textContent = ctag;
       c.parts.order.hidden = !ctag;
-      c.title = [hoverOf(n), [modelOf(n).ran, factsOf(n)].filter(Boolean).join(' \u00b7 '), cshell?.title].filter(Boolean).join('\n');
+      c.title = [hoverOf(n), [modelOf(n).label, factsOf(n)].filter(Boolean).join(' \u00b7 '), cshell?.title].filter(Boolean).join('\n');
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
