@@ -8546,6 +8546,14 @@ RMT='2 @@ PowerShell @@ Remove-Item -Recurse -Force C:\\proj\\*
 0 @@ Bash @@ ls -A | xargs rm -rf
 0 @@ Bash @@ rm -rf $HOME_OLD
 0 @@ Bash @@ echo rm -rf $HOME
+2 @@ Bash @@ rm -rf \"C:\\Users\\me\"
+2 @@ Bash @@ rm -rf C:\\Users\\me\\AppData
+2 @@ Bash @@ rm -rf $USERPROFILE
+2 @@ Bash @@ rm -rf ${TEMP}
+2 @@ Bash @@ rm -rf \"$TMP\"
+0 @@ Bash @@ rm -rf my\\ dir
+0 @@ Bash @@ TMP=\"$(mktemp -d)\"; rm -rf \"$TMP\"
+0 @@ Bash @@ rm -rf $USERPROFILE_OLD
 2 @@ PowerShell @@ Remove-Item -Recurse:$true -Force:$true C:\\proj
 2 @@ PowerShell @@ Remove-Item -Rec:1 -Fo:1 .\\a
 2 @@ PowerShell @@ Remove-Item -Recurse: $true -Force: $true .\\a
@@ -8565,8 +8573,8 @@ while IFS= read -r _rl; do [ -z "$_rl" ] && continue
   RMN=$((RMN+1)); [ "$_rw" = 0 ] && RM0=$((RM0+1)); [ "$_rw" = 2 ] && RM2=$((RM2+1))
   [ "$_rg" = "$_rw" ] || RMF="$RMF | want $_rw got $_rg: [$_rt] $_rc"
 done <<< "$RMT"
-if [ "$RMN" != 76 ] || [ "$RM2" != 49 ] || [ "$RM0" != 27 ]; then fail "recursive-delete table: read $RMN rows ($RM2 stop, $RM0 pass), want 76 (49, 27) — the table was not read as written"
-elif [ -z "$RMF" ]; then pass "recursive forced removal: $RM2 forms stopped ('.' / '..', \$HOME / \$PWD, paths, piped, chained, colon and long-dash flags, and the line-wide floor), $RM0 everyday forms passed ($RMN rows)"
+if [ "$RMN" != 84 ] || [ "$RM2" != 54 ] || [ "$RM0" != 30 ]; then fail "recursive-delete table: read $RMN rows ($RM2 stop, $RM0 pass), want 84 (54, 30) — the table was not read as written"
+elif [ -z "$RMF" ]; then pass "recursive forced removal: $RM2 forms stopped ('.' / '..', \$HOME / \$PWD / \$USERPROFILE, the temp root by its name, a Windows drive path, paths, piped, chained, colon and long-dash flags, and the line-wide floor), $RM0 everyday forms passed ($RMN rows)"
 else fail "recursive-delete table:$RMF"; fi
 
 sec "== 12b) Crewforth's own scripts sent through PowerShell go back to the Bash tool =="
