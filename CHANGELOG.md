@@ -9,6 +9,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Security
 
+- **A pull under `pull.ff=only` that overrides it on its own command line is asked about again.** The setting freed
+  `git pull` because it reads only fast-forwards; but `git -c pull.ff=false pull` and `git pull --no-rebase` set how to
+  reconcile for that one call, and each made a merge commit with no approval (measured on real repositories). A call
+  that sets `-c`, `--no-rebase`, `-C`, `--git-dir` or a `GIT_*` variable no longer counts as reading that setting.
+
 - **A first `adopt` no longer runs a hook it found in the project.** It keeps files it finds, so a
   `.claude/hooks/pre-commit` (or any file under a gate's name) that arrived with a clone became the project's git
   hook, and adopt ran it as its own proof, as the user. A first adopt now stops before any change when
@@ -343,6 +348,14 @@ versioning follows [SemVer](https://semver.org/).
   empty, where every `new_*` condition reads `OK` with nothing to judge.
 
 ### Fixed
+
+- **A plain `git pull` that cannot make a commit is no longer refused in auto mode.** From git 2.33.1 a pull told
+  nothing about how to reconcile only fast-forwards, and on diverged branches stops without changing anything. When
+  the repository sets none of `pull.ff`, `pull.rebase`, `merge.ff=false`, or the branch's own `rebase`,
+  `mergeoptions` or a second `merge`, a `git pull` (with `-q`, `--prune`, a remote and one branch) runs. Any other
+  option, a second branch, `-c`, `-C` or a changed directory, an older git, or one of those settings: asked as before.
+  On 553 real pull commands, 31 refusals become allowed and nothing else changes; on 4 485 real commit and push
+  commands, no approval is lost.
 
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
