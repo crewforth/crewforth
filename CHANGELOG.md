@@ -356,6 +356,11 @@ versioning follows [SemVer](https://semver.org/).
   option, a second branch, `-c`, `-C` or a changed directory, an older git, or one of those settings: asked as before.
   On 553 real pull commands, 31 refusals become allowed and nothing else changes; on 4 485 real commit and push
   commands, no approval is lost.
+- **The fast check at the end of a turn no longer slows down with the number of untracked files.** With 10 000
+  untracked files and no ignore rule for them, the hook took 60-198 s at Stop on Windows and 30 s on macOS; it is
+  linear now (0.5 s on macOS for the same project, 2.9 s at Stop on Windows), and a check that ends at once no longer
+  waits a full second. The snapshot at the prompt hashes the dirty files in one batch and tests each path only when
+  that batch fails (a dangling link, a submodule): the per-path test was 1.9 s of a 2.4 s prompt on Windows.
 - **Per-agent and per-session state no longer piles up.** The record kept for each agent (so a resumed one is not
   judged twice) and the loop guard's file for each session were never removed; a long-used project held thousands of
   them. At a session's start, one `find` removes agent records older than 14 days and loop files older than 2 days.
