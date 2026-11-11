@@ -344,6 +344,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A recursive `rm` inside a temp directory is no longer refused.** When every target of every `rm` in the call
+  resolves strictly inside `/tmp`, `$TMPDIR` or the system temp folder, the call passes. The temp root itself, a glob
+  at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly
+  (or sets inside a here-document), and `rm` behind `sudo`, `xargs`, `find -exec` or `eval` stay refused. The refusal's
+  preview names the `rm`'s own targets and no longer a word of the next command.
+
 - **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
   the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
 - **The team board does not hang on an unreachable remote.** Where neither `timeout` nor `gtimeout` exists (stock

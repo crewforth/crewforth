@@ -4282,7 +4282,8 @@ _pvrun "git reset --hard"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: it would disc
 _pvrun "git reset --hard HEAD~1"; grep -q 'and drop 1 commit(s) from the branch' "$PVE" || _pvb="$_pvb [reset HEAD~1: $(grep Preview "$PVE")]"
 _pvrun "git clean -fd"; { [ "$_pvrc" = 2 ] && grep -q 'lists 2 path(s) it would delete' "$PVE"; } || _pvb="$_pvb [clean: $(grep Preview "$PVE")]"
 _pvrun "rm -rf out/"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: out/: 2 file(s)' "$PVE"; } || _pvb="$_pvb [rm inside: $(grep Preview "$PVE")]"
-_pvrun "rm -rf $PVX/"; { [ "$_pvrc" = 2 ] && grep -q 'outside the project, not counted' "$PVE"; } || _pvb="$_pvb [rm outside: $(grep Preview "$PVE")]"
+# outside the project and outside a temp directory (a temp target passes the rule since it is not the project)
+_pvrun "rm -rf $HOME/"; { [ "$_pvrc" = 2 ] && grep -q 'outside the project, not counted' "$PVE"; } || _pvb="$_pvb [rm outside: $(grep Preview "$PVE")]"
 # The asked ones: a commit (past §4.6, with the review record) and a push to a remote of its own.
 ( cd "$PVR" && git add a.txt && mkdir -p .claude && D=$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin) && H=$(git rev-parse HEAD) \
   && printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "2026-01-01T00:00:00Z" > .claude/review-pass.json ) >/dev/null 2>&1
@@ -8568,6 +8569,56 @@ done <<< "$RMT"
 if [ "$RMN" != 76 ] || [ "$RM2" != 49 ] || [ "$RM0" != 27 ]; then fail "recursive-delete table: read $RMN rows ($RM2 stop, $RM0 pass), want 76 (49, 27) — the table was not read as written"
 elif [ -z "$RMF" ]; then pass "recursive forced removal: $RM2 forms stopped ('.' / '..', \$HOME / \$PWD, paths, piped, chained, colon and long-dash flags, and the line-wide floor), $RM0 everyday forms passed ($RMN rows)"
 else fail "recursive-delete table:$RMF"; fi
+# A TEMP DIRECTORY IS NOT THE PROJECT: a recursive rm whose every target resolves strictly inside a temp root passes
+# (field: 90 refusals in three projects, every one a scratch or /tmp target). Built under mktemp -d, so the rows hold on
+# every platform. What stays refused: the root itself and its first level by glob, `..`, a target outside, a link
+# followed by a trailing / or a glob, an expansion this call did not set, and rm behind a wrapper.
+_rmtd="$(mktemp -d)"; _rmtr="$(cd -P "$_rmtd" && pwd -P)"; mkdir -p "$_rmtd/x/sub"
+_rmtj(){ printf '{"tool_name":"Bash","permission_mode":"default","tool_input":{"command":"%s"}}' "$1"; }
+_rmtv(){ _rmtj "$1" | CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" >/dev/null 2>"$_rmtd/.err"; echo $?; }
+_rmtb=""; _rmtn=0
+while IFS='|' read -r _rw _rc; do [ -n "$_rc" ] || continue
+  _rc="${_rc//@T@/$_rmtd}"; _rmtn=$((_rmtn+1)); _rg="$(_rmtv "$_rc")"
+  [ "$_rg" = "$_rw" ] || _rmtb="$_rmtb [$_rc → $_rg, want $_rw]"
+done <<'RMT'
+0|rm -rf @T@/x
+0|rm -rf @T@/x/sub @T@/nothing-there
+0|rm -rf @T@/x/sub/*
+0|rm -rf @T@/x 2>/dev/null; git status
+0|T=@T@; rm -rf $T/x
+2|rm -rf @T@/x ~/y
+2|rm -rf @T@/x build/out
+2|rm -rf @T@/../x
+2|rm -rf $UNSET_CREW_X/x
+2|sudo rm -rf @T@/x
+2|rm -rf @T@/x; rm -rf /etc/crew-nope
+2|rm -rf /tmp
+2|rm -rf /tmp/*
+2|S=@T@/x; S=/etc; rm -rf $S/crew-nope
+0|S=/etc; S=@T@; rm -rf $S/x
+2|cat > @T@/f.txt <<EOF\nS=@T@\nEOF\nrm -rf $S/crew-nope
+2|TMPDIR=/etc; rm -rf $TMPDIR/crew-nope
+2|rm -rf @T@/x; sudo rm -rf /etc/crew-nope
+2|rm -rf @T@/crew-nope-dir/../../x
+RMT
+# a link to the home: the link itself may go, its target may not (a trailing / or a glob follows it)
+ln -s "$HOME" "$_rmtd/home" 2>/dev/null
+if [ -L "$_rmtd/home" ]; then
+  for _rr in "0|rm -rf @T@/home" "2|rm -rf @T@/home/" "2|rm -rf @T@/home/*"; do
+    _rw="${_rr%%|*}"; _rc="${_rr#*|}"; _rc="${_rc//@T@/$_rmtd}"; _rmtn=$((_rmtn+1)); _rg="$(_rmtv "$_rc")"
+    [ "$_rg" = "$_rw" ] || _rmtb="$_rmtb [$_rc → $_rg, want $_rw]"
+  done
+else skip platform "a recursive rm through a symbolic link (ln -s made no link here)" 3; fi
+[ -d "$_rmtd/x/sub" ] || _rmtb="$_rmtb FIXTURE:the-hook-removed-something"
+if [ "$_rmtn" -lt 19 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 19"
+elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call and a link followed through / or a glob stay refused ($_rmtn rows)"
+else fail "recursive rm and temp directories:$_rmtb"; fi
+# The preview names the rm's own targets: it used to cut the call at the first "git" and preview another command's words.
+_rmtp="$( cd "$_rmtd" && . "$ROOT/eval/lib/preview.sh" && crew_preview rm "rm -rf ./x 2>/dev/null; git status" && printf '%s' "$_CREW_PV" )"
+case "$_rmtp" in *status*|*'2>'*) fail "the rm preview names words that are not rm targets: $_rmtp" ;;
+  *'./x:'*) pass "the rm preview counts the rm's own targets only (not a redirection, not the next command's words)" ;;
+  *) fail "the rm preview did not name ./x: ${_rmtp:-<nothing>}" ;; esac
+rm -rf "$_rmtd"   # the link inside it goes as a link: no trailing /, and rm -r does not follow links
 
 sec "== 12b) Crewforth's own scripts sent through PowerShell go back to the Bash tool =="
 # Field session: six PowerShell attempts at `bash .claude/hooks/…`, every one an error from WSL's bash, while the same
