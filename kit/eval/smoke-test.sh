@@ -12470,6 +12470,21 @@ for _cfp2 in 'cat <<'"$_cfq"'EOF'"$_cfq"' | bash' 'tee >(sh) <<'"$_cfq"'EOF'"$_c
   { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
     || _cfbad="$_cfbad [a $_cfsz-byte here-document fed to a shell by '$_cfp2': rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
 done
+# 3b-iii) the same at any size, for §4.4 and §4.6: a note `cat` or `tee` writes that says "git commit" or "git push"
+#     commits and pushes nothing (it was refused by §4.6, or asked about by §4.4, in default and in auto). A body
+#     handed to a shell still is a commit or a push. Each row: default rc/decision, auto rc/decision.
+_cfq3="$_cfq"
+while IFS= read -r _hl; do [ -n "$_hl" ] || continue
+  _hw="${_hl%% @@ *}"; _hc="${_hl#* @@ }"; _hc="${_hc//@Q@/$_cfq3}"
+  _cf_run default "$_hc"; _hg="$_cfr/$_cfd"; _cf_run auto "$_hc"; _hg="$_hg $_cfr/$_cfd"
+  [ "$_hg" = "$_hw" ] || _cfbad="$_cfbad [a here-document's text and §4.4/§4.6: $_hc → $_hg, want $_hw]"
+done <<'HDT'
+0/ 0/ @@ cat > notes.md <<@Q@EOF@Q@\nTo publish, run git commit -m x and then git push.\nEOF
+0/ 0/ @@ tee notes.md <<-EOF >/dev/null\nRun git push origin main when ready.\n\tEOF
+0/ask 2/ @@ bash <<@Q@EOF@Q@\ngit push origin main\nEOF
+0/ask 2/ @@ cat <<@Q@EOF@Q@ | sh\ngit push origin main\nEOF
+0/ask 2/ @@ tee >(bash) <<@Q@EOF@Q@\ngit push origin main\nEOF
+HDT
 _cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\n'"$_cfa"'\nEOF\ngit -C \"$PWD\" status'
 { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
   || _cfbad="$_cfbad [a $_cfsz-byte call with git and an expansion after a cat here-document: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
