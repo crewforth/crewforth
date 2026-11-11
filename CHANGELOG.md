@@ -346,7 +346,9 @@ versioning follows [SemVer](https://semver.org/).
 
 - **The fast check at the end of a turn no longer slows down with the number of untracked files.** With 10 000
   untracked files and no ignore rule for them, the hook took 60-198 s at Stop on Windows and 30 s on macOS; it is
-  linear now (0.5 s on macOS for the same project), and a check that ends at once no longer waits a full second.
+  linear now (0.5 s on macOS for the same project, 2.9 s at Stop on Windows), and a check that ends at once no longer
+  waits a full second. The snapshot at the prompt hashes the dirty files in one batch and tests each path only when
+  that batch fails (a dangling link, a submodule): the per-path test was 1.9 s of a 2.4 s prompt on Windows.
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
   asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a

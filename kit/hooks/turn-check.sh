@@ -74,11 +74,18 @@ _dirty_file(){  # -> "$TCT.cur": one "<content id>\t<path>" line per dirty regul
   git -c core.fsmonitor= status --porcelain=v1 -z --untracked-files=all 2>/dev/null | tr '\0' '\n' \
     | awk 'skip { skip = 0; next } { st = substr($0, 1, 2); p = substr($0, 4) }
            st ~ /^[RC]/ { skip = 1 } st ~ /D/ { next } { print p }' > "$TCT.paths"
-  : > "$TCT.files"
+  # The whole list in ONE hash-object first: a path it cannot read as a file (a dangling link, a link to a folder, a
+  # submodule) fails the batch, and only then is each path tested and the regular files hashed again. A per-path
+  # `[ -f ]` cost ~190 us each on Git Bash (a stat through Cygwin): 1.9 s of a 2.4 s prompt at 10 000 files,
+  # measured on Windows; the common case now tests none.
   local p
-  while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done < "$TCT.paths" > "$TCT.files"
+  if [ -s "$TCT.paths" ] && git hash-object --stdin-paths < "$TCT.paths" > "$TCT.ids" 2>/dev/null; then
+    mv -f "$TCT.paths" "$TCT.files"
+  else
+    while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done < "$TCT.paths" > "$TCT.files"
+    [ -s "$TCT.files" ] && { git hash-object --stdin-paths < "$TCT.files" > "$TCT.ids" 2>/dev/null || : > "$TCT.ids"; }
+  fi
   if [ -s "$TCT.files" ]; then
-    git hash-object --stdin-paths < "$TCT.files" > "$TCT.ids" 2>/dev/null || : > "$TCT.ids"
     awk 'NR == FNR { id[FNR] = $0; next } { print (FNR in id ? id[FNR] : "-") "\t" $0 }' "$TCT.ids" "$TCT.files" > "$TCT.cur"
   else : > "$TCT.cur"; fi
 }

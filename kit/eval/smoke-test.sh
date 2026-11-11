@@ -7521,6 +7521,12 @@ else
   _r10="$(_tcs)"; _l10="$(_tcr)"
   [ "$_r10|$_l10" = "0|" ] && pass "turn-check: a Stop with no snapshot of its turn guesses nothing and checks nothing" \
     || fail "turn-check: a Stop with no snapshot checked '$_l10' (rc $_r10)"
+  # The dirty files are hashed in one batch, and a path that is no file (a dangling link here) fails that batch: then
+  # each path is tested and the files hashed again. Without that second pass every content id reads as unknown, and
+  # the file the turn changed is not checked at all (measured on a mutant with no second pass: the Stop ran nothing).
+  : > "$_tcl"; ln -s nowhere "$_tc/p/dangling.lnk"; _tcu; echo u > "$_tc/p/a.txt"; _r11="$(_tcs)"; _l11="$(_tcr)"; rm -f "$_tc/p/dangling.lnk"
+  [ "$_r11|$_l11" = "0|a.txt " ] && pass "turn-check: a dangling link among the dirty paths does not blind the snapshot: only the file the turn changed is checked" \
+    || fail "turn-check: with a dangling link the Stop gave rc $_r11 and checked '$_l11' (want 0|a.txt)"
   # Linear in the dirty files. With 10 000 untracked files and no ignore rule the Stop took 60-198 s on Windows and
   # 30 s on macOS: the turn's files were found by a lookup in a string that grew by copying. The same turn with 2 000
   # and with 10 000 untracked files: a linear hook takes ~2x as long for 5x the files (measured 2.2x), the quadratic
