@@ -344,6 +344,16 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A task card is read the way it is written.** A note in parentheses on the `files:` line (`staged diff (branch
+  docs/widget-privacy-texts)`, `legal/x.md (only if needed)`) is no longer read as files, so a branch name is no
+  critical path and a note does not lift a text change to a bigger model. `above: <why>` is found on any of the card's
+  first lines (`model: opus · above: … · effort: medium`), not only on a line of its own, so the model it asks for is
+  kept. `none.` and `none,` followed by a sentence are none.
+- **A verify command that will not run is said when the agent is called, not after it ends.** The card's `verify:`
+  is judged at the call with the same rule the hook applies when the agent finishes, and the session hears the reason
+  while it can still fix the card (a sentence, a `;` or a pipe, a command nothing allows). The call is never refused
+  for it.
+
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
   asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a

@@ -79,11 +79,7 @@ _ao_lock(){ local i=0 at now
   done
   _AOL=""; return 0; }
 _ao_unlock(){ [ -n "${_AOL:-}" ] && rm -rf "$_AOL" 2>/dev/null; _AOL=""; return 0; }
-_ao_json(){  # $1 = text -> _AOJ, safe inside a JSON string
-  local s="$1"
-  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
-  _AOJ="$(printf '%s' "$s" | tr -d '\000-\010\013-\037\177')"
-}
+_ao_json(){ _am_json "$1"; _AOJ="$_AMJ"; }  # $1 = text -> _AOJ, safe inside a JSON string (guard-agent-model.sh)
 
 # A verify command the hook may not run because NOTHING ALLOWS IT is said to the user, once a session for each
 # command, with the message that allows it. It used to reach the model alone ("run it yourself"), and a project ran
@@ -336,22 +332,7 @@ case "$EV" in
       # (eval/lib/verify-cmd.sh crew_verify_steps). The script that runs is built here from the judged steps only:
       # `cd "$CREW_VR/<folder>" && <step> && …`, where the folder is a plain relative name the reader checked.
       VDIR=""; VRUN=""; VOK=1
-      if ! declare -F crew_verify_steps >/dev/null 2>&1; then
-        _am_verify_split "$VCMD"; VDIR="$_AMVD"; VRUN="$_AMVC"
-        _am_verify_ok "$VRUN" "$PM" || { VOK=0; WHYNOT="$_AMVW"; }
-      elif ! crew_verify_steps "$VCMD" "$_AMP"; then VOK=0; WHYNOT="$_VS_WHY"
-      else
-        VI=0
-        while [ "$VI" -lt "$_VS_N" ]; do
-          if ! _am_verify_ok "${_VS_C[VI]}" "$PM"; then
-            VOK=0; WHYNOT="$_AMVW"
-            [ "$_VS_N" -gt 1 ] && { VSTEP="${_VS_C[VI]}"; WHYNOT="the step '$VSTEP': $_AMVW"; }
-            break
-          fi
-          VRUN="${VRUN:+$VRUN && }cd \"\$CREW_VR/${_VS_D[VI]}\" && ${_VS_C[VI]}"
-          VI=$((VI+1))
-        done
-      fi
+      if _am_verify_plan "$VCMD" "$PM"; then VDIR="$_AMVDIR"; VRUN="$_AMVRUN"; else VOK=0; WHYNOT="$_AMVWHY"; VSTEP="$_AMVSTEP"; fi
       if [ "$VOK" = 0 ]; then
         # Judged again here, at the moment it would run: the gate judged it when the agent was called, and this
         # is the place the command actually starts. Not run; nothing is concluded about the work.

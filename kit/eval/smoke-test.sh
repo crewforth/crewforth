@@ -10786,6 +10786,35 @@ case "$_u" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [the rewrite is not to the
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2call crew-review-agent opus 'src/ui/a.ts' audit 'none\nabove: the audit covers the whole session layer'
 { [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ] && grep -q '^tier=opus$' "$(_v2last)"; } 2>/dev/null || _v2b="$_v2b [above: did not keep opus: rc=$_v2rc $(head -c 60 "$_v2/out")]"
+# ...and where a card writes it on another of its lines (12 calls on rc.4 ran below what they asked, measured):
+for _ab in 'none\nmodel: opus · above: the review covers the session layer · effort: medium' 'none\nmodel above: the review covers the session layer'; do
+  rm -f "$_v2p/.claude/state/crew-model/pending/"*
+  _v2call crew-review-agent opus 'src/ui/a.ts' audit "$_ab"
+  { [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ] && grep -q '^tier=opus$' "$(_v2last)"; } 2>/dev/null || _v2b="$_v2b [above: written as '${_ab:6:24}…' did not keep opus: rc=$_v2rc $(head -c 60 "$_v2/out")]"
+done
+# A note in parentheses is not a file: a branch name there is no critical path, and a comment does not stop the text exception.
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-commit-agent haiku 'staged diff (branch docs/widget-privacy-texts)' text none
+case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*deny*|2\|*) _v2b="$_v2b [a branch name in parentheses was read as a critical path: rc=$_v2rc]" ;; esac
+_v2call crew-docs-agent sonnet 'legal/privacy.md (only if needed)' text none
+case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*deny*|2\|*) _v2b="$_v2b [a prose file with a note in parentheses lost the text exception: rc=$_v2rc]" ;; esac
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'none. main checkout, nothing to run'
+grep -q '^verify=none$' "$(_v2last)" 2>/dev/null || _v2b="$_v2b [none. followed by prose was not none: $(grep '^verify=' "$(_v2last)" 2>/dev/null)]"
+# A verify command the hook will not run is SAID when the agent is called, with the same reason it will give when the
+# agent ends (_am_verify_plan), and the call goes on: a sentence and a chain are told, a runner and none are not, and on
+# a lowered call the notice rides in the same answer as the new model.
+_vnb=""
+for _vn in 'npm test|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes'; do
+  _v2call crew-review-agent sonnet 'src/ui/a.ts' audit "${_vn%%|*}"; _vw="${_vn#*|}"; _vo="$(cat "$_v2/out" 2>/dev/null)"
+  if [ "$_v2rc" != 0 ]; then _vnb="$_vnb ['${_vn%%|*}' refused the call: rc=$_v2rc]"
+  elif [ -z "$_vw" ]; then [ -z "$_vo" ] || _vnb="$_vnb ['${_vn%%|*}' was told it will not run: ${_vo:0:80}]"
+  else case "$_vo" in '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"'*"will not be run when the agent finishes"*"$_vw"*) ;; *) _vnb="$_vnb ['${_vn%%|*}' was not told it will not run: ${_vo:0:80}]" ;; esac; fi
+done
+_v2call crew-frontend-expert opus 'src/ui/a.ts' feature 'the build passes'
+case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"permissionDecision":"allow"'*'"updatedInput":'*'"model": "sonnet"'*'},"additionalContext":"Crewforth: this card'*) ;; *) _vnb="$_vnb [a lowered call with a sentence for verify did not carry both: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac
+[ -z "$_vnb" ] && pass "a card whose verify command the hook will not run is told so when the agent is called, with the reason it will give at the end, and the call goes on: a sentence and a chain are told, a runner and none are not, and a lowered call carries the notice beside its new model (5 calls)" \
+  || fail "verify notice at the call:$_vnb"
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2call crew-review-agent sonnet 'src/ui/a.ts' audit none
 { [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ]; } || _v2b="$_v2b [a call on its floor was rewritten: $(head -c 60 "$_v2/out")]"
@@ -10904,7 +10933,9 @@ done
 # verify:; the retry moved it down and passed). It keeps the model the same way; the three are still all required.
 _v2b=""
 for _pr in 'files: src/ui/a.ts\nchange: feature\nabove: the parser is subtle\nverify: true' 'above: the parser is subtle\nfiles: src/ui/a.ts\nchange: feature\nverify: true'; do
-  _v2one "$_pr" opus; { [ "$_rc" = 0 ] && [ ! -s "$_v2/oneout" ]; } || _v2b="$_v2b [above: among the three did not keep opus: $_pr → $_rc $(head -c 100 "$_v2/oneout")]"
+  # kept = allowed as asked: no permissionDecision (a lowered call answers allow with a new model). `verify: true` is
+  # no runner, so the answer may carry the verify notice, which changes nothing about the call.
+  _v2one "$_pr" opus; { [ "$_rc" = 0 ] && ! grep -q '"permissionDecision"' "$_v2/oneout"; } || _v2b="$_v2b [above: among the three did not keep opus: $_pr → $_rc $(head -c 100 "$_v2/oneout")]"
 done
 _v2one 'files: src/ui/c.ts\nchange: feature\nverify: true' opus
 grep -q '"updatedInput":' "$_v2/oneout" || _v2b="$_v2b [without above: opus was not lowered (rc $_rc)]"
