@@ -344,6 +344,14 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A download read as JSON by Python is no longer refused as a pipe to a shell.** `curl … | python3 -m json.tool`,
+  and `curl … | python3 -c '…'` whose program is written in the call, imports only modules that cannot run text or
+  reach the system (`json`, `sys`, `collections`, `re`, `datetime`, `packaging` and a few more), and names none of
+  the ways Python looks a thing up by a string or runs one (a dunder, `vars`, `locals`, `getattr`, `sys.modules`,
+  frames, `exec`, `eval`, `compile`, `open`), pass. A bare `| python3`, any other import, an expansion in the program,
+  and every other interpreter stay refused. On 2 365 real piped commands, 139 refusals become allowed and nothing
+  else changes.
+
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
   asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a
