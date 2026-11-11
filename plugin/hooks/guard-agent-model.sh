@@ -1058,6 +1058,15 @@ fi
 # hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is told to run it
 # itself with the Bash tool, where the permission layer and the shell gate see it. Refusing the call for it would
 # leave no way to use a verify command in a mode where nothing is allowed by name.
+# ---- effort: a note in the record, never a refusal ----
+# Two things the gate does not refuse. A call that names no effort cannot take the cheap first step after a failed
+# verify (the repeat at high on the same model, above), so it goes one model up; and past high the vendor's guidance is
+# to try the next model at a lower effort before the next level. The session is not told here: the note is for the
+# gate log (Studio, gate-report), where how often it happens can be counted.
+case "$eff" in
+  ''|'?') _am_log "note: $st called with no effort; name one (medium, low for test-run) so a failed card can be repeated at high before a bigger model" ;;
+  xhigh|max) _am_log "note: $st called at effort $eff; past high one more level can cost as much as a bigger model, so try the next model at a lower effort first" ;;
+esac
 # ---- the record of this call, for the agent it starts ----
 _json_slice "$INPUT" tool_use_id >/dev/null; tid="$_JS"; case "$tid" in ''|*[!A-Za-z0-9._-]*) tid="x$RANDOM" ;; esac
 if mkdir -p "$_AMD/pending" 2>/dev/null; then

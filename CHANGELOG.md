@@ -181,6 +181,8 @@ versioning follows [SemVer](https://semver.org/).
   lower model or at a lower effort, and after the repeat one model up the user is asked, as before. Where the user
   allowed `fable` (`CREW_ALLOW_FABLE=1`), a card that fails on `opus` may go up to it instead of to the user.
   `CLAUDE_CODE_EFFORT_LEVEL` outranks the call's effort, so the gate reads it from there when it is set.
+  A call that names no effort, or one above `high`, is not refused: the gate log gets a note for each, so how often
+  it happens can be counted.
 - **Twelve more skill descriptions say when to use the skill, not how it works.** `a11y`, `api-design`, `ci-pipeline`,
   `frontend`, `frontend-design`, `incident-runbook`, `mcp-builder`, `observability`, `performance`,
   `privacy-compliance`, `release` and `teamboard` summarised their method in the always-on description; the method
