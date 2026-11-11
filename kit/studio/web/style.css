@@ -1397,6 +1397,13 @@ button.tl-lab { cursor: pointer; }
 .cv-spend-detail dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-dim); }
 /* The plan's to-do list: the same kind of box, in the top right corner, as tall as the pane lets it be. */
 .cv-todo { bottom: auto; top: var(--space-6); width: 280px; max-height: calc(100% - 2 * var(--space-6)); gap: var(--space-1); }
+.cv-todo-chip {
+  position: absolute; right: var(--space-6); top: var(--space-6); z-index: 20; padding: 2px var(--space-3);
+  font: inherit; font-size: 12px; color: var(--ink-dim); background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer;
+}
+.cv-todo-chip:hover { color: var(--ink); background: var(--surface-raised); }
+.cv-todo-chip[hidden] { display: none; }
 .cv-todo-grip { position: absolute; left: 0; bottom: 0; width: 14px; height: 14px; cursor: nesw-resize; touch-action: none;
   background: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%, var(--ink-faint) 58%, transparent 58%, transparent 74%, var(--ink-faint) 74%, var(--ink-faint) 82%, transparent 82%);
   transform: scaleX(-1); border-bottom-left-radius: var(--radius-md); opacity: .7; }

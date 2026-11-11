@@ -571,7 +571,7 @@ const canvas = new Canvas(document.getElementById('canvas'), {
 // The plan's to-do list of the session's project, in the graph's top right corner: what /crew-todo draws under the
 // status line, read again every few seconds while the graph is the view and the box is open.
 const todo = new TodoBox();
-document.getElementById('canvas').append(todo.el);
+document.getElementById('canvas').append(todo.el, todo.chip);
 const TODO_POLL_MS = 3000;
 let todoFor = null;
 let todoAt = 0;

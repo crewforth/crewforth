@@ -7784,8 +7784,16 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   const hiddenNoPlan = box.el.hidden && !box.has;
   box.render(data);
   box.show(false);
-  check('no plan, no box; closed, it stays closed until View options opens it again',
-    hiddenNoPlan && box.el.hidden && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
+  const chipShown = !box.chip.hidden;
+  check('no plan, no box; closed, it stays closed and leaves a tab in the corner',
+    hiddenNoPlan && box.el.hidden && chipShown && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
+  box.chip.emit('click');
+  check('the corner tab opens a closed plan again, wherever the toolbar is wide or narrow',
+    !box.el.hidden && box.chip.hidden && localStorage.getItem('crewforth-studio-todo') === 'open');
+  box.show(false);
+  box.render({ measured: true, exists: false, file: 'docs/PLAN.md' });
+  check('no plan, no tab either', box.chip.hidden);
+  box.render(data);
   box.show(true);
   // Resizable: the size outlives the page, a hover shows the whole title, and a stored size that is not a size is ignored.
   localStorage.setItem('crewforth-studio-todo-size', JSON.stringify({ w: 420, h: 300 }));
@@ -7802,7 +7810,7 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   const srvSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
   check('the page asks for the plan of the session on screen while the graph is the view, and View options toggles the box',
     /if \(view === 'graph'\) loadTodo\(\);/.test(appSrc) && /\/api\/todo\?session=\$\{encodeURIComponent\(asked\)\}/.test(appSrc)
-    && /todo\.show\(!on\)/.test(appSrc) && /document\.getElementById\('canvas'\)\.append\(todo\.el\)/.test(appSrc));
+    && /todo\.show\(!on\)/.test(appSrc) && /document\.getElementById\('canvas'\)\.append\(todo\.el, todo\.chip\)/.test(appSrc));
   check('the server finds the project from the session only: no cwd is taken from the request',
     /url\.pathname === '\/api\/todo'[\s\S]{0,400}const cwd = session \? await sessionCwd\(session\.file, session\.bytes\) : null;/.test(srvSrc));
 }
