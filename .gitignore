@@ -26,3 +26,7 @@ kit/studio/lib/
 kit/studio/recordings/
 __pycache__/
 *.pyc
+
+# Build output of the .NET fixtures (an editor or a dotnet build in the fixture folder writes it)
+packaging/crew-map-test/fixtures/**/bin/
+packaging/crew-map-test/fixtures/**/obj/

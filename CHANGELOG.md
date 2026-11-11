@@ -353,6 +353,10 @@ versioning follows [SemVer](https://semver.org/).
   is judged at the call with the same rule the hook applies when the agent finishes, and the session hears the reason
   while it can still fix the card (a sentence, a `;` or a pipe, a command nothing allows). The call is never refused
   for it.
+- **Per-agent and per-session state no longer piles up.** The record kept for each agent (so a resumed one is not
+  judged twice) and the loop guard's file for each session were never removed; a long-used project held thousands of
+  them. At a session's start, one `find` removes agent records older than 14 days and loop files older than 2 days.
+  The history of results, `model-outcomes.tsv`, stays.
 
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer

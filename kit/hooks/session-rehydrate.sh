@@ -88,6 +88,16 @@ fi
 # and only where the repository tracks a lockfile: one line, offered, never run. No network. The record's age is read
 # first with builtins, so a fresh audit costs nothing; the lockfile listing (one git call) runs at most once a week,
 # stamped in the git directory whatever it finds. Silent under CI, an unattended session, and CREW_DEPS_AUDIT_DAYS=0.
+# STATE THAT ONLY ONE AGENT OR ONE SESSION NEEDS. agent-outcome keeps a record per agent (agents/, results/) so a
+# resumed agent is not judged twice, and loop-guard keeps one file per session; neither was ever removed (measured
+# in three projects: up to 3 405 agent records back to the first week, and 339 loop files). The history Crewforth
+# reads, model-outcomes.tsv, stays. At a session's start only, one process: agent records older than 14 days and
+# loop files older than 2 days go.
+if [ "$SRC" = startup ] && [ -d "$ROOT/.claude/state" ]; then
+  find "$ROOT/.claude/state/crew-model/agents" "$ROOT/.claude/state/crew-model/results" "$ROOT/.claude/state" \
+    -maxdepth 1 -type f \( \( -path '*/crew-model/agents/*' -o -path '*/crew-model/results/*' \) -mtime +14 -o -name 'loop-*.txt' -mtime +2 \) \
+    -delete 2>/dev/null || :
+fi
 DEPSMSG=""
 _rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
 _dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
