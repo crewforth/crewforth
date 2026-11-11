@@ -347,6 +347,11 @@ versioning follows [SemVer](https://semver.org/).
 - **The fast check at the end of a turn no longer slows down with the number of untracked files.** With 10 000
   untracked files and no ignore rule for them, the hook took 60-198 s at Stop on Windows and 30 s on macOS; it is
   linear now (0.5 s on macOS for the same project), and a check that ends at once no longer waits a full second.
+- **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
+  document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
+  asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a
+  script, handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) or left unterminated is read as before.
+  On 4485 real commands six verdicts changed, all of them notes; every real commit and push asks as before.
 
 - **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
   the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
