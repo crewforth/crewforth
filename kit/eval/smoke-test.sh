@@ -12453,6 +12453,21 @@ _cf_big 'git -C \"$PWD\" status; echo '"$_cfa"
 _cf_big 'git status; echo '"$_cfa"
 { [ "$_cfr" = 0 ] && [ -z "$_cfd" ]; } \
   || _cfbad="$_cfbad [a $_cfsz-byte call of git with no expansion: rc=$_cfr decision=$_cfd, want rc 0 and no decision — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+# 3b-ii) text is not a git call: the same words only inside the body `cat` or `tee` writes pass at that size (they
+#     were refused unread; `push` and `commit` are left out of the text, the approval gate asks about those at any size); the same body handed to bash is a program and keeps the limit, and so does a git call
+#     with an expansion after the body
+_cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
+{ [ "$_cfr" = 0 ] && [ -z "$_cfd" ] && [ "$_cfsz" -gt 32768 ]; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte cat here-document whose text names git with an expansion: rc=$_cfr decision=$_cfd, want rc 0 — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+_cf_big 'tee notes.md <<-EOF >/dev/null\nrun git checkout $BRANCH here '"$_cfa"'\n\tEOF'
+{ [ "$_cfr" = 0 ] && [ -z "$_cfd" ]; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte tee <<- here-document with a tab-indented end: rc=$_cfr decision=$_cfd, want rc 0 — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+_cf_big 'bash <<'"$_cfq"'EOF'"$_cfq"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
+{ [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte here-document handed to bash that names git with an expansion: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+_cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\n'"$_cfa"'\nEOF\ngit -C \"$PWD\" status'
+{ [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
+  || _cfbad="$_cfbad [a $_cfsz-byte call with git and an expansion after a cat here-document: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
 # 3c) a PowerShell call that names one of the git commands judged by their arguments is read by that reader too:
 #     the same limit, its own message; the same size without such a word is not read and passes
 _cf_big 'Write-Output push; Write-Output '"$_cfa" PowerShell

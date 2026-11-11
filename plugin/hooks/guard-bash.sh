@@ -3186,6 +3186,34 @@ esac
 # word that is — the subcommand, or an ordinary argument such as `-C "$dir"` — only the reading can tell.
 _c47_sub=0
 case "$CMD" in *[Gg][Ii][Tt]*[\$\`]*) _c47_sub=1 ;; esac
+# TEXT IS NOT A GIT CALL. Over the size the reading below accepts, those three words were looked for in the whole
+# call, here-documents included, so `cat > notes.md <<'EOF'` with 32 KB of prose that mentions `git push … $X` or
+# `git commit` was refused unread as a git command (measured: 46 KB, rc 2 both ways; the same prose without the word,
+# rc 0). The body of a here-document that `cat` or `tee` writes is a file's text, so when the words stand only there
+# the call is not read as git. A body handed to a shell or an interpreter (`bash <<EOF`) is a program and is kept.
+# Line by line with builtins, once, and only for a call already over the size: no cost anywhere else.
+_hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents written by cat or tee
+  local l t d="" out="" re='^[[:space:]]*(cat|tee)([[:space:]][^<;&|]*)?<<-?[[:space:]]*["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ -n "$d" ]; then
+      t="${l%$'\r'}"; t="${t#"${t%%[!	]*}"}"     # <<- lets the delimiter line start with tabs
+      [ "$t" = "$d" ] && d=""
+      continue
+    fi
+    out="$out$l"$'\n'
+    [[ $l =~ $re ]] && d="${BASH_REMATCH[3]}"
+  done <<< "$1"
+  _HDT="$out"
+}
+if [ "$_c47_seen$_c47_try$_c47_sub" != 000 ]; then
+  case "$CMD" in *'<<'*)
+    _cmd_bytes "$CMD"
+    if [ "$_CB" -gt "$_C47_MAX" ]; then
+      _hd_text_out "$CMD"
+      case "$_HDT" in *[Gg][Ii][Tt]*) ;; *) _c47_seen=0; _c47_try=0; _c47_sub=0 ;; esac
+    fi ;;
+  esac
+fi
 _c47_no(){  # the lines for the session; the rule is logged by the caller, by its literal name
   echo "GUARD (§4.5): $1" >&2; shift
   while [ $# -gt 0 ]; do echo "$1" >&2; shift; done
