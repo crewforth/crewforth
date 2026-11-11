@@ -7524,9 +7524,16 @@ else
   # The dirty files are hashed in one batch, and a path that is no file (a dangling link here) fails that batch: then
   # each path is tested and the files hashed again. Without that second pass every content id reads as unknown, and
   # the file the turn changed is not checked at all (measured on a mutant with no second pass: the Stop ran nothing).
-  : > "$_tcl"; ln -s nowhere "$_tc/p/dangling.lnk"; _tcu; echo u > "$_tc/p/a.txt"; _r11="$(_tcs)"; _l11="$(_tcr)"; rm -f "$_tc/p/dangling.lnk"
-  [ "$_r11|$_l11" = "0|a.txt " ] && pass "turn-check: a dangling link among the dirty paths does not blind the snapshot: only the file the turn changed is checked" \
-    || fail "turn-check: with a dangling link the Stop gave rc $_r11 and checked '$_l11' (want 0|a.txt)"
+  # Git Bash's default `ln -s` cannot make a dangling link (it fails) and copies an existing target (measured on
+  # Windows), so where no link is made the case is said to be not run, not passed on a tree with no link in it.
+  if ln -s nowhere "$_tc/p/dangling.lnk" 2>/dev/null && [ -L "$_tc/p/dangling.lnk" ]; then
+    : > "$_tcl"; _tcu; echo u > "$_tc/p/a.txt"; _r11="$(_tcs)"; _l11="$(_tcr)"; rm -f "$_tc/p/dangling.lnk"
+    [ "$_r11|$_l11" = "0|a.txt " ] && pass "turn-check: a dangling link among the dirty paths does not blind the snapshot: only the file the turn changed is checked" \
+      || fail "turn-check: with a dangling link the Stop gave rc $_r11 and checked '$_l11' (want 0|a.txt)"
+  else
+    rm -f "$_tc/p/dangling.lnk" 2>/dev/null
+    skip platform "turn-check with a dangling link (this shell's ln -s makes no dangling link)" 1
+  fi
   # Linear in the dirty files. With 10 000 untracked files and no ignore rule the Stop took 60-198 s on Windows and
   # 30 s on macOS: the turn's files were found by a lookup in a string that grew by copying. The same turn with 2 000
   # and with 10 000 untracked files: a linear hook takes ~2x as long for 5x the files (measured 2.2x), the quadratic
