@@ -2399,6 +2399,29 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac \
 # "git push origin main" is a file's text, and it was refused by §4.6 or asked about by §4.4 at any size (measured).
 # A body handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) is a program and stays in. Only this question
 # reads the shortened text: the rules above, the destructive ones included, read the whole call.
+_hd_doc_target(){  # $1 = the line holding `cat … <<` or `tee … <<` -> 0 when what it writes is the screen or a document
+  local l="$1" w rest t=""
+  l="${l#"${l%%[![:space:]]*}"}"
+  case "$l" in
+    tee*)   # every file argument of tee is written, whatever its own stdout is redirected to
+      rest="${l#tee}"; rest="${rest%%<<*}"
+      for w in $rest; do
+        case "$w" in -*) continue ;; esac
+        w="${w//\"/}"; w="${w//\'/}"
+        _hd_doc_name "$w" || return 1
+        t=1
+      done
+      return 0 ;;
+    *)
+      if [[ $l =~ \>\>?[[:space:]]*([^[:space:];&|<>]+) ]]; then t="${BASH_REMATCH[1]}"; t="${t//\"/}"; t="${t//\'/}"; _hd_doc_name "$t"; return $?; fi
+      return 0 ;;   # cat to the screen
+  esac
+}
+_hd_doc_name(){  # $1 = a file name -> 0 for a document or data file (or a null/std device)
+  case "$1" in /dev/null|/dev/stdout|/dev/stderr) return 0 ;; esac
+  case "${1##*/}" in *.md|*.MD|*.markdown|*.txt|*.json|*.jsonl|*.tsv|*.csv|*.log|*.yml|*.yaml|*.toml|*.html|*.xml|*.rst|*.adoc) return 0 ;; esac
+  return 1
+}
 _hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents written by cat or tee
   # The delimiter is read as bash reads it: the whole word after <<, its quotes and backslashes taken out (`<<E\OF`
   # ends at EOF). A body whose delimiter never comes (`cat <<NOPE`) is not taken out at all: what follows it would
@@ -2415,7 +2438,10 @@ _hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents
     if [[ $l =~ $re ]]; then
       case "$l" in *'|'*|*'('*) ;; *)
         w="${BASH_REMATCH[3]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
-        [ -n "$w" ] && d="$w" ;;
+        # ...and only a body that lands where nothing runs it: the screen, or a document or data file. A body written
+        # to a script (`cat > run.sh <<EOF … EOF; bash run.sh`) is a program: measured on 4485 real commands, five
+        # wrote a script that held a commit and ran it in the same call, and without this they passed unasked.
+        [ -n "$w" ] && _hd_doc_target "$l" && d="$w" ;;
       esac
     fi
   done <<< "$1"
