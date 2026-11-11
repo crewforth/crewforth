@@ -2,7 +2,8 @@
 // file of the session's project by the server (/api/todo). Done ✓, in work ◐, open ☐; the phase that holds the task in
 // work (or the next one) is open, the others fold to one line and open on a click.
 //
-// A box in the canvas's top right corner, closed with its ×, opened again from View options. A project with no plan
+// A box in the canvas's top right corner, closed with its ×. Closed, a small "Plan" tab stays in the corner and opens
+// it again (View options holds the same entry, but only a narrow toolbar shows that button). A project with no plan
 // gets no box: an empty corner says that better than a box saying "nothing".
 import { t } from './i18n.js';
 
@@ -79,6 +80,12 @@ export class TodoBox {
     grip.addEventListener('pointerdown', (e) => this.#drag(e, grip));
     grip.addEventListener('dblclick', () => { clearSize(); this.#applySize(null); });
     this.el.append(head, this.nameEl, this.lineEl, this.listEl, grip);
+    // What is left of a closed box: the way back, in the same corner.
+    this.chip = mk('button', 'cv-todo-chip', t('Plan'));
+    this.chip.type = 'button';
+    this.chip.title = t('Show the plan\'s to-do list');
+    this.chip.addEventListener('click', () => this.show(true));
+    this.chip.hidden = true;
     this.#applySize(readSize());
     this.open = readFlag() !== 'closed';
     this.unfolded = new Set();   // phases the viewer opened by hand
@@ -125,7 +132,12 @@ export class TodoBox {
   show(on) {
     this.open = Boolean(on);
     writeFlag(on ? 'open' : 'closed');
+    this.#sync();
+  }
+
+  #sync() {
     this.el.hidden = !this.open || !this.has;
+    this.chip.hidden = this.open || !this.has;
   }
 
   /** The server's answer, or null when no session is on screen. Redrawn only when it changed. */
@@ -135,7 +147,7 @@ export class TodoBox {
     if (d?.file !== this.data?.file || d?.cwd !== this.data?.cwd) { this.unfolded.clear(); this.folded.clear(); }
     this.sig = sig;
     this.data = d ?? null;
-    this.el.hidden = !this.open || !this.has;
+    this.#sync();
     if (!this.has) return;
     this.nameEl.textContent = d.title || d.file;
     this.nameEl.title = d.file;
