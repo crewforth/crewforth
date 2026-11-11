@@ -349,6 +349,11 @@ versioning follows [SemVer](https://semver.org/).
   may name the project's own folder by its absolute path and put `NAME=value` settings in front of a step (`env
   PYTHONPATH=… python -m pytest`): the step is judged without them and runs with them. A setting that changes what
   runs (`PATH`, `LD_*`, `BASH_ENV`, `GIT_*` …) keeps it refused.
+- **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
+  document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
+  asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a
+  script, handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) or left unterminated is read as before.
+  On 4485 real commands six verdicts changed, all of them notes; every real commit and push asks as before.
 
 - **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
   the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
