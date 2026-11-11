@@ -43,6 +43,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- **The plugin edition carries the working rules.** A plugin has no `CLAUDE.md` to put them in, so a plugin-only
+  project ran with the gates and none of the routing or the prohibitions as text. The core (no deferral, the
+  routing, §4) is now added at session start, again after `/clear` and after a compaction, and the whole text ships
+  as `DISCIPLINE.md` in the plugin. Both are built from the same discipline text the full install imports; the build
+  stops if the core passes 9 500 characters (Claude Code cuts a hook's added context at 10 000) or loses a section.
+  A project with the full install gets nothing added twice.
+
 - **`--ignore-local` keeps the tracked `.gitignore` untouched.** `npx crewforth init` (or answer 3 to "who is this
   install for") and `npx crewforth adopt` write their ignore lines to `.git/info/exclude`, which only this clone
   reads. The default is unchanged.

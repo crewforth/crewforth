@@ -20,7 +20,7 @@ bash adopt.sh               # mevcut proje (tazelemek için tekrar çalıştır�
 
 **Windows:** Crewforth bash tabanlıdır. **Git Bash** içinde çalıştırın ([git-scm.com](https://git-scm.com)); WSL de alternatif olur. Kapı hook'ları birer kabuk script'i olduğundan **onları çalıştıran şey Git Bash'tir (ya da WSL)**. İkisi de yoksa Claude Code PowerShell aracını kendiliğinden açar, hook'lar çalışamaz ve ortada kapı kalmaz. Bu yapılandırma kapı katmanınca desteklenmiyor; kurulum script'leri de orada zaten koşamaz. Git Bash varsa kapılar **iki kabuğu birden** kapsar: PowerShell aracı claude.ai ve Console hesaplarında varsayılan olarak açıktır ve onun komutları da aynı kurallardan geçer (`Remove-Item -Recurse -Force`, `… | iex`, `Get-Content .env` ve diğerleri).
 
-**Plugin sürümü:** iskele kurmadan; ajanlar, skill'ler, komutlar, kapı hook'ları ve Studio, mevcut Claude Code'unuzun içine:
+**Plugin sürümü:** iskele kurmadan; ajanlar, skill'ler, komutlar, kapı hook'ları ve Studio, mevcut Claude Code'unuzun içine. Çalışma kurallarının yazılacağı bir `CLAUDE.md` yok; bu yüzden çekirdekleri (yönlendirme, erteleme yok, yasaklar) oturum başında, `/clear` ve sıkıştırma sonrasında yeniden eklenir; metnin tamamı plugin'le gelir. Tam kurulumu da olan bir projede plugin hiçbir şey eklemez:
 
 ```bash
 /plugin marketplace add Crewforth/crewforth
