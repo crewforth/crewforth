@@ -2395,7 +2395,61 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac \
 # WHETHER there is a commit or a push in the call is still asked of the text without those arguments (CMD_SEEN):
 # `echo "git push origin main"` pushes nothing, and asking the user to approve an echo is the same mistake as
 # refusing it. What a commit carries (its options, its message, the approval it needs) is read from the whole call.
-CMD_SEEN="$CMD"; CMD="$CMD_REAL"; CMD_UQ="$CMD_UQ_REAL"
+# ...and not in the body of a here-document that `cat` or `tee` writes: a note that says "run git commit -m x" or
+# "git push origin main" is a file's text, and it was refused by §4.6 or asked about by §4.4 at any size (measured).
+# A body handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) is a program and stays in. Only this question
+# reads the shortened text: the rules above, the destructive ones included, read the whole call.
+_hd_doc_target(){  # $1 = the line holding `cat … <<` or `tee … <<` -> 0 when what it writes is the screen or a document
+  local l="$1" w rest t=""
+  l="${l#"${l%%[![:space:]]*}"}"
+  case "$l" in
+    tee*)   # every file argument of tee is written, whatever its own stdout is redirected to
+      rest="${l#tee}"; rest="${rest%%<<*}"
+      for w in $rest; do
+        case "$w" in -*) continue ;; esac
+        w="${w//\"/}"; w="${w//\'/}"
+        _hd_doc_name "$w" || return 1
+        t=1
+      done
+      return 0 ;;
+    *)
+      if [[ $l =~ \>\>?[[:space:]]*([^[:space:];&|<>]+) ]]; then t="${BASH_REMATCH[1]}"; t="${t//\"/}"; t="${t//\'/}"; _hd_doc_name "$t"; return $?; fi
+      return 0 ;;   # cat to the screen
+  esac
+}
+_hd_doc_name(){  # $1 = a file name -> 0 for a document or data file (or a null/std device)
+  case "$1" in /dev/null|/dev/stdout|/dev/stderr) return 0 ;; esac
+  case "${1##*/}" in *.md|*.MD|*.markdown|*.txt|*.json|*.jsonl|*.tsv|*.csv|*.log|*.yml|*.yaml|*.toml|*.html|*.xml|*.rst|*.adoc) return 0 ;; esac
+  return 1
+}
+_hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents written by cat or tee
+  # The delimiter is read as bash reads it: the whole word after <<, its quotes and backslashes taken out (`<<E\OF`
+  # ends at EOF). A body whose delimiter never comes (`cat <<NOPE`) is not taken out at all: what follows it would
+  # be hidden, and a commit after it ran (measured: both were refused before, and passed when the word was cut short).
+  local l t w d="" out="" re='^[[:space:]]*(cat|tee)([[:space:]][^<;&|]*)?<<-?[[:space:]]*([^[:space:];&|<>()]+)'
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ -n "$d" ]; then
+      t="${l%$'\r'}"; t="${t#"${t%%[!	]*}"}"     # <<- lets the delimiter line start with tabs
+      [ "$t" = "$d" ] && d=""
+      continue
+    fi
+    out="$out$l"$'\n'
+    # ...and only a body that stays text: `cat <<EOF | bash` and `tee >(sh) <<EOF` hand it to a shell on the same line.
+    if [[ $l =~ $re ]]; then
+      case "$l" in *'|'*|*'('*) ;; *)
+        w="${BASH_REMATCH[3]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
+        # ...and only a body that lands where nothing runs it: the screen, or a document or data file. A body written
+        # to a script (`cat > run.sh <<EOF … EOF; bash run.sh`) is a program: measured on 4485 real commands, five
+        # wrote a script that held a commit and ran it in the same call, and without this they passed unasked.
+        [ -n "$w" ] && _hd_doc_target "$l" && d="$w" ;;
+      esac
+    fi
+  done <<< "$1"
+  if [ -n "$d" ]; then _HDT="$1"; else _HDT="$out"; fi
+}
+CMD_SEEN="$CMD"
+case "$CMD" in *"<<"*) case "$CMD" in *[Cc][Oo][Mm][Mm][Ii][Tt]*|*[Pp][Uu][Ss][Hh]*) _hd_text_out "$CMD"; CMD_SEEN="$_HDT" ;; esac ;; esac
+CMD="$CMD_REAL"; CMD_UQ="$CMD_UQ_REAL"
 
 # --- §4.4 commit/push approval gate ---
 # Escape a shell string into a JSON string body. A raw control character inside a JSON string is a parse
@@ -3186,6 +3240,21 @@ esac
 # word that is — the subcommand, or an ordinary argument such as `-C "$dir"` — only the reading can tell.
 _c47_sub=0
 case "$CMD" in *[Gg][Ii][Tt]*[\$\`]*) _c47_sub=1 ;; esac
+# TEXT IS NOT A GIT CALL. Over the size the reading below accepts, those three words were looked for in the whole
+# call, here-documents included, so `cat > notes.md <<'EOF'` with 32 KB of prose that mentions `git push … $X` or
+# `git commit` was refused unread as a git command (measured: 46 KB, rc 2 both ways; the same prose without the word,
+# rc 0). The body of a here-document that `cat` or `tee` writes is a file's text, so when the words stand only there
+# the call is not read as git. A body handed to a shell or an interpreter (`bash <<EOF`) is a program and is kept.
+# Line by line with builtins, once, and only for a call already over the size: no cost anywhere else.
+if [ "$_c47_seen$_c47_try$_c47_sub" != 000 ]; then
+  case "$CMD" in *'<<'*)
+    _cmd_bytes "$CMD"
+    if [ "$_CB" -gt "$_C47_MAX" ]; then
+      _hd_text_out "$CMD"
+      case "$_HDT" in *[Gg][Ii][Tt]*) ;; *) _c47_seen=0; _c47_try=0; _c47_sub=0 ;; esac
+    fi ;;
+  esac
+fi
 _c47_no(){  # the lines for the session; the rule is logged by the caller, by its literal name
   echo "GUARD (§4.5): $1" >&2; shift
   while [ $# -gt 0 ]; do echo "$1" >&2; shift; done
