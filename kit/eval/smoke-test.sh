@@ -12465,6 +12465,11 @@ _cf_big 'tee notes.md <<-EOF >/dev/null\nrun git checkout $BRANCH here '"$_cfa"'
 _cf_big 'bash <<'"$_cfq"'EOF'"$_cfq"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
 { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
   || _cfbad="$_cfbad [a $_cfsz-byte here-document handed to bash that names git with an expansion: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+for _cfp2 in 'cat <<'"$_cfq"'EOF'"$_cfq"' | bash' 'tee >(sh) <<'"$_cfq"'EOF'"$_cfq"; do   # a body piped to a shell is a program too
+  _cf_big "$_cfp2"'\nrun git checkout $BRANCH here '"$_cfa"'\nEOF'
+  { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
+    || _cfbad="$_cfbad [a $_cfsz-byte here-document fed to a shell by '$_cfp2': rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"
+done
 _cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\n'"$_cfa"'\nEOF\ngit -C \"$PWD\" status'
 { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \
   || _cfbad="$_cfbad [a $_cfsz-byte call with git and an expansion after a cat here-document: rc=$_cfr, want rc 2 and the size — $(sed -n 1p "$_CF/err" | cut -c1-120)]"

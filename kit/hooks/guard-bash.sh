@@ -3201,7 +3201,8 @@ _hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents
       continue
     fi
     out="$out$l"$'\n'
-    [[ $l =~ $re ]] && d="${BASH_REMATCH[3]}"
+    # ...and only a body that stays text: `cat <<EOF | bash` and `tee >(sh) <<EOF` hand it to a shell on the same line.
+    [[ $l =~ $re ]] && case "$l" in *'|'*|*'('*) ;; *) d="${BASH_REMATCH[3]}" ;; esac
   done <<< "$1"
   _HDT="$out"
 }
