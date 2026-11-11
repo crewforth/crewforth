@@ -8,6 +8,8 @@
 //               [ ] open · [x] done · [~] or [>] in work. A box indented under a task is a sub-step, not a task.
 //   a phase     a heading (## or deeper) with at least one task under it.
 //   the scope   under a `## Tasks` heading (or Görevler, İşler, To-do) when the plan has one, else the whole file.
+//               With several, the last one that holds a task (a file that keeps several plans adds each below the
+//               last), else the first.
 //               An `Acceptance criteria` section is never a phase: its boxes are counted as AC n/m.
 //   the status  a `status: <word>` line above the first ## heading. paused, on hold, stopped, dropped, abandoned,
 //               cancelled, superseded, replaced, done, closed (or beklemede, durduruldu, bırakıldı, iptal, bitti)
@@ -79,11 +81,16 @@ export function parsePlan(text) {
   const title = ev.find((e) => e.k === 'H' && e.lv === 1)?.t ?? '';
   // The scope: under a Tasks heading when the plan has one.
   let s0 = 0; let s1 = ev.length - 1; let base = 1;
-  const ti = ev.findIndex((e) => e.k === 'H' && e.lv >= 2 && isTasks(e.t));
-  if (ti >= 0) {
-    s0 = ti + 1; base = ev[ti].lv;
-    for (let j = ti + 1; j < ev.length; j += 1) if (ev[j].k === 'H' && ev[j].lv <= base) { s1 = j - 1; break; }
+  // A file that keeps several plans, each with its own Tasks heading, is read at the last one that holds a task: plans
+  // are added below the ones before them, so that is the newest. With no Tasks heading holding one, the first.
+  let picked = null;
+  for (let i = 0; i < ev.length; i += 1) {
+    if (ev[i].k !== 'H' || ev[i].lv < 2 || !isTasks(ev[i].t)) continue;
+    let end = ev.length - 1; let has = false;
+    for (let j = i + 1; j < ev.length; j += 1) { if (ev[j].k === 'H' && ev[j].lv <= ev[i].lv) { end = j - 1; break; } if (ev[j].k === 'I') has = true; }
+    if (!picked || has) picked = { s0: i + 1, s1: end, base: ev[i].lv };
   }
+  if (picked) ({ s0, s1, base } = picked);
   // Acceptance criteria, wherever they are: counted, never a phase.
   let acTotal = 0; let acDone = 0; let inAc = false; let acLv = 0;
   for (const e of ev) {

@@ -7711,6 +7711,13 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     ['paused', 'on hold', 'dropped', 'done', 'beklemede', 'iptal'].every((w) => !pt.parsePlan(PLAN.replace('status: active', `status: ${w}`)).active)
     && ['active', 'in progress', ''].every((w) => pt.parsePlan(PLAN.replace('status: active', w ? `status: ${w}` : '')).active)
     && pt.parsePlan(`${PLAN}\n## Later\nstatus: paused`).active, 'a status line under a ## heading is not the plan\'s');
+  // A file that keeps several plans, each with its own Tasks heading: the newest that holds a task, at the bottom.
+  const MANY = ['# Log', 'status: active', '## Tasks', '| T1 | a table, no box |', '## Old', '### Tasks', '- [x] old one',
+    '- [x] old two', '## New', '### Tasks', '- [x] new one', '- [ ] new two', '## Newest, not yet boxed', '### Tasks', '| T1 | x |'].join('\n');
+  check('a file with several plans is read at the last Tasks heading that holds a task; with none holding one, the first',
+    (() => { const q = pt.parsePlan(MANY); return q.total === 2 && q.done === 1 && q.now?.task === 'new two'; })()
+    && pt.parsePlan('# T\n## Tasks\n| a |\n## Tasks\n| b |\n## Later\n- [ ] outside\n').total === 0,
+    JSON.stringify(pt.parsePlan(MANY).phases));
   check('CRLF reads as LF, and a plan with no Tasks heading is read whole',
     JSON.stringify(pt.parsePlan(PLAN.replace(/\n/g, '\r\n')).phases) === JSON.stringify(p.phases)
     && pt.parsePlan('# T\n- [x] a\n- [ ] b\n').phases.length === 1 && pt.parsePlan('# T\n- [x] a\n- [ ] b\n').phases[0].name === '');
@@ -7720,7 +7727,7 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   // Through bash, as the status line runs it: on Windows awk is Git Bash's, on bash's PATH and not on node's.
   const hasAwk = spawnSync('bash', ['-c', 'awk "BEGIN{}"'], { encoding: 'utf8' }).status === 0;
   if (hasAwk && fs.existsSync(awk)) {
-    const cases = [PLAN, PLAN.replace('2. [~]', '2. [ ]'), '# T\n- [x] a\n- [ ] b\n  - [x] sub\n', '# T\n## Tasks\n### A\n- [x] a\n### B\n- [ ] b\n- [x] c\n## Notes\n- [ ] n\n'];
+    const cases = [PLAN, PLAN.replace('2. [~]', '2. [ ]'), '# T\n- [x] a\n- [ ] b\n  - [x] sub\n', '# T\n## Tasks\n### A\n- [x] a\n### B\n- [ ] b\n- [x] c\n## Notes\n- [ ] n\n', MANY];
     const counts = cases.map((c) => {
       const r = spawnSync('bash', ['-c', 'LC_ALL=C awk -v color=0 -v maxl=14 -v name=PLAN.md -f "$1"', 'bash', awk], { input: c, encoding: 'utf8' });
       const q = pt.parsePlan(c);

@@ -11,7 +11,8 @@
 #               [ ] open · [x] done · [~] or [>] in work. A box indented under a task is a sub-step, not a task.
 #   a phase     a heading (## or deeper) with at least one task under it.
 #   the scope   when the plan has a `## Tasks` heading (or Görevler, İşler, To-do), only what is under it; else the
-#               whole file. An `Acceptance criteria` section is never a phase: its boxes are counted as AC n/m.
+#               whole file. With several, the last one that holds a task (a file that keeps several plans adds each
+#               below the last), else the first. An `Acceptance criteria` section is never a phase: its boxes are counted as AC n/m.
 #   the status a `status: <word>` line in the plan's head (above its first ## heading). paused, on hold, stopped,
 #               dropped, abandoned, cancelled, superseded, replaced, done (or beklemede, durduruldu, bırakıldı, iptal,
 #               bitti) mean the plan is not the work in progress: no count, no tasks, one line saying so. Anything
@@ -97,10 +98,14 @@ END {
   # The scope: under a Tasks heading when the plan has one.
   s0 = 1; s1 = nev; base = 1; title = ""
   for (i = 1; i <= nev; i++) if (EV[i] == "H" && LV[i] == 1 && title == "") title = TX[i]
+  # A file that keeps several plans, each with its own Tasks heading, is read at the last one that holds a task: plans
+  # are added below the ones before them, so that is the newest. With no Tasks heading holding one, the first.
+  first = 0
   for (i = 1; i <= nev; i++) if (EV[i] == "H" && LV[i] >= 2 && istasks(TX[i])) {
-    s0 = i + 1; s1 = nev; base = LV[i]
-    for (j = i + 1; j <= nev; j++) if (EV[j] == "H" && LV[j] <= LV[i]) { s1 = j - 1; break }
-    break
+    e = nev; has = 0
+    for (j = i + 1; j <= nev; j++) { if (EV[j] == "H" && LV[j] <= LV[i]) { e = j - 1; break }; if (EV[j] == "I") has = 1 }
+    if (!first) { first = 1; s0 = i + 1; s1 = e; base = LV[i] }
+    if (has) { s0 = i + 1; s1 = e; base = LV[i] }
   }
   # Acceptance criteria, wherever they are: counted, never shown as a phase.
   ac = 0; acd = 0; inac = 0

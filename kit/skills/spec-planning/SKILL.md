@@ -50,6 +50,8 @@ Progress: tick a task [x] when its check passes, mark the one in work [~]; statu
 - **Every task carries a box, and the box is the record.** `[ ]` open, `[x]` done (its check passed, not "written"),
   `[~]` the one in work. Tick it in the same step that finishes the task; the `Progress:` line keeps that rule in the
   plan, where whoever works it reads it. `/crew-todo` draws the boxes under the status line.
+- **A change to the plan is a change to the file.** A task added, split or dropped after the plan was written goes into
+  `docs/PLAN.md` in the same step: the panel and Studio read only the file. `/crew-todo` also brings it up to date.
 - **The `status:` line says whether this plan is the work in progress.** When the user stops, parks or replaces the
   work, set it to `paused` (`dropped` when it will not come back, `done` when it is finished) in that same step; set it
   back to `active` when the work on it resumes. A paused plan gives the panel no count and no tasks, so the work that
