@@ -85,8 +85,12 @@ _dirty_file(){  # -> "$TCT.cur": one "<content id>\t<path>" line per dirty regul
 
 if [ "$EV" = UserPromptSubmit ]; then
   HEAD="$(git rev-parse -q --verify HEAD 2>/dev/null)"; _now
+  # The newest entry of HEAD's reflog marks where this turn starts: at Stop, the entries above it are the turn's own.
+  # A time alone cannot say it: the reflog counts in seconds, and a turn that starts within the second of a checkout
+  # counted that checkout as its own (found when the Stop stopped waiting a full second, measured on Linux).
+  RLK="$(git log -g --date=unix --format='%gd%x09%H%x09%gs' -n 1 HEAD 2>/dev/null)"
   _dirty_file || exit 0
-  { printf 'head\t%s\ntime\t%s\n' "${HEAD:--}" "$NOW"; awk '{ print "f\t" $0 }' "$TCT.cur"; } > "$SNAP.tmp" 2>/dev/null \
+  { printf 'head\t%s\ntime\t%s\nreflog\t%s\n' "${HEAD:--}" "$NOW" "$RLK"; awk '{ print "f\t" $0 }' "$TCT.cur"; } > "$SNAP.tmp" 2>/dev/null \
     && mv -f "$SNAP.tmp" "$SNAP" 2>/dev/null
   rm -f "$TCT".* 2>/dev/null
   exit 0
@@ -97,8 +101,9 @@ case "$IN" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0 ;
 [ -f "$SNAP" ] || exit 0
 
 # ---- the turn's files -----------------------------------------------------------------------------------------
-SH="-"; ST=0
-{ IFS=$'\t' read -r k SH; IFS=$'\t' read -r k ST; } < "$SNAP" 2>/dev/null
+SH="-"; ST=0; RLK=""
+{ IFS=$'\t' read -r k SH; IFS=$'\t' read -r k ST; IFS= read -r RLK; } < "$SNAP" 2>/dev/null
+case "$RLK" in reflog$'\t'*) RLK="${RLK#reflog$'\t'}" ;; *) RLK="" ;; esac   # a snapshot written before the marker
 [ -n "$SH" ] || SH="-"
 case "$ST" in ''|*[!0-9]*) ST=0 ;; esac
 _dirty_file || { rm -f "$SNAP"; exit 0; }
@@ -110,13 +115,19 @@ rm -f "$SNAP" 2>/dev/null
 HEAD="$(git rev-parse -q --verify HEAD 2>/dev/null)"
 if [ -n "$HEAD" ] && [ "$SH" != - ] && [ "$HEAD" != "$SH" ]; then
   # Only a turn whose every move of HEAD was a commit of its own counts its commits.
-  OURS=1; N=0
-  while IFS=$'\t' read -r sel subj; do
-    t="${sel#*@\{}"; t="${t%\}}"; case "$t" in *[!0-9]*|'') continue ;; esac
-    [ "$t" -ge "$ST" ] || break
+  OURS=1; N=0; MK=0
+  while IFS=$'\t' read -r sel h subj; do
+    if [ -n "$RLK" ]; then
+      [ "$sel"$'\t'"$h"$'\t'"$subj" = "$RLK" ] && { MK=1; break; }   # the entry the turn started at
+    else
+      t="${sel#*@\{}"; t="${t%\}}"; case "$t" in *[!0-9]*|'') continue ;; esac
+      [ "$t" -ge "$ST" ] || break
+    fi
     N=$((N+1))
     case "$subj" in "commit:"*|"commit (amend):"*|"commit (initial):"*|"cherry-pick:"*|"revert:"*) ;; *) OURS=0 ;; esac
-  done < <(git log -g --date=unix --format='%gd%x09%gs' -n 50 HEAD 2>/dev/null)
+  done < <(git log -g --date=unix --format='%gd%x09%H%x09%gs' -n 50 HEAD 2>/dev/null)
+  # with a marker that is not among the last 50 entries, nothing can be said about whose they are
+  [ -n "$RLK" ] && [ "$MK" = 0 ] && OURS=0
   if [ "$OURS" = 1 ] && [ "$N" -gt 0 ]; then
     git -c core.fsmonitor= diff --name-only -z --no-renames --diff-filter=d --no-ext-diff "$SH" "$HEAD" -- 2>/dev/null \
       | tr '\0' '\n' >> "$TCT.turn"
