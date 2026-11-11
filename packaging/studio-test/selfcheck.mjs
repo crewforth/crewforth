@@ -1180,6 +1180,13 @@ check('prose without a notice yields nothing', none.size === 0);
     nm.modelBadge({ model: 'claude-opus-5-5' }) === 'Opus 5.5' && nm.modelBadge({ model: 'claude-haiku-4-5-20251001' }) === 'Haiku 4.5'
     && nm.modelBadge({ model: 'claude-opus-5-5', escalatedFrom: { from: 'claude-sonnet-5-5', to: 'opus' } }) === 'Sonnet → Opus'
     && nm.modelBadge({ model: 'claude-sonnet-5-5', modelAsked: 'haiku' }) === 'Sonnet 5.5 ≠' && nm.modelBadge({}) === '');
+  check('the effort a call asked for follows the model on its badge, label and title; a word that is not a level is not shown',
+    nm.modelBadge({ model: 'claude-opus-5-5', effort: 'high' }) === 'Opus 5.5 · high'
+    && nm.modelBadge({ model: 'claude-sonnet-5-5', modelAsked: 'haiku', effort: 'xhigh' }) === 'Sonnet 5.5 · xhigh ≠'
+    && nm.modelOf({ model: 'claude-opus-5-5', effort: 'max' }).label === 'Opus 5.5 · max'
+    && nm.modelOf({ model: 'claude-opus-5-5', effort: 'max' }).title.includes('max')
+    && nm.modelOf({ modelAsked: 'sonnet', effort: 'low' }).label === 'Sonnet · low'
+    && nm.modelBadge({ model: 'claude-opus-5-5', effort: 'turbo' }) === 'Opus 5.5' && nm.modelOf({ effort: 'high' }).label === '');
 
   const dom = installDom();
   const { Canvas } = await import(`../../kit/studio/web/canvas.js?auto=${Date.now()}`);

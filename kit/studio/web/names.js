@@ -87,23 +87,32 @@ export function modelName(model) {
   return [words.join(' '), nums.join('.')].filter(Boolean).join(' ');
 }
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** An effort level as the call named it, or null for anything that is not one. */
+export const effortOf = (v) => (typeof v === 'string' && EFFORTS.includes(v) ? v : null);
+
 /**
  * What a node ran on and what its call asked for, and whether the two agree.
  * A call asks with a family ("sonnet") or with an id; it agrees with what ran when the family is the same and,
  * if it named an id, the id is. A call that named nothing asked for the agent's default, and agrees with anything.
- * @returns { ran, asked, differs, title } — `ran` and `asked` are badge words, '' when not known
+ * The effort is the one the call asked for (its own `effort` field); the transcript does not record the level an
+ * agent actually ran at, so it is shown as asked and '' when the call named none.
+ * @returns { ran, asked, effort, label, differs, title } — `ran` and `asked` are badge words, '' when not known;
+ * `label` is `ran` with the effort after it ("Opus 5.5 · high")
  */
 export function modelOf(n) {
   const ran = modelName(n?.model);
   const asked = n?.modelAsked ? modelName(n.modelAsked) : '';
   const differs = Boolean(n?.model && n?.modelAsked)
     && (modelFamily(n.model) !== modelFamily(n.modelAsked) || (n.modelAsked.includes('-') && n.modelAsked !== n.model));
+  const effort = effortOf(n?.effort) ?? '';
   const title = [
     t('Ran on: {model}', { model: n?.model ?? t('not recorded') }),
     t('Asked for: {model}', { model: n?.modelAsked ?? t('no model named (the agent\'s default)') }),
+    effort ? t('Effort asked for: {effort}', { effort }) : null,
     differs ? t('The two differ.') : null,
   ].filter(Boolean).join('\n');
-  return { ran, asked, differs, title };
+  return { ran, asked, effort, label: effort && (ran || asked) ? `${ran || asked} \u00b7 ${effort}` : (ran || asked), differs, title };
 }
 
 /** "2 Sonnet, 1 Opus": how many of a group's agents ran on each family, most first. */
@@ -127,5 +136,5 @@ export function modelBadge(n) {
   if (!m.ran) return '';
   const word = (model) => { const f = modelFamily(model); return f ? f[0].toUpperCase() + f.slice(1) : modelName(model); };
   const text = n?.escalatedFrom?.from ? `${word(n.escalatedFrom.from)} \u2192 ${word(n.model)}` : m.ran;
-  return `${text}${m.differs ? ' \u2260' : ''}`;
+  return `${text}${m.effort ? ` \u00b7 ${m.effort}` : ''}${m.differs ? ' \u2260' : ''}`;
 }

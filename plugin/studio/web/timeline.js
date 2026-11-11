@@ -345,7 +345,7 @@ export class Timeline {
       if (r.tone) sub.dataset.tone = r.tone;
       // The model the row's agent ran on, before its state.
       const mdl = modelOf(r.node);
-      const badge = mk('span', 'tl-model', `${mdl.ran}${mdl.differs ? ' \u2260' : ''}`);
+      const badge = mk('span', 'tl-model', `${mdl.label}${mdl.differs ? ' \u2260' : ''}`);
       badge.hidden = !mdl.ran;
       badge.title = mdl.title;
       lab.append(mk('span', 'tl-name', r.label), mk('span', 'row-fill'), badge, sub);

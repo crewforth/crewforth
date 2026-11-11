@@ -970,7 +970,7 @@ function metaRows(n) {
     row(t('context'), n.tokens?.toLocaleString(numLocale())); row('cli', n.version);
   } else {
     row(t('type'), n.agentType ?? t('unknown')); row(t('status'), n.status);
-    row(t('depth'), n.spawnDepth); row(t('model'), n.model);
+    row(t('depth'), n.spawnDepth); row(t('model'), n.model); row(t('effort'), n.effort);
     row(t('turns'), n.turns); row(t('last tool'), n.lastTool);
     row(t('agent id'), n.id);
   }

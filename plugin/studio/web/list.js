@@ -174,7 +174,7 @@ export class List {
     row.title = [hoverOf(r.node), mdl.ran ? mdl.title : null].filter(Boolean).join('\n');
     row.append(text);
     if (mdl.ran) {
-      const badge = mk('span', 'sub ls-model', `${mdl.ran}${mdl.differs ? ' \u2260' : ''}`);
+      const badge = mk('span', 'sub ls-model', `${mdl.label}${mdl.differs ? ' \u2260' : ''}`);
       badge.title = mdl.title;
       row.append(badge);
     }

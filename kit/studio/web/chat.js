@@ -447,7 +447,7 @@ class Pane {
     if (tile) parts.push(tile);
     parts.push(text);
     // The model: what it ran on, or what the call asks for while the agent has not been seen yet.
-    const mword = card.model.ran || card.model.asked;
+    const mword = card.model.label;
     if (mword) {
       const badge = el('span', 'deleg-model', `${mword}${card.model.differs ? ' \u2260' : ''}`);
       badge.title = card.model.title;

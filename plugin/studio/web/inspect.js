@@ -116,6 +116,7 @@ export function modelLines(n, nodes) {
     { label: t('Ran on'), text: n.model ? `${m.ran} \u00b7 ${n.model}` : t('not recorded') },
     { label: t('Asked for'), text: n.modelAsked ? `${n.modelAsked}${m.differs ? ` \u2014 ${t('differs from what ran')}` : ''}` : t('no model named (the agent\'s default)') },
   ];
+  if (m.effort) lines.splice(2, 0, { label: t('Effort asked for'), text: m.effort });
   // The family is the word the choice is made in (haiku, sonnet, opus); a model with none keeps its own name.
   const short = (model) => (model ? (modelFamily(model) ?? modelName(model).toLowerCase()) : t('no model'));
   if (n.firstTry) {
