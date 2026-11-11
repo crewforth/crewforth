@@ -344,6 +344,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **The fast check at the end of a turn no longer slows down with the number of untracked files.** With 10 000
+  untracked files and no ignore rule for them, the hook took 60-198 s at Stop on Windows and 30 s on macOS; it is
+  linear now (0.5 s on macOS for the same project), and a check that ends at once no longer waits a full second.
+
 - **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
   the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
 - **The team board does not hang on an unreachable remote.** Where neither `timeout` nor `gtimeout` exists (stock

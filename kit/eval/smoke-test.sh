@@ -7521,6 +7521,27 @@ else
   _r10="$(_tcs)"; _l10="$(_tcr)"
   [ "$_r10|$_l10" = "0|" ] && pass "turn-check: a Stop with no snapshot of its turn guesses nothing and checks nothing" \
     || fail "turn-check: a Stop with no snapshot checked '$_l10' (rc $_r10)"
+  # Linear in the dirty files. With 10 000 untracked files and no ignore rule the Stop took 60-198 s on Windows and
+  # 30 s on macOS: the turn's files were found by a lookup in a string that grew by copying. The same turn with 2 000
+  # and with 10 000 untracked files: a linear hook takes ~2x as long for 5x the files (measured 2.2x), the quadratic
+  # one took 10.9x. A ratio, not a clock, so a slow runner moves both sides; 0 ms for the small side is a broken
+  # measurement, not a fast hook.
+  _tcz(){ local n=$1 d="$_tc/z$1" i
+    mkdir -p "$d/out" "$d/.claude"
+    ( cd "$d" && git init -q . && git config user.email t@x && git config user.name t && printf 'Fast check (files): true <file>\n' > CLAUDE.md \
+        && echo a > a.txt && git add -A && git -c core.hooksPath=/dev/null commit -qm i ) >/dev/null 2>&1
+    printf 'verify true\n' > "$d/.claude/crew-model-rules"; cp -R "$HOOKS" "$d/.claude/hooks"; cp -R "$ROOT/eval" "$d/.claude/eval"
+    i=0; while [ "$i" -lt "$n" ]; do printf 'x%s\n' "$i" > "$d/out/f$i"; i=$((i+1)); done
+    local t0 t1; t0="$(_tcms)"
+    ( cd "$d" && printf '{"hook_event_name":"UserPromptSubmit","session_id":"tz"}' | bash .claude/hooks/turn-check.sh >/dev/null 2>&1; echo b >> a.txt
+      printf '{"hook_event_name":"Stop","session_id":"tz","permission_mode":"default","stop_hook_active":false}' | bash .claude/hooks/turn-check.sh >/dev/null 2>&1 )
+    t1="$(_tcms)"; echo $((t1 - t0)); }
+  if _tcms(){ perl -MTime::HiRes=time -e 'printf q(%d), time*1000' 2>/dev/null; }; [ -n "$(_tcms)" ]; then
+    _tza="$(_tcz 2000)"; _tzb="$(_tcz 10000)"
+    if [ "${_tza:-0}" -le 0 ]; then fail "FIXTURE: the 2 000-file turn measured ${_tza:-nothing} ms — the measurement is broken, not the hook"
+    elif [ $((_tzb * 10 / _tza)) -lt 50 ]; then pass "turn-check: 5x the dirty files costs $((_tzb * 10 / _tza / 10)).$((_tzb * 10 / _tza % 10))x the time (${_tza} ms for 2 000, ${_tzb} ms for 10 000): linear, under the 5x bound"
+    else fail "turn-check: 5x the dirty files cost $((_tzb * 10 / _tza / 10)).$((_tzb * 10 / _tza % 10))x the time (${_tza} ms for 2 000, ${_tzb} ms for 10 000) — something grows faster than the file count again"; fi
+  else skip tool "the turn-check size twin (no millisecond clock: perl is missing)"; fi
   rm -rf "$_tc"
 fi
 

@@ -61,33 +61,34 @@ GD="$(git rev-parse --absolute-git-dir 2>/dev/null)" || exit 0
 SNAPD="$GD/crewforth-turn"; SNAP="$SNAPD/$SID"
 _now(){ if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v NOW '%(%s)T' -1; else NOW="$(date +%s)"; fi; }
 
-# Dirty paths, NUL-separated, from `status -z` (a rename's old name is dropped; a deleted file is dropped).
-_dirty(){  # -> DIRTY array
-  DIRTY=()
-  local rec st path skip=0
-  while IFS= read -r -d '' rec; do
-    if [ "$skip" = 1 ]; then skip=0; continue; fi
-    st="${rec:0:2}"; path="${rec:3}"
-    case "$st" in R*|C*) skip=1 ;; esac
-    case "$st" in *D*) continue ;; esac
-    [ -f "$path" ] && DIRTY+=("$path")
-  done < <(git -c core.fsmonitor= status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
-}
-_hashes(){  # paths in "$@" -> HASH array, one content id per path (git hash-object, one process)
-  HASH=()
-  [ "$#" -gt 0 ] || return 0
-  local h
-  while IFS= read -r h; do HASH+=("$h"); done < <(printf '%s\n' "$@" | git hash-object --stdin-paths 2>/dev/null)
+# LINEAR IN THE NUMBER OF DIRTY FILES. Measured on Windows (Git Bash 5.3) in a project with 10 000 untracked files and
+# no ignore rule for them: the Stop took 60-198 s (10 of 10 over 60 s), the prompt 6-90 s, and on macOS the Stop took
+# 30 s. Three costs, all in bash: each dirty file looked up with `case "$BEFORE" in *…*` in a string that grew by being
+# copied on every line, the same for the turn's own list, and `read -d ''` from a pipe, which bash reads one byte at a
+# time. Now every list is a file: git writes it, awk joins and dedupes it (one pass each), and bash reads only what it
+# needs, from a regular file (read in blocks).
+TCT="$SNAPD/$SID.tmp"
+_dirty_file(){  # -> "$TCT.cur": one "<content id>\t<path>" line per dirty regular file (a rename's old name and a deleted
+                #    file dropped)
+  mkdir -p "$SNAPD" 2>/dev/null || return 1
+  git -c core.fsmonitor= status --porcelain=v1 -z --untracked-files=all 2>/dev/null | tr '\0' '\n' \
+    | awk 'skip { skip = 0; next } { st = substr($0, 1, 2); p = substr($0, 4) }
+           st ~ /^[RC]/ { skip = 1 } st ~ /D/ { next } { print p }' > "$TCT.paths"
+  : > "$TCT.files"
+  local p
+  while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done < "$TCT.paths" > "$TCT.files"
+  if [ -s "$TCT.files" ]; then
+    git hash-object --stdin-paths < "$TCT.files" > "$TCT.ids" 2>/dev/null || : > "$TCT.ids"
+    awk 'NR == FNR { id[FNR] = $0; next } { print (FNR in id ? id[FNR] : "-") "\t" $0 }' "$TCT.ids" "$TCT.files" > "$TCT.cur"
+  else : > "$TCT.cur"; fi
 }
 
 if [ "$EV" = UserPromptSubmit ]; then
-  HEAD="$(git rev-parse -q --verify HEAD 2>/dev/null)"
-  _dirty; _hashes ${DIRTY[@]+"${DIRTY[@]}"}; _now
-  mkdir -p "$SNAPD" 2>/dev/null || exit 0
-  {
-    printf 'head\t%s\ntime\t%s\n' "${HEAD:--}" "$NOW"
-    i=0; while [ "$i" -lt "${#DIRTY[@]}" ]; do printf 'f\t%s\t%s\n' "${HASH[$i]:--}" "${DIRTY[$i]}"; i=$((i+1)); done
-  } > "$SNAP.tmp" 2>/dev/null && mv -f "$SNAP.tmp" "$SNAP" 2>/dev/null
+  HEAD="$(git rev-parse -q --verify HEAD 2>/dev/null)"; _now
+  _dirty_file || exit 0
+  { printf 'head\t%s\ntime\t%s\n' "${HEAD:--}" "$NOW"; awk '{ print "f\t" $0 }' "$TCT.cur"; } > "$SNAP.tmp" 2>/dev/null \
+    && mv -f "$SNAP.tmp" "$SNAP" 2>/dev/null
+  rm -f "$TCT".* 2>/dev/null
   exit 0
 fi
 
@@ -96,28 +97,15 @@ case "$IN" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) exit 0 ;
 [ -f "$SNAP" ] || exit 0
 
 # ---- the turn's files -----------------------------------------------------------------------------------------
-# No associative arrays: macOS ships bash 3.2. The snapshot's dirty files are one newline-framed string of
-# "<content id> <path>" lines, and a lookup is one `case`.
-SH="-"; ST=0; BEFORE=$'\n'
-while IFS=$'\t' read -r k a b; do
-  case "$k" in head) SH="$a" ;; time) ST="$a" ;; f) BEFORE="$BEFORE$a $b"$'\n' ;; esac
-done < "$SNAP"
-rm -f "$SNAP" 2>/dev/null
+SH="-"; ST=0
+{ IFS=$'\t' read -r k SH; IFS=$'\t' read -r k ST; } < "$SNAP" 2>/dev/null
+[ -n "$SH" ] || SH="-"
 case "$ST" in ''|*[!0-9]*) ST=0 ;; esac
-
-SEEN=$'\n'; FILES=()
-_add(){
-  [ -n "$1" ] && [ -f "$1" ] || return 0
-  case "$SEEN" in *$'\n'"$1"$'\n'*) return 0 ;; esac
-  SEEN="$SEEN$1"$'\n'; FILES+=("$1")
-}
-
-_dirty; _hashes ${DIRTY[@]+"${DIRTY[@]}"}
-i=0; while [ "$i" -lt "${#DIRTY[@]}" ]; do
-  p="${DIRTY[$i]}"
-  case "$BEFORE" in *$'\n'"${HASH[$i]:-x} $p"$'\n'*) ;; *) _add "$p" ;; esac
-  i=$((i+1))
-done
+_dirty_file || { rm -f "$SNAP"; exit 0; }
+# a dirty file whose "<content id>\t<path>" the snapshot does not hold changed in this turn
+awk 'NR == FNR { if (substr($0, 1, 2) == "f\t") had[substr($0, 3)] = 1; next }
+     !($0 in had) { print substr($0, index($0, "\t") + 1) }' "$SNAP" "$TCT.cur" > "$TCT.turn"
+rm -f "$SNAP" 2>/dev/null
 
 HEAD="$(git rev-parse -q --verify HEAD 2>/dev/null)"
 if [ -n "$HEAD" ] && [ "$SH" != - ] && [ "$HEAD" != "$SH" ]; then
@@ -130,9 +118,14 @@ if [ -n "$HEAD" ] && [ "$SH" != - ] && [ "$HEAD" != "$SH" ]; then
     case "$subj" in "commit:"*|"commit (amend):"*|"commit (initial):"*|"cherry-pick:"*|"revert:"*) ;; *) OURS=0 ;; esac
   done < <(git log -g --date=unix --format='%gd%x09%gs' -n 50 HEAD 2>/dev/null)
   if [ "$OURS" = 1 ] && [ "$N" -gt 0 ]; then
-    while IFS= read -r -d '' p; do _add "$p"; done < <(git -c core.fsmonitor= diff --name-only -z --no-renames --diff-filter=d --no-ext-diff "$SH" "$HEAD" -- 2>/dev/null)
+    git -c core.fsmonitor= diff --name-only -z --no-renames --diff-filter=d --no-ext-diff "$SH" "$HEAD" -- 2>/dev/null \
+      | tr '\0' '\n' >> "$TCT.turn"
   fi
 fi
+# once each, in order, and only what is a file now; the command names at most 50, so 200 lines are read at most
+FILES=()
+while IFS= read -r p; do [ -n "$p" ] && [ -f "$p" ] && FILES+=("$p"); done < <(awk '!seen[$0]++' "$TCT.turn" | head -n 200)
+rm -f "$TCT".* 2>/dev/null
 [ "${#FILES[@]}" -gt 0 ] || exit 0
 
 # ---- the command ---------------------------------------------------------------------------------------------
@@ -165,13 +158,15 @@ LIM="${CREW_TURN_CHECK_TIMEOUT:-120}"; case "$LIM" in ''|*[!0-9]*) LIM=120 ;; es
 OUTF="$SNAPD/$SID.out"; mkdir -p "$SNAPD" 2>/dev/null || exit 0
 if command -v setsid >/dev/null 2>&1; then ( exec setsid bash -c "$CMD" ) > "$OUTF" 2>&1 </dev/null &
 else set -m; ( exec bash -c "$CMD" ) > "$OUTF" 2>&1 </dev/null & set +m; fi
-VPID=$!; W=0; RC=""
+VPID=$!; W=0; RC=""; Q0=0
+# Polled every 0.1 s for its first second, then every second: a check that ends at once no longer waits a full second
+# (each Stop paid ~1 s for it, measured on Windows).
 while kill -0 "$VPID" 2>/dev/null; do
   if [ "$W" -ge "$LIM" ]; then
     kill -TERM -- "-$VPID" 2>/dev/null; kill -TERM "$VPID" 2>/dev/null; sleep 1
     kill -KILL -- "-$VPID" 2>/dev/null; kill -KILL "$VPID" 2>/dev/null; RC=timeout; break
   fi
-  sleep 1; W=$((W+1))
+  if [ "$Q0" -lt 10 ]; then sleep 0.1; Q0=$((Q0+1)); [ "$Q0" = 10 ] && W=$((W+1)); else sleep 1; W=$((W+1)); fi
 done
 if [ "$RC" = timeout ]; then
   wait "$VPID" 2>/dev/null; rm -f "$OUTF" 2>/dev/null
