@@ -349,6 +349,11 @@ versioning follows [SemVer](https://semver.org/).
   linear now (0.5 s on macOS for the same project, 2.9 s at Stop on Windows), and a check that ends at once no longer
   waits a full second. The snapshot at the prompt hashes the dirty files in one batch and tests each path only when
   that batch fails (a dangling link, a submodule): the per-path test was 1.9 s of a 2.4 s prompt on Windows.
+- **Per-agent and per-session state no longer piles up.** The record kept for each agent (so a resumed one is not
+  judged twice) and the loop guard's file for each session were never removed; a long-used project held thousands of
+  them. At a session's start, one `find` removes agent records older than 14 days and loop files older than 2 days.
+  The history of results, `model-outcomes.tsv`, stays.
+
 - **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
   document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
   asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a
