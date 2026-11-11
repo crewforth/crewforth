@@ -10959,6 +10959,13 @@ _v2call crew-backend-expert opus 'src/ui/e.ts' test-run 'test -f ok.txt'; { [ "$
 # An effort that is not one is refused; Claude Code's own variable outranks the call's effort, so the gate reads it.
 _v2call crew-backend-expert sonnet 'src/ui/f.ts' feature none ',"effort":"ultra"'; { [ "$_v2rc" = 2 ] && grep -q 'is not an effort level' "$_v2/err"; } || _v2b="$_v2b unknown-effort:$_v2rc"
 _v2call crew-backend-expert sonnet 'src/ui/f.ts' feature none ',"effort":"medium","effort":"high"'; [ "$_v2rc" = 2 ] || _v2b="$_v2b two-efforts:$_v2rc"
+# A call with no effort, and one above high, are let through and noted in the gate log: the cheap first step after a
+# failed verify needs an effort on the first run, and past high the vendor's guidance is a bigger model first.
+_ef="$_v2/effort.tsv"; : > "$_ef"
+_V2ENV="CREW_GATE_LOG=$_ef" _v2call crew-backend-expert sonnet 'src/ui/f.ts' feature none; [ "$_v2rc" = 0 ] || _v2b="$_v2b no-effort-refused:$_v2rc"
+_V2ENV="CREW_GATE_LOG=$_ef" _v2call crew-backend-expert sonnet 'src/ui/f.ts' feature none ',"effort":"xhigh"'; [ "$_v2rc" = 0 ] || _v2b="$_v2b xhigh-refused:$_v2rc"
+_V2ENV="CREW_GATE_LOG=$_ef" _v2call crew-backend-expert sonnet 'src/ui/f.ts' feature none ',"effort":"medium"'; [ "$_v2rc" = 0 ] || _v2b="$_v2b medium-refused:$_v2rc"
+{ [ "$(grep -c 'called with no effort' "$_ef")" = 1 ] && [ "$(grep -c 'past high one more level' "$_ef")" = 1 ] && [ "$(grep -c '^NOTE' "$_ef")" = 2 ]; } || _v2b="$_v2b [effort notes: $(cut -f3 "$_ef" | cut -c1-60 | tr '\n' '|')]"
 # The session's own effort sits at the top level of the payload, in any order: it is not the call's.
 printf '{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"files: src/ui/f.ts\\nchange: feature\\nverify: none\\n\\nDo it.","subagent_type":"crew-backend-expert","model":"sonnet"},"effort":{"level":"max"},"tool_use_id":"tu-top"}' > "$_v2/c.json"
 ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >/dev/null 2>"$_v2/err" ); _o=$?; [ "$_o" = 0 ] || _v2b="$_v2b [the session's top-level effort was read as the call's: $_o $(head -c 120 "$_v2/err")]"
