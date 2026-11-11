@@ -6715,6 +6715,22 @@ FK="$(mktemp -d)"; mkdir -p "$FK/docs" "$FK/.claude/.state"; printf 'state\n' > 
 case "$(printf '{"hook_event_name":"SessionStart","source":"fork","cwd":"%s"}' "$FK" | CLAUDE_PROJECT_DIR="$FK" bash "$HOOKS/session-rehydrate.sh" 2>/dev/null)" in
   *SESSION_STATE.md*) pass "session-rehydrate.sh, fed a fork, points the forked session at the handover" ;;
   *) fail "session-rehydrate.sh said nothing to a forked session" ;; esac
+# Per-agent and per-session state is pruned at a session's start, and nothing else: old agent records and old loop
+# files go, recent ones, the outcome history and every other state file stay; a compaction removes nothing.
+_stf="$(mktemp -d)"; _sts="$_stf/.claude/state"; mkdir -p "$_sts/crew-model/agents" "$_sts/crew-model/results"
+( cd "$_stf" && git init -q . ) >/dev/null 2>&1
+for _x in agents/old agents/old.used results/old; do touch -t 202001010000 "$_sts/crew-model/$_x"; done
+touch "$_sts/crew-model/agents/new" "$_sts/crew-model/results/new" "$_sts/loop-cur.txt"
+touch -t 202001010000 "$_sts/loop-old.txt" "$_sts/model-outcomes.tsv" "$_sts/crew-critical-paths.auto" "$_sts/crew-model/keep.tsv"
+_stl(){ ( cd "$_sts" && find . -type f | LC_ALL=C sort | tr '\n' ' ' ); }
+_strun(){ printf '{"hook_event_name":"SessionStart","source":"%s","cwd":"%s"}' "$1" "$_stf" | CLAUDE_PROJECT_DIR="$_stf" bash "$HOOKS/session-rehydrate.sh" >/dev/null 2>&1; }
+_strun compact; _st1="$(_stl)"; _strun startup; _st2="$(_stl)"
+_stw2='./crew-critical-paths.auto ./crew-model/agents/new ./crew-model/keep.tsv ./crew-model/results/new ./loop-cur.txt ./model-outcomes.tsv '
+case "$_st1" in *agents/old*'loop-old.txt'*) ;; *) _st1bad=1 ;; esac
+if [ -n "${_st1bad:-}" ]; then fail "session-rehydrate pruned state on a compaction: $_st1"
+elif [ "$_st2" = "$_stw2" ]; then pass "session start prunes agent records older than 14 days and loop files older than 2 days; recent ones, the outcome history and other state stay, and a compaction prunes nothing"
+else fail "session start pruning left: $_st2 (want: $_stw2)"; fi
+rm -rf "$_stf"; unset _st1bad
 for _h in skill-trust.sh board-sync.sh; do
   ( printf '{"hook_event_name":"SessionStart","source":"fork","cwd":"%s"}' "$FK" | CLAUDE_PROJECT_DIR="$FK" bash "$HOOKS/$_h" ) >/dev/null 2>&1 \
     && pass "$_h runs to completion on a fork payload (rc=0)" || fail "$_h failed on a fork payload"
