@@ -349,6 +349,11 @@ versioning follows [SemVer](https://semver.org/).
   at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly
   (or sets inside a here-document), and `rm` behind `sudo`, `xargs`, `find -exec` or `eval` stay refused. The refusal's
   preview names the `rm`'s own targets and no longer a word of the next command.
+- **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
+  document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
+  asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a
+  script, handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) or left unterminated is read as before.
+  On 4485 real commands six verdicts changed, all of them notes; every real commit and push asks as before.
 
 - **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
   the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
