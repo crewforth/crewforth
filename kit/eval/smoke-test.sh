@@ -11413,7 +11413,7 @@ fi
 # judged alone and the steps run in order, a `cd` moving inside the project. A step no rule allows refuses the whole
 # command before anything runs, and the user is told once a session, with the message that allows it.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/sub"; : > "$_v2p/sub/ok.flag"
-printf 'verify test -f\nverify touch made\n' > "$_v2p/.claude/crew-model-rules"
+printf 'verify test -f\nverify touch made\nverify printenv CREW_VX\n' > "$_v2p/.claude/crew-model-rules"
 _v2plant k1 'cd sub && test -f ok.flag && cd .. && touch made'; _v2stop k1 >/dev/null
 { [ "$(_v2row k1 | cut -d/ -f2)" = pass ] && [ -e "$_v2p/made" ] && [ ! -e "$_v2p/sub/made" ]; } || _v2b="$_v2b [a chain of allowed steps: $(_v2row k1), made at the root: $([ -e "$_v2p/made" ] && echo yes || echo no)]"
 rm -f "$_v2p/made"
@@ -11432,7 +11432,14 @@ for _cc in 'k6:cd sub && cd ../.. && test -f x' 'k7:test -f sub/ok.flag && touch
   [ "$(_v2row "${_cc%%:*}" | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [${_cc#*:} was not refused: $(_v2row "${_cc%%:*}")]"
 done
 [ ! -e "$_v2p/made3" ] || _v2b="$_v2b [a ; or || chain ran]"
-[ -z "$_v2b" ] && pass "a verify command of steps joined by && runs step by step, a cd moving inside the project; a failing step stops the rest; a step no rule allows refuses the whole command before anything runs, is recorded, and is told to the user once with /crew-allow-verify and the rule, never for a rule that would run anything; ;, || and a cd out of the project stay refused" \
+# A card in a repository of several packages writes the project's own absolute folder and settings in front of the
+# command (13 of one project's verify commands, none ran): the folder is read from the root, the settings go with the
+# command (printenv passes only if CREW_VX reached it), and a setting that changes what runs keeps it refused.
+_v2plant k9 "cd $(cd -P "$_v2p" && pwd -P)/sub && env CREW_VX=1 printenv CREW_VX"; _v2stop k9 >/dev/null
+[ "$(_v2row k9 | cut -d/ -f2)" = pass ] || _v2b="$_v2b [an absolute folder inside the project with a setting in front: $(_v2row k9)]"
+_v2plant k10 'env PATH=/nowhere test -f sub/ok.flag'; _v2stop k10 >/dev/null
+[ "$(_v2row k10 | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [PATH= in front of a verify step was not refused: $(_v2row k10)]"
+[ -z "$_v2b" ] && pass "a verify command of steps joined by && runs step by step, a cd moving inside the project; a failing step stops the rest; a step no rule allows refuses the whole command before anything runs, is recorded, and is told to the user once with /crew-allow-verify and the rule, never for a rule that would run anything; ;, || and a cd out of the project stay refused; an absolute folder inside the project and NAME=value settings in front of a step are read (the settings reach the command), a PATH= setting stays refused" \
                || fail "verify steps:$_v2b"
 # The installer reads the project's own commands and adds them as verify lines, once: a line the user deleted is not
 # put back by the next update, and a project that declares none gets no file.
@@ -11451,7 +11458,10 @@ grep -v '^verify npm test$' "$_vdp/.claude/crew-model-rules" > "$_v2/r" && cat "
 [ -z "$(_vd)" ] && ! grep -q '^verify npm test$' "$_vdp/.claude/crew-model-rules" || _v2b="$_v2b [a deleted line was put back]"
 _v2new; _vdp="$_v2p"; _vda="$(_vd)"
 { [ -z "$_vda" ] && [ ! -e "$_vdp/.claude/crew-model-rules" ]; } || _v2b="$_v2b [a project with no commands got: $_vda]"
-[ -z "$_v2b" ] && pass "the installer adds the project's own test, lint and type-check commands as verify lines (package.json scripts and tools one folder down, pyproject through uv; not a dev server, not node_modules), below the user's own lines, says which, adds nothing twice, does not put back a deleted line, and writes nothing for a project that declares none" \
+# ...and one level further inside packages/, apps/, services/, libs/: a Python package there with pytest and no lock
+_v2new; _vdp="$_v2p"; mkdir -p "$_vdp/packages/core"; printf '[project]\nname="c"\n[dependency-groups]\ndev=["pytest"]\n' > "$_vdp/packages/core/pyproject.toml"
+_vda="$(_vd)"; [ "$_vda" = "python3 -m pytest, python -m pytest" ] || _v2b="$_v2b [a package under packages/: $_vda]"
+[ -z "$_v2b" ] && pass "the installer adds the project's own test, lint and type-check commands as verify lines (package.json scripts and tools one folder down, and inside packages/, apps/, services/ and libs/; pyproject through uv; not a dev server, not node_modules), below the user's own lines, says which, adds nothing twice, does not put back a deleted line, and writes nothing for a project that declares none" \
                || fail "verify commands read from the project:$_v2b"
 # Which record is whose. Two calls of one type made together are matched by order, which can be wrong; the card in
 # the agent's own transcript settles it.

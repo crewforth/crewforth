@@ -344,6 +344,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Verify runs in a repository of several packages.** The installer also reads the projects under `packages/`,
+  `apps/`, `services/` and `libs/`, and offers `python -m pytest` beside `python3 -m pytest`. A card's verify command
+  may name the project's own folder by its absolute path and put `NAME=value` settings in front of a step (`env
+  PYTHONPATH=… python -m pytest`): the step is judged without them and runs with them. A setting that changes what
+  runs (`PATH`, `LD_*`, `BASH_ENV`, `GIT_*` …) keeps it refused.
+
 - **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
   the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
 - **The team board does not hang on an unreachable remote.** Where neither `timeout` nor `gtimeout` exists (stock

@@ -348,7 +348,8 @@ case "$EV" in
             [ "$_VS_N" -gt 1 ] && { VSTEP="${_VS_C[VI]}"; WHYNOT="the step '$VSTEP': $_AMVW"; }
             break
           fi
-          VRUN="${VRUN:+$VRUN && }cd \"\$CREW_VR/${_VS_D[VI]}\" && ${_VS_C[VI]}"
+          # its plain NAME=value settings go with it (crew_verify_steps judged their names and values)
+          VRUN="${VRUN:+$VRUN && }cd \"\$CREW_VR/${_VS_D[VI]}\" && ${_VS_E[VI]:+env ${_VS_E[VI]} }${_VS_C[VI]}"
           VI=$((VI+1))
         done
       fi
