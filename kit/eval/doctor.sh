@@ -661,6 +661,10 @@ if [ -f CLAUDE.md ] && ls .claude/agents/*.md >/dev/null 2>&1; then
       }
     }' .claude/agents/*.md)"
   export CREW_AGENT_BASES
+  # A path segment is not a mention: planner.py:245, modules/planner/ and reports/{planner,prompts}.py name a project
+  # file that shares an agent id, and delegation is not what that line asks for. The awk below skips the word when a
+  # slash or an opening brace comes right before it, or a slash or a dot-and-letter (a file extension) right after.
+  # (No quote or backtick inside that awk text: this runs in an unquoted here-document, where bash reads them.)
   STALE=""; STALE_PULL=""
   while IFS="$(printf '\t')" read -r base name f lines; do
     [ -n "$base" ] || continue
@@ -678,8 +682,9 @@ $(awk '
   {
     # bare `base` NOT touching a `-` on either side (so not crew-base, nor base-local) and not glued into a longer word — the identical
     # boundary the grep used. Agent ids are [a-z-] only, so nothing here needs regex escaping.
+    # a path segment is not a mention (see the note above the loop): skip a slash or brace before, a slash or file extension after
     for (i=1;i<=nb;i++)
-      if ($0 ~ ("(^|[^a-zA-Z0-9_-]|@agent-)" base[i] "([^a-zA-Z0-9_-]|$)"))
+      if ($0 ~ ("(^|[^a-zA-Z0-9_/{-]|@agent-)" base[i] "([^a-zA-Z0-9_/.-]|\\.([^a-zA-Z]|$)|$)"))
         hit[i, FILENAME] = (hit[i, FILENAME]=="" ? FNR : hit[i, FILENAME] "," FNR)
   }
   # Emitted in agent order, then scanned-file order, so the report reads the same as it always did rather

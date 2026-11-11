@@ -5922,6 +5922,22 @@ _6no="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
 [ -z "$_6nb" ] && pass "doctor names a missing path in a nested CLAUDE.md and in AGENTS.md (resolved under its own folder, then the root), skips node_modules, and reads them clean once the paths exist" \
                || fail "doctor nested instruction files:$_6nb"
 rm -rf "$DOC/web" "$DOC/node_modules" "$DOC/src" "$DOC/lib" "$DOC/AGENTS.md"
+# doctor 5b: a bare agent name that is really a project file name is not a stale agent mention. A project with a
+# module called planner writes `planner.py:245`, `modules/planner/` and `reports/{planner,prompts}.py` in its plan;
+# doctor flagged all of them as an agent it cannot delegate to. The same word as prose still is one.
+_AGD="$(mktemp -d)"; _5b=""
+mkdir -p "$_AGD/.claude/agents" "$_AGD/docs"
+printf '%s\n' '---' 'name: crew-planner' '---' 'x' > "$_AGD/.claude/agents/crew-planner.md"
+printf '%s\n' 'Plan: docs/PLAN.md' > "$_AGD/CLAUDE.md"
+printf '%s\n' 'Matching lives in planner.py:245 and `src/modules/planner/` and `src/reports/{planner,prompts}.py`.' > "$_AGD/docs/PLAN.md"
+_5bo="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$_AGD" 2>&1)"
+[[ "$_5bo" == *"names auto-delegated agent"* ]] && _5b="$_5b file-name-flagged"
+printf '%s\n' 'Ask the planner to split it.' >> "$_AGD/docs/PLAN.md"
+_5bo="$(CREW_LANG=en bash "$ROOT/eval/doctor.sh" "$_AGD" 2>&1)"
+[[ "$_5bo" == *"names auto-delegated agent"* && "$_5bo" == *'"planner" → "crew-planner"'*"line(s): 2"* ]] || _5b="$_5b prose-mention-missed"
+rm -rf "$_AGD"
+[ -z "$_5b" ] && pass "doctor reads planner.py, a planner/ folder and a {planner,…} brace list as file names, and still names the word planner in prose as a stale agent" \
+              || fail "doctor agent-name boundary:$_5b"
 # doctor 6b (P16-03): a ./CLAUDE.md line that reads as loosening §4 is named by its number, information only; the
 # same rule written as a prohibition, a line off the §4 topics and a fenced example are not. Twin: the tightening
 # file says nothing.
