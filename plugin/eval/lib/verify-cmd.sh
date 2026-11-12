@@ -23,11 +23,20 @@ crew_verify_split(){  # $1 = the command, $2 = the project root -> _AMVD the fol
 # `;`, `||`, `|` and a lone `&` stay inside a step, which the gate then refuses as a chain. Running the steps one
 # after another, each only when the one before passed, is what `a && b` does: nothing runs that the steps alone
 # would not.
+# Two shapes a card writes in a repository of several packages, both measured on one (3.5.0-rc.4, 13 of its verify
+# commands, none ran): `cd /abs/path/to/repo/packages/api && …`, an absolute folder that is inside the project, and
+# `env HF_HUB_OFFLINE=1 PYTHONPATH=/abs/packages/core python -m pytest …`, settings in front of the command. The first
+# is read as the folder it names, relative to the root. The second is split: the command alone is what a rule names
+# and the shell gate judges, and the settings go with it when it runs (_VS_E[i], plain NAME=value words). A setting
+# that changes what runs or how the shell reads it (PATH, LD_*, DYLD_*, BASH_ENV, ENV, IFS, SHELLOPTS, BASHOPTS,
+# PS4, PROMPT_COMMAND, GIT_*, NODE_OPTIONS, PYTHONSTARTUP, PERL5OPT, RUBYOPT) keeps the step refused.
 crew_verify_steps(){  # $1 = command, $2 = project root -> 0: _VS_N steps, _VS_D[i] the folder ("" = root), _VS_C[i]
-                      # the command; 1: _VS_WHY says why the command is not steps a hook can run
-  local s="$1" root="${2:-.}" step cur="" d p last=0 nl='
+                      # the command, _VS_E[i] its NAME=value settings ("" = none); 1: _VS_WHY says why the command is
+                      # not steps a hook can run
+  local s="$1" root="${2:-.}" step cur="" d p last=0 env w rr nl='
 '
-  _VS_N=0; _VS_D=(); _VS_C=(); _VS_WHY=""
+  _VS_N=0; _VS_D=(); _VS_C=(); _VS_E=(); _VS_WHY=""
+  rr="$(cd -P "$root" 2>/dev/null && pwd -P)"
   case "$s" in *"$nl"*|*$'\r'*) _VS_WHY="it is more than one line"; return 1 ;; esac
   while [ "$last" = 0 ]; do
     case "$s" in *' && '*) step="${s%% && *}"; s="${s#* && }" ;; *) step="$s"; last=1 ;; esac
@@ -36,6 +45,11 @@ crew_verify_steps(){  # $1 = command, $2 = project root -> 0: _VS_N steps, _VS_D
     case "$step" in
       'cd '*)
         d="${step#cd }"; while :; do case "$d" in ' '*) d="${d# }" ;; *) break ;; esac; done
+        d="${d%\"}"; d="${d#\"}"
+        # an absolute folder inside the project is that folder, from the root (the root itself, or its own spelling)
+        case "$d" in /*) if [ -n "$rr" ]; then
+            case "$d/" in "$rr"/*) d="${d#"$rr"}"; d="${d#/}"; cur=""; [ -n "$d" ] || d=. ;;
+                          "$root"/*) d="${d#"$root"}"; d="${d#/}"; cur=""; [ -n "$d" ] || d=. ;; esac; fi ;; esac
         case "$d" in ''|/*|~*|-*|*[!A-Za-z0-9._/-]*) _VS_WHY="'$step' does not move to a folder inside the project by a plain relative name"; return 1 ;; esac
         while [ -n "$d" ]; do
           p="${d%%/*}"; if [ "$p" = "$d" ]; then d=""; else d="${d#*/}"; fi
@@ -47,7 +61,20 @@ crew_verify_steps(){  # $1 = command, $2 = project root -> 0: _VS_N steps, _VS_D
           esac
         done
         [ -d "$root/${cur:-.}" ] || { _VS_WHY="'$step' names a folder that is not there"; return 1; } ;;
-      *) _VS_D[_VS_N]="$cur"; _VS_C[_VS_N]="$step"; _VS_N=$((_VS_N+1)) ;;
+      *)
+        env=""
+        case "$step" in 'env '*) step="${step#env }"; while :; do case "$step" in ' '*) step="${step# }" ;; *) break ;; esac; done ;; esac
+        while :; do
+          w="${step%% *}"
+          case "$w" in [A-Za-z_]*=*) ;; *) break ;; esac
+          [ "$w" != "$step" ] || { _VS_WHY="'$1' sets values and runs nothing"; return 1; }
+          case "${w%%=*}" in *[!A-Za-z0-9_]*) break ;; esac
+          case "${w%%=*}" in PATH|LD_*|DYLD_*|BASH_ENV|ENV|IFS|SHELLOPTS|BASHOPTS|PS4|PROMPT_COMMAND|GIT_*|NODE_OPTIONS|PYTHONSTARTUP|PERL5OPT|RUBYOPT|CDPATH)
+            _VS_WHY="it sets ${w%%=*}, which changes what runs"; return 1 ;; esac
+          case "${w#*=}" in *[!A-Za-z0-9._/:,=+@%-]*) _VS_WHY="the value of ${w%%=*} is not a plain word"; return 1 ;; esac
+          env="${env:+$env }$w"; step="${step#"$w"}"; while :; do case "$step" in ' '*) step="${step# }" ;; *) break ;; esac; done
+        done
+        _VS_D[_VS_N]="$cur"; _VS_C[_VS_N]="$step"; _VS_E[_VS_N]="$env"; _VS_N=$((_VS_N+1)) ;;
     esac
   done
   [ "$_VS_N" -gt 0 ] || { _VS_WHY="it only changes folder"; return 1; }
