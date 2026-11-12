@@ -794,38 +794,55 @@ _am_verify_split(){ _AMVD=""; _AMVC="$1"; declare -F crew_verify_split >/dev/nul
 # A verify command that ran out of time here, remembered so the next card that carries it is told BEFORE the agent
 # runs: in the field every timeout was the project's whole test suite (494-1005 s against the 540 s limit), the agent
 # was held for the full limit, and the session then ran the same suite again itself. One line per command in
-# .claude/state/verify-slow (seconds<TAB>command), at most 50, the newest last; a pass of the same command removes it.
-# Nothing here refuses: the card's verify is still the session's choice.
+# .claude/state/verify-slow (seconds<TAB>command<TAB>epoch it was stopped), at most 50, the newest last; a pass of the
+# same command removes it. A line of 3.5.0-rc.5 has no epoch: it is read, and counts as stopped long ago.
+# For CREW_VERIFY_SLOW_DAYS (7) after it was stopped the stop hook does not run it again (agent-outcome.sh): in the
+# field it ran the same suite into the same limit for the next agent, 9 minutes for nothing. After that it is run once
+# more, so a suite that became faster is learnt again. Nothing here refuses: the card's verify is still the session's choice.
 _am_slow_key(){  # $1 = verify command -> _AMSK, one line with single spaces ("" when nothing is left)
   local k="$1"; k="${k//$'\t'/ }"; k="${k//$'\r'/ }"; k="${k//$'\n'/ }"
   while :; do case "$k" in *'  '*) k="${k//  / }" ;; *) break ;; esac; done
   k="${k# }"; _AMSK="${k% }"; }
 _am_slow_put(){  # $1 = verify command, $2 = the seconds it was given ("" = it passed: forget it)
-  local f="$_AMS/verify-slow" l keep="" n=0 skip
+  local f="$_AMS/verify-slow" l keep="" n=0 skip now
   _am_slow_key "$1"; [ -n "$_AMSK" ] || return 0
   [ -n "$2" ] || [ -f "$f" ] || return 0
   if [ -f "$f" ] && [ ! -L "$f" ]; then
     while IFS= read -r l || [ -n "$l" ]; do
-      case "$l" in *$'\t'*) [ "${l#*$'\t'}" = "$_AMSK" ] && continue ;; *) continue ;; esac
+      case "$l" in *$'\t'*) _am_slow_line "$l"; [ "$_AMSLC" = "$_AMSK" ] && continue ;; *) continue ;; esac
       keep="$keep$l"$'\n'; n=$((n+1))
     done < "$f"
   fi
   skip=$((n - 49)); [ -n "$2" ] || skip=0
   while [ "$skip" -gt 0 ]; do keep="${keep#*$'\n'}"; skip=$((skip-1)); done
-  [ -n "$2" ] && keep="$keep$2"$'\t'"$_AMSK"$'\n'
+  if [ -n "$2" ]; then
+    now="$(date +%s 2>/dev/null)"; case "$now" in ''|*[!0-9]*) now="" ;; esac
+    keep="$keep$2"$'\t'"$_AMSK${now:+$'\t'$now}"$'\n'
+  fi
   mkdir -p "$_AMS" 2>/dev/null || return 0
   { printf '%s' "$keep" > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"; } 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
   return 0; }
-_am_slow_get(){  # $1 = verify command -> 0 and _AMSS (the seconds it was given) when it ran out of time here before
+_am_slow_line(){  # $1 = a line of verify-slow -> _AMSLC (the command), _AMSLT (the epoch it was stopped, "" unknown)
+  local r="${1#*$'\t'}"; _AMSLC="${r%%$'\t'*}"; _AMSLT=""
+  [ "$_AMSLC" = "$r" ] || { _AMSLT="${r#*$'\t'}"; case "$_AMSLT" in ''|*[!0-9]*) _AMSLT="" ;; esac; }; }
+_am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given) and _AMST (the epoch, "" unknown) when it
+  # ran out of time here before
   local f="$_AMS/verify-slow" l
   _am_slow_key "$1"; [ -n "$_AMSK" ] && [ -f "$f" ] && [ ! -L "$f" ] || return 1
   while IFS= read -r l || [ -n "$l" ]; do
     case "$l" in *$'\t'*) ;; *) continue ;; esac
-    [ "${l#*$'\t'}" = "$_AMSK" ] || continue
+    _am_slow_line "$l"; [ "$_AMSLC" = "$_AMSK" ] || continue
     _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
+    _AMST="$_AMSLT"
     return 0
   done < "$f"
   return 1; }
+_am_slow_fresh(){  # after _am_slow_get -> 0 while the stop hook leaves the command unrun; _AMSD = the days
+  local now
+  _AMSD="${CREW_VERIFY_SLOW_DAYS:-7}"; case "$_AMSD" in ''|*[!0-9]*) _AMSD=7 ;; esac
+  [ "$_AMSD" -gt 0 ] && [ -n "${_AMST:-}" ] || return 1
+  now="$(date +%s 2>/dev/null)"; case "$now" in ''|*[!0-9]*) return 1 ;; esac
+  [ $((now - _AMST)) -lt $((_AMSD * 86400)) ]; }
 _am_verify_plan(){  # $1 = verify command, $2 = permission mode -> 0: _AMVRUN, _AMVDIR; 1: _AMVWHY, _AMVSTEP ("" = all of it)
   local i=0
   _AMVRUN=""; _AMVDIR=""; _AMVWHY=""; _AMVSTEP=""
@@ -1156,7 +1173,8 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
     vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
   elif _am_slow_get "$CARD_VERIFY"; then
-    vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite). Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
+    _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
+    vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
   fi
 fi

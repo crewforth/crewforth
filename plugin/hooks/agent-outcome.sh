@@ -19,7 +19,10 @@
 #                          or the shell gate would refuse or ask; the user is told once with the message that allows it)
 #                                                   -> blocked: not run, nothing concluded.
 #                          not finished in CREW_VERIFY_TIMEOUT seconds (540)
-#                                                   -> timeout: stopped, nothing concluded.
+#                                                   -> timeout: stopped, nothing concluded, the command remembered as
+#                                                      slow; for CREW_VERIFY_SLOW_DAYS (7) it is not run again, and
+#                                                      the agent's line says timeout with why "not run" (the hook did
+#                                                      not wait the limit out a second time for the same answer).
 #                        Then one line is added to .claude/state/model-outcomes.tsv, its last column the gate's reason
 #                        when the work is critical (risk_why, "-" when it is not), and the class is looked at:
 #                        where the first try failed too often, its floor goes one model up (crew-model-floors.auto).
@@ -27,8 +30,14 @@
 #   PostToolUse (Agent)  a foreground call has come back. If its verify failed, or its report closed with
 #                        confidence: low, the session is told to repeat the task once, one model up, and to ask
 #                        the user if that fails too. A background call comes back before its agent has finished:
-#                        for critical work with a verify command the session is told to run that command itself
-#                        when the agent ends; the record and the gate still hold.
+#                        it is marked, and for critical work with a verify command the session is told that the
+#                        outcome comes when the agent ends.
+#   Stop (--stop)        the same telling, for a BACKGROUND agent: its SubagentStop leaves what the session would have
+#                        been told in .claude/state/crew-model/notice/<session>.<agent>, and the main thread's Stop
+#                        hands it over once ("decision: block" with it as the reason), then deletes it. Measured in
+#                        the field (3.5.0-rc.5): every agent of two projects ran in the background and a timeout,
+#                        a fail and a blocked verify reached nobody. A subagent's stop carries its main session's id
+#                        (7 of 7 records). No notice: no JSON read, no process, exit 0.
 #   SessionStart, --scan the project's critical paths are listed in .claude/state/crew-critical-paths.auto, when the
 #                        list of files has changed. A generated file: the gate does not read it, it reads the paths.
 #
@@ -47,6 +56,23 @@
 set -uo pipefail
 export LC_ALL=C
 [ "${CREW_MODEL_ROUTING:-}" = off ] && exit 0
+if [ "${1:-}" = --stop ]; then
+  # The main thread's Stop, on every turn: builtins only until a notice is there (none, nearly always).
+  _st="${CLAUDE_PROJECT_DIR:-$PWD}"; _st="${_st//\\//}"; _st="${_st%/}/.claude/state/crew-model/notice"
+  [ -d "$_st" ] || exit 0
+  _si=""; IFS= read -r -d '' _si || true
+  _sid="${_si#*\"session_id\"}"; [ "$_sid" != "$_si" ] || exit 0
+  _sid="${_sid#*\"}"; _sid="${_sid%%\"*}"; case "$_sid" in ''|*[!A-Za-z0-9_-]*) exit 0 ;; esac
+  _sm=""
+  for _sf in "$_st/$_sid".*; do
+    [ -f "$_sf" ] && [ ! -L "$_sf" ] || continue
+    _sl=""; IFS= read -r _sl < "$_sf" || true; rm -f "$_sf" 2>/dev/null
+    [ -n "$_sl" ] && _sm="${_sm:+$_sm\\n\\n}$_sl"
+  done
+  # Already JSON-safe: it was written by _ao_json. Said once: the file is gone before the answer goes out.
+  [ -n "$_sm" ] && printf '{"decision":"block","reason":"%s"}\n' "$_sm"
+  exit 0
+fi
 _ao_here="${BASH_SOURCE//\\//}"; _ao_here="${_ao_here%/*}"; [ "$_ao_here" = "${BASH_SOURCE//\\//}" ] && _ao_here=.
 [ -f "$_ao_here/guard-agent-model.sh" ] || exit 0
 . "$_ao_here/guard-agent-model.sh"
@@ -125,6 +151,44 @@ _ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never endi
     esac
   done
   _AOC="$(printf '%s' "$1" | head -c "$((n - drop))")"
+}
+
+# What the session is told about a finished agent, from its result file: _AOT, or 1 when there is nothing to tell (a
+# pass with no low confidence). One text, said in PostToolUse for a foreground call and at Stop for a background one.
+_ao_tellmsg(){  # $1 = the result file -> _AOT
+  local R="$1" RES CONF TI ESC VCMD EF WN UP ESCL MSG TAILM D="${CREW_VERIFY_SLOW_DAYS:-7}"
+  case "$D" in ''|*[!0-9]*) D=7 ;; esac
+  _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
+  _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"; _am_rec_get "$R" effort; EF="$_AMV"
+  case "$RES" in fail|blocked|timeout) ;; *) [ "$CONF" = low ] || return 1 ;; esac
+  if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
+    # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
+    _am_rec_get "$R" whynot; WN="$_AMV"
+    if [ "$RES" = timeout ]; then
+      # Not "run it yourself": the command that ran out of time is, in the field, the whole suite, and the session
+      # running it again cost one more suite-length wait for the same answer.
+      _AOT="Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here: the next card that carries it is told, and for $D days the hook does not run it again. Do not repeat the task on another model for this."
+    else
+      _AOT="Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this."
+    fi
+    return 0
+  fi
+  _am_rank "$TI"; _am_name $((_AMR+1)); UP="$_AMN"
+  _am_rec_get "$R" escalate; ESCL="$_AMV"
+  if [ "$RES" = fail ]; then MSG="verify failed after one in-agent fix ($VCMD)."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
+  else MSG="the agent closed its report with confidence: low."; TAILM="What the agent left is in the tree; read its report for what it could not do."; fi
+  # A write refused on a critical path is not helped by one model up: that file takes opus.
+  if [ "$ESCL" = 1 ] && [ "$TI" != opus ] && [ "$TI" != fable ]; then UP=opus; MSG="$MSG It was refused a write to a critical path, which only an agent on opus may make; name that file in the card."; fi
+  # Effort before model (the vendor's own guidance): a first failure at an effort below high is repeated on the same
+  # model at high; a failure at high, at an unknown effort, or of that repeat goes one model up at medium; a failure
+  # one model up goes to the user. fable is "a model above" only where the user allowed it (CREW_ALLOW_FABLE=1).
+  [ "$UP" = fable ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ] && UP=""
+  if [ "$ESC" != - ] && [ -n "$ESC" ] && [ "$ESC" != "$TI" ]; then MSG="$MSG This was already the repeat one model up (first run: $ESC). Do not run it a third time: ask the user what to do (AskUserQuestion), with what failed and on which models."
+  elif [ "$RES" = fail ] && [ "$ESCL" != 1 ] && [ "$ESC" = - ] && { [ "$EF" = low ] || [ "$EF" = medium ]; }; then MSG="$MSG It ran at effort $EF. Re-run this task once on $TI at effort high: the same card, the same agent, model $TI, effort high.${UP:+ If that also fails, once with $UP at effort medium; then ask the user.}"
+  elif [ -z "$UP" ]; then MSG="$MSG It ran on $TI and there is no model above it to repeat on: ask the user what to do (AskUserQuestion)."
+  else MSG="$MSG Re-run this task once with $UP: the same card, the same agent, model $UP, effort medium. If that also fails, ask the user."; fi
+  _AOT="Crewforth: $MSG $TAILM"
+  return 0
 }
 
 # ---- the list of critical paths (SessionStart, or `--scan` from the installers) ----------------------------------
@@ -338,6 +402,11 @@ case "$EV" in
         # is the place the command actually starts. Not run; nothing is concluded about the work.
         RES=blocked; VRC=0
         _ao_tell_allow "${VSTEP:-$VCMD}" "$WHYNOT"
+      elif _am_slow_get "$VCMD" && _am_slow_fresh; then
+        # Stopped at the limit here within the last days: run again it would only wait the limit out once more
+        # (measured: the next agent's stop hook ran the same suite into the same 540 s). Recorded as what it is
+        # known to be, timeout, with why it did not run; the PreToolUse note told the card's writer this up front.
+        RES=timeout; VRC=0; WHYNOT="not run: it did not finish in $_AMSS when it last ran here, within the last $_AMSD days"
       else
         # A time limit of its own, below the hook's: a hook killed at its timeout records nothing, and a verify
         # that hangs must not read as a pass or as a fail.
@@ -414,12 +483,27 @@ case "$EV" in
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" "$RW" >> "$TSV" 2>/dev/null
     _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
+    # A BACKGROUND agent's outcome has no PostToolUse to be told in (its call came back at launch): what the session
+    # would have been told waits for the main thread's Stop (--stop above).
+    if [ -f "$_AMD/bg/$AID" ]; then
+      rm -f "$_AMD/bg/$AID" 2>/dev/null
+      _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
+      case "$SID" in ''|*[!A-Za-z0-9_-]*) ;; *)
+        if _ao_tellmsg "$_AMD/results/$AID" && mkdir -p "$_AMD/notice" 2>/dev/null; then
+          _ao_json "Crewforth, about the background agent $AG ($AID) that has finished: ${_AOT#Crewforth: }"
+          printf '%s\n' "$_AOJ" > "$_AMD/notice/$SID.$AID" 2>/dev/null
+        fi ;;
+      esac
+    fi
     exit 0 ;;
 
   PostToolUse)
     _json_slice "$INPUT" tool_name >/dev/null; case "$_JS" in Agent|Task) ;; *) exit 0 ;; esac
     _json_slice "$INPUT" agentId >/dev/null; AID="$_JS"
     case "$AID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+    # A launch in the background: its outcome is told at the main thread's Stop instead of here (SubagentStop).
+    case "$INPUT" in *'"status":"async_launched"'*|*'"status": "async_launched"'*)
+      mkdir -p "$_AMD/bg" 2>/dev/null && : > "$_AMD/bg/$AID" 2>/dev/null ;; esac
     # The model the agent really ran on, as Claude Code resolved it (measured, 2.1.294: tool_response.resolvedModel,
     # in the answer of a finished foreground call and of a background launch alike). Kept under the agent's id for
     # the stop hook, and written into the agent's line where that line is there already.
@@ -474,41 +558,12 @@ case "$EV" in
       case "$INPUT" in *'"status":"async_launched"'*|*'"status": "async_launched"'*) ;; *) exit 0 ;; esac
       _am_rec_get "$A" risk; [ "$_AMV" = critical ] || exit 0
       _am_rec_get "$A" verify; VCMD="$_AMV"; case "$VCMD" in ''|none) exit 0 ;; esac
-      _ao_json "Crewforth: this critical work was launched in the background, so whether its verify command passed will not be told to you here. When the agent has finished, run the verify command yourself with the Bash tool ($VCMD) and judge the result before you build on the work or report it done."
+      _ao_json "Crewforth: this critical work was launched in the background. Its verify command ($VCMD) is run by Crewforth when the agent ends; if it does not pass you are told before your turn ends, and no word means it passed. Do not build on the work or report it done before the agent has finished."
       printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
       exit 0
     fi
-    _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
-    _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"; _am_rec_get "$R" effort; EF="$_AMV"
-    case "$RES" in fail|blocked|timeout) ;; *) [ "$CONF" = low ] || exit 0 ;; esac
-    if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
-      # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
-      _am_rec_get "$R" whynot; WN="$_AMV"
-      if [ "$RES" = timeout ]; then
-        # Not "run it yourself": the command that ran out of time is, in the field, the whole suite, and the session
-        # running it again cost one more suite-length wait for the same answer.
-        _ao_json "Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here, and the next card that carries it is told. Do not repeat the task on another model for this."
-      else
-      _ao_json "Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this."
-      fi
-      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
-      exit 0
-    fi
-    _am_rank "$TI"; _am_name $((_AMR+1)); UP="$_AMN"
-    _am_rec_get "$R" escalate; ESCL="$_AMV"
-    if [ "$RES" = fail ]; then MSG="verify failed after one in-agent fix ($VCMD)."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
-    else MSG="the agent closed its report with confidence: low."; TAILM="What the agent left is in the tree; read its report for what it could not do."; fi
-    # A write refused on a critical path is not helped by one model up: that file takes opus.
-    if [ "$ESCL" = 1 ] && [ "$TI" != opus ] && [ "$TI" != fable ]; then UP=opus; MSG="$MSG It was refused a write to a critical path, which only an agent on opus may make; name that file in the card."; fi
-    # Effort before model (the vendor's own guidance): a first failure at an effort below high is repeated on the same
-    # model at high; a failure at high, at an unknown effort, or of that repeat goes one model up at medium; a failure
-    # one model up goes to the user. fable is "a model above" only where the user allowed it (CREW_ALLOW_FABLE=1).
-    [ "$UP" = fable ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ] && UP=""
-    if [ "$ESC" != - ] && [ -n "$ESC" ] && [ "$ESC" != "$TI" ]; then MSG="$MSG This was already the repeat one model up (first run: $ESC). Do not run it a third time: ask the user what to do (AskUserQuestion), with what failed and on which models."
-    elif [ "$RES" = fail ] && [ "$ESCL" != 1 ] && [ "$ESC" = - ] && { [ "$EF" = low ] || [ "$EF" = medium ]; }; then MSG="$MSG It ran at effort $EF. Re-run this task once on $TI at effort high: the same card, the same agent, model $TI, effort high.${UP:+ If that also fails, once with $UP at effort medium; then ask the user.}"
-    elif [ -z "$UP" ]; then MSG="$MSG It ran on $TI and there is no model above it to repeat on: ask the user what to do (AskUserQuestion)."
-    else MSG="$MSG Re-run this task once with $UP: the same card, the same agent, model $UP, effort medium. If that also fails, ask the user."; fi
-    _ao_json "Crewforth: $MSG $TAILM"
+    _ao_tellmsg "$R" || exit 0
+    _ao_json "$_AOT"
     printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
     exit 0 ;;
 esac

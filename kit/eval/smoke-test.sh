@@ -10948,7 +10948,7 @@ elif [ ! -f "$_V2O" ] || [ ! -f "$_V2G" ]; then fail "hooks/agent-outcome.sh or 
 else
 _v2="$(mktemp -d)"; _v2="$(cd -P "$_v2" && pwd)"; _v2p="$_v2/p"
 _v2new(){ rm -rf "$_v2p" "$_v2/home"; mkdir -p "$_v2/home" "$_v2p/.claude" "$_v2p/src/payments" "$_v2p/src/ui"; ( cd "$_v2p" && git init -q . ) >/dev/null 2>&1; echo x > "$_v2p/src/ui/a.ts"; echo y > "$_v2p/src/payments/p.ts"; }
-_v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CLAUDE_CODE_EFFORT_LEVEL -u CLAUDE_CODE_SUBAGENT_MODEL -u CLAUDE_CODE_SUBAGENT_MODEL_FORCE -u CREW_MODEL_CAL_N -u CREW_MODEL_CAL_PCT -u CREW_VERIFY_NO_SETSID -u CREW_VERIFY_TIMEOUT -u CLAUDE_CONFIG_DIR -u CREW_MANAGED_SETTINGS HOME="$_v2/home" CLAUDE_PROJECT_DIR="$_v2p" CREW_GATE_LOG=/dev/null ${_V2ENV:-} "$@"; }
+_v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CLAUDE_CODE_EFFORT_LEVEL -u CLAUDE_CODE_SUBAGENT_MODEL -u CLAUDE_CODE_SUBAGENT_MODEL_FORCE -u CREW_MODEL_CAL_N -u CREW_MODEL_CAL_PCT -u CREW_VERIFY_NO_SETSID -u CREW_VERIFY_TIMEOUT -u CREW_VERIFY_SLOW_DAYS -u CLAUDE_CONFIG_DIR -u CREW_MANAGED_SETTINGS HOME="$_v2/home" CLAUDE_PROJECT_DIR="$_v2p" CREW_GATE_LOG=/dev/null ${_V2ENV:-} "$@"; }
 # $1 agent, $2 model, $3 files, $4 change, $5 verify, $6 extra fields -> _v2rc, stderr in $_v2/err
 _v2call(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work.","subagent_type":"%s","model":"%s"%s},"tool_use_id":"tu%s"}' "$3" "$4" "$5" "$1" "$2" "${6:-}" "$RANDOM$RANDOM" > "$_v2/c.json"
   ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >"$_v2/out" 2>"$_v2/err" ); _v2rc=$?; }
@@ -11163,7 +11163,7 @@ _o="$(_v2launch la0 async_launched tu-of-another-call)"; [ -z "$_o" ] || _v2b="$
 _v2start la0; _v2stop la0 >/dev/null; [ -n "$(_v2row la0)" ] || _v2b="$_v2b [the launch notice used up the call's record: no line for the agent]"
 # ...and the other order: the agent has its record already.
 _v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature true; _v2start la1
-_o="$(_v2launch la1 async_launched)"; case "$_o" in *'"additionalContext":"Crewforth: this critical work was launched in the background'*'run the verify command yourself with the Bash tool (true)'*) ;; *) _v2b="$_v2b [a background launch of critical work is not told: ${_o:0:80}]" ;; esac
+_o="$(_v2launch la1 async_launched)"; case "$_o" in *'"additionalContext":"Crewforth: this critical work was launched in the background. Its verify command (true) is run by Crewforth'*) ;; *) _v2b="$_v2b [a background launch of critical work is not told: ${_o:0:80}]" ;; esac
 printf '%s' "$_o" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{JSON.parse(s)})' 2>/dev/null || { command -v node >/dev/null 2>&1 && _v2b="$_v2b [what it prints is not JSON]"; }
 _o="$(_v2launch la1 completed)"; [ -z "$_o" ] || _v2b="$_v2b [a call that is not a launch is told it was one]"
 _v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature none; _v2start la2; _o="$(_v2launch la2 async_launched)"; [ -z "$_o" ] || _v2b="$_v2b [told for a card with no verify command]"
@@ -11632,7 +11632,7 @@ _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"; _v2ways=""
 printf '#!/bin/sh\nsleep 300 &\necho $! > child.pid\nwait\n' > "$_v2p/slow.sh"; chmod +x "$_v2p/slow.sh"; printf 'verify ./slow.sh\n' > "$_v2p/.claude/crew-model-rules"
 for _way in jobcontrol setsid; do
   if [ "$_way" = setsid ] && ! command -v setsid >/dev/null 2>&1; then continue; fi
-  _v2ways="$_v2ways $_way"; rm -f "$_v2p/child.pid"; _v2plant "t-$_way" './slow.sh'
+  _v2ways="$_v2ways $_way"; rm -f "$_v2p/child.pid" "$_v2p/.claude/state/verify-slow"; _v2plant "t-$_way" './slow.sh'   # remembered, it would not run again
   _te="CREW_VERIFY_TIMEOUT=2"; [ "$_way" = jobcontrol ] && _te="$_te CREW_VERIFY_NO_SETSID=1"
   _t0=$SECONDS; _o="$(_V2ENV="$_te" _v2stop "t-$_way")"; _t1=$((SECONDS - _t0))
   [ "$(_v2res "t-$_way")" = timeout ] || _v2b="$_v2b [$_way: result $(_v2res "t-$_way")]"
@@ -11647,7 +11647,7 @@ done
 # ...and the command is REMEMBERED as slow here, so the next card that carries it is told when the agent is called,
 # and the call goes on. In the field every timeout was the whole suite, and the session then ran it a second time.
 _vs="$_v2p/.claude/state/verify-slow"
-[ "$(grep -c "$(printf '^2\t\./slow\.sh$')" "$_vs" 2>/dev/null)" = 1 ] || _v2b="$_v2b [not remembered once: $(tr '\t' '|' < "$_vs" 2>/dev/null | head -c 80)]"
+[ "$(grep -cE "$(printf '^2\t\./slow\.sh\t[0-9]+$')" "$_vs" 2>/dev/null)" = 1 ] || _v2b="$_v2b [not remembered once: $(tr '\t' '|' < "$_vs" 2>/dev/null | head -c 80)]"
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2call crew-review-agent sonnet 'src/ui/a.ts' audit './slow.sh'
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"additionalContext":"Crewforth: this card'*'did not finish in 2s the last time'*'Write the tests this change touches'*) ;; *) _v2b="$_v2b [the next card was not told: rc=$_v2rc $(head -c 90 "$_v2/out")]" ;; esac
@@ -11664,11 +11664,11 @@ case "$(cat "$_v2/out" 2>/dev/null)" in *'did not finish in 2s the last time'*) 
 _v2plant p-slow 'test -d .'; _v2stop p-slow >/dev/null
 [ "$(_v2res p-slow)" = pass ] || _v2b="$_v2b FIXTURE:the-passing-command-did-not-pass:$(_v2res p-slow)"
 grep -q "$(printf '\ttest -d \.$')" "$_vs" && _v2b="$_v2b a-pass-did-not-forget-the-command"
-grep -q "$(printf '\t\./slow\.sh$')" "$_vs" || _v2b="$_v2b a-pass-of-another-command-dropped-this-one"
+grep -q "$(printf '\t\./slow\.sh$')" "$_vs" || _v2b="$_v2b a-pass-of-another-command-dropped-this-one"   # a 3.5.0-rc.5 line, no epoch: run again
 rm -f "$_v2p/child.pid"; _v2plant t-cap './slow.sh'; _V2ENV="CREW_VERIFY_TIMEOUT=2" _v2stop t-cap >/dev/null
 _cp=""; [ -f "$_v2p/child.pid" ] && IFS= read -r _cp < "$_v2p/child.pid"; case "$_cp" in ''|*[!0-9]*) ;; *) kill -KILL "$_cp" 2>/dev/null ;; esac
 [ "$(wc -l < "$_vs" | tr -d ' ')" = 50 ] || _v2b="$_v2b [the slow list holds $(wc -l < "$_vs" | tr -d ' ') lines, not 50]"
-[ "$(tail -n 1 "$_vs" | tr '\t' '|')" = '2|./slow.sh' ] || _v2b="$_v2b [the newest is not last: $(tail -n 1 "$_vs" | tr '\t' '|')]"
+case "$(tail -n 1 "$_vs" | tr '\t' '|')" in '2|./slow.sh|'[0-9]*) ;; *) false ;; esac || _v2b="$_v2b [the newest is not last: $(tail -n 1 "$_vs" | tr '\t' '|')]"
 grep -q "$(printf '\tnpm run x0$')" "$_vs" && _v2b="$_v2b the-oldest-was-kept-past-50"
 printf 'verify ./slow.sh\n' > "$_v2p/.claude/crew-model-rules"
 [ -z "$(ls "$_v2p/.claude/state/crew-model/fails" 2>/dev/null)" ] || _v2b="$_v2b marked-the-card-failed"
@@ -11676,6 +11676,63 @@ printf 'verify ./slow.sh\n' > "$_v2p/.claude/crew-model-rules"
 grep -q 'LIM" -le 560 \] || LIM=560' "$HOOKS/agent-outcome.sh" || _v2b="$_v2b the-limit-is-not-held-under-the-hooks-own"
 [ -z "$_v2b" ] && pass "a verify command that does not finish is stopped at its own limit together with the process it started, by each way of grouping it this machine has ($(echo $_v2ways)), and recorded as timeout: not a pass, not a fail, no fix asked, no escalation, nothing counted for the class; the session is told not to run the whole command again but the tests the change touches; the command is remembered as slow (once, by its words not its spacing, at most 50, a pass forgets it) and the next card that carries it is told, never refused; the limit is held under the hook's own" \
                || fail "verify timeout:$_v2b"
+# A command REMEMBERED as slow is not run again for CREW_VERIFY_SLOW_DAYS (7): in the field the next agent's stop
+# hook ran the same suite into the same 540 s limit. The line says timeout, with why it did not run. After the days,
+# a line of 3.5.0-rc.5 (no epoch) and CREW_VERIFY_SLOW_DAYS=0 run it again, so a suite that became faster is learnt.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/.claude/state"; _vs="$_v2p/.claude/state/verify-slow"
+printf '#!/bin/sh\necho ran > ran.mark\n' > "$_v2p/mark.sh"; chmod +x "$_v2p/mark.sh"; printf 'verify ./mark.sh\n' > "$_v2p/.claude/crew-model-rules"
+_now="$(date +%s)"
+printf '540\t./mark.sh\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/ran.mark"; _v2plant sk-fresh './mark.sh'
+_t0=$SECONDS; _o="$(_v2stop sk-fresh)"; _t1=$((SECONDS - _t0))
+[ "$(_v2res sk-fresh)" = timeout ] || _v2b="$_v2b [fresh: result $(_v2res sk-fresh), want timeout]"
+[ -f "$_v2p/ran.mark" ] && _v2b="$_v2b a-command-stopped-today-was-run-again"
+[ -z "$_o" ] || _v2b="$_v2b [fresh: the agent was kept running]"
+case "$(_v2post sk-fresh)" in *'was stopped: not run: it did not finish in 540s when it last ran here, within the last 7 days'*'for 7 days the hook does not run it again'*) ;; *) _v2b="$_v2b [fresh: the session was not told it was not run: $(_v2post sk-fresh | head -c 120)]" ;; esac
+grep -qE "$(printf '^540\t\./mark\.sh\t')$_now\$" "$_vs" || _v2b="$_v2b [a skip rewrote the remembered line: $(tr '\t' '|' < "$_vs")]"
+for _case in "old|$((_now - 8*86400))|" "legacy||" "days0|$_now|CREW_VERIFY_SLOW_DAYS=0"; do
+  _cn="${_case%%|*}"; _r="${_case#*|}"; _ct="${_r%%|*}"; _ce="${_r#*|}"
+  printf '540\t./mark.sh%s\n' "${_ct:+$(printf '\t')$_ct}" > "$_vs"; rm -f "$_v2p/ran.mark"; _v2plant "sk-$_cn" './mark.sh'
+  _V2ENV="$_ce" _v2stop "sk-$_cn" >/dev/null
+  { [ "$(_v2res "sk-$_cn")" = pass ] && [ -f "$_v2p/ran.mark" ]; } || _v2b="$_v2b [$_cn: not run again ($(_v2res "sk-$_cn"))]"
+  [ -s "$_vs" ] && _v2b="$_v2b [$_cn: the pass did not forget it]"
+done
+# the card's writer is told up front that the hook will not run it, only while that is so
+printf '540\t./mark.sh\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit './mark.sh'
+case "$_v2rc|$(cat "$_v2/out")" in 0\|*'did not finish in 540s the last time'*'For 7 days after that the hook does not run it again'*) ;; *) _v2b="$_v2b [fresh card not told it will not run: $(head -c 100 "$_v2/out")]" ;; esac
+printf '540\t./mark.sh\t%s\n' "$((_now - 8*86400))" > "$_vs"; rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit './mark.sh'
+case "$(cat "$_v2/out")" in *'does not run it again'*) _v2b="$_v2b [an expired line still says it will not run]" ;; *'did not finish in 540s the last time'*) ;; *) _v2b="$_v2b [an expired line is not told at all]" ;; esac
+[ -z "$_v2b" ] && pass "a verify command stopped at its limit here is not run again for 7 days (CREW_VERIFY_SLOW_DAYS): the line says timeout and why, the session is told it was not run, the remembered line is kept as it was, and the card's writer is told up front; after the days, a line with no epoch (3.5.0-rc.5) and CREW_VERIFY_SLOW_DAYS=0 run it again, and a pass forgets it" \
+               || fail "a remembered slow verify:$_v2b"
+# A BACKGROUND agent's outcome reaches the session at the main thread's Stop: its call came back at launch, so there
+# is no PostToolUse to tell it in (field, 3.5.0-rc.5: a timeout and a fail reached nobody). Told once, only to its
+# own session; nothing for a foreground agent, for a pass, or when there is no notice.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"; printf 'verify test -d .\n' > "$_v2p/.claude/crew-model-rules"
+_v2stopev(){ printf '{"session_id":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$1" | ( cd "$_v2p" && _v2e bash "$_V2O" --stop 2>/dev/null ); echo "rc=$?"; }
+[ "$(_v2stopev s)" = rc=0 ] || _v2b="$_v2b [no notice: Stop said something: $(_v2stopev s | head -c 80)]"
+_v2plant bg1 'npm run not-allowed'; _v2launch bg1 async_launched >/dev/null; _v2stop bg1 >/dev/null
+[ "$(_v2res bg1)" = blocked ] || _v2b="$_v2b FIXTURE:bg1-not-blocked:$(_v2res bg1)"
+[ "$(_v2stopev other-session)" = rc=0 ] || _v2b="$_v2b [told to another session]"
+_o="$(_v2stopev s)"
+case "$_o" in '{"decision":"block","reason":"Crewforth, about the background agent crew-backend-expert (bg1) that has finished: the agent'"'"'s verify command was NOT run by the hook (npm run not-allowed)'*'rc=0') ;; *) _v2b="$_v2b [the session was not told at Stop: ${_o:0:140}]" ;; esac
+printf '%s' "${_o%rc=0}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{JSON.parse(s)})' 2>/dev/null || { command -v node >/dev/null 2>&1 && _v2b="$_v2b [what Stop prints is not JSON]"; }
+[ "$(_v2stopev s)" = rc=0 ] || _v2b="$_v2b [told twice]"
+# two background agents end before one Stop: both, in one answer
+_v2plant bg2 'npm run not-allowed'; _v2launch bg2 async_launched >/dev/null; _v2stop bg2 >/dev/null
+_v2plant bg3 'npm run not-allowed'; _v2launch bg3 async_launched >/dev/null; _v2stop bg3 >/dev/null
+_o="$(_v2stopev s)"; case "$_o" in *'(bg2)'*'\n\n'*'(bg3)'*|*'(bg3)'*'\n\n'*'(bg2)'*) ;; *) _v2b="$_v2b [two notices were not both told: ${_o:0:100}]" ;; esac
+# a foreground agent (no launch) and a background pass: nothing waits for Stop
+_v2plant fg1 'npm run not-allowed'; _v2stop fg1 >/dev/null
+_v2plant bg4 'test -d .'; _v2launch bg4 async_launched >/dev/null; _v2stop bg4 >/dev/null
+[ "$(_v2res bg4)" = pass ] || _v2b="$_v2b FIXTURE:bg4-not-pass:$(_v2res bg4)"
+[ -z "$(ls "$_v2p/.claude/state/crew-model/notice" 2>/dev/null)" ] || _v2b="$_v2b [a notice for a foreground agent or a pass: $(ls "$_v2p/.claude/state/crew-model/notice")]"
+[ "$(_v2stopev s)" = rc=0 ] || _v2b="$_v2b [told for a foreground agent or a pass]"
+# the launch of critical work no longer tells the session to run the suite itself
+_v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature true; _v2start la9
+case "$(_v2launch la9 async_launched)" in *'is run by Crewforth when the agent ends'*) ;; *) _v2b="$_v2b [the launch still says run it yourself]" ;; esac
+[ -z "$_v2b" ] && pass "a background agent's verify outcome (not run, stopped, failed, low confidence) is told at the main thread's Stop as decision: block, once, in valid JSON, only to its own session, several in one answer; a foreground agent, a pass and no notice tell nothing; the launch of critical work says the outcome comes when the agent ends" \
+               || fail "a background agent's outcome:$_v2b"
 # The one fix is asked ONCE, and only where that can be counted.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"
 _v2plant h1 'test -f never'
@@ -12223,7 +12280,8 @@ for _pf in $_pawf2; do
   _wo=""; for _ev in SubagentStart SubagentStop PostToolUse SessionStart; do
     json_hooks "$_pf" | LC_ALL=C awk -F'\t' -v e="$_ev" '$1 == e && $3 ~ /agent-outcome\.sh/ { f = 1 } END { exit !f }' || _wo="$_wo $_ev"; done
   json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "PreToolUse" && $3 ~ /guard-agent-model\.sh/ && $2 ~ /Agent/ { f = 1 } END { exit !f }' || _wo="$_wo PreToolUse(Agent)"
-  [ -z "$_wo" ] && pass "${_pf##*/}: agent-outcome.sh is wired on SubagentStart, SubagentStop, PostToolUse and SessionStart, and guard-agent-model.sh on PreToolUse for Agent" \
+  json_hooks "$_pf" | LC_ALL=C awk -F'\t' '$1 == "Stop" && $3 ~ /agent-outcome\.sh(\\")? --stop"/ { f = 1 } END { exit !f }' || _wo="$_wo Stop(--stop)"
+  [ -z "$_wo" ] && pass "${_pf##*/}: agent-outcome.sh is wired on SubagentStart, SubagentStop, PostToolUse, SessionStart and Stop (--stop, a background agent's outcome), and guard-agent-model.sh on PreToolUse for Agent" \
                 || fail "${_pf##*/}: model routing is not wired on:$_wo"
 done
 

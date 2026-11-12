@@ -188,6 +188,12 @@
             "shell": "bash",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/turn-check.sh",
             "timeout": 180
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; bash .claude/hooks/agent-outcome.sh --stop",
+            "timeout": 30
           }
         ]
       }
