@@ -25,8 +25,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # The limit is on the job's own run (4 to 5 minutes measured); the wait for the approval comes before it starts.
-    timeout-minutes: 20
+    # The limit is on the job's own run; the wait for the approval comes before it starts. Measured 2026-11-12: the
+    # smoke step 7.8 min and the installer e2e about 17 min on ubuntu-latest (the same e2e in ci.yml), so 20 cut the
+    # 3.5.0-rc.5 run inside e2e and nothing was published. 45 leaves room for the suites to grow.
+    timeout-minutes: 45
     environment: release   # publish waits for manual approval (see repo → Environments → release)
     # Job-level permissions replace the workflow's, so both are named. id-token lets the job ask GitHub for the
     # short-lived OIDC token npm exchanges for publish rights; without it `npm publish` has no identity at all.
