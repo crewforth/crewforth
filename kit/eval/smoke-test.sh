@@ -10320,8 +10320,12 @@ else fail "the approval question:$_paqbad"; fi
 # measured on 2.1.319). There the click is asked and recorded; the typed approval stays closed; every way the record
 # could be wrong refuses: none, another kind, a dead process, no job folder, a job folder the environment disputes.
 _pabg="$(mktemp -d)"; _pabg="$(cd -P "$_pabg" && pwd)"; _pabb=""; _pabn=0
-sleep 300 & _pabp=$!
+# The live record names this shell itself: it is alive for the whole block by construction. A `sleep 300 &` helper
+# died before the hook ran on loaded Windows runners (3 of 6 full runs; the diagnostic below read "DEAD"), and the
+# hook then refused it correctly, as it must refuse any dead process.
+_pabp=$$
 sleep 300 & _pabd=$!; kill "$_pabd" 2>/dev/null; wait "$_pabd" 2>/dev/null
+kill -0 "$_pabd" 2>/dev/null && _pabb="$_pabb FIXTURE:the-dead-pid-is-alive"
 _pab_rec(){  # $1 = pid, $2 = kind, $3 = job id -> the record, and the job folder
   rm -rf "$_pabg/sessions" "$_pabg/jobs"; mkdir -p "$_pabg/sessions" "$_pabg/jobs/$3"
   printf '{"pid":%s,"sessionId":"s","cwd":"%s","version":"2.1.319","kind":"%s","entrypoint":"cli","jobId":"%s","status":"busy"}' "$1" "$_paw" "$2" "$3" > "$_pabg/sessions/$1.json"; }
@@ -10350,7 +10354,7 @@ _PA_ENV="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg" _pa_say auto '
 _pab_is 'a background session: the typed approval stays closed' "$(_paq_rec)" none
 _PA_ENV="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg _PA_BGQ=1" _pa_say auto '/crew-approve commit' >/dev/null
 _pab_is 'the route flag cannot be handed in from the environment' "$(_paq_rec)" none
-unset _PAQ_X; kill "$_pabp" 2>/dev/null; wait "$_pabp" 2>/dev/null; rm -rf "$_pabg"
+unset _PAQ_X; rm -rf "$_pabg"
 # What a command can show of the way round: another session's screen or socket.
 for _pc in '2|claude attach 4b1cd61d' '2|cd x && /usr/local/bin/claude attach abc' '2|claude agents' '2|claude respawn --all' \
            '2|python3 -c "import socket; socket.socket(1).connect(\x27/tmp/cc-socks/1.sock\x27)"' '2|echo $CLAUDE_CODE_MESSAGING_SOCKET' \
