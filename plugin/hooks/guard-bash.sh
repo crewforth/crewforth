@@ -3197,7 +3197,7 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
                 esac ;; esac
             done
             case "$tok" in eval|xargs) wrapped=1 ;; *) ph=skip ;; esac ;;                # after eval / xargs the command is read on
-          git|git.exe|*/git|*/git.exe) ph=git ;;
+          git|git.exe|*/git|*/git.exe) ph=git; _mk_gc=0 ;;
           *) [ "$_WX" = 1 ] && vc=1
              # A command word held in a variable: in a PowerShell call (`& $g push --force`) every such word is read as
              # git; in a Bash call only a name this command set to git (`g=git; $g push --force`, quoted or not):
@@ -3212,12 +3212,13 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
           --chdir=*|-C?*) rcd=2 ;;
           -u|--unset|-S|--split-string) shift ;;
           -*|[A-Za-z_]*=*) ;;
-          git|git.exe|*/git|*/git.exe) ph=git ;;
+          git|git.exe|*/git|*/git.exe) ph=git; _mk_gc=0 ;;
           *) ph=skip ;;
         esac ;;
       git)
         case "$tok" in
           -c|--config-env)
+            _mk_gc=1
             # A setting for this one command. The ones that change what a commit does are refused whatever the
             # quoting: `-c 'core.hooksPath=/dev/null'`, `-c include.path=f`, `-c alias.ci='commit -a'`.
             v="${1:-}"; [ $# -gt 0 ] && shift
@@ -3228,7 +3229,8 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
               case "$_W" in *hookspath*|*hookschain*|include.*|includeif.*|alias.*|core.worktree*|core.fsmonitor*) _C47_CFG="-c ${_W%%=*}" ;; esac
               [ "$i" = 0 ] && shopt -u nocasematch
             fi ;;
-          -C|--git-dir|--work-tree|--namespace|--exec-path|--super-prefix) shift ;;
+          -C|--git-dir|--work-tree|--namespace|--exec-path|--super-prefix) _mk_gc=1; shift ;;   # another repository: its settings are not the ones read
+          --git-dir=*|--work-tree=*|--namespace=*) _mk_gc=1 ;;
           -*) ;;
           @*|*\$*)   # (a backtick arrives here as `$`: the reader writes one for the substitution it opens)
                     # The subcommand is filled in by the shell: `git $c -n` after c=commit, PowerShell's splat `git @a`
@@ -3239,7 +3241,7 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
                     _C47_SUB="${tok:0:40}"; ph=skip ;;
           commit) ph=commit; _C47_N=$((_C47_N+1))
                   if [ "$rcd" != 0 ] && [ "$_C47_CD" = 0 ]; then _C47_CD=$rcd; _C47_CDT="$rcdt"; fi ;;
-          merge|cherry-pick|revert|am|commit-tree|pull) ph=mk; _mk_sub="$tok"; _mk_nc=0; _mk_sq=0; _mk_ffo=0; _mk_ffs=0; _mk_rb=0; _mk_ctl=0 ;;
+          merge|cherry-pick|revert|am|commit-tree|pull) ph=mk; _mk_sub="$tok"; _mk_nc=0; _mk_sq=0; _mk_ffo=0; _mk_ffs=0; _mk_rb=0; _mk_ctl=0; _mk_opt=0; _mk_pos=0; _mk_nrb=0 ;;
           *) ph=skip ;;
         esac ;;
       mk)  # §4.4: a git command that makes a commit (see _c47_mk_close). The value of an option that takes one is
@@ -3252,9 +3254,18 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
           -n) case "$_mk_sub" in cherry-pick|revert) _mk_nc=1 ;; esac ;;
           --squash) _mk_sq=1 ;;     --no-squash) _mk_sq=0 ;;
           --ff-only) _mk_ffo=1; _mk_ffs=1 ;;  --ff|--no-ff) _mk_ffo=0; _mk_ffs=1 ;;
-          -r|--rebase|--rebase=*) _mk_rb=1 ;;  --no-rebase) _mk_rb=0 ;;
+          -r|--rebase|--rebase=*) _mk_rb=1; _mk_nrb=0 ;;  --no-rebase) _mk_rb=0; _mk_nrb=1 ;;
           --abort|--quit|--skip|--show-current-patch|--show-current-patch=*) _mk_ctl=1 ;;
           --continue) _mk_ctl=0 ;;
+        esac
+        # For a plain pull (_c47_pull_cannot_commit): an option outside the few that change nothing about what it
+        # makes, and how many names it is given (a remote and one branch at most: two branches merge as an octopus).
+        case "$raw" in [\<\>]*|[0-9][\<\>]*|'&>'*) ;; *)
+          case "$tok" in
+            -q|--quiet|-v|--verbose|--progress|--no-progress|-p|--prune|--tags|--no-tags|--stat|--no-stat|-n) ;;
+            -*) _mk_opt=1 ;;
+            *) _mk_pos=$((_mk_pos+1)) ;;
+          esac ;;
         esac ;;
       commit)
         case "$raw" in
@@ -3308,8 +3319,35 @@ _c47_scan(){  # $1 = command. Sets: _C47_N (commits read) _C47_WT _C47_NV _C47_A
   [ "$envf" = 1 ] && [ "$_C47_N" != 0 ] && _C47_ENV="a variable that changes what git reads"
   return 0
 }
+# A PLAIN `git pull` THAT CANNOT MAKE A COMMIT. Since git 2.33.1 (commit 031e2f7, "pull: abort by default when
+# fast-forwarding is not possible"), a pull told nothing about how to reconcile fast-forwards or stops: on diverged
+# branches it exits 128 and changes nothing. Measured on git 2.54 for a fast-forward, a diverged and an up-to-date
+# branch: with none of the settings below a pull made no commit in any of the three; each setting below made one in at
+# least one (a merge commit, or a rebase's new commits): pull.ff=false and merge.ff=false and branch.<b>.mergeoptions
+# =--no-ff even on a fast-forward; pull.ff=true, pull.rebase (true or false) and branch.<b>.rebase on diverged branches.
+# Read in one process; the branch's own settings by its name. Anything unread or older refuses, as before.
+_c47_pull_cannot_commit(){
+  local v cfg br k rest n=0 l
+  v="$(git --version 2>/dev/null)"; v="${v#git version }"
+  [[ $v =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]] || return 1
+  { [ "${BASH_REMATCH[1]}" -gt 2 ] || { [ "${BASH_REMATCH[1]}" = 2 ] && { [ "${BASH_REMATCH[2]}" -gt 33 ] || { [ "${BASH_REMATCH[2]}" = 33 ] && [ "${BASH_REMATCH[3]}" -ge 1 ]; }; }; }; } || return 1
+  br="$(git -C "${_CWD:-.}" symbolic-ref --short -q HEAD 2>/dev/null)"
+  cfg="$(git -C "${_CWD:-.}" config --get-regexp '^(pull\.(ff|rebase)|merge\.ff|branch\..*\.(rebase|mergeoptions|merge))$' 2>/dev/null)"; [ $? -le 1 ] || return 1
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    k="${l%% *}"; rest="${l#* }"; [ "$k" = "$l" ] && rest=""
+    case "$k" in
+      pull.ff|pull.rebase) return 1 ;;
+      merge.ff) case "$rest" in false|False|FALSE|no|off|0) return 1 ;; esac ;;
+      branch.*) [ -n "$br" ] && [ "$k" = "branch.$br.merge" ] && n=$((n+1))
+                case "$k" in "branch.$br.rebase"|"branch.$br.mergeoptions") [ -n "$br" ] && return 1 ;; esac ;;
+    esac
+  done <<< "$cfg"
+  [ "$n" -le 1 ]
+}
 # The end of one `git merge|cherry-pick|revert|am|commit-tree|pull`: does it make a commit? The forms that make none
-# stay free. pull.ff=only frees a plain pull only when the command line overrides neither it nor pull.rebase.
+# stay free. pull.ff=only frees a pull only when the call overrides neither it nor pull.rebase (no -c, --no-rebase,
+# -C or GIT_* variable); a plain pull with no setting that could make a commit is free too (_c47_pull_cannot_commit).
 _c47_mk_close(){
   local free=0
   case "$_mk_sub" in
@@ -3319,9 +3357,16 @@ _c47_mk_close(){
     pull)
       if [ "$_mk_rb" = 0 ]; then
         { [ "$_mk_nc" = 1 ] || [ "$_mk_sq" = 1 ] || [ "$_mk_ffo" = 1 ]; } && free=1
-        if [ "$free" = 0 ] && [ "$_mk_ffs" = 0 ] && [ "$(git -C "${_CWD:-.}" config --get pull.ff 2>/dev/null)" = only ]; then
+        # pull.ff=only is the setting READ HERE, so it holds only when this call sets nothing that overrides it:
+        # `git -c pull.ff=false pull` and `git pull --no-rebase` both made a merge commit under pull.ff=only (measured,
+        # git 2.54; --no-rebase is a choice of how to reconcile, which git takes over the setting), and -C, --git-dir
+        # or a GIT_* variable points at settings that are not the ones read.
+        if [ "$free" = 0 ] && [ "$_mk_ffs" = 0 ] && [ "$_mk_nrb" = 0 ] && [ "${_mk_gc:-0}" = 0 ] && [ "$envf" = 0 ] && [ "$rcd" = 0 ] \
+           && [ "$(git -C "${_CWD:-.}" config --get pull.ff 2>/dev/null)" = only ]; then
           case "$(git -C "${_CWD:-.}" config --get pull.rebase 2>/dev/null)" in ''|false) free=1 ;; esac
         fi
+        if [ "$free" = 0 ] && [ "$_mk_ffs" = 0 ] && [ "$_mk_opt" = 0 ] && [ "$_mk_pos" -le 2 ] && [ "${_mk_gc:-0}" = 0 ] \
+           && [ "$envf" = 0 ] && [ "$rcd" = 0 ] && _c47_pull_cannot_commit; then free=1; fi
       fi ;;
   esac
   [ "$free" = 1 ] || _C47_MK="${_C47_MK:-git $_mk_sub}"

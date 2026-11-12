@@ -9,6 +9,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Security
 
+- **A pull under `pull.ff=only` that overrides it on its own command line is asked about again.** The setting freed
+  `git pull` because it reads only fast-forwards; but `git -c pull.ff=false pull` and `git pull --no-rebase` set how to
+  reconcile for that one call, and each made a merge commit with no approval (measured on real repositories). A call
+  that sets `-c`, `--no-rebase`, `-C`, `--git-dir` or a `GIT_*` variable no longer counts as reading that setting.
 - **A Windows path or home folder is no longer a way round the `rm -rf` gate.** A target written with backslashes and
   a drive (`rm -rf "C:\Users\me"`, `'C:\'`, `D:\projects\app`) carried none of the characters the rule looked for, and
   Git Bash's `rm` deletes it; `$USERPROFILE` (the home there) and the whole temp root by name (`$TEMP`, `$TMP`,
@@ -357,6 +361,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A plain `git pull` that cannot make a commit is no longer refused in auto mode.** From git 2.33.1 a pull told
+  nothing about how to reconcile only fast-forwards, and on diverged branches stops without changing anything. When
+  the repository sets none of `pull.ff`, `pull.rebase`, `merge.ff=false`, or the branch's own `rebase`,
+  `mergeoptions` or a second `merge`, a `git pull` (with `-q`, `--prune`, a remote and one branch) runs. Any other
+  option, a second branch, `-c`, `-C` or a changed directory, an older git, or one of those settings: asked as before.
+  On 553 real pull commands, 31 refusals become allowed and nothing else changes; on 4 485 real commit and push
+  commands, no approval is lost.
 - **A recursive `rm` inside a temp directory is no longer refused.** When every target of every `rm` in the call
   resolves strictly inside `/tmp`, `$TMPDIR` or the system temp folder, the call passes. The temp root itself, a glob
   at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly

@@ -9789,12 +9789,12 @@ block|auto|git merge --no-ff feat/y
 block|auto|git merge --continue
 block|auto|git cherry-pick abc123
 block|auto|git revert HEAD
-block|auto|git pull
+block|auto|git pull --no-rebase
 block|auto|git am x.patch
 block|auto|git commit-tree x -m y
 block|auto|git -C . merge feat/y
 block|auto|git fetch && git merge origin/main
-block|auto|git pull origin main
+block|auto|git pull origin main other
 block|auto|\"git\" merge feat/y
 block|auto|git \"merge\" feat/y
 block|auto|(git merge feat/y)
@@ -9827,6 +9827,9 @@ free|auto|git remote prune origin
 free|auto|grep -rn \"git merge\" docs
 free|auto|echo \"git merge x\"
 MKC
+# The pull rows read git's settings, so the machine's own are kept out: a global pull.rebase would decide them
+# instead of the case (each sets what it needs in the repository).
+_pgo="${GIT_CONFIG_GLOBAL-__unset__}"; _pgn="${GIT_CONFIG_NOSYSTEM-__unset__}"; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 ( cd "$_paw" && git config pull.ff only ); _pa_run auto 'git pull'
 { [ "$_par" = 0 ] && ! grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [pull with pull.ff=only refused: rc=$_par]"
 # ...but not one whose command line overrides it, nor a pull.rebase that does (found in review: --no-ff merged).
@@ -9835,8 +9838,65 @@ for _mc in 'git pull --no-ff origin main' 'git pull --rebase' 'git pull --ff'; d
 done
 ( cd "$_paw" && git config pull.rebase true ); _pa_run auto 'git pull'
 { [ "$_par" = 2 ] && grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [pull.ff=only freed a pull with pull.rebase=true: rc=$_par]"
-( cd "$_paw" && git config --unset pull.ff; git config --unset pull.rebase )
-[ -z "$_mkb" ] && pass "a commit made by merge, cherry-pick, revert, pull, am or commit-tree is asked in default and acceptEdits and refused where no prompt reaches a person; the forms that make none (--ff-only, --squash, --no-commit, -n, --abort, pull.ff=only) are free; quoted, nested and aliased spellings, an option's value and the last of two flags are read as the shell and git read them (42 rows, and pull.ff=only with 4 overrides)" \
+( cd "$_paw" && git config --unset pull.rebase )
+# ...and a call that sets what the setting decides: both made a merge commit under pull.ff=only (measured, git 2.54).
+for _mc in 'git pull --no-rebase' 'git -c pull.ff=false pull' 'git -C ../elsewhere pull'; do
+  _pa_run auto "$_mc"; { [ "$_par" = 2 ] && grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [pull.ff=only freed '$_mc': rc=$_par]"
+done
+( cd "$_paw" && git config --unset pull.ff )
+# A PLAIN PULL THAT CANNOT MAKE A COMMIT. From git 2.33.1 a pull told nothing about how to reconcile fast-forwards or
+# stops on diverged branches; with none of the settings that reconcile, it is free. Every setting that made a commit
+# in the measured table (a fast-forward, a diverged and an up-to-date branch, git 2.54), and every call that overrides
+# the settings read, is refused. Older git merged on diverged branches by default, so there the rows are not graded.
+_pgv="$(git --version 2>/dev/null)"; _pgv="${_pgv#git version }"; _pgok=0
+if [[ $_pgv =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+  _pa1="${BASH_REMATCH[1]}"; _pa2="${BASH_REMATCH[2]}"; _pa3="${BASH_REMATCH[3]}"
+  { [ "$_pa1" -gt 2 ] || { [ "$_pa1" = 2 ] && { [ "$_pa2" -gt 33 ] || { [ "$_pa2" = 33 ] && [ "$_pa3" -ge 1 ]; }; }; }; } && _pgok=1
+fi
+if [ "$_pgok" = 1 ]; then
+  _pgn2=0
+  while IFS='|' read -r _pw _pk _pc; do
+    [ -n "$_pw" ] || continue; _pgn2=$((_pgn2+1))
+    case "$_pk" in -) ;; *2) ( cd "$_paw" && git config --add "${_pk%=*}" refs/heads/a && git config --add "${_pk%=*}" refs/heads/b ) ;;
+      *) ( cd "$_paw" && git config "${_pk%%=*}" "${_pk#*=}" ) ;; esac
+    _pa_run auto "$_pc"
+    case "$_pw" in
+      block) { [ "$_par" = 2 ] && grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [plain pull with '$_pk': '$_pc' not refused: rc=$_par]" ;;
+      free)  { [ "$_par" = 0 ] && [ -z "$(gdec "$_pao")" ] && ! grep -q 'makes a commit' "$_PA/err"; } || _mkb="$_mkb [plain pull with '$_pk': '$_pc' not free: rc=$_par]" ;;
+    esac
+    case "$_pk" in -) ;; *2) ( cd "$_paw" && git config --unset-all "${_pk%=*}" ) ;; *) ( cd "$_paw" && git config --unset-all "${_pk%%=*}" ) ;; esac
+  done <<'PULL'
+free|-|git pull
+free|-|git pull -q
+free|-|git pull origin main
+free|-|git pull --prune 2>&1
+free|merge.ff=only|git pull
+block|-|git pull --no-rebase
+block|-|git pull --ff
+block|-|git pull --no-ff
+block|-|git pull --autostash
+block|-|git pull origin main other
+block|-|git -c pull.ff=false pull
+block|-|git -C ../elsewhere pull
+block|-|git --git-dir=../x/.git pull
+block|-|GIT_CONFIG_GLOBAL=/tmp/g git pull
+block|-|cd .. && git pull
+block|pull.ff=false|git pull
+block|pull.ff=true|git pull
+block|pull.rebase=false|git pull
+block|pull.rebase=true|git pull
+block|merge.ff=false|git pull
+block|branch.feat/x.rebase=true|git pull
+block|branch.feat/x.mergeoptions=--no-ff|git pull
+block|branch.feat/x.merge=2|git pull
+PULL
+  [ "$_pgn2" = 23 ] || _mkb="$_mkb [FIXTURE: the plain-pull table read $_pgn2 rows, not 23]"
+else
+  skip platform "a plain pull's rows (git $_pgv is older than 2.33.1, where a pull merges diverged branches by default)" 23
+fi
+[ "$_pgo" = __unset__ ] && unset GIT_CONFIG_GLOBAL || export GIT_CONFIG_GLOBAL="$_pgo"
+[ "$_pgn" = __unset__ ] && unset GIT_CONFIG_NOSYSTEM || export GIT_CONFIG_NOSYSTEM="$_pgn"
+[ -z "$_mkb" ] && pass "a commit made by merge, cherry-pick, revert, pull, am or commit-tree is asked in default and acceptEdits and refused where no prompt reaches a person; the forms that make none (--ff-only, --squash, --no-commit, -n, --abort, pull.ff=only, and on git 2.33.1+ a plain pull with no setting that reconciles) are free; quoted, nested and aliased spellings, an option's value and the last of two flags are read as the shell and git read them (42 rows, pull.ff=only with 7 overrides, and 23 plain-pull rows)" \
                || fail "a commit made by another command:$_mkb"
 
 # ---- commit+push: the push is for the commit the approved diff became -----------------------------------------
