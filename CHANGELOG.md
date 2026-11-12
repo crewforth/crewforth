@@ -361,6 +361,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **`/crew-doctor` no longer calls a live review gate broken in a project that sets `CLAUDE_GIT_OK`.** A session
+  started with the key hands it to every command, the doctor's probe included, so the probe met the pre-authorised
+  branch instead of the gate and printed ❌. The probe now runs without the key, and that the key is set is said apart,
+  as a warning.
 - **Each agent that runs beside another has its own colour.** Claude Code draws an agent in one of eight colours; ten
   of the fourteen shared one with another agent, and `crew-refuter` named `gray`, which is not one of the eight, so it
   was drawn with none. The builders now all differ, the reviewers of one change all differ, and a colour is shared only

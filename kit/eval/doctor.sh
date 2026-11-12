@@ -75,6 +75,7 @@ _mt() {
       'restore guard-bash.sh from Crewforth (npx crewforth update)') s="guard-bash.sh'yi Crewforth'tan geri yükleyin (npx crewforth update)" ;;
       'guard-bash.sh blocks a force-push (gate live, not neutered)') s="guard-bash.sh force-push'u engelliyor (kapı canlı, etkisiz değil)" ;;
       'guard-bash.sh enforces the §4.6 review gate (gate live, not neutered)') s='guard-bash.sh §4.6 review kapısını uyguluyor (kapı canlı, etkisiz değil)' ;;
+      'CLAUDE_GIT_OK is set in this session: commit and push are pre-authorised and the §4.6 review gate is skipped (headless/CI key)') s="bu oturumda CLAUDE_GIT_OK tanımlı: commit ve push önceden onaylı, §4.6 inceleme kapısı atlanıyor (headless/CI anahtarı)" ;;
       'guard-bash.sh did NOT enforce §4.6 — a commit can land with no review of its diff') s="guard-bash.sh §4.6'yı UYGULAMADI — diff'i review edilmemiş bir commit geçebilir" ;;
       'restore guard-bash.sh from Crewforth (and check crew-review-agent still writes .claude/review-pass.json)') s="guard-bash.sh'yi Crewforth'tan geri yükleyin (ve crew-review-agent'ın .claude/review-pass.json'u hâlâ yazdığını kontrol edin)" ;;
       'core.hooksPath -> %s (commit-time gates active)') s='core.hooksPath -> %s (commit anındaki kapılar devrede)' ;;
@@ -322,12 +323,18 @@ if [ -x .claude/hooks/guard-bash.sh ]; then
   #     verdict is read from the MESSAGE rather than the exit code for the same reason. Mode `default` so that a
   #     disarmed gate answers "ask" and exits 0 instead of colliding with §4.4's fail-closed branch. Nothing
   #     runs: this is a PreToolUse payload, not a command.
+  #     Without CLAUDE_GIT_OK: a session started with the key (a project's settings.local.json env) hands it to
+  #     every command, this one included, and the probe then met the pre-authorised branch instead of the gate: a
+  #     live gate read ❌ in the field. What the key does is said apart, once, as information.
   PROBE46="$(printf '%s' '{"tool_name":"Bash","permission_mode":"default","tool_input":{"command":"git -C /nonexistent-crew-probe commit -m probe"}}' \
-             | CREW_GATE_LOG=/dev/null bash .claude/hooks/guard-bash.sh 2>&1 >/dev/null)"
+             | CREW_GATE_LOG=/dev/null env -u CLAUDE_GIT_OK bash .claude/hooks/guard-bash.sh 2>&1 >/dev/null)"
   case "$PROBE46" in
     *"4.6"*) ok "guard-bash.sh enforces the §4.6 review gate (gate live, not neutered)" ;;
     *)       bad "guard-bash.sh did NOT enforce §4.6 — a commit can land with no review of its diff" \
                  "restore guard-bash.sh from Crewforth (and check crew-review-agent still writes .claude/review-pass.json)" ;;
+  esac
+  case "${CLAUDE_GIT_OK:-}" in 1|yes|true|on|YES|TRUE|ON)
+    warn "CLAUDE_GIT_OK is set in this session: commit and push are pre-authorised and the §4.6 review gate is skipped (headless/CI key)" ;;
   esac
 fi
 

@@ -6012,6 +6012,16 @@ chmod +x "$DOC/.claude/hooks/guard-write.sh" 2>/dev/null   # restore for the nex
 printf '#!/usr/bin/env bash\nexit 0\n' > "$DOC/.claude/hooks/guard-bash.sh"; chmod +x "$DOC/.claude/hooks/guard-bash.sh"
 bash "$ROOT/eval/doctor.sh" "$DOC" >/dev/null 2>&1 && fail "doctor PASSED a neutered guard-bash (M2c)" || pass "doctor: neutered guard-bash -> exit != 0 (M2c probe)"
 cp "$HOOKS/guard-bash.sh" "$DOC/.claude/hooks/guard-bash.sh"; chmod +x "$DOC/.claude/hooks/guard-bash.sh"   # restore
+# A session started with CLAUDE_GIT_OK=1 (a project's settings.local.json env) hands the key to every command it runs,
+# doctor included: the §4.6 probe then met the pre-authorised branch, not the gate, and a healthy install read ❌
+# (field, 3 of 4 runs). The probe asks the gate, so it runs without the key; that the key is set is said apart.
+_dgk="$(CLAUDE_GIT_OK=1 bash "$ROOT/eval/doctor.sh" "$DOC" 2>&1)"
+case "$_dgk" in
+  *"did NOT enforce §4.6"*) fail "doctor under CLAUDE_GIT_OK=1 calls a live §4.6 gate neutered" ;;
+  *"enforces the §4.6 review gate"*"CLAUDE_GIT_OK is set"*|*"CLAUDE_GIT_OK is set"*"enforces the §4.6 review gate"*)
+    pass "doctor under CLAUDE_GIT_OK=1: the §4.6 probe asks the gate without the key, and the key is named apart" ;;
+  *) fail "doctor under CLAUDE_GIT_OK=1: no §4.6 verdict or no key line: $(printf '%s\n' "$_dgk" | grep -E '4\.6|CLAUDE_GIT_OK')" ;;
+esac
 # The discipline on disk is inert unless CLAUDE.md pulls it in — every gate can be live while §1–§3 never load.
 printf 'discipline\n' > "$DOC/.claude/DISCIPLINE.md"; printf '# My project\n' > "$DOC/CLAUDE.md"
 bash "$ROOT/eval/doctor.sh" "$DOC" >/dev/null 2>&1 \
