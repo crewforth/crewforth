@@ -361,6 +361,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A verify command that runs out of time is not run a second time.** When an agent's verify command is stopped at
+  its limit, the session is told to run the tests the change touches instead of the whole command again, and the
+  command is remembered as slow in `.claude/state/verify-slow`. The next card that carries it is told when the agent is
+  called, and the call goes on. A pass of the same command forgets it; the list keeps the newest 50.
 - **A plain `git pull` that cannot make a commit is no longer refused in auto mode.** From git 2.33.1 a pull told
   nothing about how to reconcile only fast-forwards, and on diverged branches stops without changing anything. When
   the repository sets none of `pull.ff`, `pull.rebase`, `merge.ff=false`, or the branch's own `rebase`,

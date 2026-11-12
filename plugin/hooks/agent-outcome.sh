@@ -372,7 +372,8 @@ case "$EV" in
           sleep 1; WAITED=$((WAITED+1))
         done
         if [ "$VRC" = timeout ]; then wait "$VPID" 2>/dev/null; RES=timeout; WHYNOT="it did not finish in ${LIM}s"; VRC=0
-        else wait "$VPID" 2>/dev/null; VRC=$?; fi
+          _am_slow_put "$VCMD" "$LIM"   # the next card that carries it is told (guard-agent-model.sh)
+        else wait "$VPID" 2>/dev/null; VRC=$?; [ "$VRC" = 0 ] && _am_slow_put "$VCMD" ""; fi
         VOUT="$(tail -n 15 "$VF" 2>/dev/null)"; rm -f "$VF" 2>/dev/null
       fi
       if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
@@ -483,7 +484,13 @@ case "$EV" in
     if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
       # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
       _am_rec_get "$R" whynot; WN="$_AMV"
+      if [ "$RES" = timeout ]; then
+        # Not "run it yourself": the command that ran out of time is, in the field, the whole suite, and the session
+        # running it again cost one more suite-length wait for the same answer.
+        _ao_json "Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here, and the next card that carries it is told. Do not repeat the task on another model for this."
+      else
       _ao_json "Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this."
+      fi
       printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
       exit 0
     fi
