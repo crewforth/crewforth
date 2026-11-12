@@ -51,7 +51,7 @@ _vd_python(){  # $1 = folder holding pyproject.toml
   if [ -f "$d/uv.lock" ]; then run="uv run "; elif [ -f "$d/poetry.lock" ]; then run="poetry run "; fi
   t="$(tr -d '\r' < "$d/pyproject.toml" 2>/dev/null)" || t=""
   case "$t" in *pytest*)
-    if [ -n "$run" ]; then _vd_add "${run}pytest"; else _vd_add "python3 -m pytest"; fi ;;
+    if [ -n "$run" ]; then _vd_add "${run}pytest"; else _vd_add "python3 -m pytest"; _vd_add "python -m pytest"; fi ;;
   esac
   [ -n "$run" ] || return 0
   case "$t" in *ruff*) _vd_add "${run}ruff check" ;; esac
@@ -65,7 +65,9 @@ crew_verify_detect(){
   _VD_CMDS=""
   sj="${CREW_SJ_AWK:-}"
   [ -n "$sj" ] || { [ -f "$root/.claude/eval/lib/settings-json.awk" ] && sj="$root/.claude/eval/lib/settings-json.awk"; }
-  for d in "$root" "$root"/*; do
+  # ...and one level further inside the folders a repository of several packages keeps them in: measured on one, the
+  # Python packages sat under packages/*, and an install that read only the root and its own folders found one command.
+  for d in "$root" "$root"/* "$root"/packages/* "$root"/apps/* "$root"/services/* "$root"/libs/*; do
     [ -d "$d" ] || continue
     case "${d##*/}" in node_modules|.*|vendor|dist|build|target) [ "$d" = "$root" ] || continue ;; esac
     if [ -f "$d/package.json" ] && [ -n "$sj" ] && [ -f "$sj" ]; then _vd_node "$d" "$sj"; fi
