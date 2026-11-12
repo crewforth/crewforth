@@ -13,6 +13,11 @@ versioning follows [SemVer](https://semver.org/).
   `git pull` because it reads only fast-forwards; but `git -c pull.ff=false pull` and `git pull --no-rebase` set how to
   reconcile for that one call, and each made a merge commit with no approval (measured on real repositories). A call
   that sets `-c`, `--no-rebase`, `-C`, `--git-dir` or a `GIT_*` variable no longer counts as reading that setting.
+- **A Windows path or home folder is no longer a way round the `rm -rf` gate.** A target written with backslashes and
+  a drive (`rm -rf "C:\Users\me"`, `'C:\'`, `D:\projects\app`) carried none of the characters the rule looked for, and
+  Git Bash's `rm` deletes it; `$USERPROFILE` (the home there) and the whole temp root by name (`$TEMP`, `$TMP`,
+  `$TMPDIR`) passed too. All are refused now. A call that sets `TMP` itself and removes its own folder
+  (`TMP=$(mktemp -d); …; rm -rf "$TMP"`) stays free.
 
 - **A first `adopt` no longer runs a hook it found in the project.** It keeps files it finds, so a
   `.claude/hooks/pre-commit` (or any file under a gate's name) that arrived with a clone became the project's git
