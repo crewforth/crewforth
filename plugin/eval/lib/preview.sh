@@ -102,9 +102,15 @@ _crew_preview(){
     rm)
       local root out="" one c
       root="$(pwd -P 2>/dev/null)"
-      _pv_words "x $cmd" rm
-      for w in $_PV_W; do
-        case "$w" in -*|'') continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
+      # The words of the rm itself, up to the end of its own command. _pv_words is for git: it cut at the first "git"
+      # in the call, so `rm -rf /tmp/x 2>/dev/null; git status` previewed "status: not there" (measured in the field,
+      # 30 of 99 such refusals named a word of another command). A redirection is not a target either.
+      t="$cmd"
+      local rmre='(^|[;&|({[:space:]])rm[[:space:]]+(.*)$'
+      if [[ $t =~ $rmre ]]; then t="${BASH_REMATCH[2]}"; else t=""; fi
+      t="${t%%[;&|]*}"; t="${t%%$'\n'*}"; t="${t//\"/}"; t="${t//\'/}"
+      for w in $t; do
+        case "$w" in -*|'') continue ;; [0-9]'>'*|'>'*|'<'*|'&>'*) continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
         # A drive-letter path (D:/x, as Git Bash passes it) is absolute too: measured on Windows, it read as relative
         # and the line said "not there" for a folder that was.
         one="$w"; case "$one" in /*|[A-Za-z]:[/\\]*) ;; *) one="$root/$one" ;; esac

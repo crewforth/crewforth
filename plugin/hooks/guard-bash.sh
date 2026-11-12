@@ -1117,12 +1117,103 @@ git_has "$CMD" 'filter-branch|filter-repo'                && block "git filter-b
 case "$CMD" in *branch*) _HAS_BRANCH=1 ;; *) _HAS_BRANCH=0 ;; esac
 [ "$_HAS_BRANCH" = 1 ] && _grep "$CMD" -qE '(^|[^A-Za-z0-9_-])git[[:space:]]+((-[Cc][[:space:]]+[^[:space:];&|]+|--(git-dir|work-tree|namespace|config-env|super-prefix|exec-path)[[:space:]=]+[^[:space:];&|]+|-[^[:space:];&|]+)[[:space:]]+)*branch([[:space:]]+[^[:space:];&|]+)*[[:space:]]+(-[a-zA-Z]*[DMCf][a-zA-Z]*|--force)([[:space:]=]|$)' \
   && block "forced git branch (-D / -f / -M / -C)" "4.5" history
+# A TEMP DIRECTORY IS NOT THE PROJECT. A session's own scratch work lives under the machine's temp roots (/tmp,
+# /private/tmp, $TMPDIR, macOS's /var/folders/…/T), and `rm -rf` there was refused like any other path: 90 times in
+# three projects in two weeks, 9 on rc.4 in one day, every one followed by the same delete under a new name (measured).
+# The rule below lets a recursive rm through only when EVERY target of EVERY rm in the call resolves strictly inside a
+# temp root: the real path of the deepest existing ancestor, a trailing / or a glob followed through a link (`rm -rf
+# link/` empties the link's target), no `..`, no glob at the root's own level (/tmp/*, /tmp/tmp*), no expansion it
+# cannot resolve ($HOME, $(…), a variable this call did not set to a literal path — $TMPDIR is read from the
+# environment). Behind sudo, env, xargs, find -exec or eval nothing is let through. A temp root that is / or the
+# home itself is not one.
+# _rm_temp_only: $1 = command -> 0 when every target of every recursive rm in it is inside a temp root
+_RMT_ROOTS=""
+_rmt_roots(){  # the temp roots of this machine, real paths, once
+  [ -n "$_RMT_ROOTS" ] && return 0
+  local r d
+  for d in /tmp /private/tmp /var/tmp "${TMPDIR:-}" "${TMP:-}" "${TEMP:-}"; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    r="$(cd -P "$d" 2>/dev/null && pwd -P)" || continue
+    case "$r" in /|/Users|/home|"$HOME") continue ;; esac
+    case " $_RMT_ROOTS " in *" $r "*) ;; *) _RMT_ROOTS="$_RMT_ROOTS $r" ;; esac
+  done
+}
+_rmt_in(){  # $1 = absolute path, no .. ; $2 = full: the path itself is followed (a trailing / or a glob under it follows a
+           # link: `rm -rf link/` empties the link's target) -> 0 when strictly below a temp root
+  local p="$1" par base real r IFS=$' \t\n'
+  p="${p%/}"; [ -n "$p" ] || return 1
+  if [ "${2:-}" = full ] && [ -e "$p" ]; then
+    real="$(cd -P "$p" 2>/dev/null && pwd -P)" || return 1
+    for r in $_RMT_ROOTS; do case "$real" in "$r"/?*) return 0 ;; esac; done
+    return 1
+  fi
+  par="${p%/*}"; base="${p##*/}"; [ -n "$par" ] || par=/
+  # the deepest existing ancestor decides where the path really is
+  while [ ! -d "$par" ]; do base="${par##*/}/$base"; par="${par%/*}"; [ -n "$par" ] || par=/; done
+  real="$(cd -P "$par" 2>/dev/null && pwd -P)" || return 1
+  real="${real%/}/$base"
+  for r in $_RMT_ROOTS; do case "$real" in "$r"/?*) return 0 ;; esac; done
+  return 1
+}
+_rmt_unset(){ local x=" ${1# }" ; while case "$x" in *" $2="*) true ;; *) false ;; esac; do local pre="${x%%" $2="*}" post="${x#*" $2="}"; post="${post#* }"; x="$pre $post"; done; printf '%s' "$x"; }   # $1 assigns, $2 name -> assigns without it
+_rm_temp_only(){
+  local s="$1" seg w n v a k first rmseen=0 ok
+  local -a W
+  case "$s" in *'`'*|*'$('*|*'<('*|*'>('*|*'eval '*|*xargs*|*'-exec'*) return 1 ;; esac
+  _rmt_roots; [ -n "$_RMT_ROOTS" ] || return 1
+  # Names are resolved only where the text says plainly what they hold: no here-document (its body is not commands,
+  # and a `S=/tmp/x` line in it sets nothing), nothing that binds a name another way, and the LAST plain assignment
+  # wins (`S=/tmp/a; S=/Users/me; rm -rf $S/x` deletes in the home). TMPDIR is taken from the environment only when
+  # the call does not set it.
+  local assigns=" " noassign=0 envtmp="${TMPDIR:-}"
+  case "$s" in *'<<'*) noassign=1 ;; esac
+  [[ $s =~ (^|[^A-Za-z0-9_])(read|for|export|declare|local|typeset|unset|eval|source|mapfile|readarray|printf[[:space:]]+-v)([[:space:]]|$) ]] && noassign=1
+  case "$s" in *[!A-Za-z0-9_]TMPDIR=*|TMPDIR=*) envtmp="" ;; esac
+  _gsub "$s" $'\n' ';'; s="$_GS"; _gsub "$s" '&&' ';'; s="$_GS"; _gsub "$s" '||' ';'; s="$_GS"; _gsub "$s" '|' ';'; s="$_GS"
+  local IFS=';'
+  for seg in $s; do
+    IFS=$' \t'; read -r -a W <<< "$seg"; IFS=';'
+    [ "${#W[@]}" -gt 0 ] || continue
+    first="${W[0]}"
+    case "$first" in
+      [A-Za-z_]*=*) if [ "${#W[@]}" = 1 ]; then n="${first%%=*}"; v="${first#*=}"; v="${v//\"/}"; v="${v//\'/}"
+                      assigns="$(_rmt_unset "$assigns" "$n")"
+                      case "$v" in *'$'*|*'*'*|*'?'*|*'`'*|'') ;; *) assigns="$assigns$n=$v " ;; esac; fi; continue ;;
+      export) continue ;;
+      rm) ;;
+      *) case "$seg" in *[[:space:]]rm[[:space:]]*|rm[[:space:]]*) return 1 ;; esac; continue ;;   # rm behind sudo, env, a wrapper
+    esac
+    rmseen=1; local dd=0 cnt=0
+    for ((k=1; k<${#W[@]}; k++)); do
+      w="${W[k]}"; w="${w//\"/}"; w="${w//\'/}"
+      [ "$dd" = 0 ] && case "$w" in --) dd=1; continue ;; -*) continue ;; esac
+      case "$w" in [0-9]'>'*|'>'*|'2>&1'|'&>'*) continue ;; esac
+      # a leading $NAME / ${NAME}: a literal assignment of this command, or TMPDIR
+      if [[ $w =~ ^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?(.*)$ ]]; then
+        n="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"
+        [ "$noassign" = 0 ] || [ "$n" = TMPDIR ] || return 1
+        case "$assigns" in
+          *" $n="*) v="${assigns#*" $n="}"; v="${v%% *}"; w="$v$a" ;;
+          *) if [ "$n" = TMPDIR ] && [ -n "$envtmp" ]; then w="${envtmp%/}$a"; else return 1; fi ;;
+        esac
+      fi
+      case "$w" in /*) ;; *) return 1 ;; esac
+      case "/$w/" in */../*|*/./*) return 1 ;; esac
+      case "$w" in *'$'*|*'~'*|*'{'*) return 1 ;; esac
+      # a glob only below the first level under the root: /tmp/x/* yes, /tmp/* and /tmp/tmp* no
+      case "$w" in *'*'*|*'?'*|*'['*) local pre="${w%%[*?[]*}"; pre="${pre%/*}"; _rmt_in "$pre" full || return 1; cnt=$((cnt+1)); continue ;; esac
+      case "$w" in */) _rmt_in "$w" full || return 1 ;; *) _rmt_in "$w" || return 1 ;; esac; cnt=$((cnt+1))
+    done
+    [ "$cnt" -gt 0 ] || return 1
+  done
+  [ "$rmseen" = 1 ]
+}
 # Scoped to targets carrying `/`, `*` or `~` ON PURPOSE — `rm -rf build` is a routine local delete and blocking
 # it would make the gate noise. What was NOT on purpose: the recursive flag was matched as lowercase `r` in one
 # short cluster, so `rm -Rf /`, `rm -fR /`, `rm -f -r /` and `rm --recursive --force /` all walked past while
 # `rm -rf /` was blocked. Same class as the chmod hole found in evals/permission-pressure: one spelling gated,
 # another reaching the identical state. Case, flag order and the long form are all the same command.
-case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
+case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && ! _rm_temp_only "$CMD" && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
 # ADDED (3.1.0): `.` and `..` as a target carry none of those three characters and are the widest targets there are —
 # `rm -rf .` at a project root takes the whole tree, `..` its parent (both passed). Narrower than the test above on
 # purpose, so that it adds no noise: `rm` must stand at a command position, `sudo` or not (`git rm -r --cached .`, `npm rm`,
