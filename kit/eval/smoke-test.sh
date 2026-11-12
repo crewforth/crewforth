@@ -11585,7 +11585,7 @@ done
                || fail "the shell gate's answer for a verify command:$_v2b"
 rm -rf "$_vh"
 # A verify that does not finish is neither a pass nor a fail: stopped at its own limit WITH WHAT IT STARTED,
-# recorded as timeout, the agent not kept running, the card not marked failed, the session told to run it itself.
+# recorded as timeout, the agent not kept running, the card not marked failed, the session told to run only the touched tests.
 # The command gets a process group of its own in one of two ways, and each is driven: setsid where there is one,
 # and bash's job control where there is not (macOS ships no setsid; CREW_VERIFY_NO_SETSID=1 takes that path
 # anywhere). The child the command started is looked for by its own pid afterwards.
@@ -11603,12 +11603,39 @@ for _way in jobcontrol setsid; do
   case "$_cp" in ''|*[!0-9]*) _v2b="$_v2b FIXTURE:$_way:the-command-did-not-start-its-child" ;;
     *) _k=0; while kill -0 "$_cp" 2>/dev/null && [ "$_k" -lt 3 ]; do sleep 1; _k=$((_k+1)); done
        kill -0 "$_cp" 2>/dev/null && { _v2b="$_v2b $_way:the-child-it-started-is-still-running"; kill -KILL "$_cp" 2>/dev/null; } ;; esac
-  case "$(_v2post "t-$_way")" in *'did not finish in 2s'*'Run the verify command yourself'*) ;; *) _v2b="$_v2b $_way:the-session-was-not-told" ;; esac
+  case "$(_v2post "t-$_way")" in *'did not finish in 2s'*'Do not run that whole command again'*'the tests this change touches'*) ;; *) _v2b="$_v2b $_way:the-session-was-not-told" ;; esac
 done
+# ...and the command is REMEMBERED as slow here, so the next card that carries it is told when the agent is called,
+# and the call goes on. In the field every timeout was the whole suite, and the session then ran it a second time.
+_vs="$_v2p/.claude/state/verify-slow"
+[ "$(grep -c "$(printf '^2\t\./slow\.sh$')" "$_vs" 2>/dev/null)" = 1 ] || _v2b="$_v2b [not remembered once: $(tr '\t' '|' < "$_vs" 2>/dev/null | head -c 80)]"
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit './slow.sh'
+case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"additionalContext":"Crewforth: this card'*'did not finish in 2s the last time'*'Write the tests this change touches'*) ;; *) _v2b="$_v2b [the next card was not told: rc=$_v2rc $(head -c 90 "$_v2/out")]" ;; esac
+case "$(cat "$_v2/out" 2>/dev/null)" in *permissionDecision*) _v2b="$_v2b the-slow-note-decided-the-call" ;; esac
+# the twin: a command never stopped here is not told (the rule allows it, so no other notice can answer)
+printf 'verify ./slow.sh\nverify test -d .\n' > "$_v2p/.claude/crew-model-rules"
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'test -d .'
+{ [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ]; } || _v2b="$_v2b [a command never stopped was told: $(head -c 80 "$_v2/out")]"
+# spacing is not a new command: the same words with other spaces are the same entry
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit '  ./slow.sh '
+case "$(cat "$_v2/out" 2>/dev/null)" in *'did not finish in 2s the last time'*) ;; *) _v2b="$_v2b [the same command with other spacing was not told]" ;; esac
+# a pass of a remembered command forgets it; the others stay; the file holds at most 50, the newest kept
+{ printf '540\ttest -d .\n'; _i=0; while [ $_i -lt 55 ]; do printf '540\tnpm run x%s\n' "$_i"; _i=$((_i+1)); done; printf '2\t./slow.sh\n'; } > "$_vs"
+_v2plant p-slow 'test -d .'; _v2stop p-slow >/dev/null
+[ "$(_v2res p-slow)" = pass ] || _v2b="$_v2b FIXTURE:the-passing-command-did-not-pass:$(_v2res p-slow)"
+grep -q "$(printf '\ttest -d \.$')" "$_vs" && _v2b="$_v2b a-pass-did-not-forget-the-command"
+grep -q "$(printf '\t\./slow\.sh$')" "$_vs" || _v2b="$_v2b a-pass-of-another-command-dropped-this-one"
+rm -f "$_v2p/child.pid"; _v2plant t-cap './slow.sh'; _V2ENV="CREW_VERIFY_TIMEOUT=2" _v2stop t-cap >/dev/null
+_cp=""; [ -f "$_v2p/child.pid" ] && IFS= read -r _cp < "$_v2p/child.pid"; case "$_cp" in ''|*[!0-9]*) ;; *) kill -KILL "$_cp" 2>/dev/null ;; esac
+[ "$(wc -l < "$_vs" | tr -d ' ')" = 50 ] || _v2b="$_v2b [the slow list holds $(wc -l < "$_vs" | tr -d ' ') lines, not 50]"
+[ "$(tail -n 1 "$_vs" | tr '\t' '|')" = '2|./slow.sh' ] || _v2b="$_v2b [the newest is not last: $(tail -n 1 "$_vs" | tr '\t' '|')]"
+grep -q "$(printf '\tnpm run x0$')" "$_vs" && _v2b="$_v2b the-oldest-was-kept-past-50"
+printf 'verify ./slow.sh\n' > "$_v2p/.claude/crew-model-rules"
 [ -z "$(ls "$_v2p/.claude/state/crew-model/fails" 2>/dev/null)" ] || _v2b="$_v2b marked-the-card-failed"
 [ -f "$_v2p/.claude/state/crew-model-floors.auto" ] && _v2b="$_v2b a-timeout-counted-for-calibration"
 grep -q 'LIM" -le 560 \] || LIM=560' "$HOOKS/agent-outcome.sh" || _v2b="$_v2b the-limit-is-not-held-under-the-hooks-own"
-[ -z "$_v2b" ] && pass "a verify command that does not finish is stopped at its own limit together with the process it started, by each way of grouping it this machine has ($(echo $_v2ways)), and recorded as timeout: not a pass, not a fail, no fix asked, no escalation, nothing counted for the class; the session is told to run it itself; the limit is held under the hook's own" \
+[ -z "$_v2b" ] && pass "a verify command that does not finish is stopped at its own limit together with the process it started, by each way of grouping it this machine has ($(echo $_v2ways)), and recorded as timeout: not a pass, not a fail, no fix asked, no escalation, nothing counted for the class; the session is told not to run the whole command again but the tests the change touches; the command is remembered as slow (once, by its words not its spacing, at most 50, a pass forgets it) and the next card that carries it is told, never refused; the limit is held under the hook's own" \
                || fail "verify timeout:$_v2b"
 # The one fix is asked ONCE, and only where that can be counted.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"

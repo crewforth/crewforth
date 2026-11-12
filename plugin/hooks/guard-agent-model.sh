@@ -791,6 +791,41 @@ _am_verify_split(){ _AMVD=""; _AMVC="$1"; declare -F crew_verify_split >/dev/nul
 # agent-outcome.sh at that moment and by this gate when the agent is called, so what the session is told up front is
 # what then happens. Steps joined by ` && ` are judged one by one (eval/lib/verify-cmd.sh crew_verify_steps), and the
 # script is built from the judged steps only: `cd "$CREW_VR/<folder>" && <step> && …`.
+# A verify command that ran out of time here, remembered so the next card that carries it is told BEFORE the agent
+# runs: in the field every timeout was the project's whole test suite (494-1005 s against the 540 s limit), the agent
+# was held for the full limit, and the session then ran the same suite again itself. One line per command in
+# .claude/state/verify-slow (seconds<TAB>command), at most 50, the newest last; a pass of the same command removes it.
+# Nothing here refuses: the card's verify is still the session's choice.
+_am_slow_key(){  # $1 = verify command -> _AMSK, one line with single spaces ("" when nothing is left)
+  local k="$1"; k="${k//$'\t'/ }"; k="${k//$'\r'/ }"; k="${k//$'\n'/ }"
+  while :; do case "$k" in *'  '*) k="${k//  / }" ;; *) break ;; esac; done
+  k="${k# }"; _AMSK="${k% }"; }
+_am_slow_put(){  # $1 = verify command, $2 = the seconds it was given ("" = it passed: forget it)
+  local f="$_AMS/verify-slow" l keep="" n=0 skip
+  _am_slow_key "$1"; [ -n "$_AMSK" ] || return 0
+  [ -n "$2" ] || [ -f "$f" ] || return 0
+  if [ -f "$f" ] && [ ! -L "$f" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in *$'\t'*) [ "${l#*$'\t'}" = "$_AMSK" ] && continue ;; *) continue ;; esac
+      keep="$keep$l"$'\n'; n=$((n+1))
+    done < "$f"
+  fi
+  skip=$((n - 49)); [ -n "$2" ] || skip=0
+  while [ "$skip" -gt 0 ]; do keep="${keep#*$'\n'}"; skip=$((skip-1)); done
+  [ -n "$2" ] && keep="$keep$2"$'\t'"$_AMSK"$'\n'
+  mkdir -p "$_AMS" 2>/dev/null || return 0
+  { printf '%s' "$keep" > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"; } 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+  return 0; }
+_am_slow_get(){  # $1 = verify command -> 0 and _AMSS (the seconds it was given) when it ran out of time here before
+  local f="$_AMS/verify-slow" l
+  _am_slow_key "$1"; [ -n "$_AMSK" ] && [ -f "$f" ] && [ ! -L "$f" ] || return 1
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in *$'\t'*) ;; *) continue ;; esac
+    [ "${l#*$'\t'}" = "$_AMSK" ] || continue
+    _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
+    return 0
+  done < "$f"
+  return 1; }
 _am_verify_plan(){  # $1 = verify command, $2 = permission mode -> 0: _AMVRUN, _AMVDIR; 1: _AMVWHY, _AMVSTEP ("" = all of it)
   local i=0
   _AMVRUN=""; _AMVDIR=""; _AMVWHY=""; _AMVSTEP=""
@@ -1120,6 +1155,9 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
   if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
     vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
+  elif _am_slow_get "$CARD_VERIFY"; then
+    vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite). Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
+    _am_log "note: a verify command that ran out of time here before"
   fi
 fi
 # ---- effort: a note in the record, never a refusal ----
