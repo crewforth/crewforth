@@ -368,7 +368,14 @@ versioning follows [SemVer](https://semver.org/).
 - **A verify command that runs out of time is not run a second time.** When an agent's verify command is stopped at
   its limit, the session is told to run the tests the change touches instead of the whole command again, and the
   command is remembered as slow in `.claude/state/verify-slow`. The next card that carries it is told when the agent is
-  called, and the call goes on. A pass of the same command forgets it; the list keeps the newest 50.
+  called, and the call goes on. For seven days (`CREW_VERIFY_SLOW_DAYS`) the hook does not run that command again: the
+  agent's line says timeout and why, instead of the next agent waiting out the same limit for the same answer. After
+  that it runs once more, so a suite that has become faster is learnt again. A pass of the same command forgets it; the
+  list keeps the newest 50.
+- **A background agent's verify outcome reaches the session.** An agent launched in the background comes back at once,
+  so a verify command that failed, ran out of time or could not be run was told to nobody. It is now told when the main
+  thread's turn ends, once and only to that session. The launch of critical work no longer asks the session to run the
+  verify command itself: the outcome comes when the agent ends.
 - **A download read as JSON by Python is no longer refused as a pipe to a shell.** `curl … | python3 -m json.tool`,
   and `curl … | python3 -c '…'` whose program is written in the call, imports only modules that cannot run text or
   reach the system (`json`, `sys`, `collections`, `re`, `datetime`, `packaging` and a few more), and names none of
