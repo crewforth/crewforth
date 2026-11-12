@@ -440,10 +440,20 @@ _am_prose(){  # $1 = a path or a glob -> 0 when it is prose a person reads (the 
   case "$1" in *.md|*.MD|*.markdown|*.txt|*.TXT|*.rst|*.adoc) return 0 ;; esac
   return 1
 }
+# The files of a card without what is written in parentheses: `files: staged diff (branch docs/widget-privacy-texts)`
+# read the branch name as a path and `privacy` as a critical one, and `files: legal/x.md (only if needed)` read `(only`,
+# `if`, `needed)` as three files that are not prose (measured in the field on rc.4: 2 of 6 critical-path refusals, and
+# a legal note raised to opus). A note in parentheses is a note; a path is written outside them.
+_am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an unclosed ( dropping the rest
+  local x="$1" re='\([^()]*\)'
+  while [[ $x =~ $re ]]; do x="${x/"${BASH_REMATCH[0]}"/ }"; done
+  _AMUP="${x%%(*}"
+}
 _am_all_prose(){  # after _am_card -> 0 when every file of the card is prose
   local f r=0 unglob=0
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
-  for f in ${CARD_FILES//,/ }; do _am_prose "$f" || { r=1; break; }; done
+  _am_unparen "$CARD_FILES"
+  for f in ${_AMUP//,/ }; do _am_prose "$f" || { r=1; break; }; done
   [ "$unglob" = 1 ] && set +f
   return "$r"
 }
@@ -520,7 +530,7 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
   case "$CARD_CHANGE" in *' ('*')') v="${CARD_CHANGE%% (*}"; case "$_AM_CHANGES" in *" $v "*) CARD_CHANGE="$v" ;; esac ;; esac
   case "$_AM_CHANGES" in *" $CARD_CHANGE "*) ;; *) CARD_WHY="change: is '${CARD_CHANGE:0:40}', not one of:$_AM_CHANGES"; return 1 ;; esac
   [ -n "$CARD_VERIFY" ] || { CARD_WHY="verify: is empty (a command, or none)"; return 1; }
-  case "$CARD_VERIFY" in none|None|NONE|-|'none '*|'none('*|'None '*|'NONE '*) CARD_VERIFY=none ;; esac   # "none (the author ran it)" is none
+  case "$CARD_VERIFY" in none|None|NONE|-|'none '*|'none('*|'None '*|'NONE '*|[Nn]one[.,\;:]*|NONE[.,\;:]*) CARD_VERIFY=none ;; esac   # "none (the author ran it)", "none. main checkout" are none
   # Optional, right after the three: `above: <why>` keeps a model above the card's floor. Without it a call above
   # the floor is run on the floor (the cost of a model nobody needed is what this gate exists to stop).
   while [ -z "$CARD_ABOVE" ] && [ -n "$s" ]; do
@@ -530,6 +540,20 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     case "$l" in above:*) v="${l#above:}"; while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done; CARD_ABOVE="${v:0:200}" ;; esac
     break
   done
+  # ...or written anywhere in the card's own lines: `model: opus · above: <why> · effort: medium`, `model above: <why>`,
+  # `change: feature (above: opus — <why>)`. 12 calls on rc.4 wrote a reason this way and ran a model lower than asked
+  # without a word (measured). The reason runs to the end of its line, a ` · `, or a closing parenthesis.
+  if [ -z "$CARD_ABOVE" ]; then
+    local cl="$1" i=0 lr
+    while [ "$i" -lt 8 ] && [ -n "$cl" ]; do
+      lr="${cl%%$'\n'*}"; if [ "$lr" = "$cl" ]; then cl=""; else cl="${cl#*$'\n'}"; fi; i=$((i+1))
+      case "$lr" in *above:*)
+        v="${lr#*above:}"; v="${v%%' · '*}"; v="${v%%')'*}"
+        while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done
+        [ -n "$v" ] && { CARD_ABOVE="${v:0:200}"; break; } ;;
+      esac
+    done
+  fi
   return 0
 }
 _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
@@ -537,7 +561,8 @@ _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
   CARD_RISK=normal; CARD_RISKWHY=""
   case " migration security architecture fix-unknown " in *" $CARD_CHANGE "*) CARD_RISK=critical; CARD_RISKWHY="change: $CARD_CHANGE" ;; esac
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
-  for f in ${CARD_FILES//,/ }; do
+  _am_unparen "$CARD_FILES"
+  for f in ${_AMUP//,/ }; do
     if _am_crit_path "$f"; then CARD_RISK=critical; [ -n "$CARD_RISKWHY" ] || CARD_RISKWHY="$f is on a critical path: $_AMW"; fi
   done
   [ "$unglob" = 1 ] && set +f
@@ -762,6 +787,34 @@ _am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 a Bash(...) rule of th
 # How a verify command is read (the `cd <folder> && <command>` split): eval/lib/verify-cmd.sh, shared with doctor.
 [ -f "$_AM_HERE/../eval/lib/verify-cmd.sh" ] && . "$_AM_HERE/../eval/lib/verify-cmd.sh"
 _am_verify_split(){ _AMVD=""; _AMVC="$1"; declare -F crew_verify_split >/dev/null && crew_verify_split "$1" "${_AMP:-.}"; return 0; }
+# Whether the hook runs a card's verify command when its agent ends, and what it runs: ONE answer, read by
+# agent-outcome.sh at that moment and by this gate when the agent is called, so what the session is told up front is
+# what then happens. Steps joined by ` && ` are judged one by one (eval/lib/verify-cmd.sh crew_verify_steps), and the
+# script is built from the judged steps only: `cd "$CREW_VR/<folder>" && <step> && …`.
+_am_verify_plan(){  # $1 = verify command, $2 = permission mode -> 0: _AMVRUN, _AMVDIR; 1: _AMVWHY, _AMVSTEP ("" = all of it)
+  local i=0
+  _AMVRUN=""; _AMVDIR=""; _AMVWHY=""; _AMVSTEP=""
+  if ! declare -F crew_verify_steps >/dev/null 2>&1; then
+    _am_verify_split "$1"; _AMVDIR="$_AMVD"; _AMVRUN="$_AMVC"
+    _am_verify_ok "$_AMVRUN" "$2" || { _AMVWHY="$_AMVW"; return 1; }
+    return 0
+  fi
+  crew_verify_steps "$1" "${_AMP:-.}" || { _AMVWHY="$_VS_WHY"; return 1; }
+  while [ "$i" -lt "$_VS_N" ]; do
+    if ! _am_verify_ok "${_VS_C[i]}" "$2"; then
+      _AMVWHY="$_AMVW"; [ "$_VS_N" -gt 1 ] && { _AMVSTEP="${_VS_C[i]}"; _AMVWHY="the step '$_AMVSTEP': $_AMVW"; }
+      return 1
+    fi
+    _AMVRUN="${_AMVRUN:+$_AMVRUN && }cd \"\$CREW_VR/${_VS_D[i]}\" && ${_VS_C[i]}"
+    i=$((i+1))
+  done
+  return 0
+}
+_am_json(){  # $1 = text -> _AMJ, safe inside a JSON string
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
+  _AMJ="$(printf '%s' "$s" | tr -d '\000-\010\013-\037\177')"
+}
 _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMVB says by what); 1 and _AMVW says why not
   local c="$1" pm="${2:-default}" f r rc k g
   _AMVW=""; _AMVB=""
@@ -891,7 +944,7 @@ _crew_stop(){  # $1 = what happened
 trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
 # ---- /CREW-FAILCLOSED
 _gate_main(){
-local tn st m ti rank=0 floor=0 fname="" why="" prompt bg tid here nf=0 l d f p pm vrc r a b c t eff="" erank=0 lo=9 pe=0 e
+local hd vnote="" tn st m ti rank=0 floor=0 fname="" why="" prompt bg tid here nf=0 l d f p pm vrc r a b c t eff="" erank=0 lo=9 pe=0 e
 [ "${CREW_MODEL_ROUTING:-}" = off ] && exit 0
 IFS= read -r -d '' INPUT || true
 _json_slice "$INPUT" tool_name >/dev/null; tn="$_JS"
@@ -899,7 +952,7 @@ case "$tn" in Agent|Task) ;; *) exit 0 ;; esac
 # The call's own fields: everything from "tool_input" on, so a key of the same name in front of it is not read.
 _json_find "$INPUT" '"tool_input"'
 [ "$_JF" -ge 0 ] || exit 0
-ti="${INPUT:_JF}"
+ti="${INPUT:_JF}"; hd="${INPUT:0:_JF}"
 _json_keycount "$ti" subagent_type
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names subagent_type more than once, so which agent it starts cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" subagent_type >/dev/null; _json_unescape "$_JS" >/dev/null; st="$_JU"
@@ -1054,10 +1107,20 @@ if [ "$CARD_RISK" = critical ] && [ "$CARD_VERIFY" != none ] && [ "$bg" = true ]
   echo "GUARD (agent model): critical work with a verify command is not sent to the background, where its result does not come back to you: repeat the same call with run_in_background set to false." >&2
   _am_log "critical work sent to the background"; exit 2
 fi
-# The verify command is NOT judged here. Whether the hook runs it is decided when it would start (_am_verify_ok, in
-# hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is told to run it
-# itself with the Bash tool, where the permission layer and the shell gate see it. Refusing the call for it would
-# leave no way to use a verify command in a mode where nothing is allowed by name.
+# The verify command is not REFUSED here. Whether the hook runs it is decided again when it would start
+# (_am_verify_plan, in hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is
+# told to run it itself with the Bash tool, where the permission layer and the shell gate see it. Refusing the call
+# for it would leave no way to use a verify command in a mode where nothing is allowed by name. But the session is
+# TOLD now, with the same answer, while the card can still be fixed: in the field 89 of 121 verify commands were
+# never run, most of them written so no hook could run them (a placeholder, a sentence, a `;` or a pipe), and the
+# session heard it only after the agent had finished.
+if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
+  _json_slice "$hd" permission_mode >/dev/null; pm="$_JS"
+  if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
+    vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
+    _am_log "note: a verify command the hook will not run ($_AMVWHY)"
+  fi
+fi
 # ---- effort: a note in the record, never a refusal ----
 # Two things the gate does not refuse. A call that names no effort cannot take the cheap first step after a failed
 # verify (the repeat at high on the same model, above), so it goes one model up; and past high the vendor's guidance is
@@ -1076,9 +1139,14 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
   { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
-# The call, on the floor: the same input with `model` replaced, and allowed. Nothing else is printed on this path.
+# The call, on the floor: the same input with `model` replaced, and allowed; and the verify notice, when there is one.
+# The verify notice rides along as additionalContext: with no permissionDecision it changes nothing about the call
+# (measured on Claude Code 2.1.322: the text reaches the model; a twin hook that prints nothing gets NONE back).
+_AMJ=""; [ -n "$vnote" ] && _am_json "$vnote"
 if [ -n "$lowered" ]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui" "${_AMJ:+,\"additionalContext\":\"$_AMJ\"}"
+elif [ -n "$_AMJ" ]; then
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}\n' "$_AMJ"
 fi
 exit 0
 }
