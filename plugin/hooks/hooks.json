@@ -86,6 +86,12 @@
     ],
     "SessionStart": [
       {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/discipline-core.sh\"", "timeout": 30 }
+        ]
+      },
+      {
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           { "type": "command", "shell": "bash", "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/session-rehydrate.sh\"", "timeout": 60 }

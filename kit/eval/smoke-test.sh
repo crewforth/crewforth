@@ -2477,6 +2477,28 @@ if [ "$IS_KIT" = 1 ]; then
       || fail "shell matcher diverged — settings: '${SET_M:-none}' plugin: '${PLG_M:-none}'"
     case "$SET_M" in *PowerShell*) pass "shell matcher covers the PowerShell tool" ;;
                      *) fail "shell matcher does not include PowerShell — the gates miss Windows' primary shell" ;; esac
+    # The plugin's working rules: a plugin has no CLAUDE.md, so SessionStart adds the core (build-plugin.sh). Run
+    # the generated hook as Claude Code does: in a plugin-only project it prints the core with the plugin's own path
+    # in place of @ROOT@, under the 10 000 characters Claude Code passes whole; in a project with the full install it
+    # prints nothing (that CLAUDE.md imports the whole text, so the core would be there twice).
+    if [ -f "$KR/plugin/hooks/discipline-core.sh" ]; then
+      _dcp="$(mktemp -d)"; mkdir -p "$_dcp/full/.claude" "$_dcp/bare"; : > "$_dcp/full/.claude/DISCIPLINE.md"
+      _dco="$(cd "$_dcp/bare" && CLAUDE_PROJECT_DIR="$_dcp/bare" CLAUDE_PLUGIN_ROOT='C:\x\plugin' bash "$KR/plugin/hooks/discipline-core.sh" 2>&1)"; _dcr=$?
+      _dcn="$(printf '%s' "$_dco" | LC_ALL=en_US.UTF-8 wc -m 2>/dev/null || printf '%s' "$_dco" | wc -c)"; _dcn="${_dcn//[!0-9]/}"
+      case "$_dcr:$_dco" in
+        '0:{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"'*'C:/x/plugin/DISCIPLINE.md'*'### 4.5 '*'"}}')
+          case "$_dco" in *@ROOT@*) fail "the plugin's discipline hook left @ROOT@ in its output" ;;
+            *) [ "${_dcn:-99999}" -le 10000 ] && pass "the plugin edition adds the core of the working rules at session start: $_dcn characters (under the 10 000 a hook's context is passed whole), §4.5 in it, the plugin's path with a Windows path's backslashes as slashes" \
+                 || fail "the plugin's discipline core is $_dcn characters; past 10 000 Claude Code passes only a preview" ;; esac ;;
+        *) fail "the plugin's discipline hook did not print the core (rc $_dcr): ${_dco:0:160}" ;;
+      esac
+      _dco="$(cd "$_dcp/full" && CLAUDE_PROJECT_DIR="$_dcp/full" bash "$KR/plugin/hooks/discipline-core.sh" 2>&1)"; _dcr=$?
+      [ "$_dcr" = 0 ] && [ -z "$_dco" ] && pass "in a project with the full install the plugin adds no second copy of the working rules" \
+        || fail "the plugin's discipline hook printed in a project with the full install (rc $_dcr): ${_dco:0:160}"
+      rm -rf "$_dcp"
+    else
+      fail "plugin/hooks/discipline-core.sh is missing: a plugin-only project gets none of the working rules (run packaging/build-plugin.sh)"
+    fi
   fi
   # The plugin manifest carries the version, and build-plugin.sh is what writes it — so bumping VERSION without
   # re-running the build leaves the plugin edition claiming the previous release. release.yml catches that, which
