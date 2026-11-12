@@ -10171,6 +10171,8 @@ _PAQ_X="CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CONFIG_DIR=$_pabg"
 _pa_new; : > "$_pa_rec"; _pab_rec "$_pabp" bg j1
 _paq_pre auto "$_paq_canon" '' tb1;   _k=no; case "$_pao" in *'"permissionDecision":"ask"'*) _k=ask ;; esac
                                       _pab_is 'a background session: the question is asked' "$_par/$_k" 0/ask
+# when it is refused, say why: the hook's own reason and whether the recorded process was alive at that moment
+[ "$_par/$_k" = 0/ask ] || _pabb="$_pabb (record pid $_pabp $(kill -0 "$_pabp" 2>/dev/null && echo alive || echo DEAD); hook said: $(tr '\n' ' ' < "$_PA/qerr" | cut -c1-300))"
 _paq_post auto 'Commit only' tb1;     _pab_is 'a background session: the answer is recorded' "$(_paq_rec)" commit
 _paq_gate auto 'git commit -m x';     _pab_is 'a background session: the recorded click allows the commit' "$_par" 0
 for _pc in "none||" "interactive|$_pabp|j1" "bg|$_pabd|j1" "bg|$_pabp|"; do
