@@ -1,6 +1,6 @@
 ---
 name: crew-docs-agent
-color: yellow
+color: pink
 description: |
   Use proactively for docs: README, guides, release notes, legal, privacy and store texts. Writes no code.
 tools: Read, Grep, Glob, Edit, Write

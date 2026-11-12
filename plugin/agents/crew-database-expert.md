@@ -1,6 +1,6 @@
 ---
 name: crew-database-expert
-color: blue
+color: cyan
 description: |
   Stack-agnostic data-layer expert; engine and ORM come from CLAUDE.md ## Stack or the repo. Applies the
   `db-migration` skill. **Use proactively — owns stored data:** schema,

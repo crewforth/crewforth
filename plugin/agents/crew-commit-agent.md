@@ -1,6 +1,6 @@
 ---
 name: crew-commit-agent
-color: cyan
+color: blue
 description: |
   Use immediately after the DoD is clean, before any git commit: proposes the Conventional Commits message
   from the staged diff (`commit-message`). Commits only with user approval.
