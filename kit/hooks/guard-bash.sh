@@ -1130,13 +1130,30 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Z
 # (`.git`, `./x`, `a.` are not), and a `#` ends the look (a comment is not a target), and so does a line break (`rm -rf dist⏎npx tsc -p .`). A builtin match: no process.
 # The same holds for `$HOME`, `${HOME}`, `$PWD`, `${PWD}` and `$(pwd)`, quoted or not: one argument, no `/`, and the
 # whole home or working tree (all five passed). `$HOME_OLD`, `cd .. && rm -rf dir`, `find -delete` and `xargs rm` stay free.
+# And on Windows (measured in a real hook on Git Bash, all rc 0 before): a path written with backslashes only
+# (`rm -rf "C:\Users\me"`, `'C:\'`) carried none of the three characters the rule above looks for, and Git Bash's rm
+# deletes it; `$USERPROFILE` is the home there, and `$TEMP`, `$TMP`, `$TMPDIR` are the whole temp root. The drive is
+# looked for in the rm's own segment (_RMWIN): a first version looked anywhere after rm on the line and refused 13
+# real commands whose later text held a backslash (a here-document's \n).
 _RMNL=$'\n'
-_RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\.\.?|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\}|\$\(pwd\))["'"'"']?([[:space:];&|)}]|$)'
+_RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\.\.?|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\}|\$\(pwd\)|\$USERPROFILE|\$\{USERPROFILE\})["'"'"']?([[:space:];&|)}]|$)'
+# a Windows path, as a target of this rm's own segment only: by its drive (`C:\Users\me`, `'C:\'`, `D:/x`), and the
+# drive-less forms Git Bash resolves too (measured on Windows): `..\..` (the real parent), `\\host\c$` (a share that
+# reaches the drive's root), `\Users\me` (rooted on the current drive). `my\ dir`, an escaped space, is none of them.
+_RMWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?([A-Za-z]:[/\\]|\.\.?\\|\\\\[A-Za-z0-9]|\\[A-Za-z])'
+# the whole temp root by its name — unless this call sets that name itself (`TMP=$(mktemp -d); …; rm -rf "$TMP"` is
+# the usual clean-up of its own folder: measured, 2 real commands)
+_RMTMPV='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\$TEMP|\$\{TEMP\}|\$TMP|\$\{TMP\}|\$TMPDIR|\$\{TMPDIR\})["'"'"']?([[:space:];&|)}]|$)'
 case "$CMD" in *[Rr][Mm]*)
   _rmc="$CMD"
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
   case "$CMD" in *\\"$_RMNL"*) [ "${#CMD}" -le 4096 ] && _rmc="${CMD//\\$_RMNL/ }" ;; esac
-  [[ $_rmc =~ $_RMDOT ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; } ;; esac
+  [[ $_rmc =~ $_RMDOT ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
+  [[ $_rmc =~ $_RMWIN ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
+  if [[ $_rmc =~ $_RMTMPV ]]; then
+    _rmv="${BASH_REMATCH[0]}"; _rmv="${_rmv#*\$}"; _rmv="${_rmv#\{}"; _rmv="${_rmv%%[\}\"\' ;&|)]*}"
+    [[ $_rmc =~ (^|[^A-Za-z0-9_])$_rmv= ]] || { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
+  fi ;; esac
 # A whole-tree `git checkout -- .` / `git restore .` destroys every uncommitted change with no reflog and no
 # undo — the same loss as `reset --hard`, which has been gated since the beginning, by a command that was not.
 # Not hypothetical: a verification subagent ran exactly this over uncommitted work in this repo and took the
