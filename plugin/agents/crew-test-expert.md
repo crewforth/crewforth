@@ -1,6 +1,6 @@
 ---
 name: crew-test-expert
-color: yellow
+color: green
 description: |
   Test expert. Use proactively after new handler/endpoint/agent behavior is added: writes and runs
   unit/integration tests and owns the DoD's "tests are green".

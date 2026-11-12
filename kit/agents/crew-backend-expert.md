@@ -1,6 +1,6 @@
 ---
 name: crew-backend-expert
-color: green
+color: blue
 description: |
   Stack-agnostic backend expert (Node/Go/Python/.NET/JVM, etc.). Applies the project's backend pattern, read from
   CLAUDE.md ## Stack and the repo, never assumed. **Use proactively — owns server behaviour:** endpoints,

@@ -252,8 +252,33 @@ for f in $(agent_quality_files); do
       *) fail "$n: effort '$EV' is not a documented level (low·medium·high·xhigh·max)" ;;
     esac
   fi
+  # `color:` is optional, and like `model:` an unknown value does not error: the agent is simply drawn with no
+  # colour. Claude Code documents eight (red blue green yellow purple orange pink cyan); `gray` shipped on one agent
+  # and read as "colourless" in the task list.
+  CV="$(sed -n 's/^color:[[:space:]]*//p' "$f" | head -1 | tr -d ' \r')"
+  if [ -n "$CV" ]; then
+    case "$CV" in
+      red|blue|green|yellow|purple|orange|pink|cyan) : ;;
+      *) fail "$n: color '$CV' is not a documented value (red·blue·green·yellow·purple·orange·pink·cyan) — the agent shows with no colour" ;;
+    esac
+  fi
   grep -q 'Trigger phrases:' "$f" || need_trigger "$n: no Trigger phrases" "agents/$n"
 done
+# Agents that run side by side are told apart by colour: eight colours for fourteen agents, so a colour is shared only
+# across phases. The builders (often several at once) all differ, and so do the reviewers that clear one change.
+_colb=""
+for _grp in "crew-backend-expert crew-frontend-expert crew-database-expert crew-devops-expert crew-performance-expert crew-test-expert crew-docs-agent" \
+            "crew-security-expert crew-review-agent crew-privacy-agent crew-refuter"; do
+  _seen=" "; _n=0
+  for a in $_grp; do
+    [ -f "$AGENTS/$a.md" ] && kit_owned "agents/$a.md" || continue
+    _c="$(sed -n 's/^color:[[:space:]]*//p' "$AGENTS/$a.md" | head -1 | tr -d ' \r')"; _n=$((_n+1))
+    case "$_seen" in *" ${_c:-none} "*) _colb="$_colb [$a shares ${_c:-no colour} inside its phase]" ;; esac
+    _seen="$_seen${_c:-none} "
+  done
+done
+[ -z "$_colb" ] && pass "agents that run side by side differ in colour (the builders, and the reviewers of one change)" \
+               || fail "agent colours:$_colb"
 # The mandatory audit agents must NOT be pinned to a model. Omitted means inherit, so a pin can only make the
 # gate that CLEARS a change run on a different tier from the agent that wrote it — and for 156 commits both of
 # these said `sonnet`, so an Opus session reviewed Opus-written code on Sonnet. That is backwards for the one

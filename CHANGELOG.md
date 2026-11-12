@@ -361,6 +361,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Each agent that runs beside another has its own colour.** Claude Code draws an agent in one of eight colours; ten
+  of the fourteen shared one with another agent, and `crew-refuter` named `gray`, which is not one of the eight, so it
+  was drawn with none. The builders now all differ, the reviewers of one change all differ, and a colour is shared only
+  across phases (`crew-security-expert` alone is red). An agent colour outside the eight fails the smoke test.
 - **A verify command that runs out of time is not run a second time.** When an agent's verify command is stopped at
   its limit, the session is told to run the tests the change touches instead of the whole command again, and the
   command is remembered as slow in `.claude/state/verify-slow`. The next card that carries it is told when the agent is

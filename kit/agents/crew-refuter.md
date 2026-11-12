@@ -1,6 +1,6 @@
 ---
 name: crew-refuter
-color: gray
+color: orange
 description: |
   Use proactively on each medium+ finding before it is reported: given one claim and its file:line, refutes it.
 tools: Read, Grep, Glob

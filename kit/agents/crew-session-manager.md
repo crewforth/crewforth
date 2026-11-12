@@ -1,6 +1,6 @@
 ---
 name: crew-session-manager
-color: blue
+color: purple
 description: |
   Use at a phase boundary or when the fill reads medium or more: audits fill, drafts the handover. The
   per-turn status line stays the main thread's. Writes no code.
