@@ -1260,7 +1260,53 @@ case "$CMD" in *[Mm][Kk][Ff][Ss]*|*[Dd][Dd]*) : ;; *) false ;; esac && _grep "$C
 # CREW-NOT-A-RUNG: the interpreter names below are PATTERNS naming things to BLOCK, not invocations. The
 # check in smoke-test treats any interpreter outside a marked region as a reader ladder, so a rule that
 # matches `curl | python3` has to say that it is a rule.
-case "$CMD" in *[Cc][Uu][Rr][Ll]*|*[Ww][Gg][Ee][Tt]*|*[Ff][Ee][Tt][Cc][Hh]*) : ;; *) false ;; esac && _grep "$CMD" -qE '(curl|wget|fetch)([^|]|\|\|)*\|[[:space:]]*(sudo[[:space:]]+)?(bash|sh|zsh|python[0-9.]*|node|perl|ruby)([[:space:]]|$)' && block "pipe-to-shell (curl|bash RCE)" "4.5" exec
+# DATA INTO PYTHON IS NOT CODE INTO PYTHON. `curl … | python3 -c '…json.load(sys.stdin)…'` reads a JSON answer: the
+# program is the -c argument, written in the call, and the download is its input (18 refusals in three projects in two
+# weeks, every one a JSON read of an API answer, each then done another way). Only two shapes are taken out before
+# the rule reads the call: `| python[3] -m json.tool`, and `| python[3] -c` with ONE quoted program, holding no
+# expansion, that passes _ppd_data below. A list of bad words cannot make Python safe: a name split in two
+# (`"ex""ec"`) and looked up by string (`vars(sys.modules[…])[…]`) walks round any of them. So the program is held to
+# what a JSON read needs: it imports only modules on a short list, none of which runs text or reaches the system, and
+# it names none of the ways Python looks a thing up by a string or runs one (a dunder, vars, locals, globals, getattr,
+# sys.modules, frames, exec, eval, compile, open, input). A python -c written without curl is not gated at all;
+# this rule is only about running a download, and a program that only parses and prints does not run one.
+# Every other pipe into an interpreter in the call is still read, so `… | python3 -c '…' ; curl … | bash` is refused.
+_ppd_data(){  # $1 = the program -> 0 when it only reads its input
+  local c="$1" imp kw names n m
+  local deny='(__|exec|eval|compile|vars|locals|globals|getattr|setattr|delattr|attrgetter|methodcaller|modules|_getframe|f_globals|f_builtins|f_locals|f_back|_frame|breakpoint|system|popen|spawn|subprocess|(open|input|help|dir)[[:space:]]*\(|(^|[^A-Za-z0-9_])os([^A-Za-z0-9_]|$))'
+  [[ $c =~ $deny ]] && return 1
+  imp='(^|[^A-Za-z0-9_.])(from|import)[[:space:]]+([A-Za-z0-9_., ]+)'
+  while [[ $c =~ $imp ]]; do
+    kw="${BASH_REMATCH[2]}"; names="${BASH_REMATCH[3]}"; c="${c#*"${BASH_REMATCH[0]}"}"
+    [ "$kw" = from ] && names="${names%% *}"
+    while [ -n "$names" ]; do
+      n="${names%%,*}"; if [ "$n" = "$names" ]; then names=""; else names="${names#*,}"; fi
+      n="${n#"${n%%[! ]*}"}"; n="${n%% *}"; m="${n%%.*}"
+      case "$m" in
+        json|sys|collections|datetime|re|math|statistics|itertools|textwrap|csv|base64|pprint|decimal|fractions|packaging|typing|string|time) ;;
+        *) return 1 ;;
+      esac
+    done
+  done
+  return 0
+}
+_pipe_py_data(){  # $1 = command -> _PPD: it with the data-only python pipes replaced by a word no rule reads
+  local s="$1" out="" code pre re1 re2 m0
+  re1='\|[[:space:]]*python[0-9.]*[[:space:]]+-m[[:space:]]+json\.tool([[:space:]]|$)'
+  re2="\\|[[:space:]]*python[0-9.]*[[:space:]]+-c[[:space:]]+('([^']*)'|\"([^\"\\\$\`]*)\")"
+  while [[ $s =~ $re1 ]]; do pre="${s%%"${BASH_REMATCH[0]}"*}"; out="$out$pre| crewpydata "; s="${s#*"${BASH_REMATCH[0]}"}"; done
+  s="$out$s"; out=""
+  while [[ $s =~ $re2 ]]; do
+    # the match is kept before the program is judged: that test overwrites BASH_REMATCH
+    m0="${BASH_REMATCH[0]}"; code="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"; pre="${s%%"$m0"*}"
+    if _ppd_data "$code"; then out="$out$pre| crewpydata "; else out="$out$pre$m0"; fi
+    s="${s#*"$m0"}"
+  done
+  _PPD="$out$s"
+}
+case "$CMD" in *[Cc][Uu][Rr][Ll]*|*[Ww][Gg][Ee][Tt]*|*[Ff][Ee][Tt][Cc][Hh]*) : ;; *) false ;; esac \
+  && { _PPD="$CMD"; case "$CMD" in *[Pp][Yy][Tt][Hh][Oo][Nn]*) _pipe_py_data "$CMD" ;; esac; _grep "$_PPD" -qE '(curl|wget|fetch)([^|]|\|\|)*\|[[:space:]]*(sudo[[:space:]]+)?(bash|sh|zsh|python[0-9.]*|node|perl|ruby)([[:space:]]|$)'; } \
+  && block "pipe-to-shell (curl|bash RCE)" "4.5" exec
 # /CREW-NOT-A-RUNG
 case "$CMD" in *[Dd][Dd]*) : ;; *) false ;; esac && _grep "$CMD" -qE '(^|[^a-zA-Z])dd[[:space:]]+([^|]*[[:space:]])?of='  && block "dd of= (disk overwrite)" "4.5" loss
 

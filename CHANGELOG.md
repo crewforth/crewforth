@@ -361,6 +361,13 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A download read as JSON by Python is no longer refused as a pipe to a shell.** `curl … | python3 -m json.tool`,
+  and `curl … | python3 -c '…'` whose program is written in the call, imports only modules that cannot run text or
+  reach the system (`json`, `sys`, `collections`, `re`, `datetime`, `packaging` and a few more), and names none of
+  the ways Python looks a thing up by a string or runs one (a dunder, `vars`, `locals`, `getattr`, `sys.modules`,
+  frames, `exec`, `eval`, `compile`, `open`), pass. A bare `| python3`, any other import, an expansion in the program,
+  and every other interpreter stay refused. On 2 365 real piped commands, 139 refusals become allowed and nothing
+  else changes.
 - **A plain `git pull` that cannot make a commit is no longer refused in auto mode.** From git 2.33.1 a pull told
   nothing about how to reconcile only fast-forwards, and on diverged branches stops without changing anything. When
   the repository sets none of `pull.ff`, `pull.rebase`, `merge.ff=false`, or the branch's own `rebase`,
