@@ -364,6 +364,11 @@ versioning follows [SemVer](https://semver.org/).
   frames, `exec`, `eval`, `compile`, `open`), pass. A bare `| python3`, any other import, an expansion in the program,
   and every other interpreter stay refused. On 2 365 real piped commands, 139 refusals become allowed and nothing
   else changes.
+- **A recursive `rm` inside a temp directory is no longer refused.** When every target of every `rm` in the call
+  resolves strictly inside `/tmp`, `$TMPDIR` or the system temp folder, the call passes. The temp root itself, a glob
+  at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly
+  (or sets inside a here-document), and `rm` behind `sudo`, `xargs`, `find -exec` or `eval` stay refused. The refusal's
+  preview names the `rm`'s own targets and no longer a word of the next command.
 - **Verify runs in a repository of several packages.** The installer also reads the projects under `packages/`,
   `apps/`, `services/` and `libs/`, and offers `python -m pytest` beside `python3 -m pytest`. A card's verify command
   may name the project's own folder by its absolute path and put `NAME=value` settings in front of a step (`env
