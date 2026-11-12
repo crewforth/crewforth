@@ -349,6 +349,15 @@ versioning follows [SemVer](https://semver.org/).
   at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly
   (or sets inside a here-document), and `rm` behind `sudo`, `xargs`, `find -exec` or `eval` stay refused. The refusal's
   preview names the `rm`'s own targets and no longer a word of the next command.
+- **A task card is read the way it is written.** A note in parentheses on the `files:` line (`staged diff (branch
+  docs/widget-privacy-texts)`, `legal/x.md (only if needed)`) is no longer read as files, so a branch name is no
+  critical path and a note does not lift a text change to a bigger model. `above: <why>` is found on any of the card's
+  first lines (`model: opus · above: … · effort: medium`), not only on a line of its own, so the model it asks for is
+  kept. `none.` and `none,` followed by a sentence are none.
+- **A verify command that will not run is said when the agent is called, not after it ends.** The card's `verify:`
+  is judged at the call with the same rule the hook applies when the agent finishes, and the session hears the reason
+  while it can still fix the card (a sentence, a `;` or a pipe, a command nothing allows). The call is never refused
+  for it.
 - **The fast check at the end of a turn no longer slows down with the number of untracked files.** With 10 000
   untracked files and no ignore rule for them, the hook took 60-198 s at Stop on Windows and 30 s on macOS; it is
   linear now (0.5 s on macOS for the same project, 2.9 s at Stop on Windows), and a check that ends at once no longer
