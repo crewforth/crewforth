@@ -805,7 +805,8 @@ _am_verify_plan(){  # $1 = verify command, $2 = permission mode -> 0: _AMVRUN, _
       _AMVWHY="$_AMVW"; [ "$_VS_N" -gt 1 ] && { _AMVSTEP="${_VS_C[i]}"; _AMVWHY="the step '$_AMVSTEP': $_AMVW"; }
       return 1
     fi
-    _AMVRUN="${_AMVRUN:+$_AMVRUN && }cd \"\$CREW_VR/${_VS_D[i]}\" && ${_VS_C[i]}"
+    # its plain NAME=value settings go with it (crew_verify_steps judged their names and values)
+    _AMVRUN="${_AMVRUN:+$_AMVRUN && }cd \"\$CREW_VR/${_VS_D[i]}\" && ${_VS_E[i]:+env ${_VS_E[i]} }${_VS_C[i]}"
     i=$((i+1))
   done
   return 0

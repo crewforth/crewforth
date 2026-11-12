@@ -355,6 +355,11 @@ versioning follows [SemVer](https://semver.org/).
   at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly
   (or sets inside a here-document), and `rm` behind `sudo`, `xargs`, `find -exec` or `eval` stay refused. The refusal's
   preview names the `rm`'s own targets and no longer a word of the next command.
+- **Verify runs in a repository of several packages.** The installer also reads the projects under `packages/`,
+  `apps/`, `services/` and `libs/`, and offers `python -m pytest` beside `python3 -m pytest`. A card's verify command
+  may name the project's own folder by its absolute path and put `NAME=value` settings in front of a step (`env
+  PYTHONPATH=… python -m pytest`): the step is judged without them and runs with them. A setting that changes what
+  runs (`PATH`, `LD_*`, `BASH_ENV`, `GIT_*` …) keeps it refused.
 - **A task card is read the way it is written.** A note in parentheses on the `files:` line (`staged diff (branch
   docs/widget-privacy-texts)`, `legal/x.md (only if needed)`) is no longer read as files, so a branch name is no
   critical path and a note does not lift a text change to a bigger model. `above: <why>` is found on any of the card's
