@@ -2947,13 +2947,21 @@ if (gate) {
   // did not reproduce it. A run that reaches the ceiling is refused by the check that called it (-2 is no exit code
   // the gate has) and prints what a diagnosis needs: the spool, the cached pause mode, the bash and what is running.
   const HOOK_CEILING_MS = 30_000;
+  // THE LAST RUN, SAID WHEN A CHECK ON IT FAILS. On windows-latest these checks failed now and then with nothing to
+  // tell a hook that ran past its ceiling from one that came back with the wrong answer. Every run is timed and keeps
+  // its stderr, and the checks below print it: exit code, milliseconds, timeout or not, stdout and stderr.
+  let lastRun = null;
+  const why = (r = lastRun) => !r ? 'no hook run recorded'
+    : `exit ${r.status} after ${r.ms} ms${r.status === -2 ? ' (TIMEOUT: killed at the ceiling)' : r.status === -1 ? ' (did not run: an error starting the hook, not its answer)' : ' (returned in time: a wrong answer, not a timeout)'}; stdout "${String(r.stdout ?? '').slice(0, 120)}"; stderr "${String(r.stderr ?? '').trim().slice(0, 200)}"`;
   const gateRun = (input, env, ceiling = HOOK_CEILING_MS) => {
+    const t0 = Date.now();
+    const done = (r) => { r.ms = Date.now() - t0; lastRun = r; return r; };
     try {
       const out = execFileSync('bash', [HOOK, gate.spool], {
         input, env: { ...process.env, CREW_GATE_WAIT: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'],
         timeout: ceiling, killSignal: 'SIGKILL',
       });
-      return { status: 0, stdout: String(out).trim() };
+      return done({ status: 0, stdout: String(out).trim(), stderr: '' });
     } catch (e) {
       if (e.code === 'ETIMEDOUT' || e.signal === 'SIGKILL') {
         const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', timeout: 10_000 }).trim(); } catch (x) { return `(${cmd} failed: ${x.code ?? x.status})`; } };
@@ -2964,9 +2972,9 @@ if (gate) {
         console.log(`  .pause-mode: ${mode}`);
         console.log(`  bash: ${sh('bash', ['--version']).split('\n')[0]}`);
         console.log(`  processes:\n${sh('ps', process.platform === 'win32' ? ['-W'] : ['-ax']).split('\n').filter((l) => /bash|sleep|studio|cat/.test(l)).slice(0, 25).join('\n')}`);
-        return { status: -2, stdout: '' };
+        return done({ status: -2, stdout: '', stderr: String(e.stderr ?? '') });
       }
-      return { status: e.status ?? -1, stdout: String(e.stdout ?? '').trim() };
+      return done({ status: e.status ?? -1, stdout: String(e.stdout ?? '').trim(), stderr: String(e.stderr ?? '') });
     }
   };
   const runHook = (env = {}) => gateRun(payload, env).status;
@@ -2981,20 +2989,20 @@ if (gate) {
     fs.rmSync(path.join(gate.spool, 'req', 'toolu_probe.json'), { force: true });
   }
 
-  check('silence is a denial, not an opening', runHook() === 2);
+  check('silence is a denial, not an opening', runHook() === 2, why());
 
   fs.writeFileSync(path.join(gate.spool, 'ans', 'toolu_probe'), 'deny\n');
-  check('a deny blocks', runHook() === 2);
+  check('a deny blocks', runHook() === 2, why());
 
   fs.writeFileSync(path.join(gate.spool, 'ans', 'toolu_probe'), 'allow\n');
-  check('an allow lets the tool through', runHook() === 0);
+  check('an allow lets the tool through', runHook() === 0, why());
 
   // The discriminating control: without the answer file the same call is
   // refused, so the allow above measured the answer rather than the harness.
-  check('the allow was the answer, not the absence of a gate', runHook() === 2);
+  check('the allow was the answer, not the absence of a gate', runHook() === 2, why());
 
   fs.writeFileSync(path.join(gate.spool, 'always', 'Bash'), '');
-  check('an always-allowed tool skips the round trip', runHook() === 0);
+  check('an always-allowed tool skips the round trip', runHook() === 0, why());
   fs.rmSync(path.join(gate.spool, 'always', 'Bash'));
 
   check('a request is visible to the panel while the hook waits', (() => {
@@ -3031,7 +3039,7 @@ if (gate) {
   check('in plan mode an allowance approves nothing: the hook exits 0 and says nothing',
     inPlan.status === 0 && inPlan.stdout === '', `stdout "${inPlan.stdout.slice(0, 80)}"`);
   const noMode = answered('allow', { CREW_GATE_MODE: '' });
-  check('with no mode configured the hook approves nothing', noMode.status === 0 && noMode.stdout === '');
+  check('with no mode configured the hook approves nothing', noMode.status === 0 && noMode.stdout === '', why(noMode));
   const odd = answered('allow', { CREW_GATE_MODE: 'bypassPermissions' });
   check('a mode the hook does not name gets no approval: the list is the two it knows',
     odd.status === 0 && odd.stdout === '', 'an allow-list; a mode added to the server later is silent until it is added here');
@@ -3152,7 +3160,7 @@ if (gate) {
     before.includes('Bash') && took.ok && took.revoked === true && !alwaysList(probeId).includes('Bash'),
     `before [${before}] after [${alwaysList(probeId)}]`);
   check('after a revoke the hook asks again', runHook() === 2,
-    'with nobody answering, asking again ends in a denial; exit 0 here would mean the allowance survived');
+    `with nobody answering, asking again ends in a denial; exit 0 here would mean the allowance survived · ${why()}`);
   const again = revoke(probeId, 'Bash');
   check('revoking what is not allowed is said, not counted as a revoke', again.ok && again.revoked === false);
   fs.writeFileSync(path.join(gate.spool, 'ans', 'keep'), 'x');
