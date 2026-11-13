@@ -11855,8 +11855,8 @@ printf '[project]\nname="a"\n[dependency-groups]\ndev=["pytest","ruff"]\n' > "$_
 printf '# ours\n- docs/**\n' > "$_vdp/.claude/crew-model-rules"
 _vd(){ ( cd "$_vdp" && CREW_SJ_AWK="$ROOT/eval/lib/settings-json.awk" bash -c '. "$1/verify-cmd.sh"; . "$1/verify-detect.sh"; crew_verify_detect_apply .; printf "%s" "$_VD_ADDED"' _ "$ROOT/eval/lib" ); }
 _vda="$(_vd)"
-[ "$_vda" = "uv run pytest, uv run ruff check, npm test, npm run lint, npx vitest run, npx tsc --noEmit" ] || _v2b="$_v2b [added: $_vda]"
-[ "$(grep -c '^verify ' "$_vdp/.claude/crew-model-rules")" = 6 ] && grep -q '^- docs/\*\*$' <<< "$(head -2 "$_vdp/.claude/crew-model-rules")" || _v2b="$_v2b [rules file: $(tr '\n' '|' < "$_vdp/.claude/crew-model-rules")]"
+[ "$_vda" = "uv run pytest, uv run ruff check, npm test, npm run lint, npx vitest run, npx tsc --noEmit, npx tsc -b" ] || _v2b="$_v2b [added: $_vda]"
+[ "$(grep -c '^verify ' "$_vdp/.claude/crew-model-rules")" = 7 ] && grep -q '^- docs/\*\*$' <<< "$(head -2 "$_vdp/.claude/crew-model-rules")" || _v2b="$_v2b [rules file: $(tr '\n' '|' < "$_vdp/.claude/crew-model-rules")]"
 grep -q 'npm run dev' "$_vdp/.claude/crew-model-rules" && _v2b="$_v2b [a script that is no check was added]"
 [ -z "$(_vd)" ] || _v2b="$_v2b [a second run added again]"
 grep -v '^verify npm test$' "$_vdp/.claude/crew-model-rules" > "$_v2/r" && cat "$_v2/r" > "$_vdp/.claude/crew-model-rules"
