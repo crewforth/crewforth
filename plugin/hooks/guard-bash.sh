@@ -2862,7 +2862,7 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   # `remote.origin.push` mapping git picks it from there: measured in review, `feat/x -> main`.
   cur="$(git -C "$dir" config --get-all "remote.$r.push" 2>/dev/null || true)"
   [ -z "$cur" ] || { _APW="the remote $r has a push mapping (remote.$r.push), so the branch this push lands on is not the one named"; return 1; }
-  cur="$(git -C "$dir" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
+  cur="$(git -C "$dir" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"; local _hd="$cur"
   if [ "$op" = push ]; then
     [ "$cur" = "$h" ] || { _APW="HEAD moved after the user approved the push (approved ${h:0:7}, now ${cur:0:7})"; return 1; }
     if [ -n "$tag" ]; then
@@ -2876,6 +2876,11 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
     [ "$cur" = "$_h2" ] || { _APW="the tag $tag is on ${cur:0:7}, not on the commit the user approved for push (${_h2:0:7})"; return 1; }
   fi
   # commit+push: HEAD has to be the commit the approved index became.
+  # HEAD STILL WHERE THE APPROVAL WAS GIVEN = the commit never happened. Field: a commit refused by another gate and a
+  # push sent beside it; the push was refused with "its parent is …", which says nothing about why. Say it by name.
+  if [ "$h" != NONE ] && [ "$_hd" = "$h" ]; then
+    _APW="the commit this push was to carry was not made: HEAD is still ${h:0:7}, where the approval was given, so the commit was refused or failed before it. Resolve what stopped the commit and commit again (the approval still covers what is staged, if it has not changed), then push"; return 1
+  fi
   cur="$(git -C "$dir" rev-parse --verify --quiet 'HEAD^' 2>/dev/null || echo NONE)"
   if [ "$h" = NONE ] || [ "$cur" != "$h" ]; then
     _APW="HEAD is not the commit the user approved (its parent is ${cur:0:7}, the approval was given on ${h:0:7})"; return 1
