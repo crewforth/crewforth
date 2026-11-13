@@ -100,6 +100,16 @@ if [ "$SRC" = startup ] && [ -d "$ROOT/.claude/state" ]; then
 fi
 DEPSMSG=""
 _rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+# A COMPACTION RELOADS THE RULES. context-usage.sh warns once that an update landed mid-session; after a compaction
+# CLAUDE.md has been read again, so the version the context carries is the one on disk: re-stamp its marker (and drop
+# the "told" note) or it would keep the old version as the session's and say a stale warning that is no longer true.
+if [ "$SRC" = compact ] && [ -f "$_rh/../VERSION" ]; then
+  _sid="${IN#*\"session_id\"}"; _sid="${_sid#*:}"; _sid="${_sid#*\"}"; _sid="${_sid%%\"*}"
+  case "$_sid" in ''|*[!A-Za-z0-9._-]*) ;; *)
+    _kv=""; IFS= read -r _kv < "$_rh/../VERSION" || true; _kv="${_kv//[!0-9A-Za-z.-]/}"
+    [ -n "$_kv" ] && { printf '%s' "$_kv" > "${TMPDIR:-/tmp}/crew-kit-version.$_sid" 2>/dev/null; rm -f "${TMPDIR:-/tmp}/crew-kit-version.$_sid.told" 2>/dev/null; } ;;
+  esac
+fi
 _dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
 if [ "$SRC" = startup ] && [ "$_dd" -gt 0 ] && [ -z "${CI:-}" ] && [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" != 0 ] \
    && [ -f "$_rh/../eval/lib/gate-log.sh" ] && [ -f "$_rh/../eval/lib/lockfiles.sh" ] \

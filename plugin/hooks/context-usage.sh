@@ -354,9 +354,13 @@ if [ ! -e "$MARK" ]; then
   printf '%s' "$NOW" > "$MARK" 2>/dev/null || true   # first turn: remember the version, say nothing
 else
   WAS="$(head -1 "$MARK" 2>/dev/null)"
-  # Repeated on every turn on purpose: the loaded context stays stale until a new session starts (/clear or a
-  # relaunch). /compact re-reads CLAUDE.md but keeps the session id, so this warning would not stop after it.
-  [ -n "$WAS" ] && [ "$WAS" != "$NOW" ] && \
-    echo "⚠️ Crewforth updated $WAS → $NOW mid-session. The discipline in your context is the OLD one — do not act on it; ask the user to run /clear (or quit and relaunch Claude Code): a new session loads the new one."
+  # SAID ONCE A SESSION. It used to repeat every turn: measured in the field, the model passed /clear to the user
+  # once and ignored the next four, so the rest cost tokens and told nobody anything. A compaction re-reads
+  # CLAUDE.md, so the rules are no longer stale after it: session-rehydrate.sh re-stamps this marker on `compact`
+  # and removes the `.told` note, and this warning stops being true there and stops being said.
+  if [ -n "$WAS" ] && [ "$WAS" != "$NOW" ] && [ ! -e "$MARK.told" ]; then
+    echo "⚠️ Crewforth updated $WAS → $NOW mid-session. The discipline in your context is the OLD one — do not act on it; ask the user to run /clear (or quit and relaunch Claude Code): a new session loads the new one. (Said once.)"
+    : > "$MARK.told" 2>/dev/null || true
+  fi
 fi
 exit 0
