@@ -2803,13 +2803,24 @@ echo "1.0.1" > "$SD/VERSION"                       # the update lands mid-sessio
 o="$(run_cu)"
 case "$o" in *"Crewforth updated 1.0.0 → 1.0.1"*) pass "stale gate: announces an update that landed mid-session" ;; *) fail "stale gate missed a mid-session update: $o" ;; esac
 o="$(run_cu)"
-case "$o" in *"Crewforth updated"*) pass "stale gate: keeps warning (context stays stale until restart)" ;; *) fail "stale gate warned only once" ;; esac
+case "$o" in *"Crewforth updated"*) fail "stale gate repeated its warning (field: told once, ignored four times; once a session is the rule)" ;; *) pass "stale gate: says it once a session, not every turn" ;; esac
+# A compaction re-reads CLAUDE.md: session-rehydrate re-stamps the marker, so a LATER update is announced again and
+# the one the compaction already loaded is not. Measured in the field: the warning ran on after an idle compaction.
+cp "$HOOKS/session-rehydrate.sh" "$SD/hooks/"
+printf '{"session_id":"%s","hook_event_name":"SessionStart","source":"compact","cwd":"%s"}' "$SDSID" "$SD" | CLAUDE_PROJECT_DIR="$SD" bash "$SD/hooks/session-rehydrate.sh" >/dev/null 2>&1
+[ "$(cat "${TMPDIR:-/tmp}/crew-kit-version.$SDSID" 2>/dev/null)" = "1.0.1" ] && [ ! -e "${TMPDIR:-/tmp}/crew-kit-version.$SDSID.told" ] \
+  && pass "stale gate: a compaction re-stamps the version the context now carries" || fail "stale gate: a compaction left the old version as the session's"
+o="$(run_cu)"
+case "$o" in *"Crewforth updated"*) fail "stale gate warned after a compaction had already loaded the new rules" ;; *) pass "stale gate: silent after a compaction loaded the new rules" ;; esac
+echo "1.0.2" > "$SD/VERSION"
+o="$(run_cu)"
+case "$o" in *"Crewforth updated 1.0.1 → 1.0.2"*) pass "stale gate: a later update after the compaction is announced again" ;; *) fail "stale gate missed an update after a compaction: $o" ;; esac
 # session-guard.sh pipes a Stop payload through this same script — it must never emit the notice there
 o="$(printf '{"session_id":"%s","hook_event_name":"Stop","transcript_path":"%s"}' "$SDSID" "$SDFX" | CONTEXT_WINDOW=1000000 bash "$SD/hooks/context-usage.sh" --verbose 2>/dev/null)"
 case "$o" in *"Crewforth updated"*) fail "stale gate leaked into the Stop payload" ;; *) pass "stale gate: silent on a Stop payload" ;; esac
 # fail open: no VERSION at all
 rm -f "$SD/VERSION"; run_cu >/dev/null 2>&1 && pass "stale gate: fails open when VERSION is absent" || fail "stale gate exited non-zero without VERSION"
-rm -rf "$SD"; rm -f "$SDFX" "${TMPDIR:-/tmp}/crew-kit-version.$SDSID"
+rm -rf "$SD"; rm -f "$SDFX" "${TMPDIR:-/tmp}/crew-kit-version.$SDSID" "${TMPDIR:-/tmp}/crew-kit-version.$SDSID.told"
 
 sec "== 6g2) stale-WIRING gate: a session resumed across a Crewforth update runs the old hooks =="
 # Measured on Windows: settings.json on disk had already been corrected and `--resume` still produced the error
