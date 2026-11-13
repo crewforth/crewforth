@@ -247,11 +247,15 @@ class Canvas {
     return sh.width;
   }
   say(s) { this.words.push(s); }
-  svg(label) {
+  // `where` (e.g. stages-en-dark) makes the ids unique to the file: a page that inlines two diagrams, or the same
+  // diagram in two themes, must not end up with two elements called "t". The title names the diagram; the
+  // description is every word drawn on it, in reading order.
+  svg(label, where) {
     const defs = [...this.defs].map(([id, d]) => `<path id="${id}" d="${d}"/>`).join('');
-    const title = esc(this.words.join(' · ').replace(/\s+/g, ' ').trim());
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.w} ${this.h}" width="${this.w}" height="${this.h}" role="img" aria-labelledby="t">` +
-      `<title id="t">${esc(label)}: ${title}</title><defs>${defs}</defs><rect width="${this.w}" height="${this.h}" fill="${this.c.ground}"/>${this.body.join('')}</svg>\n`;
+    const words = esc(this.words.join(' · ').replace(/\s+/g, ' ').trim());
+    const ti = `${where}-title`, de = `${where}-desc`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.w} ${this.h}" width="${this.w}" height="${this.h}" role="img" aria-labelledby="${ti}" aria-describedby="${de}">` +
+      `<title id="${ti}">${esc(label)}</title><desc id="${de}">${words}</desc><defs>${defs}</defs><rect width="${this.w}" height="${this.h}" fill="${this.c.ground}"/>${this.body.join('')}</svg>\n`;
   }
 }
 const n4 = (v) => String(Math.round(v * 1e6) / 1e6);
@@ -290,7 +294,7 @@ function readSource() {
   for (const d of fs.readdirSync(path.join(ROOT, 'kit/skills')).sort()) {
     const p = path.join(ROOT, 'kit/skills', d, 'SKILL.md'); if (!fs.existsSync(p)) continue;
     const fm = frontmatter(p);
-    skills.push({ name: d, command: /\n {2}kind: command/.test(fm), experimental: /\n {2}experimental: true/.test(fm) });
+    skills.push({ name: d, command: /\n {2}kind: command/.test(fm), experimental: /\n {2}experimental: "?true"?/.test(fm) });
   }
   const shown = skills.filter((s) => !s.command && !s.experimental).map((s) => s.name);
   for (const a of agents) for (const s of a.skills) if (!skills.some((k) => k.name === s)) throw new Error(`${a.name}: metadata.skills names ${s}, which is not a skill`);
@@ -400,7 +404,7 @@ function stagesSVG(src, loc, theme, t = T[loc]) {
   if (bottom > footTop - 17) throw new Overflow(`${where}: the stage columns end at ${bottom.toFixed(1)}px, into the footer at ${(footTop - 17).toFixed(1)}px`);
   cv.rect(PADX, footTop - 17, INNER, 1, c.line);
   footer(cv, baseline(footTop, normalLH(S.foot), S.foot), t.stagesFoot, where);
-  return cv.svg(t.label.stages);
+  return cv.svg(t.label.stages, where);
 }
 
 function stepsSVG(steps, loc, theme, o) {
@@ -423,7 +427,7 @@ function stepsSVG(steps, loc, theme, o) {
   const footTop = o.H - 36 - normalLH(S.foot);
   if (bottom > footTop - 12) throw new Overflow(`${where}: the steps end at ${bottom.toFixed(1)}px, into the footer at ${(footTop - 12).toFixed(1)}px`);
   footer(cv, baseline(footTop, normalLH(S.foot), S.foot), o.foot, where);
-  return cv.svg(o.label);
+  return cv.svg(o.label, where);
 }
 const flowSVG = (src, loc, theme, t = T[loc]) => stepsSVG(t.flow, loc, theme, {
   H: 260, where: `flow-${loc}-${theme}`, hot: 3, padR: 24, gap: 10, headStyle: { size: 16, weight: 600, mono: true },
@@ -466,7 +470,7 @@ function networkSVG(src, loc, theme, t = T[loc]) {
   cv.chevrons(listX - 36 - 1, listBottom + 4, 'down');
   cv.h = Math.ceil(listBottom + 4 + 30 + 52);
   if (cv.h > 1400) throw new Overflow(`${where}: the rows need ${cv.h}px, past the 1400px the README can show`);
-  return cv.svg(t.label.network);
+  return cv.svg(t.label.network, where);
 }
 
 /* ----------------------------------------------------------------- main */
@@ -489,6 +493,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     long.stages[1][0] = 'PRODUCE THE CHANGE IN EVERY STACK AT ONCE';
     try { stagesSVG(readSource(), 'en', 'dark', long); console.error('gen-diagrams selftest: an over-long label did NOT stop the build'); process.exit(1); }
     catch (e) { if (!(e instanceof Overflow)) throw e; console.log(`gen-diagrams selftest: an over-long label stops the build — ${e.message}`); }
+    // Every diagram names itself and describes itself with ids no other diagram uses; the twin is the old bare
+    // `id="t"` form, which the same check must refuse.
+    const labelled = (set) => {
+      const seen = new Map(); const bad = [];
+      for (const [f, svg] of Object.entries(set)) {
+        const stem = f.replace(/\.svg$/, '');
+        if (!svg.includes(`aria-labelledby="${stem}-title"`) || !svg.includes(`<title id="${stem}-title">`) || !new RegExp(`<desc id="${stem}-desc">[^<]{20,}</desc>`).test(svg)) bad.push(`${f}: no title and description under its own ids`);
+        for (const [, id] of svg.matchAll(/<(?:title|desc) id="([^"]+)"/g)) { if (seen.has(id)) bad.push(`${f}: id ${id} also in ${seen.get(id)}`); seen.set(id, f); }
+      }
+      return bad;
+    };
+    const all = renderAll(); const bad = labelled(all);
+    const bare = Object.fromEntries(Object.entries(all).map(([f, svg]) => [f, svg.replace(/aria-labelledby="[^"]+"/, 'aria-labelledby="t"').replace(/<title id="[^"]+">/, '<title id="t">')]));
+    if (!labelled(bare).length) bad.push('twin: diagrams with the bare id="t" passed the check, so it proves nothing');
+    if (bad.length) { console.error(`gen-diagrams selftest: ${bad.join('; ')}`); process.exit(1); }
+    console.log(`gen-diagrams selftest: ${Object.keys(all).length} diagrams each carry a title and a description under their own ids; the bare-id twin is refused`);
     process.exit(0);
   }
   let files;

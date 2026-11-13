@@ -1,5 +1,5 @@
 {
-  "about": "Three class libraries and an API: attribute routes, a MapGroup, appsettings with a connection string.",
+  "about": "Three class libraries, an API and a test project: attribute routes, a MapGroup, appsettings with a connection string, WHY/HACK/FIXME notes.",
   "findings": [
     [
       "module-orphan",
@@ -23,13 +23,16 @@
     "Mail:* is read through GetSection",
     "Logging:* is read by the framework",
     "Payments:BaseUrl is read, so its host is owned",
-    "Tools reaches Core only through a using: an inferred edge"
+    "Tools reaches Core only through a using: an inferred edge",
+    "Core.Tests is a test project, so not an orphan",
+    "A HACK in a test file, HACKATHON, FIXMEs and a // WHY inside a string are not notes"
   ],
   "nodes": [
     "ext:db:postgres",
     "ext:http-api:pay.vendor.net",
     "mod:dotnet:Api",
     "mod:dotnet:Core",
+    "mod:dotnet:Core.Tests",
     "mod:dotnet:Legacy",
     "mod:dotnet:Tools"
   ],
@@ -51,6 +54,12 @@
       "ext:db:postgres",
       "configured-db",
       "evidence"
+    ],
+    [
+      "mod:dotnet:Core.Tests",
+      "mod:dotnet:Core",
+      "references",
+      "evidence"
     ]
   ],
   "provides": [
@@ -60,5 +69,33 @@
   ],
   "notMeasured": [
     ".NET package usage"
-  ]
+  ],
+  "tests": {
+    "mod:dotnet:Core": {
+      "files": [
+        "Core.Tests/OrdersTests.cs"
+      ],
+      "total": 1,
+      "modules": [
+        "mod:dotnet:Core.Tests"
+      ]
+    },
+    "mod:dotnet:Core.Tests": {
+      "files": [
+        "Core.Tests/OrdersTests.cs"
+      ],
+      "total": 1
+    }
+  },
+  "absentTests": [
+    "mod:dotnet:Api",
+    "mod:dotnet:Tools"
+  ],
+  "markers": {
+    "mod:dotnet:Core": [
+      "Core/Orders.cs:5",
+      "Core/Orders.cs:8",
+      "Core/Orders.cs:9"
+    ]
+  }
 }

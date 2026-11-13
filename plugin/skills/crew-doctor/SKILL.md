@@ -1,6 +1,6 @@
 ---
 name: crew-doctor
-description: Health-check the install — hooks executable, core.hooksPath set, gates wired, discipline loaded.
+description: Health-check the install — hooks, git hooks, gates, discipline.
 metadata:
   kind: command
 ---
@@ -20,7 +20,8 @@ Verify Crewforth is actually *active* in this project (not just present on disk)
    this *project* set up to be worked on by agents: CLAUDE.md project section filled in · a project-specific skill
    alongside Crewforth's generic ones · a devcontainer to sandbox agent commands · an MCP server · CLAUDE.md not
    drifted behind the code. Report the gaps as suggestions, not as failures, and never "fix" them unasked — adding
-   a devcontainer or an MCP server is the user's call.
+   a devcontainer or an MCP server is the user's call. Which MCP tools this session actually has is read from your
+   own tool list (names starting `mcp__`), never by running a command such as `claude mcp list`, which can prompt.
 5. Summarise: **healthy**, or the precise fixes applied/needed, plus the readiness score. If it's not a git repo,
    note that the commit-time gates need `git init` + the update (`npx crewforth update`), which arms them.
    Where it lists verify commands never run, each `/crew-allow-verify <command>` line is a message only the user can

@@ -8,7 +8,7 @@ Sabit maliyet gizlenmiyor, yazıyor. Disiplin ile birlikte her ajan ve skill tar
 
 ## İşi hangi model yapıyor
 
-Bir oturumun maliyetinin çoğu, her işi koşan modeldir; bu yüzden model oturum başına değil iş başına seçilir. Bir `crew-*` ajanı bir kartla çağrılır (dosyalar, değişiklik türü, işi kanıtlayan komut) ve kararı kart verir: bir komutun denetlediği işte `haiku`, sıradan işte ve hiçbir şeyin doğrulayamadığı işte `sonnet`, kritik işte (migration, güvenlik, mimari, nedeni bilinmeyen hata ya da auth, ödeme, migration gibi yollardaki dosya) `opus`. Düz yazı iki yönde de istisnadır: bir metin değişikliği onu denetleyecek komut olmadan da `haiku`'da koşar (düz yazıyı zaten yalnız bir okur denetler, commit mesajını da commit hook'u), kritik yolda ise `sonnet` yazar, denetimi `opus`'ta kalır. Ajan durduğunda verify komutu koşar; iki kez düşen iş bir kez, bir üst modelle tekrarlanır. Yani küçük kalan bir model fazladan bir çalıştırmaya mal olur ve pahalı model ona ihtiyacı olan işe saklanır.
+Bir oturumun maliyetinin çoğu, her işi koşan modeldir; bu yüzden model oturum başına değil iş başına seçilir. Bir `crew-*` ajanı bir kartla çağrılır (dosyalar, değişiklik türü, işi kanıtlayan komut) ve kararı kart verir: bir komutun denetlediği işte `haiku`, sıradan işte ve hiçbir şeyin doğrulayamadığı işte `sonnet`, kritik işte (migration, güvenlik, mimari, nedeni bilinmeyen hata ya da auth, ödeme, migration gibi yollardaki dosya) `opus`. Düz yazı iki yönde de istisnadır: bir metin değişikliği onu denetleyecek komut olmadan da `haiku`'da koşar (düz yazıyı zaten yalnız bir okur denetler, commit mesajını da commit hook'u), kritik yolda ise `sonnet` yazar, denetimi `opus`'ta kalır. Çağrı bir effort da belirtir: `medium`, test koşusunda `low`, hiçbir zaman `high`'ın üstü değil, çünkü onun bir kademe üstü neredeyse bir üst model kadar tutar. Ajan durduğunda verify komutu koşar; iki kez düşen iş bir kez aynı modelde `high` effort'la (daha düşükte koştuysa), sonra bir kez bir üst modelle tekrarlanır. Yani küçük kalan bir model ya da effort fazladan bir çalıştırmaya mal olur ve pahalı model ona ihtiyacı olan işe saklanır. Yalnız arayıp okuyan hazır Explore ajanı `haiku`'da koşar.
 
 Bunun neye mal olduğu, çağrı başına bir satırla `.claude/state/model-outcomes.tsv` dosyasına yazılır ve projenizde kalır. Studio bunu okur (Studio sayfasına bakın): **Models** görünümü her iş türü için modeli, ilk denemenin ne sıklıkta geçtiğini, ne sıklıkta bir üst modelle tekrarlandığını ve API liste fiyatıyla tahmini maliyeti gösterir. İlk denemesi çok sık düşen bir sınıf o andan sonra bir üst modelde tutulur; karar verdiğinizde `/crew-loosen` onu yeniden indirir.
 
@@ -37,6 +37,24 @@ Tek başına Opus'a karşı ölçüldüğünde hiç çağrılmadı. Aynı beş r
 Kapının bu oturumdaki son sözü, bir commit ya da push için verdiğin ve hâlâ geçerli olan onay, bu oturumda başlayıp hâlâ koşan crew ajanları, Claude Code'un ölçtüğü bağlam doluluğu ve Claude Code'un oturum maliyeti tahmini. Her parça yalnız söyleyecek bir şey olduğunda görünür ve oturumdan öncesine ait hiçbir şey göstermez: kapı günlüğü zaman taşımaz, yoksa geçen haftanın bir satırı şimdiki gibi okunurdu.
 
 Kurulum onu yalnız projede ya da kendi ayarlarında hiç durum satırı yoksa ekler, çünkü projenin ayarı seninkini ezer. Kendi satırın varsa dokunmaz; `/crew-doctor` Crewforth'unkinin nasıl açılacağını söyler. Plugin edisyonu durum satırı ayarlayamaz.
+
+### Planın yapılacaklar paneli
+
+Projede bir plan varsa (`/crew-plan`'ın yazdığı `docs/PLAN.md`), satırın sonunda kaç işin bittiği görünür: `📋 7/12`. `/crew-todo` paneli satırın altında açar, aynı komut kapatır:
+
+```
+📋 Export — Plan · 7/12 done · phase 2/3 · AC 3/5
+✓ Phase 1 — Parser  4/4
+◐ Phase 2 — Panel  3/5
+   ✓ 6. Draw the lines
+   ◐ 7. Wire the toggle
+   ☐ 8. Cache the drawing
+☐ Phase 3 — Docs  0/3
+```
+
+Biten işin yanında tik (✓), sürenin yanında yarım dolu daire (◐), bekleyenin yanında boş kutu (☐) var; başlanmış bir faz da ◐ alır. Sürüyor diye işaretli iş yoksa ilk bekleyen iş `☐ … ← next` diye görünür, sürüyormuş gibi gösterilmez. Yalnız üzerinde çalıştığın fazın işleri açılır. Liste uzunsa sürdüğün işin çevresi görünür, yüksekliği `CREW_TODO_LINES` belirler (varsayılan 14 satır). Panel planın kendi kutularını okur: `- [ ]` bekliyor, `- [x]` bitti, `- [~]` sürüyor. Her başlık bir fazdır; planda `## Tasks` başlığı varsa yalnız onun altı okunur (birkaç planı alt alta tutan bir dosyada, altında iş olan son `Tasks` başlığı). Panel kutuları kendisi tiklemez, işaretleri işi yapan koyar: planın kuralı, kontrolü geçen işi hemen tiklemek. Plan dosyası henüz yoksa `/crew-todo` boş bir tane yazar ve her çağrıda dosyayı konuşmada yapılan planla eşitler (plan modunda onaylanan, `crew-planner`'ın döndürdüğü ya da sonradan eklenen veya biten işler): panel de Studio da yalnız dosyayı okur. `/crew-todo <dosya>` başka bir planı okur, `/crew-todo show` paneli sohbete basar.
+
+Panel diskte duran plana değil, sürmekte olan işe bakar. Planın başındaki `status:` satırı bunu söyler: bir planın işi durunca `status:` satırı `paused` (ya da `dropped`, `done`) olur; satırdaki sayı kalkar, panel de kimsenin çalışmadığı bir işi göstermek yerine planın beklemede olduğunu tek satırla söyler. Kullanıcı işi durdurduğunda ya da başka işe geçtiğinde bu satırı güncellemek planın kendi kuralı; `/crew-todo pause` ve `/crew-todo resume` satırı doğrudan ayarlar. Plan değişmedikçe panel yeniden çizilmez, önbellekten gelir; durum satırına ek yük getirmez.
 
 ## Sıkıştırma
 

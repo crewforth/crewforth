@@ -15,3 +15,7 @@ crew-approve	Gösterilen commit ya da push için onay verir (auto ve dontAsk mod
 crew-loosen	Crewforth'un bir iş sınıfı için yükselttiği model tabanını bir kademe indirir (sınıf başına bir kez).
 crew-map	Projenin haritasını çıkarır (modüller, dokundukları ve aralarındaki boşluklar) ve her modülü taramanın gösterdiği satırlardan tarif eder.
 crew-allow-verify	Hook'un koşturmadığı bir verify komutuna izin verir ya da reddedilenleri listeler (yalnız kullanıcı yazar).
+crew-audit	Diff değil bütün projeyi denetler: Crew Map'ten başlar, hatanın en pahalı olduğu yerlere (para, erişim, veri yazımı) derin iner, okumadığı yeri söyler.
+crew-interview	Planlamadan önce sizinle mülakat yapar: her seferinde tek soru, önce önerdiği cevap; hedef, kullanıcı ve bitti tanımı netleşince kısa bir brief yazar.
+crew-pr	Pull request açar, durumunu okur ve inceleme yorumlarını yanıtlar: deponun şablonunu korur, siz istemedikçe CI'ı beklemez, düzeltme push'lanmadan yorumu kapatmaz.
+crew-todo	Planın yapılacaklar panelini durum çubuğunun altında açar ya da kapatır: biten işler tikli, kalanlar boş kutuda, sürdüğünüz faz ve iş işaretli.

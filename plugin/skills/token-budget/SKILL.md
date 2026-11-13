@@ -1,7 +1,8 @@
 ---
 name: token-budget
 description: |
-  Context/token discipline: subagent isolation, output = summary, move-to-file, delegation threshold, lean skills.
+  Use when the context is filling up or a token budget comes up, before a large read or a long delegated
+  task, and when a skill or prompt grows too long.
 ---
 
 # Token & Context Discipline
@@ -17,7 +18,8 @@ transcript the first turn was `cache_read=0`, every token `cache_creation` — n
 thread's cache. A **no-op** subagent (task = "reply DONE") already cost **~10k tokens with restricted tools and
 ~16k with full tool access**; that floor is base system prompt + tool schemas, paid fresh every time. Of the
 always-on material only the **skill listing (~2.5–3k tokens) is inherited** by a subagent — the discipline
-(`DISCIPLINE.md`/CLAUDE.md) and the agent descriptions are **not** injected into it. So a delegation is worth it
+(`DISCIPLINE.md`/CLAUDE.md) and the agent descriptions are **not** injected into it. (A crew agent is given one ~600-byte block of
+the rules it cites at SubagentStart, by `agent-outcome.sh`; nothing else.) So a delegation is worth it
 for **isolation / parallelism / a clean window**, or when the isolated work would otherwise cost the main thread
 **more than that ~10–16k floor** — never by default.
 
@@ -36,16 +38,35 @@ for **isolation / parallelism / a clean window**, or when the isolated work woul
    reaching for a built-in is correct — just size the request the way rule 3 sizes any other delegation.
 6. **Least tooling.** An agent holds only the tools it needs; extras accidentally pollute the context + burn the limit.
 7. **Lean SKILL.md.** Skills load into the main context; heavy reference goes to a separate file, only when needed.
-8. **Targeted reading.** Instead of reading a whole file, pinpoint with Grep/Glob.
+8. **Targeted reading.** Instead of reading a whole file, pinpoint with Grep/Glob. Index first, then fetch: list or
+   count (`grep -l`, `grep -c`, `git diff --stat`, the headings), then read only the hits. A `file:line` you were
+   handed (crew-map, a task card, a finding) is where to open the file with offset/limit, not a reason to read all of
+   it or search for it again. After a compaction, file content still in context (the summary, a kept tool output) is
+   a record of that moment: read the file again before editing it.
 9. **Measure fill, don't guess.** `bash "${CLAUDE_PLUGIN_ROOT}/hooks/context-usage.sh"` (Bash tool, not PowerShell) reads it from the transcript; crew-session-manager recommends continue or handoff+clear; the user runs `/clear` at a phase boundary.
 10. **Bound what a command hands back.** All of the rules above govern the context's own footprint; none of them
    govern what a single `Bash` call dumps into it. A `find` over a monorepo, an unfiltered log, a full test run —
    each returns everything to the main thread whether or not any of it is read. Ask for the answer, not the
    corpus: `grep -c` over `grep`, `| tail -20` over the whole file, `--quiet`/`--porcelain` where the tool has
-   one, and a redirect to a file plus a pointer when the output is genuinely needed later (rule 2).
+   one, and a redirect to a file plus a pointer when the output is genuinely needed later (rule 2). When the first
+   bounded look was not enough, redirect the full output to a file and grep it; never re-run the command with a
+   bigger head/tail, which pays for the same output again and again.
+   **A test or build run keeps its own status.** `npm test | tail -20` exits with tail's status, which is 0 when the
+   suite failed. Use `set -o pipefail` before the pipe, or `cmd > .crewforth/run.log 2>&1; echo "exit=$?"; tail -20
+   .crewforth/run.log`. An exit code read through a pipe without pipefail is the pipe's, not the suite's.
 11. **Cut what nothing reaches — with evidence, not a hunch.** Every installed skill spends its name and
    description in EVERY session, forever. `bash .claude/eval/utilization.sh` (Bash tool, not PowerShell; a file install only) reports which skills actually fired
    in this project's transcripts and how many bytes the cold ones cost, which is the list `doctor.sh` §4a's
    `skillOverrides: name-only` advice needs and never had. Read it as evidence, not a verdict: a skill that only
    fires during an incident is doing its job by existing. `--all-projects` widens the scope; by default it reads
-   this project only and prints names and counts, never paths or content.
+   this project only and prints names and counts, never paths or content. `--tools` does the same for tools and
+   MCP servers: available in five or more sessions and never called, printed as a deny proposal you apply yourself.
+12. **A dispatch carries paths, not history.** The prompt of an `Agent` call names the files, the task card and, when
+   there is more to say, a brief file to read; it never pastes the conversation, a long diff or earlier tool output.
+   The subagent re-pays every byte of it (the floor above) and reads what it needs itself.
+13. **Trimming keeps the constraints.** When you shorten or summarise text (a handoff, a brief, a finding), every
+   sentence that carries a must, a cannot, a limit or a number survives; the colour around it is what goes.
+14. **A loaded tool's schema is paid on every request,** used or not. A deferred tool (tool search) costs only its
+   name until it is loaded. How much a server costs depends on its schemas and is not measured by Crewforth.
+   `utilization.sh --tools` (rule 11) sees only the deferred ones, the cheap case; a loaded tool nobody calls has to
+   be found in the settings that load it.

@@ -16,7 +16,7 @@ Format: `type(scope): summary` + (optional blank line + body) + (optional footer
 Conventional Commits below is the **default**, not a law. Before writing anything, read `./CLAUDE.md` for a
 `## Conventions` section (`Commit language:` / `Commit format:`). A declared format REPLACES the shape below —
 ticket-prefixed subjects, smart-commit trailers (`#comment`, `#time`), gitmoji, whatever the team runs on. A
-declared language replaces "the project's established language" guess. Nothing declared → the defaults here.
+declared language replaces "the project's established language" guess. Nothing declared → read `git log --oneline -20` first: a history with a shape of its own (another language, a ticket prefix, plain sentences) is the convention, and the message matches it. Only an empty or mixed history falls back to the defaults here.
 
 **Whatever the request hands you verbatim — a ticket id, a `#time 1d`, a required prefix — goes into the
 message EXACTLY as given.** Rewriting a literal someone typed is the worst failure this skill has: it looks
@@ -47,9 +47,15 @@ One word, consistent with the project's module name.
   ✅ `feat(auth): one-time code TTL + brute-force limit`
   ❌ `fix: bug` · ❌ `update` · ❌ `changes`
 
-## Body (optional — recommended for meaningful changes)
+## Body (required for some changes, recommended for the rest)
 After a blank line: the **WHY** (motivation) + notable consequences/tradeoffs. Wrap at ~72 characters.
 Leave context for the future reader who opens git-blame — the diff already shows the "what"; you write the "why".
+- **Required** for a breaking change, a security fix, a data or schema migration and a revert (what was reverted,
+  and why). Those are the commits someone reads under pressure later; a subject alone does not carry them.
+- **Cover every staged file**, including changes this session did not make; for those, say only what the diff shows.
+- **Do not write a reason you were not given.** A subject with no body beats an invented why.
+- A discarded alternative worth remembering may go on its own line, `Rejected: <the option> (<why>)`, so a later
+  session does not propose it again.
 
 ## Footer (optional)
 - `BREAKING CHANGE: <description>` — a backward-incompatible breaking change (triggers SemVer MAJOR, `release` skill).
@@ -74,7 +80,7 @@ Worked good-vs-bad commit examples: **`references/examples.md`**.
 
 ## Rules
 - **Atomic:** one logical change = one commit.
-- **No commit without DoD:** don't propose a message until `/simplify` + tests green + (if SonarQube is used) `sonarqube-check` 0/0/0/0 pass.
+- **No commit without DoD:** don't propose a message until `/simplify` + tests green + `sonarqube-check` per the DoD quality line (`## Stack` → `Quality analysis:`) pass.
 - If there is no staged diff, warn; ask the user about the `git add` scope with explicit options.
 - Don't run `git commit` silently; propose the message, **wait for approval**.
 

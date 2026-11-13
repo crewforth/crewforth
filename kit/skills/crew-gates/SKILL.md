@@ -24,3 +24,6 @@ Then interpret it in two sentences, in the user's language:
   fire; this only shows what tripped it.
 
 Never infer that a gate works because it appears in the report, or that it is broken because it does not.
+
+Which rule each gate holds, which rules no gate holds (`judged only`), and what each gate cannot see:
+`references/enforcers.md`. A gate that infers its input must fail when the input is missing, not skip the item.

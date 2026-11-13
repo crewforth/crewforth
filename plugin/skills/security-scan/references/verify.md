@@ -1,5 +1,14 @@
 # Verify before you report — the adversarial pass
 
+## Contents
+- The verifier stance
+- The 4-step verify procedure (each step kills a specific false-positive class)
+- Verdict — three outcomes, never a forced binary
+- Exclusion rules — FALSE_POSITIVE even if technically accurate
+- Structured verdict block (one per finding, parseable)
+- Tally
+- Severity is a SEPARATE judgment from verification
+
 Discovery and verification want opposite things. **Discovery is recall-biased** — when unsure whether something is
 real, surface it (a low-confidence finding beats a missed bug). **Verification is precision-biased** — a separate,
 adversarial pass that tries to *disprove* each finding. Keeping them separate is the single biggest lever on false

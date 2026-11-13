@@ -393,7 +393,7 @@ _LAUNCH="((wsl(\\.exe)?([[:space:]]+(-e|--exec|--))?|cmd(\\.exe)?[[:space:]]+/[c
 _EXE="(${_Q}([^\"']*${_S})?bash(\\.exe)?${_Q}|([^[:space:]\"';|&(){}]*${_S})?bash(\\.exe)?)"
 _PATH="(${_Q}([^\"']*${_S})?|([A-Za-z]:)?([^[:space:]\"']*${_S})?)\\.claude${_S}[^[:space:]\"']+\\.sh"
 _re="${_PRE}${_LAUNCH}${_EXE}([[:space:]]+-[^[:space:]]+)*[[:space:]]+${_PATH}"
-_man="${BASH_SOURCE%/*}"; [ "$_man" = "$BASH_SOURCE" ] && _man=.; _man="$_man/../kit-manifest.txt"
+_man="${BASH_SOURCE//\\//}"; _man="${_man%/*}"; [ "$_man" = "${BASH_SOURCE//\\//}" ] && _man=.; _man="$_man/../kit-manifest.txt"
 shopt -s nocasematch
 _i=0
 while [ "$_i" -lt 20 ] && [[ $_c =~ $_re ]]; do _i=$((_i+1))

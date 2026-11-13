@@ -100,6 +100,19 @@ for (const name of fixtures) {
     const got = [...(doc.nodes.find((x) => x.id === id)?.tech ?? [])].sort();
     check(`${name}: ${id} is built with ${want.join(', ') || 'nothing named'}`, JSON.stringify(got) === JSON.stringify([...want].sort()), got.join(', '));
   }
+  // Where each module's tests are: its own test files and a test project named for it, exactly.
+  for (const [id, want] of Object.entries(exp.tests ?? {})) {
+    const got = doc.nodes.find((x) => x.id === id)?.tests;
+    check(`${name}: ${id} is tested by ${want.files.join(', ')}${want.modules ? ` (from ${want.modules.join(', ')})` : ''}`, JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
+  }
+  for (const id of exp.absentTests ?? []) check(`${name}: ${id} names no tests`, !doc.nodes.find((x) => x.id === id)?.tests, JSON.stringify(doc.nodes.find((x) => x.id === id)?.tests));
+  // The WHY/HACK/FIXME lines of a module's own code, exactly: a test's, a word that only starts with one, a string's stay out.
+  const markersWanted = exp.markers ?? {};
+  for (const n of doc.nodes.filter((x) => x.kind === 'module')) {
+    const got = (n.markers?.evidence ?? []).map((e) => `${e.file}:${e.line}`);
+    const want = markersWanted[n.id] ?? [];
+    if (got.length || want.length) check(`${name}: ${n.id} carries ${want.length} WHY/HACK/FIXME line(s)${want.length ? ` (${want.join(', ')})` : ''}`, JSON.stringify(got) === JSON.stringify(want), got.join(', '));
+  }
   const wrongClass = doc.findings.filter((f) => (INFERRED.has(f.rule) ? f.confidence !== 'inferred' || f.data.defaultHidden !== true : f.confidence !== 'proven' || f.data.defaultHidden));
   check(`${name}: inferred rules are hidden by default, proven ones are not`, wrongClass.length === 0, wrongClass.map((f) => f.id).join(' '));
   check(`${name}: every finding cites at least one line`, doc.findings.every((f) => f.evidence.length > 0));
@@ -209,9 +222,42 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
       check('git: a map committed to the repository still checks as up to date', ck.status === 0 && /up to date \(written at/.test(ck.stdout), ck.stdout + ck.stderr);
       fs.appendFileSync(path.join(root, 'main.go'), '\nimport "github.com/new/dep"\n');
       check('git twin: once the tree changes it does not', cli2('--check').status === 1);
+      const fresh = scan(root).doc.nodes.find((x) => x.kind === 'module');
+      const kept = JSON.parse(g('show', 'HEAD:.crewforth/crew-map.json').stdout || '{}').nodes?.find((x) => x.kind === 'module');
+      check('git twin: the committed map\'s commit count is behind the tree\'s, so the check above is not vacuous', kept && fresh && kept.commits === 1 && fresh.commits === 2, `${kept?.commits} / ${fresh?.commits}`);
       const walked = scan(copy('go-svc'));
       check('git twin: outside a work tree the same project is walked, with no commit', walked.doc.coverage.listing === 'walk' && !walked.doc.source);
     }
+  }
+}
+
+/* -- 6b. how often each module changed: one git log, counted by the deepest module folder, inside --root only ---- */
+{
+  const git = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (git.status !== 0) skip('commit counts', 'git is not on PATH');
+  else {
+    const top = path.join(TMP, `c${n++}`);
+    const root = copy('node-ws', { into: top });
+    const g = (...a) => spawnSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', '-c', 'commit.gpgsign=false',
+      '-c', 'core.hooksPath=/dev/null', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...a], { cwd: top, encoding: 'utf8' });
+    g('init', '-q', '.'); g('add', '-A'); g('commit', '-qm', 'one');
+    fs.appendFileSync(path.join(root, 'packages', 'web', 'src', 'client.ts'), '\n// two\n');
+    g('add', '-A'); g('commit', '-qm', 'two');
+    fs.renameSync(path.join(root, 'packages', 'web', 'src', 'orders.ts'), path.join(root, 'packages', 'web', 'src', 'order-list.ts'));
+    g('add', '-A'); g('commit', '-qm', 'three: a rename');
+    fs.writeFileSync(path.join(top, 'outside.txt'), 'x\n'); g('add', '-A'); g('commit', '-qm', 'four: outside the scanned folder');
+    const before = spawned.count; const { doc } = scan(root); const spent = spawned.count - before;
+    const c = Object.fromEntries(doc.nodes.filter((x) => x.kind === 'module').map((x) => [x.id, x.commits]));
+    check('commits: each module counts the commits that changed a file in its own folder, a rename included (web 3, api 1, root 1)',
+      c['mod:node:@demo/web'] === 3 && c['mod:node:@demo/api'] === 1 && c['mod:node:demo-root'] === 1, JSON.stringify(c));
+    check('commits: a commit outside the scanned folder is not read (3 of 4)', doc.source?.commitsRead === 3, JSON.stringify(doc.source));
+    check(`commits: in a git work tree a scan starts exactly 3 child processes, git log the third (${spent})`, spent === 3);
+    const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+    cli(); g('add', '-A'); g('commit', '-qm', 'five: the map');
+    const again = cli();
+    check('commits: a rescan whose only change is the commit counts lists no node as changed', again.status === 0 && /no node or edge changed/.test(again.stderr), again.stderr);
+    const walked = scan(copy('node-ws')).doc;
+    check('commits twin: outside a work tree no module carries a count, and nothing says it read commits', walked.nodes.every((x) => !('commits' in x)) && !walked.source);
   }
 }
 
@@ -256,6 +302,61 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   }
 }
 
+/* -- 7b. a manifest the scanner asked for and could not use is said, never dropped ---------------------------- */
+{
+  // A binary file named like a manifest, and (where permissions hold) one that throws on read. Before this,
+  // both left read() with null and nothing else: the module was missing from the map without a word.
+  const nm = (doc) => doc.notMeasured.map((x) => `${x.what} · ${x.reason}`);
+  const base = scan(copy('node-ws')).doc;
+  const root = copy('node-ws');
+  fs.mkdirSync(path.join(root, 'packages', 'blob'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'packages', 'blob', 'package.json'), Buffer.from([0x7b, 0x00, 0x01, 0x7d]));
+  const one = scan(root).doc;
+  check('crew-map: a binary package.json is not measured ("binary, not read"), one more than the clean copy',
+    one.notMeasured.some((x) => x.what === 'packages/blob/package.json' && x.reason === 'binary, not read')
+      && one.notMeasured.length === base.notMeasured.length + 1, nm(one).join('; '));
+  const locked = path.join(root, 'packages', 'api', 'package.json');
+  fs.chmodSync(locked, 0o000);
+  let readable = true; try { fs.readFileSync(locked); } catch { readable = false; }
+  if (readable) skip('crew-map: an unreadable manifest is not measured', 'chmod 000 does not stop reads here (Windows, or root)');
+  else {
+    const two = scan(root).doc;
+    check('crew-map: an unreadable package.json is not measured ("could not be read")',
+      two.notMeasured.some((x) => x.what === 'packages/api/package.json' && x.reason === 'could not be read'), nm(two).join('; '));
+  }
+  fs.chmodSync(locked, 0o644);
+  // A README is read late, while the nodes are built; a binary one must still be said.
+  const r2 = copy('node-ws');
+  fs.writeFileSync(path.join(r2, 'README.md'), Buffer.from([0x23, 0x20, 0x00, 0x0a]));
+  const three = scan(r2).doc;
+  check('crew-map: a binary README (read while the nodes are built) is not measured too',
+    three.notMeasured.some((x) => x.what === 'README.md' && x.reason === 'binary, not read'), nm(three).join('; '));
+}
+
+/* -- 7c. a scanned repository cannot make the scanner run a program of its choosing --------------------------- */
+{
+  // A third-party clone whose .git/config names a core.fsmonitor program. The twin proves the trap is live: a
+  // plain `git ls-files` here does run it. The scan must not.
+  const git = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (git.status !== 0) skip('crew-map fsmonitor', 'git is not on PATH');
+  else {
+    const root = copy('node-ws');
+    const mark = path.join(TMP, 'fsmonitor-ran');
+    const hook = path.join(TMP, 'fsmonitor.sh');
+    fs.writeFileSync(hook, `#!/bin/sh\necho ran >> "${mark.replace(/\\/g, '/')}"\n`, { mode: 0o755 });
+    const g = (...a) => spawnSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t.invalid', ...a], { encoding: 'utf8' });
+    g('init', '-q'); g('add', '-A'); g('commit', '-qm', 'x');
+    g('config', 'core.fsmonitor', hook.replace(/\\/g, '/'));
+    g('ls-files', '-co', '--exclude-standard');
+    const live = fs.existsSync(mark); fs.rmSync(mark, { force: true });
+    if (!live) skip('crew-map fsmonitor', 'this git does not run core.fsmonitor for ls-files, so the trap cannot be shown here');
+    else {
+      scan(root);
+      check('crew-map: scanning a repo whose .git/config names core.fsmonitor does not run it (a plain ls-files did)', !fs.existsSync(mark));
+    }
+  }
+}
+
 /* -- 8. K1: no installer ignores .crewforth/crew-map.json ----------------------------------------------------- */
 {
   // The entries the installers write, read from the scripts themselves, then asked of git: a string search
@@ -272,9 +373,13 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
       const d = fs.mkdtempSync(path.join(TMP, 'k1-'));
       spawnSync('git', ['init', '-q', d]);
       fs.writeFileSync(path.join(d, '.gitignore'), list.join('\n') + '\n');
-      return spawnSync('git', ['check-ignore', '-q', '--no-index', '.crewforth/crew-map.json'], { cwd: d }).status;
+      return spawnSync('git', ['check-ignore', '-q', '--no-index', file], { cwd: d }).status;
     };
+    let file = '.crewforth/crew-map.json';
     check(`K1: the ${entries.length} installer ignore entries leave .crewforth/crew-map.json committable`, entries.length >= 6 && ask(entries) === 1, `entries: ${entries.join(' ')} · rc ${ask(entries)}`);
+    file = '.crewforth/crew-map-ignore';
+    check('K1: they leave .crewforth/crew-map-ignore committable too, so a team shares what its map leaves out', ask(entries) === 1, `rc ${ask(entries)}`);
+    file = '.crewforth/crew-map.json';
     check('K1 twin: the same check sees an entry that would hide it', ask([...entries, '.crewforth/']) === 0);
   }
 }
@@ -347,6 +452,55 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
     moved.stderr.trim().split('\n').pop());
 }
 
+/* -- 8b2. a rescan that would lose most of the map writes nothing (a wrong --root, a damaged checkout) ------------- */
+{
+  const root = copy('node-ws');
+  const cli = (r, ...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', r, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli(root);
+  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const mods = d.nodes.filter((x) => x.kind === 'module' && (x.evidence ?? []).length);
+  for (const m of mods) m.narrative = { text: 'A module.', cites: [`${m.evidence[0].file}:${m.evidence[0].line}`] };
+  const held = `${JSON.stringify(d, null, 2)}\n`;
+  fs.writeFileSync(file, held);
+  // The same project with every package but one taken away: what a --root one level too deep, or a checkout that
+  // lost its files, looks like to the scanner.
+  const pk = path.join(root, 'packages');
+  const keep = fs.readdirSync(pk).sort()[0];
+  const away = path.join(root, '..', `away-${path.basename(root)}`);
+  fs.mkdirSync(away);
+  for (const x of fs.readdirSync(pk)) if (x !== keep) fs.renameSync(path.join(pk, x), path.join(away, x));
+  const refused = cli(root);
+  const after = fs.readFileSync(file, 'utf8');
+  check(`a rescan that would drop most modules (${mods.length} described) writes nothing, exits 1 and says why`,
+    mods.length >= 2 && refused.status === 1 && after === held && /nothing written/.test(refused.stderr) && /--force/.test(refused.stderr),
+    `rc ${refused.status}; unchanged ${after === held}; ${refused.stderr.trim().split('\n').pop()}`);
+  const forced = cli(root, '--force');
+  check('--force writes that rescan anyway', forced.status === 0 && fs.readFileSync(file, 'utf8') !== held, `rc ${forced.status}; ${forced.stderr.trim().split('\n').pop()}`);
+  fs.rmSync(away, { recursive: true, force: true });
+}
+
+/* -- 8b3. the project's own exclusions, and the ledger a rescan prints ------------------------------------------ */
+{
+  const root = copy('node-ws');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli();
+  const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const same = cli();
+  check('a rescan of an unchanged tree says no node or edge changed', same.status === 0 && /no node or edge changed/.test(same.stderr), same.stderr.trim().split('\n').pop());
+  const gone = before.nodes.find((x) => x.id === 'mod:node:orphan-lib') ?? before.nodes.find((x) => x.kind === 'module' && x.path && x.path !== '.');
+  fs.writeFileSync(path.join(root, '.crewforth', 'crew-map-ignore'), `# generated code\n${gone.path}/\n`);
+  const r = cli();
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  check(`a folder named in .crewforth/crew-map-ignore is left out (${gone.id}), and coverage says how many files`,
+    r.status === 0 && !after.nodes.some((x) => x.id === gone.id) && after.coverage.excluded > 0 && after.coverage.files === before.coverage.files - after.coverage.excluded
+      && !JSON.stringify(after).includes(`"file": "${gone.path}/`),
+    `rc ${r.status}; excluded ${after.coverage.excluded}; files ${before.coverage.files} -> ${after.coverage.files}`);
+  check('the rescan ledger names the module that left, by id', new RegExp(`nodes removed 1: ${gone.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(r.stderr), r.stderr.trim());
+  check('a map with no ignore file carries no excluded count', before.coverage.excluded === undefined);
+}
+
 /* -- 8c. a description may rest on what a module's README says about it ------------------------------------------ */
 {
   const root = copy('flutter-app');
@@ -359,6 +513,54 @@ check(`coverage: all ${RULES.length} detectors have a planted case`, unplanted.l
   fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`);
   const v = cli('--validate');
   check('a description citing the README line the scan read for the module holds', v.status === 0, (v.stdout + v.stderr).trim().split('\n').pop());
+}
+
+/* -- 8d. ... or on a WHY/HACK/FIXME line of its code; a plain line of the same file is still refused --------------- */
+{
+  const root = copy('dotnet-sln');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'crew-map.json');
+  cli();
+  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const core = d.nodes.find((x) => x.id === 'mod:dotnet:Core');
+  const say = (cites) => { core.narrative = { text: 'Order arithmetic.', cites }; fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`); return cli('--validate'); };
+  const v = say(['Core/Orders.cs:8']);
+  check('a description citing a HACK line the scan read for the module holds', v.status === 0, (v.stdout + v.stderr).trim().split('\n').pop());
+  const w = say(['Core/Orders.cs:6']);
+  check('twin: one citing a plain line of the same file is refused', w.status === 1 && /Core\/Orders\.cs:6/.test(w.stdout), w.stdout.trim());
+}
+
+/* -- 8e. the project's own rules: .crewforth/contracts.md, held to the tree by --contracts and --validate --------- */
+{
+  const root = copy('dotnet-sln');
+  const cli = (...a) => spawnSync(process.execPath, [path.join(LIB, 'scan.mjs'), '--root', root, ...a], { encoding: 'utf8' });
+  const file = path.join(root, '.crewforth', 'contracts.md');
+  const none = cli('--contracts');
+  check('contracts: with no contracts.md there is nothing to hold (rc 0, said)', none.status === 0 && /does not exist/.test(none.stdout), none.stdout + none.stderr);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const good = ['# Order rules', '', '## totals-round-once', 'Order totals are rounded once, at the end.', 'A split order adds up to the whole.', '- Core/Orders.cs:Total', '',
+    '## returns-clamped', 'Negative quantities from the importer are clamped to zero.', '- Core/Orders.cs:Quantity', '- Core.Tests/OrdersTests.cs:Total_rounds_once', ''].join('\n');
+  fs.writeFileSync(file, good);
+  const ok = cli('--contracts');
+  check('contracts: two rules, each citing a name that appears in a file of the tree, hold', ok.status === 0 && /holds: 2 contract/.test(ok.stdout), ok.stdout + ok.stderr);
+  const bad = [...good.split('\n'), '## totals-round-once', 'Again.', '- Core/Orders.cs:Total', '', '## Not_Kebab', 'Rule.', '- Core/Orders.cs:Total', '',
+    '## too-long', 'One. Two. Three.', '- Core/Orders.cs:Total', '', '## a-line', 'Rule.', '- Core/Orders.cs:8', '', '## gone', 'Rule.', '- Core/Gone.cs:Total', '',
+    '## renamed', 'Rule.', '- Core/Orders.cs:Discount', '', '## part-word', 'Rule.', '- Core/Orders.cs:Tot', '', '## outside', 'Rule.', '- ../secret.txt:x', '',
+    '## bare', 'Rule.', ''].join('\n');
+  fs.writeFileSync(file, bad);
+  const b = cli('--contracts');
+  const said = (re) => re.test(b.stdout);
+  check('contracts twin: a key used twice, one not kebab case, a rule of three sentences, a line number, a missing file, a symbol that is not there, part of a word, a path out of the project and a rule with no cite are each refused',
+    b.status === 1 && said(/totals-round-once: the key is used twice/) && said(/Not_Kebab: the key is not kebab/) && said(/too-long: the rule runs past two sentences/)
+    && said(/a-line: Core\/Orders\.cs:8 names no symbol/) && said(/gone: Core\/Gone\.cs:Total: Core\/Gone\.cs is not a file/) && said(/renamed: .*Discount does not appear/)
+    && said(/part-word: .*Tot does not appear/) && said(/outside: .*is not a file of this project/) && said(/bare: cites nothing/) && said(/9 problem\(s\)/), b.stdout);
+  fs.writeFileSync(file, good);
+  cli();
+  check('contracts: --validate holds them too, beside the descriptions', cli('--validate').status === 0);
+  const src = path.join(root, 'Core', 'Orders.cs');
+  fs.writeFileSync(src, fs.readFileSync(src, 'utf8').replaceAll('Total(', 'Sum('));
+  const r = cli('--contracts');
+  check('contracts: a rename in the code breaks the rule that names it, and --contracts says which', r.status === 1 && /totals-round-once: Core\/Orders\.cs:Total: Total does not appear/.test(r.stdout) && !/returns-clamped/.test(r.stdout), r.stdout);
 }
 
 /* -- 9. the rules files ---------------------------------------------------------------------------------------- */

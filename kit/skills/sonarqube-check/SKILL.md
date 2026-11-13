@@ -38,13 +38,30 @@ token: **`references/stand-up-server.md`**. No licence, no external account, not
 > report "unverified" rather than installing anything to make a number appear.
 
 Scan with whatever runner the project's stack uses — the scanner is the same product for every language:
+The token is read from the `SONAR_TOKEN` environment variable (set it in your shell or an untracked env file) — never
+pasted into chat, a command line literal, or a committed file.
 
 | Project | Scan command |
 |---|---|
-| Any stack (generic) | `sonar-scanner -Dsonar.projectKey=app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.token=$T` |
-| Maven / Gradle | `mvn sonar:sonar -Dsonar.host.url=… -Dsonar.token=$T` · `gradle sonarqube …` |
-| .NET | `dotnet sonarscanner begin /k:app /d:sonar.host.url=… /d:sonar.token=$T` → `dotnet build` → `dotnet sonarscanner end /d:sonar.token=$T` |
-| JS/TS, Python, Go, PHP, Ruby | the generic `sonar-scanner` above (add coverage report paths if the project produces them) |
+| Any stack (generic) | `sonar-scanner -Dsonar.projectKey=app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.token=$SONAR_TOKEN` |
+| Maven / Gradle | `mvn sonar:sonar -Dsonar.host.url=… -Dsonar.token=$SONAR_TOKEN` · `gradle sonarqube …` |
+| .NET | `dotnet sonarscanner begin /k:app /d:sonar.host.url=… /d:sonar.token=$SONAR_TOKEN` → `dotnet build` → `dotnet sonarscanner end /d:sonar.token=$SONAR_TOKEN` |
+| JS/TS, Python, Go, PHP, Ruby | the generic `sonar-scanner` above, with the coverage report below |
+
+**Coverage first: SonarQube runs no tests, it reads a report.** Produce one before the scan and pass its path, or
+the analysis counts every line uncovered and prints 0.0%:
+
+| Stack | Produce | Pass to the scanner |
+|---|---|---|
+| Python | `pytest --cov=<package> --cov-report=xml` (needs `pytest-cov`) | `-Dsonar.python.coverage.reportPaths=coverage.xml` |
+| JS/TS | `vitest run --coverage --coverage.reporter=lcov` · `jest --coverage` | `-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info` |
+| .NET | coverlet, OpenCover format | `/d:sonar.cs.opencover.reportsPaths=…` (*reports*, with an s) |
+| Java | JaCoCo XML report | `-Dsonar.coverage.jacoco.xmlReportPaths=…` |
+| Go | `go test -coverprofile=coverage.out ./...` | `-Dsonar.go.coverage.reportPaths=coverage.out` |
+
+**No report, no coverage figure.** When none was produced (or `lines_to_cover` equals `uncovered_lines`), write
+*"coverage: not measured — no report was passed to the analysis"*, never "0%": a 0 there says the tests were not
+read, not that there are none. Installing the coverage plugin is a proposal like any other tool.
 
 **c) No server is possible at all** (no Docker, no Java, no permission to run one) → run the language's Sonar-rule
 engine locally as a pre-check (**`references/local-engines.md`** — which engine per language, and how close it is
@@ -52,7 +69,8 @@ to Sonar's own rules) and **say what that is worth**, in these words rather than
 rating: *"the local rule engine reports N issues, none open; the SonarQube rating and the gate were not produced —
 no analysis ran."* Then list what stays unverified: taint/injection, hotspot review state, coverage, duplication,
 files outside the compiled language, and the project's own quality profile. Offer branch (b) — a local server, with
-or without Docker — as the way to close it.
+or without Docker — as the way to close it. Until one runs, a committed baseline keeps the numbers the project can
+measure from getting worse: **`references/ratchet.md`**.
 
 **Never invent the verdict.** A rating exists only where an analysis produced one; without it the honest output is
 "unverified", and that is the sentence that saves the user from promising a clean report they cannot back.
@@ -61,15 +79,25 @@ or without Docker — as the way to close it.
 
 ```bash
 S=http://localhost:9000; K=app          # or the project's own host/key
-curl -sfu "$T:" "$S/api/qualitygates/project_status?projectKey=$K"     # pass / fail, and which condition failed
-curl -sfu "$T:" "$S/api/issues/search?componentKeys=$K&resolved=false&ps=500"   # rule id + file + line per finding
-curl -sfu "$T:" "$S/api/hotspots/search?projectKey=$K&status=TO_REVIEW"          # hotspots are a SEPARATE endpoint
-curl -sfu "$T:" "$S/api/measures/component?component=$K&metricKeys=alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,reliability_rating,security_rating,sqale_rating"
+curl -sfu "$SONAR_TOKEN:" "$S/api/qualitygates/project_status?projectKey=$K"     # pass / fail, and which condition failed
+curl -sfu "$SONAR_TOKEN:" "$S/api/issues/search?componentKeys=$K&resolved=false&ps=500"   # rule id + file + line per finding
+curl -sfu "$SONAR_TOKEN:" "$S/api/hotspots/search?projectKey=$K&status=TO_REVIEW"          # hotspots are a SEPARATE endpoint
+curl -sfu "$SONAR_TOKEN:" "$S/api/measures/component?component=$K&metricKeys=alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,reliability_rating,security_rating,sqale_rating"
 ```
 
 Also read the gate's definition (`/api/qualitygates/show`): most gates judge **new code**, not the whole project.
 Chasing overall counts while the gate measures new code burns days and still fails; the reverse leaves real debt.
 Know which one applies before planning the work.
+
+**An empty new-code period makes "Passed" mean nothing.** On a first analysis, or under `PREVIOUS_VERSION` while
+the version has not changed, `project_status` returns `"period": null` and every `new_*` condition comes back
+`actualValue: null`, `status: OK` — the gate passes because there is no new code to judge, while the project may
+carry an E rating. When that is what you read:
+- report the **overall** ratings and counts (the `measures` call above) as the verdict, and say the gate had no new
+  code to evaluate — never "the gate passed";
+- propose a baseline so the next analysis has new code to judge: `curl -sfu "$SONAR_TOKEN:" -X POST
+  "$S/api/new_code_periods/set?project=$K&type=NUMBER_OF_DAYS&value=30"` (or `REFERENCE_BRANCH` with the main branch).
+  It changes the project's settings, so it is the user's yes, like any other change.
 
 ## Step 3 — fix by rule, never by impression
 
@@ -91,6 +119,19 @@ Re-run step 1's scan, re-read step 2, and report the **difference**: counts befo
 disappeared, which remain, which are new. "It should be clean now" is not a result — a second analysis is.
 Repeat until the gate says `OK`, or every remaining finding has a user-approved suppression. Nothing here closes on a first pass.
 
+## The record — what /crew-ship checks before it commits
+
+A verdict is about the code that was analysed. Record it, with the code it covers, after step 2 and again after the
+final re-scan of step 4 — and for path (c), record why no analysis ran (Bash tool, not PowerShell):
+
+```bash
+bash .claude/skills/sonarqube-check/scripts/record.sh <clean|unverified> "<gate status + analysis date, or why no analysis ran>"
+```
+
+`/crew-ship` runs `scripts/freshness.sh` before it proposes a commit: an edit made after the analysis (staged or
+not, a new file too) makes the record stale and stops the ship until a re-scan is recorded. `declined` in
+`Quality analysis:` passes as "no analysis ran — unverified". A failing gate is not recorded — it is step 3's list.
+
 ## What even a local SonarQube cannot see
 
 Community Build has no **taint/injection analysis** (data flow from user input to a dangerous sink — SQLi, XSS,
@@ -103,6 +144,11 @@ is not proof of injection safety: cover that with the **`security-scan`** and **
   ran (project server or local container).
 - Every finding closed by a code change, or by a suppression the user explicitly approved with a written reason.
 - Hotspots reviewed in the UI, not merely edited around.
-- A re-scan ran after the fixes and the before → after diff by rule id is reported.
+- A re-scan ran after the fixes and the before → after diff by rule id is reported, and its verdict is recorded
+  (`scripts/record.sh`) for the code as it stands.
 - Injection risk stated separately (taint analysis is not in Community Build).
+- Coverage is a measured figure from a report passed to the analysis, or written "not measured" — never a bare 0%.
+- A gate read with `"period": null` is reported by its overall ratings, not as "passed".
+- The project's `## Stack` → `Quality analysis:` line says which path ran (`sonarqube-local`, `sonarqube-server`,
+  or `declined`); an empty one is asked once and written there.
 - Anything not done is said plainly — never implied clean.

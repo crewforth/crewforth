@@ -71,5 +71,13 @@ git commit through a command the shell fills in	kabuğun doldurduğu bir komutla
 a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)	bir Claude Code oturumuna istem olarak onay veren bir komut (yalnız kullanıcının kendi mesajı onaylar)
 a model routing record named in a command (the user and Crewforth's hooks write it; to show it to the user, read it with the Read tool)	komutta adı geçen bir model yönlendirme kaydı (onu kullanıcı ve Crewforth'un hook'ları yazar; kullanıcıya göstermek için Read aracıyla okuyun)
 the refuter ledger named in a command (only Crewforth's hook writes it)	komutta adı geçen çürütücü defteri (onu yalnız Crewforth'un hook'u yazar)
+a command that opens another Claude Code session's screen or socket (claude attach, claude agents, claude respawn, the messaging socket): it can answer that session's questions, an approval included	başka bir Claude Code oturumunun ekranını ya da soketini açan komut (claude attach, claude agents, claude respawn, mesaj soketi): o oturumun sorularını, onay dahil, cevaplayabilir
 a commit made by another git command with no approval	başka bir git komutunun onaysız yaptığı commit
 a push form no approval covers	hiçbir onayın kapsamadığı bir push biçimi
+a command that stages and commits, with a lockfile changed	aynı çağrıda stage edip commit eden komut, lockfile değişmiş
+a command that stages and commits, with unstaged changes	aynı çağrıda stage edip commit eden komut, stage edilmemiş değişiklikle
+a command that rewrites the index and commits	index'i ya da HEAD'i değiştirip aynı çağrıda commit eden komut
+a staged lockfile with no audit record	denetim kaydı olmayan staged lockfile
+the audit record does not match the staged lockfiles	denetim kaydı staged lockfile'larla eşleşmiyor
+the audit record matches the staged lockfiles	denetim kaydı staged lockfile'larla eşleşiyor
+the lockfile list could not be loaded	lockfile listesi yüklenemedi

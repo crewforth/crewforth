@@ -18,27 +18,28 @@ duplicate of a helper that already exists, the pattern that fights the project's
 against an API that behaves differently than remembered. That waste is invisible to a reviewer, because what
 they see is a clean diff.
 
-## The six checks
+## The seven checks
 Each is answered with **evidence**, not with a feeling. Name what you ran or read.
 
 | # | Check | How it is actually answered |
 |---|---|---|
-| 1 | **Does it already exist?** | Grep/Glob the codebase for the behaviour *and* its likely other names. A near-duplicate counts. |
+| 1 | **Does it already exist?** | Grep/Glob the codebase for the behaviour *and* its likely other names. A near-duplicate counts. Look in this order and stop at the first that has it: this codebase, the language's standard library or the platform, a dependency already installed; only then new code. Never a new dependency for what a few lines do. |
 | 2 | **Does it fit this project?** | Read `CLAUDE.md` + the relevant project skill. Same stack, same pattern, no new dependency smuggled in. |
-| 3 | **Is the external claim verified?** | The API / library / config behaviour you are relying on: read the real docs or the installed source. Recalled API shapes are the single most common wrong assumption. |
+| 3 | **Is the external claim verified?** | The API / library / config behaviour you are relying on: read the real docs or the installed source. Recalled API shapes are the single most common wrong assumption. A version or API fact from an ADR, a handover or memory is dated context: re-check it against the installed version and say `current`, `stale`, `contradicted` or `could not verify`. Order, evidence line and stop rule: `references/source-check.md`. |
 | 4 | **Is there a working reference?** | An existing call site in this repo, or a known-good implementation. "It should work like this" is not one. |
 | 5 | **Is the root cause known?** | For a fix: the *cause*, not the symptom. Unknown → this is a [[systematic-debugging]] task, not an implementation task. |
 | 6 | **Can it be PROVEN when it is done — with what is running right now?** | Name the thing that will show it works — the suite, a migration applied to a real database, a request against a running service — and confirm it is reachable *before* starting, not after. One command. Measured: an agent spent 44 minutes and 167k tokens producing a migration, then found the database daemon was down and returned unverified. A precondition discovered at the end costs the whole run. |
+| 7 | **What must it reach?** | List what the change breaks if it is done alone: every caller of a function whose signature or behaviour changes (grep the name), the tests and fixtures that assert the old behaviour, config and exports that name it. Every one is in scope; a caller left on the old shape is a bug shipped with a green diff. |
 
 ## The verdict is not a score
-The tempting form is a weighted score with a threshold. It is theatre: with six checks and any sane bar, a
+The tempting form is a weighted score with a threshold. It is theatre: with seven checks and any sane bar, a
 single failure sinks it anyway, so the weights only decorate a decision that was already binary. So: **any "no"
 is a stop.** Say which check failed and do the one thing that answers it — search, read the doc, find the
 reference, debug the cause — then start. If the user wants to proceed with a known gap, that is their call to
 make explicitly, and it gets written down as an assumption, not swallowed.
 
-Checks 3–6 do not apply to every task (a pure refactor has no external claim and no bug; a change the suite alone
-proves needs nothing brought up). Mark those **n/a**
+Checks 3–7 do not apply to every task (a pure refactor has no external claim and no bug; a change the suite alone
+proves needs nothing brought up; a new file nothing calls yet reaches nothing). Mark those **n/a**
 with a reason — n/a is a judgement you are stating, not a check you are skipping.
 
 An ambiguity you cannot resolve is not a failed check — it is a `[NEEDS CLARIFICATION: …]` marker
@@ -60,9 +61,10 @@ So when a gate is knowingly bypassed, write one line where the decision lives �
 The `revisit` field is what separates a decision from a leak: a bypass with no condition attached is permanent
 by default, and nobody chose that. Never write this on the model's own authority — a bypass is the user's call,
 so the line records *their* decision, and its absence means the gate was not bypassed at all.
+A recorded bypass is not a deferral (`CLAUDE.md`, "No deferral"): the user chose the cost, in writing.
 
 ## Output
-Six lines, one per check: `✅ <what was run/read>` or `❌ <what is missing>` or `n/a — <why>`. Then either
+Seven lines, one per check: `✅ <what was run/read>` or `❌ <what is missing>` or `n/a — <why>`. Then either
 "starting" or the single action that unblocks it. Keep it to the main thread; it is a handful of lines, not a
 document.
 

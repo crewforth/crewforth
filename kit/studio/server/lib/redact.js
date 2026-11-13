@@ -20,7 +20,7 @@ export const SAFE_STRING_KEYS = new Set([
   // kinds and states
   'kind', 'status', 'launchStatus', 'trigger', 'role', 'reason',
   // which model and which kind of agent, and which tool (a tool's NAME, never its input)
-  'model', 'modelAsked', 'models', 'unpriced', 'agentType', 'toolName', 'lastTool', 'version',
+  'model', 'modelAsked', 'effort', 'models', 'unpriced', 'agentType', 'toolName', 'lastTool', 'version',
   // where, as the machine knows it rather than as anybody wrote it
   'cwd', 'gitBranch', 'dir', 'url', 'read', 'at',
 ]);

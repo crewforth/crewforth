@@ -132,6 +132,7 @@ another machine's sessions, so a peer is another Studio.
 | Source | What it gives |
 |---|---|
 | `claude agents --json` | Live sessions on this machine: name, cwd, busy/waiting/idle, what it is waiting for |
+| `<config>/sessions/<pid>.json` and the last transcript write | Since when: a session that says busy or waiting and has written nothing for an hour is shown as quiet. The file is believed only when it names the session |
 | `<session>.jsonl` and `<session>/subagents/` | The delegation graph, nested workflow runs included |
 | `.claude/VERSION` per project | Which projects run an old Crewforth, against the npm dist-tags feed |
 
@@ -233,8 +234,9 @@ Crewforth's own tools say, including when they say they cannot answer:
 One distinction is carried all the way to the screen. A gate event from a
 session the panel started arrives through `--include-hook-events` and carries
 the moment it happened, so it is listed under **Happened**. A line in
-`gate-log.tsv` does not — that format has no timestamp column — so those are
-listed under **Observed**, with the reason written out. Drawing the second as
+`gate-log.tsv` is listed under **Observed**: since 3.5.0 a line carries the time
+it was written (UTC) in a fifth column and the panel shows it; an older line
+has none, and the reason is written out. Drawing the second as
 the first would be the first untrue thing in this panel.
 
 `gate-report.sh` finds the hooks relative to where it runs: `./.claude/hooks`

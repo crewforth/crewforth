@@ -6,6 +6,8 @@
 // anywhere but on screen. Keys, ids and comparisons use the type.
 
 // A word that is not written the way capitalising its first letter would write it.
+import { t } from './i18n.js';
+
 const WORD = { devops: 'DevOps' };
 
 /** The type as the transcript has it; an agent with none is said to have none. */
@@ -27,7 +29,7 @@ export function roleName(type) {
 }
 
 /** The name a node is drawn with. */
-export const shownType = (n) => roleName(typeOf(n));
+export const shownType = (n) => (n?.agentType ? roleName(n.agentType) : t('unknown agent'));
 
 /** What hovering an agent says: the type as it is declared, and its task in full, since both are cut on screen. */
 /**
@@ -39,12 +41,13 @@ export const shownType = (n) => roleName(typeOf(n));
 export function originOf(type, origins) {
   if (!origins || typeof type !== 'string' || !type) return null;
   const at = type.indexOf(':');
-  if (at > 0 && at < type.length - 1) return `Defined in the plugin \u201c${type.slice(0, at)}\u201d`;
-  if (origins.project && Object.hasOwn(origins.project, type)) return `Defined in this project: .claude/agents/${origins.project[type]}`;
-  if (origins.user && Object.hasOwn(origins.user, type)) return `Defined in your own agents: ~/.claude/agents/${origins.user[type]}`;
-  const unread = [origins.project ? null : 'the project', origins.user ? null : 'your own'].filter(Boolean);
-  return unread.length === 2 ? 'Where it is defined was not read: no agents directory in the project or your own'
-    : `No definition file found${unread.length ? ` (${unread[0]} agents directory was not read)` : ''}: built in to Claude Code, or defined where Studio does not look`;
+  if (at > 0 && at < type.length - 1) return t('Defined in the plugin \u201c{plugin}\u201d', { plugin: type.slice(0, at) });
+  if (origins.project && Object.hasOwn(origins.project, type)) return t('Defined in this project: .claude/agents/{file}', { file: origins.project[type] });
+  if (origins.user && Object.hasOwn(origins.user, type)) return t('Defined in your own agents: ~/.claude/agents/{file}', { file: origins.user[type] });
+  if (!origins.project && !origins.user) return t('Where it is defined was not read: no agents directory in the project or your own');
+  if (!origins.project) return t('No definition file found (the project agents directory was not read): built in to Claude Code, or defined where Studio does not look');
+  if (!origins.user) return t('No definition file found (your own agents directory was not read): built in to Claude Code, or defined where Studio does not look');
+  return t('No definition file found: built in to Claude Code, or defined where Studio does not look');
 }
 
 export const hoverOf = (n) => [n?.agentType ?? null, n?.description ?? null].filter(Boolean).join('\n');
@@ -84,23 +87,32 @@ export function modelName(model) {
   return [words.join(' '), nums.join('.')].filter(Boolean).join(' ');
 }
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** An effort level as the call named it, or null for anything that is not one. */
+export const effortOf = (v) => (typeof v === 'string' && EFFORTS.includes(v) ? v : null);
+
 /**
  * What a node ran on and what its call asked for, and whether the two agree.
  * A call asks with a family ("sonnet") or with an id; it agrees with what ran when the family is the same and,
  * if it named an id, the id is. A call that named nothing asked for the agent's default, and agrees with anything.
- * @returns { ran, asked, differs, title } — `ran` and `asked` are badge words, '' when not known
+ * The effort is the one the call asked for (its own `effort` field); the transcript does not record the level an
+ * agent actually ran at, so it is shown as asked and '' when the call named none.
+ * @returns { ran, asked, effort, label, differs, title } — `ran` and `asked` are badge words, '' when not known;
+ * `label` is `ran` with the effort after it ("Opus 5.5 · high")
  */
 export function modelOf(n) {
   const ran = modelName(n?.model);
   const asked = n?.modelAsked ? modelName(n.modelAsked) : '';
   const differs = Boolean(n?.model && n?.modelAsked)
     && (modelFamily(n.model) !== modelFamily(n.modelAsked) || (n.modelAsked.includes('-') && n.modelAsked !== n.model));
+  const effort = effortOf(n?.effort) ?? '';
   const title = [
-    `Ran on: ${n?.model ?? 'not recorded'}`,
-    `Asked for: ${n?.modelAsked ?? 'no model named (the agent\'s default)'}`,
-    differs ? 'The two differ.' : null,
+    t('Ran on: {model}', { model: n?.model ?? t('not recorded') }),
+    t('Asked for: {model}', { model: n?.modelAsked ?? t('no model named (the agent\'s default)') }),
+    effort ? t('Effort asked for: {effort}', { effort }) : null,
+    differs ? t('The two differ.') : null,
   ].filter(Boolean).join('\n');
-  return { ran, asked, differs, title };
+  return { ran, asked, effort, label: effort && (ran || asked) ? `${ran || asked} \u00b7 ${effort}` : (ran || asked), differs, title };
 }
 
 /** "2 Sonnet, 1 Opus": how many of a group's agents ran on each family, most first. */
@@ -124,5 +136,5 @@ export function modelBadge(n) {
   if (!m.ran) return '';
   const word = (model) => { const f = modelFamily(model); return f ? f[0].toUpperCase() + f.slice(1) : modelName(model); };
   const text = n?.escalatedFrom?.from ? `${word(n.escalatedFrom.from)} \u2192 ${word(n.model)}` : m.ran;
-  return `${text}${m.differs ? ' \u2260' : ''}`;
+  return `${text}${m.effort ? ` \u00b7 ${m.effort}` : ''}${m.differs ? ' \u2260' : ''}`;
 }

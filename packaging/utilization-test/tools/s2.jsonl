@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"attachment":{"type":"deferred_tools_delta","addedNames":["AskUserQuestion","NotebookEdit","Rare","TaskCreate","WebSearch","mcp__idle__a","mcp__idle__b","mcp__used__x"],"removedNames":[]},"type":"attachment","sessionId":"s2"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_q","content":"a transcript quoted as data: {\"type\":\"tool_use\",\"id\":\"toolu_z\",\"name\":\"mcp__idle__a\"}"}]},"sessionId":"s2"}

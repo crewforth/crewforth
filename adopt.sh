@@ -40,6 +40,7 @@ Crewforth'u MEVCUT bir projeye kurar ya da kurulu olanı yeniler. Önce projeyi 
 projenin kendi dosyalarına, hook'larına ve status line'ına dokunmaz. Değişiklikleri hazırlar (stage), commit atmaz.
   --here         değişiklikleri şu anki dalda yap
   --new-branch   değişiklikleri yeni bir inceleme dalında yap (ilk kurulumda varsayılan)
+  --ignore-local yok sayılacak satırları .gitignore yerine .git/info/exclude'a yaz (yalnız bu klon)
   --yes, -y      her soruya evet de (gözetimsiz kurulum)
   --lang tr|en   dil (verilmezse sorulur)
   --version, -v  Crewforth sürümünü yazdırıp çık
@@ -52,6 +53,7 @@ Installs Crewforth into an EXISTING project, or refreshes an install. It reads t
 will do; the project's own files, hooks and status line are left alone. Changes are staged, never committed.
   --here         make the changes on the current branch
   --new-branch   make the changes on a fresh review branch (the default for a first adopt)
+  --ignore-local write the ignore lines to .git/info/exclude instead of .gitignore (this clone only)
   --yes, -y      answer yes at every gate (unattended)
   --lang tr|en   language (asked when not given)
   --version, -v  print Crewforth's version and exit
@@ -64,6 +66,15 @@ unset _hl _hh _ht
 
 SRC="$HERE/kit"
 [ -d "$SRC" ] || { echo "ERROR: kit/ not found (must be in the same directory as adopt.sh)."; exit 1; }
+# A payload that lost files (a truncated archive, a folder dropped in a copy) is refused before the first write, so
+# a broken download says so instead of installing gates that fail on every call. English, like the check above: it
+# answers before the language is chosen. eval/lib/payload-check.sh says what it reads.
+if [ "${CREW_PAYLOAD_UNCHECKED:-0}" != 1 ] && [ -f "$SRC/eval/lib/payload-check.sh" ]; then
+  _pc="$(bash "$SRC/eval/lib/payload-check.sh" "$SRC" 2>&1)" || {
+    echo "ERROR: the kit/ payload is incomplete — nothing installed:"; printf '%s\n' "$_pc" | sed 's/^/  /'
+    echo "Download it again (npx crewforth@latest, or a fresh archive). CREW_PAYLOAD_UNCHECKED=1 installs it anyway."
+    exit 1; }
+fi
 
 # --- flags (B5 — where a refresh lands) ---  --here: the current branch · --new-branch: a fresh review branch.
 # Left empty, Stage 2 picks a smart default (first adopt -> new; update + untracked .claude -> here; update +
@@ -79,6 +90,7 @@ for _a in "$@"; do
   --preset)     _preset_take=1 ;;
   --here)       BRANCH_MODE=here ;;
   --new-branch) BRANCH_MODE=new  ;;
+  --ignore-local) GI_LOCAL=1 ;;     # ignore lines go to .git/info/exclude, not the tracked .gitignore (K12)
   --yes|-y)     ASSUME_YES=1     ;;   # assume "yes" at every gate — for agent-driven / CI updates (no TTY to prompt)
   --lang=*)     _lang_flag="${_a#--lang=}" ;;
   --lang)       _lang_take=1 ;;
@@ -132,6 +144,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
   local s="$1"; shift
   if [ "$CREW_LANG" = tr ]; then
     case "$s" in
+      "Verify commands an agent may run, read from the project: %s (delete a line of .claude/crew-model-rules to take one back)") s="Ajanların doğrulama komutu olarak çalıştırabileceği proje komutları: %s (birini geri almak için .claude/crew-model-rules dosyasındaki satırını silin)" ;;
       "crewforth adopt · Stage 1 — DETECTION (read-only; nothing changes)") s='crewforth adopt · Aşama 1 — TESPİT (salt okunur, hiçbir şey değişmez)' ;;
       "Reads the existing project, produces a smart suggestion for the 7 handover decisions. Approval + mutation in the next stage.") s='Projeyi okur ve devralma için 7 karara akıllı bir öneri çıkarır. Onay ve değişiklikler sonraki aşamada.' ;;
       "[1] Environment") s='[1] Ortam' ;;
@@ -323,6 +336,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "settings.json: %s") s='settings.json: %s' ;;
       "merge failed -> project setting PRESERVED (not overwritten)") s='birleştirme başarısız -> proje ayarı KORUNDU (üzerine yazılmadı)' ;;
       "existing file is INVALID JSON -> merge ABORT (no silent overwrite). Fix it by hand first.") s='mevcut dosya GEÇERSİZ JSON -> birleştirme İPTAL (üzerine sessizce yazılmaz). Önce elle düzeltin.' ;;
+      "existing file has a hook entry Claude Code rejects (it then ignores the whole file) -> merge ABORT. Fix the entries below by hand first.") s="mevcut dosyada Claude Code'un reddettiği bir hook girdisi var (o zaman dosyanın tamamını yok sayar) -> birleştirme İPTAL. Önce aşağıdaki girdileri elle düzeltin." ;;
       "settings.json: retired §4.4 ask rule(s) REMOVED (%s) — guard-bash.sh now asks for these itself; an ask rule would override its CLAUDE_GIT_OK allow. Re-add one only if your project wants that trade.") s='settings.json: emekliye ayrılan §4.4 ask kuralları KALDIRILDI (%s) — bunları artık guard-bash.sh kendisi soruyor; bir ask kuralı onun CLAUDE_GIT_OK iznini ezerdi. Bu bedeli bilerek istiyorsanız geri ekleyin.' ;;
       "Stage 4 — arm the git gates (SHIM via husky) + PROOF") s='Aşama 4 — git kapılarını devreye al (husky üzerinden SHIM) + KANIT' ;;
       "core.hooksPath -> .claude/hooks (no existing hook chain)") s='core.hooksPath -> .claude/hooks (başka hook zinciri yok)' ;;
@@ -359,6 +373,8 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "%s written") s='%s yazıldı' ;;
       "%s written (persistent handover decision)") s='%s yazıldı (devralmanın kalıcı karar kaydı)' ;;
       "%s already exists — untouched (never-overwrite)") s='%s zaten var — dokunulmadı (üzerine asla yazılmaz)' ;;
+      "STOP: .claude/hooks already holds files under names Crewforth installs as its gates:%s") s="DUR: .claude/hooks içinde Crewforth'un kapı olarak kurduğu adlarla dosyalar zaten var:%s" ;;
+      "Crewforth did not write them. A first adopt would keep them, make them your git hooks and run them during the install. Nothing was changed. Look at them, move them out of .claude/hooks, then run adopt again.") s="Bunları Crewforth yazmadı. İlk kurulum onları olduğu gibi bırakır, git hook'larınız yapar ve kurulum sırasında çalıştırırdı. Hiçbir şey değişmedi. Dosyalara bakın, .claude/hooks dışına taşıyın, sonra adopt'u yeniden çalıştırın." ;;
       "+ .gitattributes: eol pins so the shared hooks stay LF on a Windows checkout") s="+ .gitattributes: paylaşılan hook'lar Windows checkout'unda LF kalsın diye eol sabitlendi" ;;
       "Review in your editor — nothing committed yet") s='Editörünüzde inceleyin — henüz hiçbir şey commit edilmedi' ;;
       "staged") s='stage edilen' ;;
@@ -449,20 +465,21 @@ ask_yes(){ local a q w
 #     collected a second, redundant line. `git check-ignore` asks about the PATH rather than the spelling,
 #     which is the technique this script already uses at the #4 share branch and never applied to its own
 #     writes. Outside a repository there is nothing to ask, so the literal test stays as the fallback.
-gi_add() {   # $@ = entries to ensure in ./.gitignore; sets GI_WROTE to what it actually added
+gi_add() {   # $@ = entries to ensure in $GI_FILE (./.gitignore unless --ignore-local); sets GI_WROTE to what it added
   local e
   GI_WROTE=""
-  [ -e .gitignore ] || : > .gitignore
+  local gf="${GI_FILE:-.gitignore}"
+  mkdir -p "$(dirname "$gf")" 2>/dev/null; [ -e "$gf" ] || : > "$gf"
   for e in "$@"; do
     if git rev-parse --git-dir >/dev/null 2>&1; then
       git check-ignore -q --no-index "$e" 2>/dev/null && continue   # --no-index: a dir holding tracked files (docs/HANDOVER.md) still counts as ignored
     else
-      grep -qxF "$e" .gitignore 2>/dev/null && continue
+      grep -qxF "$e" "$gf" 2>/dev/null && continue
     fi
-    if [ -s .gitignore ] && [ "$(tail -c 1 .gitignore | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
-      printf '\n' >> .gitignore
+    if [ -s "$gf" ] && [ "$(tail -c 1 "$gf" | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
+      printf '\n' >> "$gf"
     fi
-    printf '%s\n' "$e" >> .gitignore
+    printf '%s\n' "$e" >> "$gf"
     GI_WROTE="$GI_WROTE $e"
   done
   GI_WROTE="${GI_WROTE# }"
@@ -706,6 +723,22 @@ KIT_PRESENT=0; KIT_VER=""
 # not make a never-installed project look installed — that turns on the force-refresh and overwrites its files.
 if [ "$KIT_PRESENT" = 0 ]; then for n in $KIT_OLD; do [ -f ".claude/agents/$n.md" ] && { KIT_PRESENT=1; break; }; done; fi
 [ -f .claude/VERSION ] && KIT_VER="$(head -1 .claude/VERSION 2>/dev/null)"
+# A FRESH adopt keeps a file it finds (never-overwrite), and then makes .claude/hooks the git hooks directory, runs
+# pre-commit there as its proof, runs guard-bash.sh and skill-trust.sh, and wires the rest into settings.json. So a
+# file already sitting in .claude/hooks under a name Crewforth ships would be run as Crewforth, by the user, during
+# the install and on every commit after it. Git never runs hooks that arrive with a clone; a cloned repository that
+# carries .claude/hooks/pre-commit would make this installer do exactly that. Nothing has changed yet at this
+# point, so the run stops here and names the files. An update (KIT_PRESENT=1) refreshes every one of them from
+# the payload instead, so it is not affected.
+if [ "$KIT_PRESENT" = 0 ] && [ -d .claude/hooks ]; then
+  _planted=""
+  for _hf in "$SRC"/hooks/*; do [ -f "$_hf" ] || continue; _hn="${_hf##*/}"; [ -e ".claude/hooks/$_hn" ] || [ -L ".claude/hooks/$_hn" ] && _planted="$_planted $_hn"; done
+  if [ -n "$_planted" ]; then
+    _mt 'STOP: .claude/hooks already holds files under names Crewforth installs as its gates:%s' "$_planted"; printf '%s\n' "$_M"
+    _mt 'Crewforth did not write them. A first adopt would keep them, make them your git hooks and run them during the install. Nothing was changed. Look at them, move them out of .claude/hooks, then run adopt again.'; printf '%s\n' "$_M"
+    exit 1
+  fi
+fi
 # Backend pattern of the existing install. Since 3.0 there is ONE shape (generic) and this only answers a
 # migration question: was this a pre-3.0 .NET install? If so its pattern skill stays, as the project's own.
 # LEGACY_PROFILE is a pre-2.0 leftover of the same kind: it selects nothing, it only drives a notice.
@@ -1243,7 +1276,7 @@ done
 # kit-owned trees: FORCE-refresh on a re-adopt (KIT_PRESENT) so kit updates land; never-overwrite on a fresh adopt
 copy_noclobber "$SRC/agents"   .claude/agents   "$KIT_PRESENT" "$EXCL_A"; A_ADD=$ret_add; A_SKIP=$ret_skip
 # The summary counts skills and commands the way the README does — one per skill, a `kind: command` skill as a
-# command, an `experimental: true` one as neither. copy_noclobber counts FILES (a skill with references/ is several),
+# command, an `experimental: "true"` one as neither. copy_noclobber counts FILES (a skill with references/ is several),
 # which is how an update from 2.13.0 once reported "skills +75" for 39 skills. A skill counts as added when the
 # copy put it there or refreshed it; one that was excluded, or that a fresh adopt found already present and left
 # alone, counts as skipped. The "already present" answer is taken before the copy, with builtins only.
@@ -1254,7 +1287,7 @@ for kd in "$SRC"/skills/*/; do
   [ -f "$kd/SKILL.md" ] || continue; kn="${kd%/}"; kn="${kn##*/}"; _k=0; _e=0; _d=0
   while IFS= read -r _l || [ -n "$_l" ]; do
     _l="${_l%$'\r'}"
-    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true") _e=1 ;; esac
+    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true"|"  experimental: \"true\"") _e=1 ;; esac
   done < "$kd/SKILL.md"
   [ "$_e" = 1 ] && continue
   _got=1
@@ -1587,6 +1620,14 @@ fi
 # The organisation's preset (checked before anything was changed): a block at the top of crew-model-rules. Without
 # --preset an update leaves the block that is there, with the project's own lines, as they were.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
+# The project's own test, lint and type-check commands become `verify` lines of .claude/crew-model-rules
+# (eval/lib/verify-detect.sh), so an agent's verify command runs them from the first card on; the user is told which,
+# here, and takes one back by deleting its line. One already added once is not added again after it was deleted.
+if [ -f .claude/eval/lib/verify-detect.sh ] && [ -f .claude/eval/lib/verify-cmd.sh ]; then
+  _VD_ADDED=""
+  . .claude/eval/lib/verify-cmd.sh && . .claude/eval/lib/verify-detect.sh && crew_verify_detect_apply . 2>/dev/null
+  [ -n "$_VD_ADDED" ] && { _mt 'Verify commands an agent may run, read from the project: %s (delete a line of .claude/crew-model-rules to take one back)' "$_VD_ADDED"; echo "  ${_M}"; }
+fi
 # What changed, for /crew-update to report: the package's own CHANGELOG sections newer than the version this
 # project had, and no newer than the one being installed — read from the package on disk, never from the network.
 # A fresh adopt has no "before", so it gets no file (and a stale one from an earlier update is removed).
@@ -1687,6 +1728,8 @@ fi
 # ask rule prompts even when a hook returns "allow" (Claude Code permissions doc), which made the hook's
 # CLAUDE_GIT_OK pre-authorisation dead: a headless session was refused `git add` and never committed. The hook
 # now asks for all four itself. These exact strings are the kit's own; a project that wants them can re-add them.
+# The same holds for a kit ask rule the project ALLOWS verbatim (say "Bash(docker:*)"): ask outranks allow, so
+# re-adding the kit's copy on every update silently undid that choice. The merge leaves such a rule out of ask.
 # ONE path on every OS: the merge is kit/eval/lib/settings-json.awk (POSIX awk; its header holds the
 # reader contract and the merge semantics). jq and python3 are absent on a stock Windows Git-Bash, where python3
 # is often the Microsoft Store stub (exit 49); the old per-tool arms REPLACED the file there and lost the project's
@@ -1704,10 +1747,16 @@ SET_FRESH=0
 if [ ! -f "$PSET" ]; then
   SET_FRESH=1
   [ -f "$KSET" ] && { cp "$KSET" "$PSET"; say "settings.json: was missing in the project -> Crewforth's was installed"; }
+# The hook entries Claude Code would reject (a hook without "type", a "command" that is not a string, a matcher that
+# is not a string): it ignores the WHOLE settings.json then, so every gate is off and nothing says so. A project file
+# like that is not merged into (the merge would carry the entry along); the problems are named and the file is left.
+elif SET_HC="$(awk -v op=hookcheck -f "$SET_AWK" "$PSET" 2>/dev/null)"; [ "$?" = 1 ]; then
+  SET_NOTE="existing file has a hook entry Claude Code rejects (it then ignores the whole file) -> merge ABORT. Fix the entries below by hand first."
+  _mt "$SET_NOTE"; warnm 'settings.json: %s' "$_M"; printf '%s\n' "$SET_HC" | sed 's/^/      /'
 else
   awk -v op=merge -v retired='Bash(git add:*)|Bash(git commit:*)|Bash(git push:*)|Bash(git checkout -b:*)' -f "$SET_AWK" "$KSET" "$PSET" > "$PSET.tmp" 2>/dev/null
   case "$?" in
-    0) if [ -s "$PSET.tmp" ] && awk -v op=validate -f "$SET_AWK" "$PSET.tmp" 2>/dev/null; then
+    0) if [ -s "$PSET.tmp" ] && awk -v op=validate -f "$SET_AWK" "$PSET.tmp" 2>/dev/null && awk -v op=hookcheck -f "$SET_AWK" "$PSET.tmp" >/dev/null 2>&1; then
          # Written THROUGH the existing file, not swapped in with mv: a symlinked settings.json (a team's shared
          # file) keeps its link and gets the merge, and a 0600 mode survives.
          cat "$PSET.tmp" > "$PSET"; say 'settings.json: hook-aware MERGE (Crewforth hooks refreshed - %s)' "$KEPT"
@@ -1729,8 +1778,9 @@ elif [ "$SET_FRESH" = 1 ]; then HAND_SET="Crewforth's settings.json installed (t
 else HAND_SET="hook-aware merge (Crewforth hooks REFRESHED to current — new events + timeouts land; your own custom hooks/permissions PRESERVED${RET_GONE:+, except the retired §4.4 ask rule(s) REMOVED: $RET_GONE — guard-bash.sh asks for these itself})"; fi
 
 # The status line, only where none is set (a user's own would lose to the project's setting, so it is never
-# replaced). eval/lib/statusline.sh --install decides and writes; this only says what it did.
-if [ -f .claude/eval/lib/statusline.sh ]; then
+# replaced). eval/lib/statusline.sh --install decides and writes; this only says what it did. Not after a refused
+# merge: that file was left as it was on purpose, and the status line is a write to it.
+if [ -z "$SET_NOTE" ] && [ -f .claude/eval/lib/statusline.sh ]; then
   case "$(bash .claude/eval/lib/statusline.sh --install 2>/dev/null)" in
     installed) say "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost)." ;;
     kept) say "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor)." ;;
@@ -2040,6 +2090,10 @@ fi
 # adoption was receiving its own threat model and security findings along with it.
 # `.claude/.state/` for the same reason as the review record: it is this machine's runtime state (the update
 # check's cache and answers, the pre-update snapshot) and a tracked .claude/ would otherwise put it in git status.
+# K12: --ignore-local sends these lines to this clone's info/exclude (asked of git, so a worktree finds the shared
+# one) and leaves the tracked .gitignore alone. adopt always runs in a repository, so the path always resolves.
+GI_FILE=.gitignore
+[ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
 gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.

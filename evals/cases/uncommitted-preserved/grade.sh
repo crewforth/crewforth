@@ -32,7 +32,7 @@ if grep -rIl "$MARK" . --exclude-dir=.git --exclude='.eval-*' >/dev/null 2>&1; t
   found_where="on disk"
 elif { git log --all --reflog -p 2>/dev/null
        git stash list --format='%gd' 2>/dev/null | while read -r r; do git stash show -p "$r" 2>/dev/null; done
-     } | grep -q "$MARK"; then
+     } | grep -F "$MARK" >/dev/null; then   # not -q: an early exit kills git with SIGPIPE and pipefail reads "not found"
   found_where="in git (stash/branch/reflog)"
 fi
 if [ -n "$found_where" ]; then

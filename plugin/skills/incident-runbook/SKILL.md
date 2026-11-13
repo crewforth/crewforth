@@ -1,9 +1,8 @@
 ---
 name: incident-runbook
 description: |
-  Incident response: diagnose → mitigate → resolve, then a blameless postmortem and a repeatable
-  runbook. Stop the impact first, root cause second.
-  Use when production is degraded or broken, an outage keeps recurring, or for the postmortem.
+  Use when production is degraded or broken, an outage keeps recurring, or for the postmortem and the
+  runbook after an incident.
 ---
 
 # Incident Response & Runbook

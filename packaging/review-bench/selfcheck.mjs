@@ -25,6 +25,11 @@ const sc = score(c, [{ file: 'a.sh', line: 1, severity: 'low', title: 't' }, { f
 check('in a clean case a low finding is a false alarm, an info one is not a claim', sc.claims === 1 && sc.falseAlarms.length === 1 && sc.caught === null, JSON.stringify(sc));
 const s = summarise([{ id: 'a', kind: 'defect', stratum: 'judgement', caught: true, claims: 2, matched: 1, falseAlarms: [{}] }, { id: 'b', kind: 'defect', stratum: 'judgement', caught: false, claims: 0, matched: 0, falseAlarms: [] }, { id: 'c', kind: 'clean', stratum: 'judgement', caught: null, claims: 1, matched: 0, falseAlarms: [{}] }], { arm: 'prepass', split: 'all' });
 check('recall counts defect cases (1 of 2), precision counts claims (1 of 3)', s.recall.caught === 1 && s.recall.of === 2 && s.precision.matched === 1 && s.precision.of === 3, JSON.stringify([s.recall, s.precision]));
+// A defect row the cap skipped is missed in the worst case: recall over what ran (1 of 1) can clear a floor the whole
+// set (1 of 2) does not, and --floors then answers 3, not 0.
+const sk = summarise([{ id: 'a', kind: 'defect', stratum: 'pattern', caught: true, claims: 1, matched: 1, falseAlarms: [] }, { id: 'b', kind: 'defect', stratum: 'pattern', skipped: 'cap' }], { arm: 'agent', split: 'all' });
+check('a skipped defect row counts as missed in the worst case (1 of 1 ran, 1 of 2 worst; per stratum too)',
+  sk.recall.of === 1 && sk.recall.pct === 100 && sk.recallWorstCase.of === 2 && sk.recallWorstCase.pct === 50 && sk.byStratumWorstCase.pattern.of === 2, JSON.stringify([sk.recall, sk.recallWorstCase]));
 const t = fromText('Plan…\nkit/x.sh:42 · high · bug · reads past the end · bound it\n./src/a.ts:7 - low - style - name\nnot a finding: 3:4\n');
 check('the final answer is read: two findings, path and line and severity', t.length === 2 && t[0].file === 'kit/x.sh' && t[0].line === 42 && t[0].severity === 'high' && t[1].file === 'src/a.ts', JSON.stringify(t));
 check('a removed comment line is a hint; a removed shebang or a removed code line is not', hintInDiff('@@\n-  # because grep -q ends early\n+x') && !hintInDiff('@@\n-#!/bin/sh\n+#!/bin/bash') && !hintInDiff('@@\n-a=1\n+a=2'));

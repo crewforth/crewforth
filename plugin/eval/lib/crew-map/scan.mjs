@@ -5,6 +5,7 @@
 //   node scan.mjs [--root DIR]            scan, verify, write DIR/.crewforth/crew-map.json, print its path
 //   node scan.mjs [--root DIR] --stdout   scan and verify; print the document, write nothing
 //   node scan.mjs [--root DIR] --check    rc 0 when the file on disk is what a scan writes now, 1 when it is not
+//   node scan.mjs [--root DIR] --contracts  rc 0 when .crewforth/contracts.md is absent or every rule and cite holds
 //       rc 1 = the scan produced a document that does not verify (nothing is written) · rc 2 = usage
 //
 // What it guarantees, each one a gate in packaging/crew-map-test:
@@ -17,19 +18,20 @@
 //   no machine    paths are relative to the project root; the findings core refuses a document that carries the
 //                 machine's own directories
 //   honest        what it cannot read goes to notMeasured with the reason, never read partly
-//   cheap         two child processes per scan (git ls-files, git rev-parse), none per file
+//   cheap         three child processes per scan (git ls-files, git rev-parse, git log), none per file
 //
 // Host-independent like the findings core: plain JSON out, Node's standard library only, no hook payload read.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned, isTestPath, ev } from './project.mjs';
+import { openProject, loadSecretPatterns, makeHostFilter, sortEv, bearsValues, risky, spawned, isTestPath, isTestModule, ev, run } from './project.mjs';
 import { scanStacks, applyTech } from './stacks.mjs';
 import { externals, configuration, codeUrls, servedCalls, endpoints, containers } from './surface.mjs';
 import { detect } from './detect.mjs';
 import { stamp, write, serialize, validate, OUT_DIR } from '../findings/findings.mjs';
-import { carry, strip, validate as validateNarrative } from './narrative.mjs';
+import { carry, steady, validate as validateNarrative } from './narrative.mjs';
+import { CONTRACTS_FILE, validate as validateContracts } from './contracts.mjs';
 
 // Languages with source the scanner has no reader for, by extension.
 const UNREAD = { swift: 'Swift', rb: 'Ruby', php: 'PHP', rs: 'Rust', scala: 'Scala', ex: 'Elixir', exs: 'Elixir',
@@ -87,6 +89,81 @@ function structure(m) {
   return { folders: shown, ...(rest ? { otherFiles: rest } : {}), testFiles: tests };
 }
 
+/**
+ * Where a module's tests are, by their names: test files among its own source (x.test.ts, test_x.py, x_test.go,
+ * XTests.cs, a tests/ folder), and the files of a test project named for it (Api.Tests, api-test, core_tests).
+ * Twelve paths at most, the count always whole, the order the same on every machine. A reader about to change the
+ * module learns which tests to run before guessing.
+ */
+const MAX_TESTS = 12;
+const TEST_NAME = /[._-]?(unit|integration|functional|e2e)?[._-]?tests?$/i;
+function testsOf(modules) {
+  const byName = new Map();
+  for (const m of modules) byName.set(`${m.stack}\u0000${m.name.toLowerCase()}`, m);
+  const linked = new Map();
+  for (const t of modules) {
+    if (!isTestModule(t) || !TEST_NAME.test(t.name)) continue;
+    const base = t.name.replace(TEST_NAME, '').toLowerCase();
+    const target = base && byName.get(`${t.stack}\u0000${base}`);
+    if (target && target !== t) (linked.get(target.id) ?? linked.set(target.id, []).get(target.id)).push(t);
+  }
+  const out = new Map();
+  for (const m of modules) {
+    const from = linked.get(m.id) ?? [];
+    const files = [...new Set([...m.files.filter((f) => isTestPath(f)), ...from.flatMap((t) => t.files)])].sort(cmp);
+    if (files.length) out.set(m.id, { files: files.slice(0, MAX_TESTS), total: files.length, ...(from.length ? { modules: from.map((t) => t.id).sort(cmp) } : {}) });
+  }
+  return out;
+}
+
+/**
+ * How often each module changed: in how many of the last WINDOW commits on HEAD a file under its folder changed
+ * (the deepest module folder that holds the file; renames followed; paths and commits limited to the scanned root
+ * when it is a folder inside a larger repository). One `git log` for the whole project, never one
+ * per module or file, and none of the repository's own programs: no fsmonitor, signature check, external diff or
+ * textconv. A count window, not a date window, so the same commit gives the same numbers on every machine. These
+ * numbers move with every commit, so --check and the rescan ledger leave them out.
+ */
+const WINDOW = 500;
+function churnOf(pj, modules) {
+  if (!pj.git || !pj.commit) return null;
+  const r = run('git', ['-c', 'log.showSignature=false', '-c', 'log.follow=false', 'log', '-M', '--name-only', '--no-ext-diff', '--no-textconv', '--no-notes',
+    '--relative', '--pretty=format:%x00', '-n', String(WINDOW), 'HEAD', '--', '.'], pj.root);
+  if (!r.ok) return null;
+  const dirs = [...new Set(modules.map((m) => m.dir))].sort((a, b) => b.length - a.length || cmp(a, b));
+  const owner = (f) => dirs.find((d) => d === '.' || f === d || f.startsWith(`${d}/`));
+  const counts = new Map();
+  const commits = r.out.split('\0').slice(1);
+  for (const c of commits) {
+    const hit = new Set();
+    for (const f of c.split('\n')) { const d = f && owner(f.replace(/\r$/, '')); if (d) hit.add(d); }
+    for (const d of hit) counts.set(d, (counts.get(d) ?? 0) + 1);
+  }
+  return { window: commits.length, of: (m) => counts.get(m.dir) ?? 0 };
+}
+
+/**
+ * What the code says about itself where it explains a choice or admits a debt: a comment whose first word is WHY,
+ * HACK or FIXME, in the module's own source (tests apart). The citation is the marker and what follows it on the
+ * line, cut at 72 characters; a line the secret net flags is cited by the marker word alone. Five lines at most, the
+ * count always whole, so /crew-map's tour can point at the reason a piece of code looks the way it does.
+ */
+const MARKER = /(?:^|[\s;])(?:\/\/+|#+|\/\*+|\*|--|<!--)\s*((?:WHY|HACK|FIXME)\b(?![\w-]).*)$/;
+function markersOf(pj, m, patterns) {
+  const out = [];
+  for (const f of m.files) {
+    if (isTestPath(f)) continue;
+    const src = pj.read(f); if (!src) continue;
+    src.lines.forEach((l, i) => {
+      const x = MARKER.exec(l); if (!x) return;
+      const word = /^\w+/.exec(x[1])[0];
+      const quote = x[1].replace(/\s*(\*\/|-->)\s*$/, '').slice(0, 72).trimEnd();
+      out.push(ev(f, i + 1, risky(quote, patterns) >= 0 ? word : quote));
+    });
+  }
+  return out;
+}
+
 // opts.hostFilter replaces the masking: ONLY the gate's must-fail twin uses it. No command-line flag reaches it.
 export function scan(root = '.', opts = {}) {
   const pj = openProject(root);
@@ -104,6 +181,8 @@ export function scan(root = '.', opts = {}) {
   const eps = endpoints(pj, st, out);
   const services = containers(pj, st, rules, hostOf, ex, cfg, out);
   const findings = detect({ st, cfg, eps, names, stdlib, notMeasured: out.notMeasured, configUrls: out.configUrls, codeHosts: out.codeHosts });
+  const tests = testsOf(st.modules);
+  const churn = churnOf(pj, st.modules);
 
   const ids = new Set([...st.modules.map((m) => m.id), ...services.map((s) => s.id), ...ex.ext.keys()]);
   for (const m of st.modules) {
@@ -144,7 +223,10 @@ export function scan(root = '.', opts = {}) {
       ...(m.entry ? { entryPoint: m.entryEv ? { evidence: [m.entryEv] } : { file: m.entryFile, evidence: [] } } : {}),
       dependencies: m.deps.length,
       structure: structure(m),
+      ...(tests.has(m.id) ? { tests: tests.get(m.id) } : {}),
+      ...(churn ? { commits: churn.of(m) } : {}),
       ...((() => { const a = aboutOf(pj, m); return a ? { about: a } : {}; })()),
+      ...((() => { const k = markersOf(pj, m, patterns); return k.length ? { markers: capped(k) } : {}; })()),
       ...capped(m.evidence), narrative: null })),
     ...services.map((s) => ({ id: s.id, kind: 'service', name: s.name, ...(s.image ? { image: s.image } : {}), ...capped(s.evidence), narrative: null })),
     ...[...ex.ext.values()].map((n) => ({ id: n.id, kind: 'external', resource: n.resource, label: n.label, hosts: [...n.hosts].sort(), ...capped(n.evidence), narrative: null })),
@@ -157,15 +239,18 @@ export function scan(root = '.', opts = {}) {
       [b.module, b.path, b.method, b.evidence[0].file, String(b.evidence[0].line).padStart(9, '0')].join('\u0000')));
   };
   const nm = new Map();
+  // After every read (the nodes' README included), so a file that failed late is still said.
+  for (const f of pj.unreadable) out.notMeasured.push({ what: f, reason: 'could not be read' });
+  for (const f of pj.binary) out.notMeasured.push({ what: f, reason: 'binary, not read' });
   for (const x of out.notMeasured) nm.set(`${x.what}\u0000${x.reason}`, x);
 
   const stacks = [...new Set([...st.modules.map((m) => m.stack), ...(services.length ? ['container'] : [])])].sort();
   const doc = {
     schema: SCHEMA,
     producer: { name: NAME, version: '1' },
-    ...(pj.commit ? { source: { commit: pj.commit } } : {}),
+    ...(pj.commit ? { source: { commit: pj.commit, ...(churn ? { commitsRead: churn.window } : {}) } } : {}),
     stacks,
-    coverage: { files: pj.files.length, modules: st.modules.length, listing: pj.git ? 'git' : 'walk' },
+    coverage: { files: pj.files.length, modules: st.modules.length, listing: pj.git ? 'git' : 'walk', ...(pj.ignoreRules ? { excluded: pj.excluded } : {}) },
     nodes,
     edges,
     provides: { endpoints: epSort(eps.provides) },
@@ -193,12 +278,12 @@ export function scan(root = '.', opts = {}) {
   }
   const report = stamp(doc, pj.root);
   for (const c of cites) if (c.sha256 && (bearsValues(c.file) || risky(lineAt(c), patterns) >= 0)) delete c.sha256;
-  return { doc, report, spawned: spawned.count };
+  return { doc, report, spawned: spawned.count, files: new Set(pj.files), read: pj.read };
 }
 
 function usage(msg) {
   if (msg) console.error(`crew-map: ${msg}`);
-  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate]');
+  console.error('usage: scan.mjs [--root DIR] [--stdout | --check | --validate | --contracts | --force]');
   return 2;
 }
 
@@ -211,17 +296,51 @@ function summary(doc) {
     + `${doc.findings.length} finding(s) (${hidden} hidden by default) · ${doc.notMeasured.length} not measured`;
 }
 
+// What a rescan changed, by stable id, so the reader sees which modules came, went or moved and not only a byte
+// count: nodes added, removed and changed (any scanner field but the commit count; descriptions are not the scan's), edges added and
+// removed by from → to and kind. At most eight ids are named per list; the count is always whole.
+export function ledger(was, doc) {
+  const bare = (n) => { const { narrative, commits, ...rest } = n; return JSON.stringify(rest); };
+  const before = new Map((was.nodes ?? []).map((n) => [n.id, bare(n)]));
+  const after = new Map(doc.nodes.map((n) => [n.id, bare(n)]));
+  const added = [...after.keys()].filter((k) => !before.has(k));
+  const removed = [...before.keys()].filter((k) => !after.has(k));
+  const changed = [...after.keys()].filter((k) => before.has(k) && before.get(k) !== after.get(k));
+  const ek = (e) => `${e.from} → ${e.to} (${e.kind})`;
+  const eb = new Set((was.edges ?? []).map(ek)); const ea = new Set(doc.edges.map(ek));
+  const eAdded = [...ea].filter((k) => !eb.has(k)); const eRemoved = [...eb].filter((k) => !ea.has(k));
+  if (!added.length && !removed.length && !changed.length && !eAdded.length && !eRemoved.length) return 'crew-map: since the last scan: no node or edge changed';
+  const list = (xs) => (xs.length ? ` ${xs.length}: ${xs.slice(0, 8).join(', ')}${xs.length > 8 ? `, … ${xs.length - 8} more` : ''}` : ' 0');
+  return ['crew-map: since the last scan:', `  nodes added${list(added)}`, `  nodes removed${list(removed)}`, `  nodes changed${list(changed)}`,
+    `  edges added${list(eAdded)}`, `  edges removed${list(eRemoved)}`].join('\n');
+}
+
 export function main(argv) {
-  let root = '.'; let mode = 'write';
+  let root = '.'; let mode = 'write'; let force = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--root') { root = argv[++i]; if (root === undefined) return usage('--root needs a directory'); }
-    else if (a === '--stdout' || a === '--check' || a === '--validate') { if (mode !== 'write') return usage('--stdout, --check and --validate do not go together'); mode = a.slice(2); }
+    else if (a === '--force') force = true;
+    else if (a === '--stdout' || a === '--check' || a === '--validate' || a === '--contracts') { if (mode !== 'write') return usage('--stdout, --check, --validate and --contracts do not go together'); mode = a.slice(2); }
     else return usage(`no such option: ${a}`);
   }
   try { if (!fs.statSync(root).isDirectory()) throw new Error('not a directory'); }
   catch (e) { console.error(`crew-map: --root ${root}: ${e.message}`); return 2; }
-  const { doc, report } = scan(root);
+  const { doc, report, files, read } = scan(root);
+  // The project's own rules (contracts.mjs): every cite must land on a name in a file of this tree.
+  const contracts = () => {
+    let text = null; try { text = fs.readFileSync(path.join(root, CONTRACTS_FILE), 'utf8'); } catch { /* none */ }
+    if (text === null) return { n: 0, problems: [], absent: true };
+    const r = validateContracts(text, files, read);
+    return { n: r.contracts.length, problems: r.problems.map((p) => ({ at: `contracts ${p.at}`, message: p.message })) };
+  };
+  if (mode === 'contracts') {
+    const c = contracts();
+    if (c.absent) { console.log(`crew-map: ${CONTRACTS_FILE} does not exist, so there is nothing to hold`); return 0; }
+    for (const p of c.problems) console.log(`  FAIL ${p.at}: ${p.message}`);
+    console.log(c.problems.length ? `crew-map: ${c.problems.length} problem(s) in ${CONTRACTS_FILE}` : `crew-map: ${CONTRACTS_FILE} holds: ${c.n} contract(s), every cite names a symbol in a file of this tree`);
+    return c.problems.length ? 1 : 0;
+  }
   if (!report.ok) {
     for (const p of report.problems) console.error(`  FAIL ${p.at}: ${p.code} — ${p.message}`);
     console.error('crew-map: the scan produced citations that do not verify, so nothing was written (a scanner defect)');
@@ -233,11 +352,12 @@ export function main(argv) {
   let was = null; try { was = old === null ? null : JSON.parse(old); } catch { /* unreadable: different */ }
   if (mode === 'validate') {
     if (!was) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json ${old === null ? 'does not exist' : 'is not JSON'}`); return 1; }
-    const problems = validateNarrative(was, doc, serialize);
+    const c = contracts();
+    const problems = [...validateNarrative(was, doc, serialize), ...c.problems];
     const written = (was.nodes ?? []).filter((n) => n.narrative != null).length + (was.overview != null ? 1 : 0);
-    if (!problems.length) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json holds: ${written} description(s), each citing lines the scan read; the scanner's fields untouched`); return 0; }
+    if (!problems.length) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json holds: ${written} description(s), each citing lines the scan read; the scanner's fields untouched${c.absent ? '' : `; ${c.n} contract(s) in ${CONTRACTS_FILE}, every cite landing`}`); return 0; }
     for (const p of problems) console.log(`  FAIL ${p.at}: ${p.message}`);
-    console.log(`crew-map: ${problems.length} problem(s); fix the descriptions, never the scanner's fields`);
+    console.log(`crew-map: ${problems.length} problem(s); fix the descriptions or contracts.md, never the scanner's fields`);
     return 1;
   }
   if (mode === 'check') {
@@ -245,7 +365,8 @@ export function main(argv) {
     // The content is compared, not the commit it was written at: a map committed to the repository is always
     // one commit behind the commit that carries it, and that alone does not make it stale. What the model wrote
     // (narrative, overview) is not the scan's, so it is left out of the comparison.
-    const bare = (d) => { const { source, ...rest } = strip(d); return serialize(rest); };
+    // How often each module changed moves with every commit too, so it is left out the same way.
+    const bare = (d) => serialize(steady(d));
     const then = was && was.source && was.source.commit; const now = doc.source && doc.source.commit;
     const at = then && now && then !== now ? ` (written at ${then.slice(0, 12)}, HEAD is ${now.slice(0, 12)})` : '';
     if (was && bare(was) === bare(doc)) { console.log(`crew-map: ${OUT_DIR}/${NAME}.json is up to date${at}`); return 0; }
@@ -254,8 +375,26 @@ export function main(argv) {
   }
   // The descriptions /crew-map wrote are kept where they still cite only lines this scan cites; the rest are dropped.
   const carried = was ? carry(was, doc) : { doc, kept: 0, dropped: 0 };
+  // A rescan that would lose most of what the map held is far more often a wrong --root or a damaged checkout than a
+  // project that halved: /crew-map never commits, so the descriptions it drops exist nowhere else. Write nothing and
+  // say both counts; --force writes it anyway. Only descriptions whose NODE is gone count here: one whose cited line
+  // moved is dropped by design on an ordinary edit, and that rescan must still write.
+  const modsOf = (d) => (d?.nodes ?? []).filter((n) => n.kind === 'module').length;
+  const shrank = [];
+  if (was) {
+    const ids = new Set(doc.nodes.map((n) => n.id));
+    const described = (was.nodes ?? []).filter((n) => n.narrative != null);
+    const orphaned = described.filter((n) => !ids.has(n.id)).length;
+    if (orphaned * 2 > described.length) shrank.push(`${orphaned} of ${described.length} described node(s) would be gone, with their descriptions`);
+    if (modsOf(doc) * 2 < modsOf(was)) shrank.push(`modules would fall from ${modsOf(was)} to ${modsOf(doc)}`);
+  }
+  if (shrank.length && !force) {
+    console.error(`crew-map: nothing written — ${shrank.join('; ')}. A wrong --root or a damaged checkout does this; if the project really changed, run again with --force`);
+    return 1;
+  }
   const r = write(carried.doc, root, NAME);
   if (!r.ok) { for (const p of r.problems) console.error(`  FAIL ${p.at}: ${p.code} — ${p.message}`); return 1; }
+  if (was) console.error(ledger(was, doc));
   console.error(summary(doc) + (carried.kept || carried.dropped ? ` · ${carried.kept} description(s) kept, ${carried.dropped} dropped (they cited lines this scan no longer reads)` : ''));
   console.log(r.file);
   return 0;

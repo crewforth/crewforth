@@ -1,9 +1,8 @@
 ---
 name: testing
 description: |
-  The how of testing: pyramid, AAA, isolation, risk coverage, determinism. Guarantees the DoD's "tests are
-  green". crew-test-expert applies it.
-  Use when writing or changing tests, or when a suite is flaky, slow or green for the wrong reason.
+  Use when writing or changing tests, when asked whether the tests are green after a change, or when a suite
+  is flaky, slow, or green for the wrong reason.
 ---
 
 # Testing Discipline
@@ -25,6 +24,15 @@ Goal: **behavior correctness** — test real behavior without breaking product c
 - **Flaky = bug:** an occasionally failing test is not tolerated; it is fixed at the root.
 - In snapshot/golden-file tests, avoid needless brittleness (assert only the meaningful output).
 
+## Excuses that skip a test
+
+| Excuse | Reality |
+|---|---|
+| "It is too simple to break." | Simple code breaks at its boundaries; the boundary test is the cheap one. |
+| "I'll add the test after it works." | After it works, the test is written to pass, not to catch. |
+| "I ran it by hand." | A hand check is not repeated on the next change. |
+| "The old test fails, so I updated the expected value." | Find out first whether the code or the expectation is wrong. |
+
 ## Tests that cannot fail
 
 Green is evidence only if the test could have gone red. Shapes that check nothing:
@@ -34,9 +42,16 @@ Green is evidence only if the test could have gone red. Shapes that check nothin
   both sides still matches.
 - **A double asserted against its own stub:** the fake is told to return X and the test asserts X; only the fake runs.
 - **No assertion:** it passes because nothing threw. If *not throwing* is the behavior under test, assert that.
+- **Synthetic input:** the test hands the function a value its real callers never produce, so it passes on a path the
+  bug never takes. Reproduce through the entry point the bug came in by (the CLI, the handler, the parser's output).
 
 **Prove it can fail:** break what the test covers — invert a condition, return a wrong constant — confirm it goes red,
 then restore. Still green means the test is documentation, not a gate: fix it or delete it, never count it as coverage.
+For a bug fix the same proof is the fix itself: the new test fails with the fix reverted and passes with it.
+- Before writing a test, name the production change that would make it fail. If only a deliberate edit of the test's
+  own expectation can fail it, it is a change detector, not a test.
+- A fake mirrors the real thing's whole shape (fields, errors, ordering), not only the part this test reads.
+- Cleanup and setup used only by tests live in test helpers, not as test-only branches in production code.
 
 ## Flaky triage
 An intermittent failure gets exactly one outcome, decided the day it is seen: **fix** it, **quarantine** it (out of

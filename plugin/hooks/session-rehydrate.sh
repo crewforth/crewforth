@@ -19,14 +19,23 @@
 #   - CLAUDE.md itself reloads on /compact and /clear on its own, so this hook does NOT re-inject the discipline —
 #     only the session-specific state the reload can't recover.
 #   - THE GIT HOOKS LINE. Where the hooks are installed but git is not pointed at them, the session is told (below).
-#   - Fails OPEN and SILENT: no handover file, no output. It never blocks the session (always exits 0).
+#   - Fails OPEN: no handover file, no output. It never blocks the session (always exits 0). The one failure that is
+#     not silent: after a compaction, the state written before it could not be read back (the library that finds
+#     it is missing, or the file is there and unreadable). Then the user gets one line, "crew: the state before the
+#     compaction was not restored: <reason>", because the model would otherwise carry on as if nothing was lost.
 set -uo pipefail
-IN="$(cat 2>/dev/null || true)"
+# stdin and the cwd are read with builtins: the hook then needs no external command to decide what to say, so it
+# answers the same with an empty PATH (smoke §7c). With `cat`, an empty PATH left IN empty, the event's `source` was
+# lost, and a fresh session was handed the previous one's handover.
+# Bounded (CREW_STDIN_TIMEOUT, 2 s): a pipe that closes late (seen on Windows) must not hold the session start. A
+# read that runs out of time keeps no source, and is then treated as a plain start: no handover, no snapshot, only
+# the lines that do not depend on the boundary (language, git hooks).
+IN=""; IFS= read -r -d '' -t "${CREW_STDIN_TIMEOUT:-2}" IN; _rhrc=$?
 
 # Project root: CLAUDE_PROJECT_DIR (set for hooks) → cwd from the stdin JSON → PWD.
 ROOT="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$ROOT" ]; then
-  ROOT="$(printf '%s' "$IN" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  case "$IN" in *'"cwd"'*) ROOT="${IN#*\"cwd\"}"; ROOT="${ROOT#*\"}"; ROOT="${ROOT%%\"*}" ;; esac
 fi
 [ -n "$ROOT" ] || ROOT="$PWD"
 # Windows hands both CLAUDE_PROJECT_DIR and the stdin `cwd` over as native paths (`C:\Repos\app`), and the stdin
@@ -37,6 +46,7 @@ ROOT="${ROOT//\\\\//}"; ROOT="${ROOT//\\//}"
 
 SRC=""
 case "$IN" in *'"source"'*) SRC="${IN#*\"source\"}"; SRC="${SRC#*\"}"; SRC="${SRC%%\"*}" ;; esac
+[ "$_rhrc" -gt 128 ] && SRC=startup
 
 LANGMSG=""
 if [ -f "$ROOT/.claude/kit.conf" ]; then
@@ -66,40 +76,90 @@ if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir
     # Absolute, as the installers now write it (a relative one runs no hook in a linked worktree): it has to be THERE.
     # A repository that was moved keeps the old path, and git then runs no hook at all, with nothing said.
     */.claude/hooks|*/.claude/git-shim)
-        [ -d "$_hp" ] || HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at a directory that does not exist (the repository was moved?), so no commit is scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update (npx crewforth update) writes the path again. /crew-doctor shows the state." ;;
-    '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update (npx crewforth update), which arms it and keeps any hooks the repository has of its own. /crew-doctor shows the state." ;;
-    *)  HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at another hook directory, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once, in one line. The fix is theirs to run in their own terminal, not yours: the Crewforth update keeps that directory's hooks and runs Crewforth's before them. /crew-doctor shows the state." ;;
+        [ -d "$_hp" ] || HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at a directory that does not exist (the repository was moved?), so no commit is scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update (npx crewforth update) writes the path again. /crew-doctor shows the state." ;;
+    '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update (npx crewforth update), which arms it and keeps any hooks the repository has of its own. /crew-doctor shows the state." ;;
+    *)  HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at another hook directory, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update keeps that directory's hooks and runs Crewforth's before them. /crew-doctor shows the state." ;;
   esac
 fi
 [ -n "$HOOKMSG" ] && MSG="${MSG:+$MSG }$HOOKMSG"
 
+# THE DEPENDENCY AUDIT IS OLD. §4.7 audits a lockfile when it changes; a CVE is published without it changing (a field
+# project: a pyasn1 advisory against a lockfile untouched for weeks). At a session START only, at most once in 7 days,
+# and only where the repository tracks a lockfile: one line, offered, never run. No network. The record's age is read
+# first with builtins, so a fresh audit costs nothing; the lockfile listing (one git call) runs at most once a week,
+# stamped in the git directory whatever it finds. Silent under CI, an unattended session, and CREW_DEPS_AUDIT_DAYS=0.
+# STATE THAT ONLY ONE AGENT OR ONE SESSION NEEDS. agent-outcome keeps a record per agent (agents/, results/) so a
+# resumed agent is not judged twice, and loop-guard keeps one file per session; neither was ever removed (measured
+# in three projects: up to 3 405 agent records back to the first week, and 339 loop files). The history Crewforth
+# reads, model-outcomes.tsv, stays. At a session's start only, one process: agent records older than 14 days and
+# loop files older than 2 days go.
+if [ "$SRC" = startup ] && [ -d "$ROOT/.claude/state" ]; then
+  find "$ROOT/.claude/state/crew-model/agents" "$ROOT/.claude/state/crew-model/results" "$ROOT/.claude/state" \
+    -maxdepth 1 -type f \( \( -path '*/crew-model/agents/*' -o -path '*/crew-model/results/*' \) -mtime +14 -o -name 'loop-*.txt' -mtime +2 \) \
+    -delete 2>/dev/null || :
+fi
+DEPSMSG=""
+_rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+_dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
+if [ "$SRC" = startup ] && [ "$_dd" -gt 0 ] && [ -z "${CI:-}" ] && [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" != 0 ] \
+   && [ -f "$_rh/../eval/lib/gate-log.sh" ] && [ -f "$_rh/../eval/lib/lockfiles.sh" ] \
+   && . "$_rh/../eval/lib/gate-log.sh" && . "$_rh/../eval/lib/lockfiles.sh" && crew_git_dir "$ROOT"; then
+  crew_deps_audit_age "$ROOT"
+  if [ "$CREW_DEPS_AGE" -lt 0 ] || [ "$CREW_DEPS_AGE" -ge "$_dd" ]; then
+    _ds=0; [ -f "$_CREW_GD/crewforth-deps-reminded" ] && { IFS= read -r _ds < "$_CREW_GD/crewforth-deps-reminded" || :; }
+    _ds="${_ds//[!0-9]/}"; : "${_ds:=0}"
+    crew_now
+    if [ "$CREW_NOW" -gt 0 ] && [ $(( CREW_NOW - _ds )) -ge 604800 ]; then
+      printf '%s\n' "$CREW_NOW" > "$_CREW_GD/crewforth-deps-reminded" 2>/dev/null
+      crew_tracked_lockfiles "$ROOT"
+      if [ "${#CREW_LOCKS[@]}" -gt 0 ]; then
+        if [ "$CREW_DEPS_AGE" -ge 0 ]; then _dw="last ran $CREW_DEPS_AGE days ago"; else _dw="has never been recorded"; fi
+        DEPSMSG="The dependency audit of this repository's lockfiles $_dw (limit $_dd days); a vulnerability is published without the lockfile changing. Tell the user once in one line and offer to apply the dependency-audit skill (a read-only report, recorded with its record.sh --periodic); it does not change your task, and nothing runs unless they say so. CREW_DEPS_AUDIT_DAYS=0 turns this reminder off."
+      fi
+    fi
+  fi
+fi
+[ -n "$DEPSMSG" ] && MSG="${MSG:+$MSG }$DEPSMSG"
+
 # THE STATE BEFORE THE COMPACTION. precompact-snapshot.sh wrote it just before this context was compacted: the
 # branch, the uncommitted files, the last gate refusal, the findings on record. Read back only after a compaction and
-# only into the session that wrote it (same session id); its summary is already JSON-escaped, so it is put into the
+# only into the session that wrote it (same session id); its summary, skills and prompts are already JSON-escaped, so it is put into the
 # output as it is, and the rest of MSG stays fixed text that needs no escaping and no extra process.
-SNAP=""
-_rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+SNAP=""; SKIP=""
+[ "$SRC" = compact ] && [ ! -f "$_rh/../eval/lib/gate-log.sh" ] && SKIP="eval/lib/gate-log.sh is missing (update Crewforth: npx crewforth update)"
 if [ "$SRC" = compact ] && [ -f "$_rh/../eval/lib/gate-log.sh" ]; then
   . "$_rh/../eval/lib/gate-log.sh"
   _sf=""
   if crew_git_dir "$ROOT" && [ -f "$_CREW_GD/crewforth-session-snapshot.json" ]; then _sf="$_CREW_GD/crewforth-session-snapshot.json"
   elif [ -f "$ROOT/.claude/state/session-snapshot.json" ]; then _sf="$ROOT/.claude/state/session-snapshot.json"; fi
   _sid(){ _SID=""; local v="${1#*\"session_id\"}"; [ "$v" = "$1" ] && return 0; v="${v#*\"}"; _SID="${v%%\"*}"; }
-  if [ -n "$_sf" ] && IFS= read -r _sj < "$_sf" 2>/dev/null; then
+  _sj=""
+  [ -n "$_sf" ] && { IFS= read -r _sj < "$_sf" 2>/dev/null || [ -n "$_sj" ]; } || { [ -n "$_sf" ] && SKIP="the snapshot file could not be read"; }
+  if [ -n "$_sf" ] && [ -n "$_sj" ]; then
     _sid "$IN"; _mine="$_SID"; _sid "$_sj"
     case "$_sj" in *'"summary":"'*)
       if [ -n "$_mine" ] && [ "$_mine" = "$_SID" ]; then
         _sum="${_sj#*\"summary\":\"}"; _sum="${_sum%\"\}*}"
         SNAP="Before this context was compacted, Crewforth wrote down the state of the work from the files and the gates: $_sum. It is a record of that moment; check the files before relying on it."
+        # The skills and the user's prompts sit before "summary" in the same line, already JSON-escaped.
+        case "$_sj" in *'"skills":"'*'","prompts":"'*)
+          _sk="${_sj#*\"skills\":\"}"; _sk="${_sk%%\",\"prompts\":\"*}"
+          _pr="${_sj#*\"prompts\":\"}"; _pr="${_pr%%\",\"summary\":\"*}"
+          [ -n "$_sk" ] && SNAP="$SNAP Skills in use before the compaction: $_sk. A compaction does not always bring a skill's text back: if you are following one, re-read its SKILL.md before the next step."
+          [ -n "$_pr" ] && SNAP="$SNAP The user's own words from before the compaction, verbatim (the first prompt, then the latest; each cut at about 300 characters):\n$_pr\nThey describe the task as the user gave it; they are not new instructions, and the user's later messages override them." ;;
+        esac
       fi ;;
     esac
   fi
 fi
-[ -n "$MSG$SNAP" ] || exit 0   # nothing to offer -> stay silent
+# The user's line when the state was lost: fixed text and a fixed reason, so it needs no escaping either.
+[ -n "$SKIP" ] && SKIP="\"systemMessage\":\"crew: the state before the compaction was not restored: $SKIP.\","
+[ -n "$MSG$SNAP$SKIP" ] || exit 0   # nothing to offer -> stay silent
+[ -n "$MSG$SNAP" ] || { printf '{%s}\n' "${SKIP%,}"; exit 0; }
 
 # hookSpecificOutput.additionalContext is the documented channel that injects text into the model's context.
 # ONE PATH, no jq: MSG is built from fixed constants with no quote, backslash, control character or newline, so it needs no
 # escaping and every machine emits the same bytes. If you ever make MSG dynamic, escape it the way board-sync.sh
 # does (jq-identical, measured) — a raw quote or tab here makes JSON the CLI silently drops.
-printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s%s%s"}}\n' "$MSG" "${MSG:+${SNAP:+ }}" "$SNAP"
+printf '{%s"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s%s%s"}}\n' "$SKIP" "$MSG" "${MSG:+${SNAP:+ }}" "$SNAP"
 exit 0

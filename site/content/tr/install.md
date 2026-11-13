@@ -20,7 +20,7 @@ bash adopt.sh               # mevcut proje (tazelemek için tekrar çalıştır�
 
 **Windows:** Crewforth bash tabanlıdır. **Git Bash** içinde çalıştırın ([git-scm.com](https://git-scm.com)); WSL de alternatif olur. Kapı hook'ları birer kabuk script'i olduğundan **onları çalıştıran şey Git Bash'tir (ya da WSL)**. İkisi de yoksa Claude Code PowerShell aracını kendiliğinden açar, hook'lar çalışamaz ve ortada kapı kalmaz. Bu yapılandırma kapı katmanınca desteklenmiyor; kurulum script'leri de orada zaten koşamaz. Git Bash varsa kapılar **iki kabuğu birden** kapsar: PowerShell aracı claude.ai ve Console hesaplarında varsayılan olarak açıktır ve onun komutları da aynı kurallardan geçer (`Remove-Item -Recurse -Force`, `… | iex`, `Get-Content .env` ve diğerleri).
 
-**Plugin sürümü:** iskele kurmadan; ajanlar, skill'ler, komutlar, kapı hook'ları ve Studio, mevcut Claude Code'unuzun içine:
+**Plugin sürümü:** iskele kurmadan; ajanlar, skill'ler, komutlar, kapı hook'ları ve Studio, mevcut Claude Code'unuzun içine. Çalışma kurallarının yazılacağı bir `CLAUDE.md` yok; bu yüzden çekirdekleri (yönlendirme, erteleme yok, yasaklar) oturum başında, `/clear` ve sıkıştırma sonrasında yeniden eklenir; metnin tamamı plugin'le gelir. Tam kurulumu da olan bir projede plugin hiçbir şey eklemez:
 
 ```bash
 /plugin marketplace add Crewforth/crewforth
@@ -48,7 +48,7 @@ Bedeli: liste bundan sonra her turda bütün hâlinde gönderilir; bu yaklaşık
 ## Yeni proje
 
 ```bash
-bash start.sh [--private|--shared] [--lang tr|en] [--yes] [--version] [-h]
+bash start.sh [--private|--shared] [--ignore-local] [--lang tr|en] [--yes] [--version] [-h]
 ```
 
 Sihirbaz önce hangi dilde konuşacağını sorar (Türkçe ya da İngilizce), ardından kurulumu kimin kullanacağını; sonunda hiçbir şey yazılmadan önce onaylayacağınız bir özet gösterir. Seçtiğiniz dil tüm sorulara ve mesajlara uygulanır; kurulan dosyalar İngilizce kalır.
@@ -61,6 +61,7 @@ Sihirbaz önce hangi dilde konuşacağını sorar (Türkçe ya da İngilizce), a
 |:--|:--|:--|
 | Dil | `--lang tr` · `--lang en` | kurulumun ekrana yazdıkları — diske yazdığı hiçbir şey değil |
 | Kimin için | `--private` · `--shared` | `.claude/` ve `CLAUDE.md`'nin gitignore'a mı gireceği, yoksa ekip için commit mi edileceği |
+| Yok sayma satırları nereye | `--ignore-local` (3. cevap) | izlenen `.gitignore` yerine yalnız bu klonun okuduğu `.git/info/exclude`; `adopt` da kabul eder |
 
 **Backend yığından bağımsızdır.** Kurulum yığın sormaz. İlk backend işinde `backend-architecture` skill'i yığını çözer: önce isteğiniz, sonra `CLAUDE.md`'deki `## Stack` bölümü, sonra deponun manifest dosyaları (`package.json`, `go.mod`, `pyproject.toml`, `*.csproj`, …); yalnız boş bir depoda, her birinde önerilen bir cevap ve "Decide for me" seçeneği olan en fazla dört çoktan seçmeli soru sorar. Cevap `## Stack` bölümüne yazılır ve bir ADR ile kaydedilir; yani bir kez sorulur. Node, Go, Python, .NET ve JVM eşit desteklenir; `.claude/skills/` altına kendi desen skill'ini koyan projede o uygulanır.
 
@@ -102,6 +103,14 @@ Değişikliğin nereye ineceği bir tercih. İlk devir `kit-adopt-<zaman damgas�
 Oturum içinde **`/crew-update`** sürüm kontrolünü yapar, güncelleyiciyi koşturur, `/crew-doctor` ile doğrular ve ardından `/clear` önerir; böylece tazelenen disiplin yeni bir oturumda yüklenir. **`/crew-doctor`** ise canlı bir kurulumu istediğiniz an denetler (hook'lar çalıştırılabilir mi, `core.hooksPath` ayarlı mı, kapılar bağlı mı, disiplin gerçekten import edilmiş mi) ve projenin kendisi için tavsiye niteliğinde bir hazırlık puanı basar.
 
 Bir projenin `CLAUDE.md` dosyası disiplini import etmek yerine **satır içinde** taşıyorsa güncellemeler oraya ulaşamaz. Güncelleyici bunu fark eder, etkilenen satırları gösterir ve onları tek bir `@.claude/DISCIPLINE.md` import'uyla değiştirmeyi önerir; önce yedek alır, işi de sizin inceleyeceğiniz bir dalda yapar. Reddederseniz hiçbir şeye dokunulmaz.
+
+## Worktree'lerde paralel oturumlar
+
+claude-squad ve benzeri araçlar her oturumu ayrı bir git worktree'sinde başlatır. `.claude/` gitignore'daysa (`npx crewforth init` onu öyle bırakır) yeni bir worktree'de Crewforth dosyası yoktur, bu yüzden orada başlatılan bir Claude Code oturumu Crewforth'un hiçbir hook'unu koşmaz. Git hook'ları orada da koşar, çünkü `core.hooksPath` mutlak yol olarak yazılır. Oturumu başlatmadan önce `.claude/` klasörünü worktree'ye kopyalayın. Proje kökünde `/crew-doctor`, `.claude/settings.json` olmayan her worktree'yi adıyla söyler. İzlenen (tracked) bir `.claude/` için kopya gerekmez: worktree onu checkout eder.
+
+## Kaldırma
+
+`npx crewforth remove` neyi çıkaracağını gösterir ve hiçbir şeyi değiştirmez; `npx crewforth remove --apply` işi yapar. `settings.json` içinde `.claude/hooks/` koşturan her hook girdisini (sizin hook'larınız kalır), Crewforth'un durum satırını ve yalnız kapı varken güvenli olan genel `Bash` iznini çıkarır, `core.hooksPath` ayarını geri alır (siler ya da shim'in koşturduğu hook zincirine döndürür). Crewforth'un dosyaları `.claude/.crewforth-removed-<zaman>/` altına taşınır; hiçbir şey silinmez, kendi ajan ve skill'leriniz yerinde kalır. `CLAUDE.md` dosyasına hiç dokunulmaz: komut silmeniz için `@.claude/DISCIPLINE.md` satırını gösterir. Eklenti kurulumu `/plugin uninstall crewforth` ile kaldırılır.
 
 ## Telemetri
 

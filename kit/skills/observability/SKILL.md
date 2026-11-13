@@ -1,15 +1,13 @@
 ---
 name: observability
 description: |
-  Stack-agnostic observability: structured logs, correlation ids, metrics and traces; no PII or secrets in logs.
-  Makes a production issue traceable to why it happened.
   Use when adding a log line, an error path, a metric, or when an incident could not be traced.
 ---
 
 # Observability
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "observability", "structured logging", "structured log", "add a trace", "add a metric", "correlation id", "add logging"
+Trigger phrases: "observability", "structured logging", "structured log", "add a trace", "add a metric", "add metrics", "correlation id", "add logging"
 
 Goal: to be able to answer "what happened, where, why" during a production incident **by looking at the logs**.
 It is stack-agnostic; when you need a framework-specific library/format, do a web search.
@@ -29,6 +27,9 @@ It is stack-agnostic; when you need a framework-specific library/format, do a we
 - [ ] The correlation id is **propagated** across service-to-service calls (header/propagation)
 
 ## How
+0. **The questions first.** Write the 2-4 questions on-call will ask when this breaks ("which tenant's payments are
+   failing?", "is it us or the provider?"). Every log field, metric and alert added here answers one of them; a
+   signal that answers none is noise (invariant 4).
 1. **Structured logger** — set up/use one whose output is machine-readable (JSON). Search for the library the framework recommends.
 2. **Correlation id**: generate it at the entry point (HTTP middleware / message consumer) or take it from the incoming `X-Request-Id`/trace header; put it in the log context; **propagate** it to downstream calls.
 3. **Level discipline**: INFO = business event, WARN = expected-but-noteworthy, ERROR = needs intervention. DEBUG is off/sampled in production.
@@ -48,3 +49,12 @@ It is stack-agnostic; when you need a framework-specific library/format, do a we
 3. **No PII/secret is logged** — mask it or use an opaque id.
 4. **Do not make noise** — every line must answer a question; do not add meaningless spam logs.
 5. **Match the existing format** — if the repo has a logger, follow its pattern; do not impose a new one.
+6. **Metric labels stay low-cardinality** — no user id, email, request id, raw URL or free text as a label: each
+   distinct value is a new series, and the bill and the query time grow with them. Those values go in logs and
+   traces; a label holds a route template (`/orders/:id`), a status class, a region.
+
+## DoD
+- Each question from step 0 can be answered from the signals added.
+- One failure was induced on purpose and found again by its correlation id, from the entry point to the failing call.
+- Every new alert was test-fired once and reached the place it pages.
+- No PII or secret in any line, label or span attribute.

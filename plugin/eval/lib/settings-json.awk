@@ -17,6 +17,11 @@
 #   awk -v op=overlay -v key=K [-v setk=M -v setv=RAWJSON] -f settings-json.awk FILE1 FILE2
 #       FILE1 with FILE1.K shallow-merged from FILE2.K (FILE2 wins, FILE1's other members and order kept), then
 #       member M set to RAWJSON. rc 10 = FILE1 (or its K) is not an object, 11 = FILE2 has no object at K.
+#   awk -v op=hookcheck -f settings-json.awk FILE   the "hooks" block holds the shape Claude Code accepts: an object of
+#       arrays, each entry an object whose "matcher" (when present) is a string and whose "hooks" is an array of
+#       objects with a string "type", and a string "command" when the type is "command". Claude Code discards the
+#       WHOLE file on a mismatch, every gate with it. rc 0 = fine (or no "hooks"), 1 = one problem per line on
+#       stdout, as hooks.EVENT.N[.hooks.M]: what is wrong, 10 = FILE is not a JSON object.
 #   awk -v op=merge -v retired='R1|R2' -f settings-json.awk KIT PROJECT > OUT
 #       rc 0 = merged JSON on stdout · 10 = PROJECT is not a JSON object · 11 = KIT is not · 12 = "hooks" has a
 #       shape the merge cannot place (not an object of arrays). Nothing is printed on a non-zero rc. The codes sit
@@ -30,7 +35,8 @@
 # Merge semantics (what the former jq program in adopt.sh did, held to it by the parity fixture in
 # packaging/e2e.sh): objects deep-merge, the PROJECT's scalar wins, arrays concat+dedup with Crewforth's entries
 # first, and "hooks" is rebuilt per event as Crewforth's entries followed by the project's entries that do not
-# reference .claude/hooks/ (in "command" or "args"). permissions.ask then loses every rule named in -v retired.
+# reference .claude/hooks/ (in "command" or "args"). permissions.ask then loses every rule named in -v retired and
+# every rule the PROJECT's own permissions.allow names verbatim (ask outranks allow, so it would undo that choice).
 # Output is pretty-printed with two-space indent, the layout jq writes, so merging Crewforth onto itself gives its
 # own bytes back.
 # The text is split into CH[] once. substr(S,P,1) is O(len) per call on BSD awk, which made a 1 MB file take ~20 s;
@@ -134,6 +140,19 @@ END{
       print (it && !isnull(it) ? V[it] : 0) + V[cr] + (cc && !isnull(cc) ? V[cc] : 0); exit 0 }
     exit 0 }
   if(op=="validate") exit !doc(1)
+  if(op=="hookcheck"){ if(!(r=doc(1))) exit 10; h=get(r,"\"hooks\""); if(!h) exit 0; bad=0
+    if(T[h]!="o"){ print "hooks: not an object"; exit 1 }
+    for(i=1;i<=N[h];i++){ ev=substr(K[h,i],2,length(K[h,i])-2); a=C[h,i]
+      if(T[a]!="a"){ print "hooks." ev ": not an array"; bad=1; continue }
+      for(j=1;j<=N[a];j++){ e=C[a,j]; w="hooks." ev "." (j-1)
+        if(T[e]!="o"){ print w ": not an object"; bad=1; continue }
+        m=get(e,"\"matcher\""); if(m && !(T[m]=="s" && substr(V[m],1,1)=="\"")){ print w ": matcher is not a string"; bad=1 }
+        hs=get(e,"\"hooks\""); if(!hs || T[hs]!="a"){ print w ": no \"hooks\" array"; bad=1; continue }
+        for(k=1;k<=N[hs];k++){ o=C[hs,k]; ww=w ".hooks." (k-1)
+          if(T[o]!="o"){ print ww ": not an object"; bad=1; continue }
+          t=get(o,"\"type\""); if(!t || !(T[t]=="s" && substr(V[t],1,1)=="\"")){ print ww ": no string \"type\""; bad=1; continue }
+          if(V[t]=="\"command\""){ c=get(o,"\"command\""); if(!c || !(T[c]=="s" && substr(V[c],1,1)=="\"")){ print ww ": type command without a string \"command\""; bad=1 } } } } }
+    exit bad }
   # gets: several paths in one read (path = "a.b|c.d"), their values on one line, tab-separated; an absent one is
   # empty. One process for what a hot caller (the status line) would otherwise read with one awk per field.
   if(op=="gets"){ if(!(r=doc(1))) exit 10; n=split(path,pp,"|"); o=""
@@ -162,6 +181,10 @@ END{
   for(i=1;i<=N[r];i++) if(K[r,i]=="\"hooks\""){ C[r,i]=h; h=0 }
   if(h) add(r,"\"hooks\"",h)
   n=split(retired,rr,"|"); for(i=1;i<=n;i++) ret["\"" rr[i] "\""]=1
+  # A rule the PROJECT allows verbatim is its own decision: Crewforth's ask copy would outrank it (ask beats allow)
+  # and come back on every update after the user deleted it, so it leaves ask like a retired one.
+  qp=get(p,"\"permissions\""); qa=(T[qp]=="o" ? get(qp,"\"allow\"") : 0)
+  if(T[qa]=="a") for(i=1;i<=N[qa];i++) if(T[C[qa,i]]=="s") ret[V[C[qa,i]]]=1
   pm=get(r,"\"permissions\""); ak=(T[pm]=="o" ? get(pm,"\"ask\"") : 0)
   if(T[ak]=="a"){ na=mk("a"); for(i=1;i<=N[ak];i++) if(T[C[ak,i]]!="s" || !(V[C[ak,i]] in ret)) add(na,"",C[ak,i])
     for(i=1;i<=N[pm];i++) if(K[pm,i]=="\"ask\"") C[pm,i]=na }

@@ -136,11 +136,54 @@ check("a line carrying this machine's home directory is cited by sha256, so the 
 const E = repo('allow', {}, { 'config/k.ts': `export const k = '${TOKEN}';\n`, '.secret-allowlist.txt': 'gh[pousr]_[A-Za-z0-9]{36,}\n' });
 check('a pattern the project allows (.secret-allowlist.txt, the exact line) is not a finding', none(prepass(E.root), 'config/k.ts'));
 
+// ---- 3b. the branch under review cannot make the pre-pass run a program ---------------------------------------
+{
+  const mark = path.join(TMP, 'fsmonitor-ran'); const hook = path.join(TMP, 'fsmonitor.sh');
+  fs.writeFileSync(hook, `#!/bin/sh\necho ran >> "${mark.replace(/\\/g, '/')}"\n`, { mode: 0o755 });
+  const H = repo('fsmonitor', { 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': 'export const a = 1;\nconsole.log(a);\n' });
+  g(H.root, 'config', 'core.fsmonitor', hook.replace(/\\/g, '/'));
+  g(H.root, 'diff', '--cached', '--name-only');
+  const live = fs.existsSync(mark); fs.rmSync(mark, { force: true });
+  if (!live) process.stdout.write('SKIP the pre-pass does not run core.fsmonitor — this git does not run it for diff, so the trap cannot be shown\n');
+  else {
+    const hd = prepass(H.root); const hb = prepass(H.root, { base: 'HEAD' });
+    check('the pre-pass (staged and --base) does not run the core.fsmonitor the repo names (a plain git diff did)',
+      !fs.existsSync(mark) && has(hd, 'prepass-debug-call', 'src/a.ts:2') && has(hb, 'prepass-debug-call', 'src/a.ts:2'), `${got(hd)} | ${got(hb)}`);
+  }
+}
+
 // ---- 4. the two modes, the command line, and the same bytes twice ---------------------------------------------
 const F = repo('base', { 'src/a.ts': 'export const a = 1;\n' }, {});
 g(F.root, 'checkout', '-qb', 'work'); F.put('src/a.ts', "export const a = 1;\nconsole.log(a);\n"); g(F.root, 'commit', '-qam', 'work');
 const staged = prepass(F.root); const based = prepass(F.root, { base: 'HEAD~1' });
 check('--base: the branch\'s change is read (the staged area is empty)', staged.findings.length === 0 && has(based, 'prepass-debug-call', 'src/a.ts:2'), `${got(staged)} | ${got(based)}`);
+// A new file nobody has added yet is part of the working tree under review; git diff never lists it.
+const U = repo('untracked', { 'src/a.ts': 'export const a = 1;\n', '.gitignore': 'tmp/\n' }, {});
+U.put('src/new.ts', 'export const n = 1;\nconsole.log(n);\n'); U.put('tmp/scratch.ts', 'console.log(1);\n');
+U.put('.crewforth/review-prepass.json', '{}\n'); fs.writeFileSync(path.join(U.root, 'logo.png'), Buffer.from([0x89, 0x50, 0, 1]));
+const ub = prepass(U.root, { base: 'HEAD' });
+check('--base: an untracked file is read in full, an ignored one is not, a binary one is not measured',
+  has(ub, 'prepass-debug-call', 'src/new.ts:2') && none(ub, 'tmp/scratch.ts') && ub.notMeasured.some((x) => x.what === 'logo.png') && ub.untracked === 2,
+  `${got(ub)} | untracked ${ub.untracked} | ${ub.notMeasured.map((x) => x.what).join(' ')}`);
+check('the staged mode still reads only what is staged (an untracked file is not in the next commit)', none(prepass(U.root), 'src/new.ts'));
+// What --base must not do with an untracked entry: follow a link out of the project, read a huge file whole, or
+// drop one it could not read. Each is said in notMeasured, and the document still verifies.
+const out1 = path.join(TMP, 'outside.js'); fs.writeFileSync(out1, 'console.log(2);\n');
+const V = repo('untracked-edges', { 'sub/a.ts': 'export const a = 1;\n' }, {});
+fs.symlinkSync(out1, path.join(V.root, 'link.js'));
+V.put('big.ts', 'x'.repeat(2 * 1024 * 1024 + 1)); V.put('sub/new.ts', 'console.log(1);\n'); V.put('locked.ts', 'console.log(3);\n');
+fs.chmodSync(path.join(V.root, 'locked.ts'), 0o000);
+let lockedReadable = true; try { fs.readFileSync(path.join(V.root, 'locked.ts')); } catch { lockedReadable = false; }
+const vb = prepass(V.root, { base: 'HEAD' });
+const nmv = (w, r) => vb.notMeasured.some((x) => x.what === w && x.reason.includes(r));
+check('--base: an untracked link is not followed, a file over 2 MiB is not read, each is said, and the document verifies',
+  none(vb, 'link.js') && nmv('link.js', 'symbolic link') && nmv('big.ts', 'over 2 MiB') && validate(vb, V.root).ok,
+  `${got(vb)} | ${vb.notMeasured.map((x) => `${x.what}: ${x.reason}`).join('; ')}`);
+if (lockedReadable) process.stdout.write('SKIP --base: an unreadable untracked file is said — chmod 000 does not stop reads here\n');
+else check('--base: an untracked file it cannot read is said, not dropped', nmv('locked.ts', 'could not be read'), vb.notMeasured.map((x) => x.what).join(' '));
+fs.chmodSync(path.join(V.root, 'locked.ts'), 0o644);
+const vs = prepass(path.join(V.root, 'sub'), { base: 'HEAD' });
+check('--base with --root a subdirectory: its untracked files are read, cited from that root', has(vs, 'prepass-debug-call', 'new.ts:1') && vs.untracked === 1, `${got(vs)} | untracked ${vs.untracked}`);
 const cli = (root, ...a) => spawnSync('bash', [path.join(LIB, 'prepass.sh'), '--root', root, ...a], { encoding: 'utf8', env: { ...ENV, CREW_SHELLCHECK: path.join(TMP, 'none') } });
 const w = cli(A.root);
 const out = path.join(A.root, '.crewforth', `${NAME}.json`);
@@ -156,6 +199,27 @@ check('an unknown argument: rc 2', cli(A.root, '--bogus').status === 2);
 // ---- 5. the diff reader on its own: a hunk with no count, a deleted file, a binary ----------------------------
 const r = addedLines('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/y b/y\n--- a/y\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\ndiff --git a/i.png b/i.png\nBinary files a/i.png and b/i.png differ\n');
 check('the diff reader: one added line at 1, the deleted file and the binary give no line', JSON.stringify(r.added) === JSON.stringify([{ file: 'x', line: 1, text: 'b' }]) && r.binary[0] === 'i.png', JSON.stringify(r));
+
+// ---- 6. a silenced checker, a replay in progress, and every skip named on the summary ---------------------------
+const SC = repo('silenced', { 'src/s.ts': 'export const a = 1;\n' }, {
+  'src/s.ts': 'export const a = 1;\nconst b = (x as any).y;\nconst c = x as unknown as Foo;\nconst d = asAny(x);\nconst e = x as anyThing;\n// a comment: x as any\n',
+  'src/s.test.ts': 'const m = (x as any).y;\n', 'notes.md': 'write x as any here\n',
+});
+const docSC = prepass(SC.root);
+check('silenced checker: `as any` and `as unknown as` on added lines are found',
+  has(docSC, 'prepass-silenced-checker', 'src/s.ts:2') && has(docSC, 'prepass-silenced-checker', 'src/s.ts:3'), got(docSC).join(', '));
+check('silenced checker near misses: asAny(), `as anyThing`, a comment, a test file and prose are silent',
+  docSC.findings.filter((f) => f.rule === 'prepass-silenced-checker').length === 2, got(docSC).join(', '));
+const RM = repo('replay', { 'a.ts': 'export const a = 1;\n' }, { 'a.ts': 'export const a = 2;\n' });
+const docR0 = prepass(RM.root);
+fs.writeFileSync(path.join(RM.root, '.git', 'MERGE_HEAD'), `${g(RM.root, 'rev-parse', 'HEAD').trim()}\n`);
+const docRM = prepass(RM.root);
+check('a merge in progress is said as not measured; with none, nothing is said about it',
+  docRM.notMeasured.some((x) => x.what === 'the change itself' && x.reason.includes('a merge is in progress')) && !docR0.notMeasured.some((x) => x.what === 'the change itself'),
+  docRM.notMeasured.map((x) => `${x.what}: ${x.reason}`).join('; '));
+const ncl = cli(RM.root, '--stdout');
+check('the summary is followed by a "not checked:" line naming each skip, and a clean run prints none',
+  ncl.status === 0 && /\nnot checked: the change itself \(a merge is in progress/.test(ncl.stderr) && !/not checked:/.test(cli(SC.root, '--stdout').stderr), ncl.stderr);
 
 console.log(`\nreview-prepass selfcheck: ${pass} passed · ${fail} failed`);
 process.exit(fail ? 1 : 0);

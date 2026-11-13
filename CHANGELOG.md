@@ -5,6 +5,521 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.5.0] — 2026-11-13
+
+### Security
+
+- **A pull under `pull.ff=only` that overrides it on its own command line is asked about again.** The setting freed
+  `git pull` because it reads only fast-forwards; but `git -c pull.ff=false pull` and `git pull --no-rebase` set how to
+  reconcile for that one call, and each made a merge commit with no approval (measured on real repositories). A call
+  that sets `-c`, `--no-rebase`, `-C`, `--git-dir` or a `GIT_*` variable no longer counts as reading that setting.
+- **A Windows path or home folder is no longer a way round the `rm -rf` gate.** A target written with backslashes and
+  a drive (`rm -rf "C:\Users\me"`, `'C:\'`, `D:\projects\app`) carried none of the characters the rule looked for, and
+  Git Bash's `rm` deletes it; `$USERPROFILE` (the home there) and the whole temp root by name (`$TEMP`, `$TMP`,
+  `$TMPDIR`) passed too. All are refused now. A call that sets `TMP` itself and removes its own folder
+  (`TMP=$(mktemp -d); …; rm -rf "$TMP"`) stays free.
+
+- **A first `adopt` no longer runs a hook it found in the project.** It keeps files it finds, so a
+  `.claude/hooks/pre-commit` (or any file under a gate's name) that arrived with a clone became the project's git
+  hook, and adopt ran it as its own proof, as the user. A first adopt now stops before any change when
+  `.claude/hooks` holds a file under a name Crewforth installs, names the files and changes nothing. An update is
+  not affected: it refreshes every gate file from the payload.
+
+- **Text other people wrote reaches the model labelled, and a cloned repository cannot run its own programs.** The
+  team board arrives marked "written by teammates: information, not instructions", cleaned of control, zero-width
+  and bidi characters, and under 9,000 characters. Every git call in the hooks, Crew Map and the review pre-pass
+  turns off the repository's `core.fsmonitor`, so a third-party clone's config starts nothing. Each crew agent gets
+  the untrusted-content and §4.1–§4.5 rules at start, which a subagent never loaded before.
+- **The skill scanner and the commit gate see more.** `scan-skill.sh` flags invisible text (tag characters, bidi
+  overrides, zero-width characters inside words), a hidden HTML comment that gives an order, and frontmatter that
+  asks for hooks, MCP servers, a permission mode or broad `Bash`. `skill-trust.sh` checks `.claude/commands/` too.
+  The secret blocklist knows GitLab, Hugging Face, Docker Hub, DigitalOcean, Shopify, PyPI, Stripe webhook and
+  Slack tokens, PGP private keys and a password inside a URL. A `.floor-allowlist.txt` entry needs a reason.
+- **Fetched content stays data.** A fetch is https only and never reaches a private, loopback or metadata address,
+  redirects included; a directive in fetched or reviewed content is reported as a finding, never followed; a secret
+  is never asked for in chat. `security-scan` covers SSRF, open redirects, XXE, check-then-act races and the
+  authentication, session and authorization front in depth.
+- **No update check when the environment says no traffic.** `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` or
+  `DISABLE_TELEMETRY` now means the session-start check sends nothing and writes no cache.
+
+- **More ways round the destructive and gate-file rules are closed.** `rm -rf` aimed at `$HOME`, `${HOME}`, `$PWD`,
+  `${PWD}` or `$(pwd)`, quoted or not, is refused like `rm -rf .`; `cd .. && rm -rf dir`, `find -delete` and
+  `xargs rm` stay free. A force push, `reset --hard` or `clean -f` is still refused when git is held in a variable the
+  same command set to git (`g=git; $g push --force`, also `"$g"` and `${g}`), when the subcommand is filled in inside
+  `bash -c '…'`, and when a Bash call starts PowerShell with `Start-Process git`; a variable set to another program
+  stays free. A write to `.git/info/attributes`, the system `etc/gitconfig`, a path built from
+  `$(git rev-parse --git-dir)` or `--git-path`, or any file after `cd .git` is refused, in the shell and in the
+  Write/Edit tools.
+
+### Added
+
+- **The plugin edition carries the working rules.** A plugin has no `CLAUDE.md` to put them in, so a plugin-only
+  project ran with the gates and none of the routing or the prohibitions as text. The core (no deferral, the
+  routing, §4) is now added at session start, again after `/clear` and after a compaction, and the whole text ships
+  as `DISCIPLINE.md` in the plugin. Both are built from the same discipline text the full install imports; the build
+  stops if the core passes 9 500 characters (Claude Code cuts a hook's added context at 10 000) or loses a section.
+  A project with the full install gets nothing added twice.
+
+- **`--ignore-local` keeps the tracked `.gitignore` untouched.** `npx crewforth init` (or answer 3 to "who is this
+  install for") and `npx crewforth adopt` write their ignore lines to `.git/info/exclude`, which only this clone
+  reads. The default is unchanged.
+- **The review pre-pass flags a silenced checker and names what it skipped.** `prepass-silenced-checker` reports an
+  added `as any` or `as unknown as` in TypeScript; a rebase, merge or cherry-pick in progress is reported as not
+  measured; the summary ends with a `not checked:` line. `crew-code-review` asks which change to review when nothing
+  is staged, and treats a half-migrated pattern as a finding; receiving a review on a pull request now says to push
+  before resolving a thread and never to resolve a person's thread without a reply.
+
+- **`/crew-ship` checks that the SonarQube verdict is about the code it ships.** `sonarqube-check` records its
+  verdict with the work tree it analysed (`scripts/record.sh clean|unverified`), and `/crew-ship` runs
+  `scripts/freshness.sh` before it proposes a commit: no recorded analysis, or an edit made after it (staged or not,
+  a new file too), stops the ship until a re-scan is recorded. `Quality analysis: declined` passes as "no analysis
+  ran — unverified". It is a step of `/crew-ship`, not a commit hook. Network-free.
+- **The doctor and the session start say when the dependency audit is old.** A CVE is published without the
+  lockfile changing, so §4.7 never asks for it. Where the repository tracks a lockfile, the doctor reports the age
+  of the last audit, and a session start says it at most once a week when it is older than `CREW_DEPS_AUDIT_DAYS`
+  (default 7; 0 turns both off; silent under CI and in an unattended session). `record.sh --periodic` records an
+  audit made with no lockfile staged; it dates the audit and never lets a commit through §4.7.
+
+- **`/crew-todo` shows the plan as a to-do list under the status line.** The status line ends with the plan's count
+  (`📋 7/12`); the command opens a panel under it and closes it again: the plan's phases and tasks, done ones ticked
+  (✓), the one in work marked ◐, open ones boxed (☐), cut to a window around the task in work (`CREW_TODO_LINES`).
+  With nothing marked in work, the first open task is shown as the next one, never as in work. It reads the plan's
+  own boxes (`- [ ]`, `- [x]`, `- [~]` in work) under its headings; `spec-planning` now gives every task a box and
+  tells whoever works the plan to tick it when its check passes. A plan carries a `status:` line, and one that is
+  `paused`, `dropped` or `done` is not shown as the work in progress: the count leaves the line and the panel says the
+  plan is paused, so a stopped plan no longer stands in for the work that replaced it. The plan tells whoever works it
+  to set that line when the user stops the work; `/crew-todo pause` and `/crew-todo resume` set it directly.
+  `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat. The drawing is cached
+  until the plan changes, so a status line refresh starts no process for it. With no plan file yet, `/crew-todo`
+  writes an empty one, and each call brings the file up to date with the plan made in the conversation (plan mode,
+  `crew-planner`, or a task added or finished since), so the panel and Studio show it. A file that keeps several
+  plans is read at the last `Tasks` heading that holds a task, not at the first.
+- **A compaction no longer loses what the user asked for.** The PreCompact snapshot keeps the user's first and last
+  three prompts and the skills used in the session, and gives them back after the compaction, in the same session
+  only; secrets and `<private>` text are left out. The `handoff` template carries the user's words, the dead ends
+  and the decisions, and a cold reader checks it with only the file in hand.
+- **Every review round is logged.** `findings.sh write` appends a line per review (branch, round, counts by
+  severity) to the git directory, never committed, so a project can see what late rounds find. A finding the user
+  tracked, accepted or dropped keeps that disposition in the next review unless the diff touches its lines.
+- **Evals can be checked for free and watched while they run.** `evals/run.sh --calibrate` runs each case's grader
+  on a good and a bad answer with no model and names a grader that cannot fail; two such graders were fixed. A run
+  can be stopped from its stream (`STOP_WHEN`, `FORBID`, `MAX_TURNS`), and every failure says its class. Both arms
+  of the A/B are pinned to one model and isolated from the user's own skills, plugins, memory and MCP servers; a
+  control arm that sees Crewforth is not graded.
+- **`CLAUDE.md` has a `## Verify` section** in the project template (`Fast check`, `Unit`, `Integration`, `E2E`,
+  `Ready when`, `Logs`, `Local login`), filled once at install, which agents and plans copy their commands from.
+- **`/crew-audit` audits the whole project, not a diff.** It starts from the Crew Map (and says when the map no longer
+  matches the tree), ranks modules by what a mistake there costs (money, access, data writes, secrets and egress),
+  reads at most eight of them whole, and runs the security, review, performance and privacy lanes on those in
+  parallel. Each finding names a concrete case, code called unused is grepped for dynamic references first, and a
+  `medium`-or-higher finding is checked by `crew-refuter` before it is reported. The report holds at most 20
+  findings and says which modules were read deep, skimmed or not read. It changes no code.
+  After its first real run: it checks a `critical` or `high` candidate with `crew-refuter` before reading further,
+  so a run that runs short reads fewer modules instead of reporting unchecked blockers, and it runs the scanner
+  itself when no map exists.
+- **`/crew-interview` asks before it plans.** It reads the code, docs and Crew Map first, so it only asks what
+  they cannot answer, then puts one question per turn with its recommended answer first: the outcome, the user,
+  why now, what done means, the constraints and what is out of scope. It stops when the answer is clear, restates
+  it for an explicit yes and writes `docs/BRIEF.md` for `/crew-plan`. With nobody to answer (unattended runs) it
+  writes the brief with its guesses marked as assumptions. The rules for asking live in
+  `brainstorm/references/asking.md`, which `brainstorm` and `spec-planning` now point to.
+- **`/crew-pr` takes a branch to a merged pull request.** `open` checks the DoD first, fills the repository's own
+  PR template in order, writes the body to a file outside the tree and pushes only on "push". `status` reads the
+  checks, the merge state and the review decision once, with a table for what each merge state asks for; it waits
+  for CI only when asked to. `threads` judges review comments the way `crew-code-review` does, replies after the
+  fixing push lands and names the commit, and resolves only threads really addressed. `merge` runs only when the
+  user says so, on a clean state and the head commit that was checked.
+- **The Crew Map says when an edit has made it old.** A new hook, `map-stale.sh`, notes once per agent, as a fact,
+  when a file the map cites is edited: the map was scanned before the edit, and `crew-map.sh --check` says whether
+  it still matches the tree. It is silent with no map, for files the map does not cite, and with
+  `CREW_MAP_STALE=off`; it never blocks, and an edit that does not fire starts no process. `/crew-plan` runs the
+  check before it calls the planner, and the plan says when the map differs from the tree or was not checked.
+- **The Crew Map says where a module's tests are, how often it changes and what its code admits.** Each module now
+  lists its test files (its own, and a test project named for it such as `Api.Tests`), how many of the last 500
+  commits changed a file in its folder (one `git log` per scan, none of the repository's own programs run), and up to
+  five `WHY`, `HACK` and `FIXME` comment lines from its code, each cited by `file:line`. Studio's inspector shows all
+  three; `/crew-map` may cite the comment lines in a description or a tour stop, the planner names a module's tests
+  as the verify of a task that changes it, and `/crew-audit` reads the counts and comments to break a tie. The commit
+  counts move with every commit, so `--check` and the rescan summary leave them out. A test project is no longer
+  reported as a module nobody references.
+- **A project can write down the rules its code must keep, and every agent hears them where they apply.**
+  `.crewforth/contracts.md` holds one section per rule: `## key`, the rule in a sentence or two, and the places it
+  lives as `- path:symbol` (a name, not a line number, so the rule outlives edits). The scanner never writes it, so
+  a rescan cannot drop one. `crew-map.sh --contracts` (and `--validate`) refuses a key used twice, a rule past two
+  sentences, and a cite whose file is gone or whose name no longer appears. When an agent edits a cited file,
+  `map-stale.sh` adds the rules that live there to its context, once per rule and agent; at the end of the turn
+  the user is told which rules the session's edits touched; `crew-review-agent` gives each touched rule a verdict:
+  holds, broken (with the line) or cannot tell. `/crew-map` writes a rule only when the user states or confirms it.
+- **A rescan that would lose most of the map writes nothing.** When described nodes would mostly vanish, or the
+  module count would fall by more than half (a wrong `--root`, a damaged checkout), the scanner exits 1 with both
+  counts and keeps the old map; `--force` writes it anyway.
+- **The Crew Map can leave out what the project names, and says what a rescan changed.** Patterns in
+  `.crewforth/crew-map-ignore` (a name at any depth, a path from the root, `*` and `**`) are not scanned, and
+  `coverage.excluded` counts the files left out. A rescan prints the nodes and edges it added, removed and changed,
+  by id, so `/crew-map` reports which modules came or went instead of a byte count.
+- **A commit that stages a lockfile needs a dependency audit of that change (§4.7).** `guard-bash.sh` compares git's
+  object id of the staged lockfile diff with the record the `dependency-audit` skill writes after the audit
+  (`clean`, `accepted` by the user, or `unverified` with the reason). The record lives in the git directory and is
+  never committed; code staged beside the lockfile keeps it valid, a new lockfile change needs a new audit. The hook
+  makes no network call. The lockfile list covers npm, Yarn, pnpm, Bun, Deno, uv, Poetry, Pipenv, PDM, Cargo, Go,
+  Bundler, Composer, Mix, pub, NuGet, Gradle, SwiftPM and CocoaPods.
+- **The route hint names `dependency-audit` beside the owner** when a request adds a package ("add a new dependency for
+  the date picker component", "pdf için bağımlılık ekle"), instead of losing to the agent that owns the request.
+- **The main thread's own edits get the project's fast check before a turn ends.** A new hook, `turn-check.sh`
+  (UserPromptSubmit + Stop), runs the `Fast check (files):` command `CLAUDE.md` declares on the files the turn changed:
+  its edits and its own commits (an amend counts only what it changed), never a file that was already dirty or a
+  commit a pull brought in. A red check hands its output back once, so the turn fixes it. The command is judged
+  the way a crew agent's verify command is; one the permission rules do not allow is not run, and the user is told
+  once. A project that declares nothing pays nothing. `CREW_TURN_CHECK=off` turns it off.
+- **`security-scan` reviews CI/CD.** A new front for pipeline definitions: actions pinned to a commit, no
+  attacker-written text in `run:`, no `pull_request_target` that runs a pull request's code, least-privilege
+  `permissions:`, OIDC scoped to the repository, no secrets for forks, no self-hosted runner on a public repository.
+- **`dependency-upgrade` lands bot PRs.** Renovate and Dependabot PRs are sorted into green, mechanical, needs
+  diagnosis, conflicting and superseded, with one question per bucket; majors and `0.x` minors stay single.
+- **`sonarqube-check` keeps a ratchet when no server can run**: a committed baseline of coverage, lint findings,
+  size and warnings that fails only on a regression, with an owner and expiry for every accepted one.
+- **A session opens told when its branch has fallen behind in a way that matters.** A new SessionStart hook,
+  `branch-fresh.sh`, compares the branch with `origin/<base>` as last fetched (`Base branch:` in `CLAUDE.md`, else
+  origin's default branch) and speaks only when merging the base would conflict, the branch was cut more than three
+  days ago, or the base changed `.claude/` or `CLAUDE.md`. It names `git merge origin/<base>` and changes nothing; a
+  rebase left in progress is said first. The fetch for the next session runs detached, never while the session
+  waits. `CREW_BRANCH_FRESH=off` turns it off, `CREW_BRANCH_FRESH_FETCH=off` keeps it offline.
+- **Studio shows what a session it started has changed.** The strip above the conversation says how many files
+  changed since the session started (lines added and removed) and how many new files git does not track yet,
+  counted against the commit recorded at the start. It is read without git rewriting the index and kept in memory.
+- **Studio speaks Turkish.** The **TR** button in the top bar, beside the theme button, puts the panel in Turkish
+  and **EN** puts it back; English stays the default, and the choice is kept per browser. What Studio shows from
+  elsewhere (the conversation, agent and tool names, a reason the server gave) stays as it was written. The Studio
+  gate fails when a sentence on screen has no Turkish, when a translation is left over, or when the two disagree
+  on a `{slot}`.
+- **`/crew-doctor` names a linked worktree with no `.claude/settings.json`**, where a resumed session runs none of
+  Crewforth's hooks. One Claude Code makes under `.claude/worktrees/` is not named: it still runs this checkout's.
+- **`npx crewforth remove` takes Crewforth out of a project.** By default it lists what it would change and changes
+  nothing; `--apply` does it. It drops the `settings.json` hook entries that run `.claude/hooks/` (yours stay), its
+  status line, the blanket `Bash` allow and the skill-listing budget key, and sets `core.hooksPath` back (unset, or the
+  hook chain the shim ran). Its files move to `.claude/.crewforth-removed-<time>/`; nothing is deleted, and your own
+  agents and skills stay. `CLAUDE.md` is not touched: the command names the `@.claude/DISCIPLINE.md` line to delete.
+- **`/crew-doctor` reads two more ways a setup goes quiet.** A line in `CLAUDE.md` that reads as loosening a §4 rule
+  ("no need to ask before committing", "skip the review") is named with its line number, unless a "never" or "do
+  not" precedes it.
+  A `CREW_` variable set in the environment that no Crewforth file reads (a typo) is named, and so is a switch that
+  takes a whole number set to something else.
+
+- **Studio's summary box says what each kind of agent spent.** Open **Agents** and, as **Cost** does for models, it
+  lists one line per agent type (`Backend`, `Test ×2`, …) with its new tokens and estimated cost, the most spent
+  first; a type that ran more than once shows how many times. Without an agent to break down, the row still opens on
+  the token kinds.
+
+### Changed
+
+- **Effort before model, by the vendor's own model guidance.** A crew call names `effort` too: `medium`, `low` for a
+  test run, never above `high`, since one more level past it costs about as much as the next model. When an agent's
+  verify fails twice and its call named an effort below `high`, the repeat is on the same model at `high`; only after
+  that, or when the effort is unknown, does it go one model up, at `medium`. The gate refuses the same card on a
+  lower model or at a lower effort, and after the repeat one model up the user is asked, as before. Where the user
+  allowed `fable` (`CREW_ALLOW_FABLE=1`), a card that fails on `opus` may go up to it instead of to the user.
+  `CLAUDE_CODE_EFFORT_LEVEL` outranks the call's effort, so the gate reads it from there when it is set.
+  A call that names no effort, or one above `high`, is not refused: the gate log gets a note for each, so how often
+  it happens can be counted.
+- **Twelve more skill descriptions say when to use the skill, not how it works.** `a11y`, `api-design`, `ci-pipeline`,
+  `frontend`, `frontend-design`, `incident-runbook`, `mcp-builder`, `observability`, `performance`,
+  `privacy-compliance`, `release` and `teamboard` summarised their method in the always-on description; the method
+  stays in the body. The lint that flags a method summary now fails instead of warning, and the listing budget is the
+  measured one (8056). On 61 cases at three runs each, none fell below its floor and `incident-runbook` rose.
+- **Explore runs on `haiku`, and the docs agent on `sonnet`.** The built-in Explore agent takes the session's model
+  (on Opus when the session is on Fable); it only searches and reads, which the guidance gives to Haiku, so a
+  call to it is run on `haiku` unless its task says `above: <why>`. A project's own Explore with a model of its own is
+  left alone. Everyday document writing goes to Sonnet in the same guidance, so `crew-docs-agent` has a `sonnet`
+  floor.
+
+- **An agent's verify command runs without the user having to know a command for it.** On a real project
+  (3.5.0-rc.2) 22 of 56 agents finished with their verify not run, 21 of them because the command was a chain
+  (`cd web && npm run lint && npm test`, `uv run ruff check . && uv run pytest -q`). Steps joined by ` && ` now run in
+  order, each judged alone as one command was before, a `cd <folder>` moving inside the project; `;`, `||`, `|` and a
+  step no rule allows still stop it before anything runs. The installer reads the project's own test, lint and
+  type-check commands (`package.json` scripts and tools, `pyproject.toml` through uv or poetry, `go.mod`,
+  `Cargo.toml`, .NET, Flutter) and adds them as `verify` lines of `.claude/crew-model-rules`, says which in one line,
+  and does not put back a line the user deleted. A step still allowed by no rule is said to the user once a session,
+  with the `/crew-allow-verify` message that allows it and the rule that covers the next card too
+  (`uv run pytest`, not one test file). The agent still cannot allow its own command.
+- **`dependency-audit` asks which registry answers an internal name** (scope mappings, `--index-url` against
+  `--extra-index-url`, NuGet source mapping, `GOPRIVATE`, image digests), names a registry config committed in the
+  repository, and checks each new package against the popular name one edit away.
+- **`dependency-upgrade` reports a failed lookup as `could not check`**, never as up to date, and installs a new
+  package with its scripts off first.
+- **A test run read through a pipe is not evidence.** `npm test | tail` exits with tail's status; the DoD, the
+  reviewer and `token-budget` now ask for `set -o pipefail` or a redirect, and the reviewer does not cite a piped run
+  without it.
+- **The reviewer has Crewforth's own simplify passes** for when `/simplify` is shadowed or absent: behaviour does not
+  change, nothing unexplained is deleted, the pass stays inside the diff.
+- **`crew-test-expert` reports exactly `pass`, `fail`, `unavailable` or `blocked`** and stops once the acceptance
+  tests pass; **`crew-commit-agent`** adds a `Not tested:` line under its proposal.
+- **The `worktree` skill looks before it removes.** Before `git worktree remove` it lists uncommitted files and
+  commits that exist nowhere else and asks; `--force` and `branch -D` only on the user's word. It refuses to reuse an
+  existing branch name silently, never deletes a branch it adopted, tells a submodule from a worktree, runs the
+  tests once in a new worktree before the first edit, and has rules for services the worktrees share.
+- **Studio's Map spreads lines that share a side of a card**, so a module with three dependents shows three lines
+  instead of one. Measured first on the crew-map test fixtures and Crewforth's own map: 48 line ends shared a pixel
+  across 46 edges; now none do. Sideways lines between ends at two heights turn square instead of running slanted.
+- **Studio shows the plan's to-do list.** In the graph's top right corner, the to-do list of the session's
+  project: the same boxes `/crew-todo` draws under the status line, from the same plan file, with the phase in work
+  open and the others folded. Done ✓, in work ◐, open ☐, and **next** on the first open task when none is marked. A
+  paused, dropped or done plan shows one line. Read every few seconds, never written; a plan path outside the
+  project is refused. It closes with its × and comes back from **View options**.
+- **Studio's graph uses both sides of a wide window.** The session stands in the middle: the agents that build
+  (backend, frontend, database, test, devops, performance) grow to its left and every other agent to its right, so
+  one tall column beside an empty half of the pane becomes two short ones. The side follows the agent's type, never
+  the count, so an agent that arrives moves nothing already drawn. A narrow window keeps the left-to-right tree, and
+  **Order** keeps its waves.
+- **Studio's graph puts Claude Code's own agents at the bottom of their column.** General Purpose, Explore and every
+  other agent drawn with the Claude mark stand below Crewforth's agents, whichever was called first; a Crewforth
+  agent that arrives later goes above them. Only what the session called is reordered: a run's members and an
+  agent's children keep their order.
+- **Studio's plan box can be resized.** A handle at the box's bottom left corner changes its width and height within
+  the pane, a double-click on it resets the size, and the size is kept for the next visit. A phase row shows its full
+  name on hover, as a task row does, instead of a name cut with an ellipsis.
+- **Studio's project list puts the projects with Crewforth first.** The ones without it are folded behind a link with
+  their count; a search still looks in them, and the project you stand in stays visible. A project whose state could
+  not be read is not folded as if it had none.
+- **Studio shows an agent that is inside a shell command as running.** A build, a test run or a server sent to the
+  background writes nothing to the transcript, so the agent looked stopped and the session looked idle. While the
+  session is live, an agent with a shell command still open is drawn running, with the command on its card, and the
+  session card says a shell command is running.
+- **Studio's Live tab tells a working session from a quiet one, and can end one.** A session that says busy or
+  waiting but has written nothing to its transcripts for an hour is listed as quiet, dimmed, left out of the badge,
+  with what it last said; a session running a shell command is said as one. Sessions are grouped by project, a
+  worktree under its repository. **End** stops a local session after asking: only a pid the list shows for that
+  session and Claude Code's own status file names, never the Studio server or a process above it, with SIGTERM and
+  nothing harder. When **Continue here** would start a copy of a session held elsewhere, the panel offers to end it
+  there first.
+- **Frontend work checks more of what users hit.** `a11y` separates criteria from conventions (a failed A/AA
+  criterion is a finding, AAA or a 44 px target a recommendation), adds a skip link, flashing, an error summary and
+  positive `tabindex`, a table of patterns to grep before finishing, and recipes for focus, forms and which
+  announcement channel to use. `frontend-design` plans in two passes against the generic default, measures contrast
+  on the rendered pair, lists the UI blockers that are always high, and gains references for motion (durations,
+  easing, interruption, gestures), UI copy (buttons, errors, confirm or undo, empty states) and greppable layout,
+  type, colour and motion patterns. `frontend` gains worst-realistic-data probes, building from a design file, and
+  page metadata; `performance` gains Core Web Vitals; `testing` gains a headless path for the verify contract when
+  no browser tool is attached; `i18n-integrity` flags sentences assembled around a variable and hand-written plurals.
+  The README diagrams carry a title and a description under ids of their own.
+- **A review ends.** A critical or high fix re-runs every lane, a lesser fix only the lane that raised it; a low
+  finding never starts a round; a round with nothing above low is the last, and after three rounds the user is
+  asked. The lanes follow what the diff touches: a docs-only diff gets the reviewer alone. Each lane reports
+  `ran`, `ran-partial`, `failed`, `timed-out` or `not-run`, and "clean" needs every launched lane to have run.
+- **An approval is bound to what it approves, not to a 30-minute clock.** An answer given late is recorded while
+  HEAD, the branch and the staged tree are what they were when the question was asked; one given after the staged
+  content changed is refused (it used to be recorded). With nothing staged the commit question is not asked.
+- **Short replies keep their meaning.** "Short never costs meaning" is in the communication rules: warnings,
+  numbers and conditions are never cut. Every report says what was not tested and labels each figure measured,
+  derived or inferred; a refused action is not retried another way.
+- **Skill descriptions say when, not how.** Six descriptions that summarised their method now say when to reach for
+  the skill (the skill listing fell from 9,116 to 8,826 characters), and each model-picked skill has a measured
+  routing floor. A SKILL.md has a size cap; a long reference opens with its contents.
+- **Smaller fixes to the rules:** a bypass the user accepted in writing is not a deferral; `db-migration` covers
+  expand/contract across deploys; the accessibility baseline is WCAG 2.2 AA; motion uses `ease-out`, never
+  `ease-in`; the planner returns the plan and the main thread writes it.
+- **Plans say what they rest on, and stop when the code moves under them.** `docs/PLAN.md` now records the commit it
+  was written at, a size per task (S/M/L, never a date), the one test level that proves each criterion, the
+  constraints copied word for word from the request, `Interfaces:` between tasks that feed each other, a checkpoint
+  every two or three tasks, and up to five inputs no test covers, each assigned to a task. A task may quote the code
+  it changes; when the file no longer matches, the task stops and reports. A plan with unchecked work for something
+  else is not overwritten. The planner copies `verify:` from `## Verify` and the Crew Map's `tests` instead of
+  guessing, and treats the map's `notMeasured` areas as unknown. `confidence-check` gains a seventh check, "What must
+  it reach?" (every caller, test and export a change breaks), and looks for existing code in a fixed order before
+  writing new; `iterate` builds one slice at a time and lists what it noticed but did not touch.
+- **Domain skills carry what their field learned the hard way.** `api-design` gains an idempotency reference (a key
+  from the user's intent, claimed atomically, a replay that answers what the first call answered, `422` for the same
+  key with another payload) and says observable behaviour is the contract. `ci-pipeline` gains rules for an
+  unattended agent job (pinned, few tools, an isolated copy, an allowlist for what comes back). `commit-message`
+  requires a body for breaking changes, security fixes, migrations and reverts, covers every staged file and never
+  invents a reason. `deploy` adds an advance / hold / roll back table for staged rollouts and a before/after
+  snapshot of the public contract; `release` checks there is something to release before it creates anything, and
+  reads the version back from the registry and installs it from an empty folder after publishing. `mcp-builder`
+  follows the v2 SDKs (checked 2026-11-07), Streamable HTTP, behaviour hints, paging and service-prefixed tool names,
+  and adds a reference for command-line tools an agent calls. `observability` starts from the questions on-call will
+  ask and keeps metric labels low-cardinality; `performance` keeps a change only when it beats the run-to-run noise
+  and checks an optimised function against the original first. Every crew agent that stops short now opens its report
+  with `stopped:` and why.
+- **A broken payload installs nothing.** `start.sh` and `adopt.sh` check the payload before their first write: a hook
+  that `settings.json` wires but the payload does not carry, a skill without its `SKILL.md` or a missing gate file
+  stops the install with the list and "nothing installed".
+- **Docs are grounded, and decisions continue the project's own records.** `docs-writer` reads each fact from where
+  it lives (behaviour from the code and its test, flags from `--help`, config from its loader, API shapes from the
+  schema, labels from the i18n source, versions from the tags) and deletes what it cannot check instead of flagging
+  it; a business or legal statement goes to its owner as a question. A doc is scored 0-2 on five points before it
+  ships, and a new "Diagrams" section caps a diagram at 9 boxes and 12 arrows and treats every box as a claim. `adr`
+  first looks for an existing decisions folder, `.adr-dir` or numbering and continues it; `docs/adr/` is only the
+  fallback. `/crew-doctor` now also names missing paths in a nested `CLAUDE.md` and in `AGENTS.md`, and the suite
+  checks that every `§N.M` cited in agents, skills, hooks and scripts is a heading of the discipline.
+- **The quality gate reads one line, `## Stack` → `Quality analysis:`** (`sonarqube-local`, `sonarqube-server` or
+  `declined`), in place of six "(if SonarQube is in use)" clauses that a project with no server read as false every
+  time. `declined` is reported as "no analysis ran — unverified". The doctor's readiness section says when the line
+  is missing or empty.
+- **`sonarqube-check` produces coverage before the scan** (the report and the scanner parameter per stack), writes
+  "not measured" instead of 0% when no report was passed, and reports the overall ratings when the new-code period is
+  empty, where every `new_*` condition reads `OK` with nothing to judge.
+
+### Fixed
+
+- **`/crew-doctor` no longer calls a live review gate broken in a project that sets `CLAUDE_GIT_OK`.** A session
+  started with the key hands it to every command, the doctor's probe included, so the probe met the pre-authorised
+  branch instead of the gate and printed ❌. The probe now runs without the key, and that the key is set is said apart,
+  as a warning.
+- **Each agent that runs beside another has its own colour.** Claude Code draws an agent in one of eight colours; ten
+  of the fourteen shared one with another agent, and `crew-refuter` named `gray`, which is not one of the eight, so it
+  was drawn with none. The builders now all differ, the reviewers of one change all differ, and a colour is shared only
+  across phases (`crew-security-expert` alone is red). An agent colour outside the eight fails the smoke test.
+- **A verify command that runs out of time is not run a second time.** When an agent's verify command is stopped at
+  its limit, the session is told to run the tests the change touches instead of the whole command again, and the
+  command is remembered as slow in `.claude/state/verify-slow`. The next card that carries it is told when the agent is
+  called, and the call goes on. For seven days (`CREW_VERIFY_SLOW_DAYS`) the hook does not run that command again: the
+  agent's line says timeout and why, instead of the next agent waiting out the same limit for the same answer. After
+  that it runs once more, so a suite that has become faster is learnt again. A pass of the same command forgets it; the
+  list keeps the newest 50.
+- **A background agent's verify outcome reaches the session.** An agent launched in the background comes back at once,
+  so a verify command that failed, ran out of time or could not be run was told to nobody. It is now told when the main
+  thread's turn ends, once and only to that session. The launch of critical work no longer asks the session to run the
+  verify command itself: the outcome comes when the agent ends.
+- **A download read as JSON by Python is no longer refused as a pipe to a shell.** `curl … | python3 -m json.tool`,
+  and `curl … | python3 -c '…'` whose program is written in the call, imports only modules that cannot run text or
+  reach the system (`json`, `sys`, `collections`, `re`, `datetime`, `packaging` and a few more), and names none of
+  the ways Python looks a thing up by a string or runs one (a dunder, `vars`, `locals`, `getattr`, `sys.modules`,
+  frames, `exec`, `eval`, `compile`, `open`), pass. A bare `| python3`, any other import, an expansion in the program,
+  and every other interpreter stay refused. On 2 365 real piped commands, 139 refusals become allowed and nothing
+  else changes.
+- **A plain `git pull` that cannot make a commit is no longer refused in auto mode.** From git 2.33.1 a pull told
+  nothing about how to reconcile only fast-forwards, and on diverged branches stops without changing anything. When
+  the repository sets none of `pull.ff`, `pull.rebase`, `merge.ff=false`, or the branch's own `rebase`,
+  `mergeoptions` or a second `merge`, a `git pull` (with `-q`, `--prune`, a remote and one branch) runs. Any other
+  option, a second branch, `-c`, `-C` or a changed directory, an older git, or one of those settings: asked as before.
+  On 553 real pull commands, 31 refusals become allowed and nothing else changes; on 4 485 real commit and push
+  commands, no approval is lost.
+- **A recursive `rm` inside a temp directory is no longer refused.** When every target of every `rm` in the call
+  resolves strictly inside `/tmp`, `$TMPDIR` or the system temp folder, the call passes. The temp root itself, a glob
+  at its first level, `..`, a link followed through a trailing `/` or a glob, a name the call does not set plainly
+  (or sets inside a here-document), and `rm` behind `sudo`, `xargs`, `find -exec` or `eval` stay refused. The refusal's
+  preview names the `rm`'s own targets and no longer a word of the next command.
+- **Verify runs in a repository of several packages.** The installer also reads the projects under `packages/`,
+  `apps/`, `services/` and `libs/`, and offers `python -m pytest` beside `python3 -m pytest`. A card's verify command
+  may name the project's own folder by its absolute path and put `NAME=value` settings in front of a step (`env
+  PYTHONPATH=… python -m pytest`): the step is judged without them and runs with them. A setting that changes what
+  runs (`PATH`, `LD_*`, `BASH_ENV`, `GIT_*` …) keeps it refused.
+- **A task card is read the way it is written.** A note in parentheses on the `files:` line (`staged diff (branch
+  docs/widget-privacy-texts)`, `legal/x.md (only if needed)`) is no longer read as files, so a branch name is no
+  critical path and a note does not lift a text change to a bigger model. `above: <why>` is found on any of the card's
+  first lines (`model: opus · above: … · effort: medium`), not only on a line of its own, so the model it asks for is
+  kept. `none.` and `none,` followed by a sentence are none.
+- **A verify command that will not run is said when the agent is called, not after it ends.** The card's `verify:`
+  is judged at the call with the same rule the hook applies when the agent finishes, and the session hears the reason
+  while it can still fix the card (a sentence, a `;` or a pipe, a command nothing allows). The call is never refused
+  for it.
+- **The fast check at the end of a turn no longer slows down with the number of untracked files.** With 10 000
+  untracked files and no ignore rule for them, the hook took 60-198 s at Stop on Windows and 30 s on macOS; it is
+  linear now (0.5 s on macOS for the same project, 2.9 s at Stop on Windows), and a check that ends at once no longer
+  waits a full second. The snapshot at the prompt hashes the dirty files in one batch and tests each path only when
+  that batch fails (a dangling link, a submodule): the per-path test was 1.9 s of a 2.4 s prompt on Windows.
+- **Per-agent and per-session state no longer piles up.** The record kept for each agent (so a resumed one is not
+  judged twice) and the loop guard's file for each session were never removed; a long-used project held thousands of
+  them. At a session's start, one `find` removes agent records older than 14 days and loop files older than 2 days.
+  The history of results, `model-outcomes.tsv`, stays.
+
+- **A note that mentions git is not a git command.** A here-document that `cat` or `tee` writes to the screen or to a
+  document or data file (`.md`, `.txt`, `.json`, `.log`, `.yml` …) is text: `git commit` or `git push` in it no longer
+  asks for approval or needs a review record, and over 32 KB it is no longer refused unread. A body written to a
+  script, handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) or left unterminated is read as before.
+  On 4485 real commands six verdicts changed, all of them notes; every real commit and push asks as before.
+
+- **`npx crewforth init` finishes in an npm project without `"dependencies"`.** The verify-command detection stopped
+  the installer there, after the files were copied but before `.gitignore` and `core.hooksPath` were written.
+- **The team board does not hang on an unreachable remote.** Where neither `timeout` nor `gtimeout` exists (stock
+  macOS), a network call is bounded by `CREW_NET_TIMEOUT` (15 s) instead of the TCP timeout (75 s measured), and
+  `board.sh status` says the remote could not be reached instead of "no board on origin".
+
+- **A hook started by a Windows path finds its own files.** Every hook and the doctor, preflight and gate-report
+  scripts fold backslashes before taking their own directory, so `C:\…\hooks\x.sh` no longer looks for its
+  libraries and siblings in the project. Started that way, `guard-write.sh` skipped the agent-model check.
+- **`sonarqube-check` reads its token from `SONAR_TOKEN`.** Its scan and API commands used `$T`, which nothing set.
+
+- **Warp no longer closes the one-click approval.** Warp's Claude Code plugin wires a `PermissionRequest` hook that
+  only shows a notification; it cannot answer a prompt. The approval scan found the event's name and closed the
+  question, so in Warp every commit fell back to a typed `/crew-approve`. A plugin hook is now let through when its
+  `PermissionRequest` entry is exactly Warp's and the five scripts it runs have the content pinned from the plugin's
+  repository (the same from 2.1.0 to 2.4.0). Any other shape, a changed script, or the same entry outside the plugin
+  cache still closes the question.
+- **A command that stages and commits in one call no longer commits what the review never saw (§4.6).** The gate
+  reads the index before the command runs, so `git add b.txt && git commit` with a review of `a.txt` alone reached
+  the approval with `b.txt` in the commit. Such a command is now refused when the add would bring in something not
+  staged yet, and a restore, reset, stash, checkout or merge beside a commit is refused outright. An add of a file
+  that is already staged still goes on to the approval.
+- **Deleting a lockfile reads the one lockfile list (§4.5).** The rule kept 11 names of its own, so `rm uv.lock`,
+  `rm bun.lock`, `git rm Package.resolved` and 12 more went through. It now asks the same list as §4.7, by whole
+  file name: `uv.lock.bak` is a copy, not the lockfile, and passes.
+
+- **A model forced onto every subagent is judged.** With `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` set, every subagent
+  runs on `CLAUDE_CODE_SUBAGENT_MODEL` whatever the call names, so a security audit asked for on `opus` could run on
+  `haiku` while the gate and the write-time check counted it as `opus`. The gate now judges the forced model: below
+  the card's floor the call is refused with what the user can change, and the record names the model that runs.
+
+- **A bug of unknown cause goes to its area's crew agent, not to general-purpose.** The routing line sent every
+  unknown cause to Claude Code's general-purpose agent, so a session with the whole crew installed opened its first
+  diagnosis outside it. That call carried no card, so it got no `opus` floor and left no line in the model record.
+  The diagnose step now names the owner of the area where the symptom shows, with `systematic-debugging` and a
+  `change: fix-unknown` card; general-purpose is left for a symptom that fits no area.
+- **An update no longer puts back an ask rule the project allows.** The settings merge keeps every array entry,
+  so a Crewforth ask rule the user had deleted came back on each update, and since ask outranks allow, a project
+  that allowed `Bash(docker:*)` was asked before every docker command again. The merge now leaves out of
+  `permissions.ask` every rule the project's own `permissions.allow` names verbatim.
+- **Studio keeps your place while a session works.** The inspector, the List and the Timeline drawer are drawn
+  again on every live update, so a panel scrolled down (a transcript, a long report, a gate list) jumped back to the
+  top every second or so. A redraw now puts each scrolled box back where it was; picking another agent or tab still
+  starts at the top.
+- **Two read-only commands are no longer refused as tampering.** Found on a real project on 3.5.0-rc.2. Any glob
+  under `.claude/state` was taken as a model routing record, so `head .claude/state/todo/*` and
+  `ls .claude/state/loop-*.txt` were refused. A glob now passes when it cannot reach a `crew-` file (the records
+  and the approval record): its first name under `state/` is written out, or has a written prefix that is not
+  `crew-` nor its start, and no name in it starts with a dot. `state/*`, `state/c*`, `crew-app*`, `todo/../c*` and
+  `[c]rew-model` are still refused. `awk` was on no list of readers, so
+  `awk … $G/…` beside a `grep` of a hook script was refused as a write to a gate file. `awk` now reads when its
+  program is written out in the command and cannot write or run anything: no `-f`, `-i`, `-l`, `-E`, `system` or
+  `@`, and no `>` or `|` in a program that prints or gets a line. A program from a variable, or from a `$'…'`
+  escape, is still refused.
+- **The gate log says when.** Each line carries the time it was written, in UTC, in a fifth column, and Studio's
+  gate list shows it. A line written before this has none and is labelled so. The command is still left out unless
+  `CREW_GATE_LOG_CMD=1`.
+- **A session no longer tells the user that a command is not installed when it only cannot see it.** The commands
+  marked user-only (`/crew-interview`, `/crew-approve`, `/crew-pr`…) are left out of the model's skill list, so a
+  session asked about `/crew-interview` answered that no such command existed, while the files were in
+  `.claude/skills`. The discipline now says so in one sentence and points at `ls .claude/skills`.
+- **An approval refused in a background session now says so.** Claude Code reports a session started with
+  `claude --bg`, or from the agent view, as unattended (`CLAUDE_CODE_SESSION_ATTENDED=0`) even when the user attaches
+  and types into it, so `/crew-approve` was refused with "started with -p, or by a program" and no way on. Measured on
+  2.1.319: a background session and `claude -p` both report 0, and a prompt started by a program in the background is
+  recorded as a human one, so the gate cannot tell them apart and stays closed. The refusal now names the background
+  case and the two ways on: a regular session, or the commit in the user's own terminal.
+- **`adopt` refuses a `settings.json` whose hook entries Claude Code would reject.** Claude Code ignores the whole
+  file when one hook entry has the wrong shape, so merging Crewforth's hooks into it installed gates that never ran.
+  adopt now names the entries and stops the merge, and the merged result is checked the same way before it is
+  written.
+- **The route hint ignores what the request declines or quotes.** "don't run the security review", text in backticks
+  or quotes, and a Turkish clause that ends in "gerek yok" no longer pick an agent.
+- **A session that resumes after compaction says when its state was not restored**, instead of starting as if
+  nothing had been there. The two session-start hooks stop waiting for input after two seconds
+  (`CREW_STDIN_TIMEOUT`), so a client that never closes the input does not hold the session.
+- **The pre-compaction snapshot no longer times out on a long pasted prompt.** On Git Bash an 8 MB prompt line took
+  24 s against PreCompact's 30 s limit; it now takes under a second.
+- **The context-fill warning is no longer silenced by another plugin.** `session-guard.sh` warned nothing on a turn
+  where any other Stop hook had blocked.
+- **Crew Map and the review pre-pass report what they could not read** (an unreadable or binary file, untracked
+  files in the pre-pass) instead of leaving it out without a word.
+- **The commit approval is a click again in a background session.** A session started with `claude --bg`, from the
+  agent view or reached from the phone is unattended to Claude Code, the same mark as `claude -p`, so the question was
+  refused there and the session asked the user to run `! git commit` themselves. Claude Code's own record of the
+  session (`~/.claude/sessions/<pid>.json`, kind `bg`, with its job folder) tells a background session from a headless
+  one, and there the question is asked and its answer recorded. The typed `/crew-approve` stays closed in it, since
+  another session can send it a message. A program that drives a terminal can still answer that question, the limit
+  already named for a driven terminal; the shell gate refuses the commands that open another session's screen or
+  socket.
+
 ## [3.4.0] — 2026-10-30
 
 ### Added

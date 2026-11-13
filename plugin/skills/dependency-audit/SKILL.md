@@ -8,7 +8,11 @@ description: |
 # Dependency Audit
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "dependency audit", "npm audit", "package security", "CVE", "license", "deprecated package", "still maintained", "no longer maintained", "unmaintained", "third party library", "supply chain"
+Trigger phrases: "dependency audit", "npm audit", "package security", "CVE", "license", "deprecated package", "still maintained", "no longer maintained", "unmaintained", "third party library", "supply chain", "add a dependency", "add a new dependency", "add the package", "install the package", "lockfile", "lock file", "package-lock", "yarn add", "pnpm add", "pip install", "uv add", "cargo add", "paket ekle", "paketi ekle", "paketini ekle", "bagimlilik ekle", "kutuphane ekle"
+
+**The real trigger is an event in the diff, not a word in the request: a lockfile is staged.** Nobody asks for an
+audit while adding a feature, so the phrases above only catch the request that names the package; the commit gate
+(§4.7) catches the rest, and refuses the commit until the record below exists.
 
 **This skill only reports.** It changes no manifest and no lockfile — bringing dependencies current is
 [[dependency-upgrade]], which classifies each move by risk and verifies the build. Keeping the two apart keeps
@@ -48,9 +52,43 @@ this one safe to run any time, on any branch, including one you are only inspect
    versus a long-lived API token. A widely-used
    package whose registry ACL is one unprotected account is a single compromised credential away from every
    build that installs it, whatever the contributor graph looks like.
+9. **Resolution order and namespace:** which registry answers an internal name? An internal package that a public
+   registry can also serve is installed from whichever source the client asks first, and an attacker can publish
+   that name. Check, for the ecosystem in use: npm, every internal scope mapped to its registry (`@corp:registry=`)
+   and no unscoped internal name; pip, `--index-url` (one source) rather than `--extra-index-url` (both, highest
+   version wins); NuGet, `<clear/>` plus `packageSourceMapping`; Maven/Gradle, the order of the repositories; Go,
+   `GOPRIVATE` covering the private module paths; Docker, a fully qualified image name with a digest, not a bare
+   `node:20`. A registry config committed in the repository (`.npmrc`, `bunfig.toml`, `pip.conf`, `nuget.config`)
+   is read as part of this axis and named in the report: it changes where every install on every machine resolves.
+   For each NEW dependency, also check its name against the popular package one edit away (a dropped, doubled or
+   swapped letter, `-` against `_`): a typosquat is a name that looks right in a diff.
 
 ## Output
 Severity-sorted list: `package · version · issue (CVE/license/maintenance) · upgrade path`.
+
+## The audit record (§4.7)
+A commit that stages a lockfile is refused until this skill records its verdict for THAT lockfile diff. Audit what
+the staged lockfile changed (axes 1, 3, 4, 7 at least), `git add` the lockfile in its own call (a command that stages
+and commits at once is refused), then run (Bash tool, not PowerShell):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/dependency-audit/scripts/record.sh" <clean|accepted|unverified> "<what the audit found>"
+```
+
+- `clean` — the audit ran and nothing is open.
+- `accepted` — findings remain and **the user** accepted them by name in this session; the note lists them.
+  Never accept for the user.
+- `unverified` — the audit could not run (no network, no tool); the note says which and why. The gate lets it
+  through, so that a machine with no network can still commit; the report to the user then says the dependencies
+  were **not audited**, never that they are clean.
+
+The record hashes the staged lockfile diff alone: staging more code keeps it valid, a lockfile change needs a new
+audit. It lives in the git directory, so it is never committed.
+
+**Periodic audit.** A CVE is published without the lockfile changing, so the doctor and a session-start line say
+when the last audit is older than `CREW_DEPS_AUDIT_DAYS` (default 7; 0 turns both off). With nothing staged, audit
+the lockfiles the repository tracks and record it with `record.sh --periodic <verdict> "<what it found>"`: it dates
+the audit and never lets a commit through §4.7.
 
 ## DoD
 - 0 known HIGH/CRITICAL vulnerabilities; licenses compliant; lockfile consistent; every new package justified.

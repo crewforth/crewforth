@@ -14,7 +14,8 @@
 #
 # A GATE, so an error of its own refuses the call (CREW-FAILCLOSED): a question let through with no `ask` is one a
 # hook can answer.
-# COST. Builtins on every AskUserQuestion; on the approval question the scan reads files and starts no process.
+# COST. Builtins on every AskUserQuestion; on the approval question the scan reads files, and git is asked four
+# times (HEAD, the branch, the index tree, HEAD's tree) to write down what the question is about.
 set -uo pipefail
 # ---- CREW-LOCALE -----------------------------------------------------------------------------------------
 # Everything this gate matches with runs in the C locale, whatever the session's own is. Under a Turkish locale
@@ -56,8 +57,9 @@ _crew_stop(){  # $1 = what happened
 trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
 # ---- /CREW-FAILCLOSED
 _gate_main(){
-local here="${BASH_SOURCE%/*}"
-[ "$here" = "${BASH_SOURCE}" ] && here=.
+local here="${BASH_SOURCE//\\//}"
+here="${here%/*}"
+[ "$here" = "${BASH_SOURCE//\\//}" ] && here=.
 IFS= read -r -d '' INPUT || true
 case "$INPUT" in *'Crewforth approval'*) ;; *) exit 0 ;; esac      # not the approval question: nothing to decide
 if [ ! -f "$here/prompt-approval.sh" ]; then

@@ -12,13 +12,15 @@ import { renderMarkdown } from './md.js';
 import { Chat } from './chat.js';
 import {
   summaryChips, sessionStatus, sessionName, sessionSub, ago, matchesSession, highlight, badgeFor,
-  liveSessions, machines, seenAgo, isFirstRun,
+  liveSessions, liveCount, liveGroups, projectOfCwd, span, machines, seenAgo, isFirstRun,
 } from './nav.js';
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote } from './usage.js';
+import { agentSpendRows } from './agent-spend.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
+import { TodoBox } from './todo.js';
 import { NewSession } from './newsession.js';
 import { Timeline } from './timeline.js';
 import { List } from './list.js';
@@ -32,6 +34,8 @@ import { shortcutOf } from './keys.js';
 import { qrSvg } from './qr.js';
 import { SESSION_MODES } from './convo.js';
 import { fmtDuration, fmtTokens, tiles, timeLine, rightNow, skillsOf, delegatedBy, reportOf, backgroundLines, modelLines, TABS as INSPECTOR_TABS, TAB_WORD } from './inspect.js';
+import { t, numLocale, translateDom, initLang } from './i18n.js';
+import { keepScroll } from './keep-scroll.js';
 
 const FLEET_POLL_MS = 2000;
 const SESSION_POLL_MS = 5000;
@@ -129,7 +133,7 @@ async function statusError(r) {
     let b = null; try { b = await r.json(); } catch { /* not JSON */ }
     if (b?.expired) showExpired();
   }
-  if (r.status === 403 && transcriptsHidden) return new Error('Transcripts are hidden on this link');
+  if (r.status === 403 && transcriptsHidden) return new Error(t('Transcripts are hidden on this link'));
   return new Error(`HTTP ${r.status}`);
 }
 
@@ -139,8 +143,8 @@ function showExpired() {
   box.id = 'expired';
   box.className = 'expired';
   box.setAttribute('role', 'alert');
-  const h = document.createElement('h1'); h.textContent = 'Session expired';
-  const p = document.createElement('p'); p.textContent = 'Viewer links last eight hours. Ask for a new one on the machine running Studio.';
+  const h = document.createElement('h1'); h.textContent = t('Session expired');
+  const p = document.createElement('p'); p.textContent = t('Viewer links last eight hours. Ask for a new one on the machine running Studio.');
   box.append(h, p);
   document.body.append(box);
 }
@@ -161,6 +165,9 @@ let themeStorage = { getItem: () => null, setItem: () => {} };
 try { themeStorage = localStorage; } catch { /* blocked storage */ }
 const relabelTheme = initTheme(document.documentElement, el.theme, themeStorage, () => systemLight.matches);
 systemLight.addEventListener('change', relabelTheme);
+// The language: index.html is written in English and put into the chosen one here, before anything reads it.
+translateDom(document.body);
+initLang(document.getElementById('lang'), themeStorage, () => location.reload());
 
 /* --------------------------------------------------------------- panels
    Three columns and two dividers. Each width is the user's, remembered, and
@@ -256,7 +263,7 @@ const inspectorSplit = document.createElement('div');
 inspectorSplit.className = 'resizer inspector-split';
 inspectorSplit.setAttribute('role', 'separator');
 inspectorSplit.setAttribute('aria-orientation', 'vertical');
-inspectorSplit.setAttribute('aria-label', 'Resize inspector');
+inspectorSplit.setAttribute('aria-label', t('Resize inspector'));
 inspectorSplit.tabIndex = 0;
 dragPanel(inspectorSplit, 'inspector', 'right');
 
@@ -271,7 +278,7 @@ async function toggleFullscreen() {
     else await document.documentElement.requestFullscreen();
   } catch (e) {
     // Denied by policy, or unsupported. Say so rather than appear inert.
-    el.foot.textContent = `full screen refused: ${e?.message ?? e}`;
+    el.foot.textContent = t('full screen refused: {reason}', { reason: e?.message ?? e });
   }
 }
 
@@ -280,16 +287,16 @@ el.fullscreen.addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', () => {
   const on = Boolean(document.fullscreenElement);
   el.fullscreen.classList.toggle('on', on);
-  el.fullscreen.title = on ? 'Leave full screen (f or Esc)' : 'Full screen (f)';
-  el.fullscreen.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
+  el.fullscreen.title = on ? t('Leave full screen (f or Esc)') : t('Full screen (f)');
+  el.fullscreen.setAttribute('aria-label', on ? t('Leave full screen') : t('Full screen'));
   canvas.fitIfUntouched();
 });
 
 // `f` toggles it, unless something is being typed into.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'f' || e.metaKey || e.ctrlKey || e.altKey) return;
-  const t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  const tg = e.target;
+  if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return;
   e.preventDefault();
   toggleFullscreen();
 });
@@ -330,6 +337,7 @@ const chat = new Chat(el.chat, {
       label: m.label, title: m.title, checked: m.mode === now, run: () => setSessionMode(pane.id, m.mode),
     }))),
     onTerminal: (pane, button) => offerTerminal(button, pane.id),
+    onEndAndContinue: (pane, button) => endThenContinue(button, pane.id),
   },
 });
 
@@ -405,26 +413,39 @@ async function openOwned(sessionId) {
 // Offered on the session in the inspector and at the foot of its read-only conversation.
 async function continueHere(button, from = current) {
   if (!from) return;
+  const label = button.textContent;
   button.disabled = true;
-  button.textContent = 'Continuing…';
+  button.textContent = t('Continuing…');
   try {
     const r = await chat.start({ cwd: projectsData?.cwd ?? null, permissionMode: 'plan', resume: from });
     if (!r.ok) {
-      el.foot.textContent = `could not continue: ${r.reason}`;
+      el.foot.textContent = t('could not continue: {reason}', { reason: r.reason });
     } else {
       ownedIds.add(r.session.sessionId);
       // Two genuinely different outcomes, so say which one happened rather
       // than printing a sentence that is true either way.
       el.foot.textContent = r.session.forked
-        ? `${from.slice(0, 8)} is open in another process, so this is a copy — `
-          + `messages here do not reach it.`
-        : `continued ${from.slice(0, 8)} itself — same session, same transcript.`;
+        ? t('{id} is open in another process, so this is a copy — messages here do not reach it.', { id: from.slice(0, 8) })
+        : t('continued {id} itself — same session, same transcript.', { id: from.slice(0, 8) });
       pollOwned();
     }
   } finally {
     button.disabled = false;
-    button.textContent = 'Continue here';
+    button.textContent = label;
   }
+}
+
+/* Continue a session ITSELF that another process still holds: end that process (two presses, offerEnd), then
+   continue. The server's own check then finds nothing holding it, and resumes the same id. */
+function endThenContinue(button, id) {
+  const row = (fleetData?.sessions ?? []).find((s) => s.sessionId === id && s.local !== false);
+  if (!row || !Number.isInteger(row.pid)) {
+    toast(t('Not ended: this machine does not list that session as running'));
+    return;
+  }
+  const known = findSessionRow(id);
+  const name = known ? sessionName(known.session, labels.all()) : (row.name || id.slice(0, 8));
+  offerEnd(button, row, name, () => continueHere(button, id));
 }
 
 /* New session: a panel, not a button that starts one. Where it runs, how much it may do and what it is asked
@@ -459,13 +480,13 @@ el.newSession.addEventListener('click', () => {
 
 /* The toolbar says what the canvas is doing. It is painted from the canvas's own
    state, so a choice restored from storage shows without being re-made. */
-const GROUP_WORD = { run: 'Workflow run', type: 'Agent type', parent: 'Parent', order: 'Order', none: 'None' };
-const DENSITY_WORD = { auto: 'Auto', comfortable: 'Comfortable', compact: 'Compact' };
+const GROUP_WORD = { run: t('Workflow run'), type: t('Agent type'), parent: t('Parent'), order: t('Order'), none: t('None') };
+const DENSITY_WORD = { auto: t('Auto'), comfortable: t('Comfortable'), compact: t('Compact') };
 const SHOW = {
-  all: { word: 'All', statuses: null },
-  attention: { word: 'Needs attention', statuses: ['failed', 'killed', 'stopped'], waiting: true },
-  running: { word: 'Running', statuses: ['running', 'starting'] },
-  failed: { word: 'Failed', statuses: ['failed', 'killed', 'stopped'] },
+  all: { word: t('All'), statuses: null },
+  attention: { word: t('Needs attention'), statuses: ['failed', 'killed', 'stopped'], waiting: true },
+  running: { word: t('Running'), statuses: ['running', 'starting'] },
+  failed: { word: t('Failed'), statuses: ['failed', 'killed', 'stopped'] },
 };
 let show = 'all';
 const tbValue = {
@@ -479,15 +500,15 @@ function paintToolbar(st) {
   // The grouping is one choice for both views: the Timeline's rows follow the graph's.
   timeline.setGroup(st.group);
   // When Auto has turned the cards into chips the button says so: the picture did not fit this pane as cards.
-  tbValue.density.textContent = st.density === 'auto' && st.drawnAs === 'compact' ? 'Auto \u00b7 compact' : (DENSITY_WORD[st.density] ?? st.density);
+  tbValue.density.textContent = st.density === 'auto' && st.drawnAs === 'compact' ? t('Auto \u00b7 compact') : (DENSITY_WORD[st.density] ?? st.density);
   // Auto is a choice the canvas makes; say which one it made, and why.
   el.tbDensity.title = st.density === 'auto' && st.drawnAs
-    ? `Auto: ${st.drawnAs}${st.stacked ? ', agents of one type folded together' : ''}. `
-      + `Cards stay cards while the picture fits this pane at ${Math.round(AUTO.readable * 100)}% or larger; choose Comfortable to keep them anyway.`
+    ? `${st.stacked ? t('Auto: {drawn}, agents of one type folded together.', { drawn: (DENSITY_WORD[st.drawnAs] ?? st.drawnAs).toLocaleLowerCase(numLocale()) }) : t('Auto: {drawn}.', { drawn: (DENSITY_WORD[st.drawnAs] ?? st.drawnAs).toLocaleLowerCase(numLocale()) })} `
+      + t('Cards stay cards while the picture fits this pane at {pct}% or larger; choose Comfortable to keep them anyway.', { pct: Math.round(AUTO.readable * 100) })
     : '';
   const pct = `${Math.round(st.zoom * 100)}%`;
   el.tbZoom.textContent = pct;
-  el.tbZoom.setAttribute('aria-label', `Zoom ${pct}. Back to 100%`);
+  el.tbZoom.setAttribute('aria-label', t('Zoom {pct}. Back to 100%', { pct }));
   // Enabled only while a card has been moved: with none there is nothing to reset.
   if (el.tbReset) el.tbReset.disabled = !(st?.moved > 0);
   paintFoldButtons();
@@ -497,8 +518,8 @@ function paintToolbar(st) {
    Each is enabled only while it has something left to do there, so the pair always says what is true. */
 const foldTarget = () => (view === 'timeline' ? timeline : view === 'list' ? list : null);
 function foldState() {
-  const t = foldTarget();
-  if (t) return t.foldState();
+  const ft = foldTarget();
+  if (ft) return ft.foldState();
   const st = canvas.state();
   return { groups: st.groups, canExpand: st.canExpand, canFold: st.canFold };
 }
@@ -537,15 +558,37 @@ const canvas = new Canvas(document.getElementById('canvas'), {
     const items = [];
     if (n.kind === 'agent') {
       items.push(st.focus
-        ? { label: 'Show the whole graph', run: () => canvas.setFocus(null) }
-        : { label: 'Focus on this branch', run: () => canvas.setFocus(n.id) });
-      items.push({ label: 'Copy agent id', run: () => copyText(n.id, 'Copied the agent id') });
+        ? { label: t('Show the whole graph'), run: () => canvas.setFocus(null) }
+        : { label: t('Focus on this branch'), run: () => canvas.setFocus(n.id) });
+      items.push({ label: t('Copy agent id'), run: () => copyText(n.id, t('Copied the agent id')) });
     }
-    if (at.pinned) items.push({ label: 'Reset layout', run: () => resetLayout() });
+    if (at.pinned) items.push({ label: t('Reset layout'), run: () => resetLayout() });
     if (!items.length) return;
     openMenu({ getBoundingClientRect: () => ({ left: at.x, bottom: at.y }) }, items);
   },
 });
+
+// The plan's to-do list of the session's project, in the graph's top right corner: what /crew-todo draws under the
+// status line, read again every few seconds while the graph is the view and the box is open.
+const todo = new TodoBox();
+document.getElementById('canvas').append(todo.el, todo.chip);
+const TODO_POLL_MS = 3000;
+let todoFor = null;
+let todoAt = 0;
+let todoBusy = false;
+async function loadTodo(force = false) {
+  if (todoFor !== current) { todoFor = current; todoAt = 0; todo.render(null); }
+  if (!current || todoBusy) return;
+  // Closed, it is asked once for the session, so View options knows whether there is a plan to show.
+  if (!force && todoAt && (!todo.open || Date.now() - todoAt < TODO_POLL_MS)) return;
+  const asked = current;
+  todoAt = Date.now();
+  todoBusy = true;
+  let data;
+  try { data = await getJson(`/api/todo?session=${encodeURIComponent(asked)}`); } catch (e) { data = { measured: false, reason: e.message }; }
+  finally { todoBusy = false; }
+  if (asked === current) todo.render(data);
+}
 
 // The mark for every agent that is not Crewforth's is one file, so that changing
 // it is changing that file.
@@ -581,8 +624,8 @@ el.tbShow.addEventListener('click', (e) => {
   const items = Object.entries(SHOW).map(([key, w]) => ({ label: w.word, checked: show === key, run: () => { setShow(key); setShowModel(showModel); } }));
   const families = [...new Set((lastNodes ?? []).filter((n) => n.kind === 'agent').map((n) => modelFamily(n.model)).filter(Boolean))].sort();
   if (families.length) {
-    items.push({ note: 'Model' }, { label: 'Every model', checked: showModel === null, run: () => setShowModel(null) },
-      ...families.map((f) => ({ label: `Only ${f[0].toUpperCase()}${f.slice(1)}`, checked: showModel === f, run: () => setShowModel(f) })));
+    items.push({ note: t('Model') }, { label: t('Every model'), checked: showModel === null, run: () => setShowModel(null) },
+      ...families.map((f) => ({ label: t('Only {model}', { model: `${f[0].toUpperCase()}${f.slice(1)}` }), checked: showModel === f, run: () => setShowModel(f) })));
   }
   openMenu(el.tbShow, items);
 });
@@ -623,15 +666,19 @@ el.tbOptions.addEventListener('click', (e) => {
   const pick = (words, now, set) => Object.entries(words).map(([key, w]) => ({
     label: typeof w === 'string' ? w : w.word, checked: now === key, run: () => set(key),
   }));
-  const items = view === 'list' ? [] : [{ note: 'Group' }, ...pick(GROUP_WORD, st.group, (g) => canvas.setGroup(g))];
-  if (view === 'graph') items.push({ note: 'Density' }, ...pick(DENSITY_WORD, st.density, (d) => canvas.setDensity(d)));
-  items.push({ note: 'Show' }, ...pick(SHOW, show, (key) => setShow(key)));
+  const items = view === 'list' ? [] : [{ note: t('Group') }, ...pick(GROUP_WORD, st.group, (g) => canvas.setGroup(g))];
+  if (view === 'graph') items.push({ note: t('Density') }, ...pick(DENSITY_WORD, st.density, (d) => canvas.setDensity(d)));
+  items.push({ note: t('Show') }, ...pick(SHOW, show, (key) => setShow(key)));
   if (view === 'graph' && st.groups > 0) {
-    items.push({ note: 'Groups' }, { label: 'Expand all', run: () => canvas.expandAll() }, { label: 'Fold all', run: () => canvas.foldAll() });
+    items.push({ note: t('Groups') }, { label: t('Expand all'), run: () => canvas.expandAll() }, { label: t('Fold all'), run: () => canvas.foldAll() });
   }
   if (view === 'graph') {
     const open = canvas.spendOpen;
-    items.push({ note: 'Session summary' }, { label: open ? 'Hide time, tokens and cost' : 'Show time, tokens and cost', run: () => canvas.showSpend(!open) });
+    items.push({ note: t('Session summary') }, { label: open ? t('Hide time, tokens and cost') : t('Show time, tokens and cost'), run: () => canvas.showSpend(!open) });
+    if (todo.has) {
+      const on = todo.open;
+      items.push({ note: t('Plan') }, { label: on ? t('Hide the plan\'s to-do list') : t('Show the plan\'s to-do list'), run: () => { todo.show(!on); if (!on) loadTodo(true); } });
+    }
   }
   openMenu(el.tbOptions, items);
 });
@@ -649,14 +696,14 @@ function resetLayout() {
   const target = zoomed();
   const was = target.resetLayout();
   if (!was) return;
-  toast('Layout reset', { label: 'Undo', run: () => { if (target.restoreLayout(was)) toast('Layout restored'); } });
+  toast(t('Layout reset'), { label: t('Undo'), run: () => { if (target.restoreLayout(was)) toast(t('Layout restored')); } });
   if (target === mapView) paintZoom(mapView.zoom, mapView.moved);
 }
 /** The zoom and Reset as the map has them: the graph's go through paintToolbar. */
 function paintZoom(k, moved) {
   const pct = `${Math.round(k * 100)}%`;
   el.tbZoom.textContent = pct;
-  el.tbZoom.setAttribute('aria-label', `Zoom ${pct}. Back to 100%`);
+  el.tbZoom.setAttribute('aria-label', t('Zoom {pct}. Back to 100%', { pct }));
   if (el.tbReset) el.tbReset.disabled = !(moved > 0);
 }
 el.tbReset.addEventListener('click', resetLayout);
@@ -675,7 +722,7 @@ let modelsData = null;
 let modelsFor = null;
 let modelsAt = 0;
 const models = new Models(el.models, {
-  onCopy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied — send it in your own session to lower the hold'), () => toast(`Not copied — select it: ${text}`)),
+  onCopy: (text) => navigator.clipboard.writeText(text).then(() => toast(t('Copied — send it in your own session to lower the hold')), () => toast(t('Not copied — select it: {text}', { text }))),
 });
 let modelsBusy = false;
 async function loadModels(force = false) {
@@ -727,8 +774,8 @@ let mapBusy = false;
 let mapCompare = null;
 const mapView = new MapView(el.map, {
   onCopy: (text, what) => navigator.clipboard.writeText(text).then(
-    () => toast(what === 'path' ? `Copied ${text}` : 'Copied — paste it into a session as a task'),
-    () => toast(`Not copied — select it: ${text}`)),
+    () => toast(what === 'path' ? t('Copied {text}', { text }) : t('Copied — paste it into a session as a task')),
+    () => toast(t('Not copied — select it: {text}', { text }))),
   onCompare: (cwd) => { mapCompare = cwd; loadMap(true); },
   onZoom: (k) => { if (view === 'map') paintZoom(k, mapView.moved); },
 });
@@ -765,18 +812,21 @@ list.now = () => serverNow();
 // Under 640px there is no room for the graph beside anything: the List is what a phone opens on.
 const phoneBand = window.matchMedia('(max-width: 639px)');
 
+/** A range key ("15m", "1h", "all") as the toolbar says it, in the panel's language. */
+const rangeWord = (r) => (r === 'all' ? t('all')
+  : String(r).replace(/^(\d+)([mh])$/, (_, n, u) => (u === 'm' ? t('{n}m', { n }) : t('{n}h', { n }))));
 function paintTimelineBar(st) {
-  el.tbRange.textContent = st.range;
-  el.tbRange.setAttribute('aria-label', `Time shown: ${st.range === 'all' ? 'the whole session' : st.range}`);
+  el.tbRange.textContent = rangeWord(st.range);
+  el.tbRange.setAttribute('aria-label', t('Time shown: {range}', { range: st.range === 'all' ? t('the whole session') : rangeWord(st.range) }));
   el.tbRangeIn.disabled = !st.canZoomIn;
   el.tbRangeOut.disabled = !st.canZoomOut;
   // The range is in the buttons' own names too: on a narrow toolbar the label between them is not shown.
-  el.tbRangeIn.setAttribute('aria-label', `Show less time (now ${st.range})`);
-  el.tbRangeOut.setAttribute('aria-label', `Show more time (now ${st.range})`);
+  el.tbRangeIn.setAttribute('aria-label', t('Show less time (now {range})', { range: rangeWord(st.range) }));
+  el.tbRangeOut.setAttribute('aria-label', t('Show more time (now {range})', { range: rangeWord(st.range) }));
   el.tbFollow.setAttribute('aria-checked', String(st.follow));
   // There is no "now" to follow in a session that has ended.
   el.tbFollow.disabled = !st.live;
-  el.tbFollow.title = st.live ? 'Keep the view at now' : 'This session has ended: there is no now to follow';
+  el.tbFollow.title = st.live ? t('Keep the view at now') : t('This session has ended: there is no now to follow');
 }
 
 /**
@@ -864,7 +914,7 @@ getJson('/api/palette')
     // to be said out loud, or the panel is drawing "not measured" as a fact about the agents.
     if (p && p.measured === false) {
       document.body.dataset.paletteMeasured = 'false';
-      el.foot.textContent = `agent identity Not measured — ${p.reason}`;
+      el.foot.textContent = t('Agent identity not measured — {reason}', { reason: p.reason });
     }
   })
   .catch(() => { /* every agent is drawn with the common mark, which is what is known */ });
@@ -915,14 +965,14 @@ function metaRows(n) {
   const rows = [];
   const row = (k, v) => { if (v != null && v !== '') rows.push([k, String(v)]); };
   if (n.kind === 'session') {
-    row('session', n.sessionId); row('cwd', n.cwd); row('branch', n.gitBranch);
-    row('model', n.model); row('turns', n.turns);
-    row('context', n.tokens?.toLocaleString()); row('cli', n.version);
+    row(t('session'), n.sessionId); row('cwd', n.cwd); row(t('branch'), n.gitBranch);
+    row(t('model'), n.model); row(t('turns'), n.turns);
+    row(t('context'), n.tokens?.toLocaleString(numLocale())); row('cli', n.version);
   } else {
-    row('type', n.agentType ?? 'unknown'); row('status', n.status);
-    row('depth', n.spawnDepth); row('model', n.model);
-    row('turns', n.turns); row('last tool', n.lastTool);
-    row('agent id', n.id);
+    row(t('type'), n.agentType ?? t('unknown')); row(t('status'), n.status);
+    row(t('depth'), n.spawnDepth); row(t('model'), n.model); row(t('effort'), n.effort);
+    row(t('turns'), n.turns); row(t('last tool'), n.lastTool);
+    row(t('agent id'), n.id);
   }
   const dl = document.createElement('dl');
   for (const [k, v] of rows) {
@@ -942,12 +992,12 @@ function isection(title, ...children) {
 
 /** The agent transcript, as far as it has been read: null when it is there to use. */
 function detailGap(n, detail) {
-  if (!detail || detail.loading) return node('div', 'ihint', 'Reading the agent transcript…');
+  if (!detail || detail.loading) return node('div', 'ihint', t('Reading the agent transcript…'));
   if (detail.measured !== false) return null;
   const hint = node('div', 'ihint');
-  hint.append(node('strong', null, 'Not measured'), node('div', null, detail.reason || 'no reason given'));
+  hint.append(node('strong', null, t('Not measured')), node('div', null, detail.reason || t('no reason given')));
   if (detail.transient) {
-    const retry = node('button', 'btn sm', 'Retry');
+    const retry = node('button', 'btn sm', t('Retry'));
     retry.type = 'button';
     retry.addEventListener('click', () => {
       detailCache.delete(`${n.id}:${n.status ?? '?'}`);
@@ -974,18 +1024,18 @@ function paintInspector() {
   const head = node('div', 'ihead');
   const close = node('button', 'btn icon sm ghost');
   close.type = 'button';
-  close.setAttribute('aria-label', 'Close');
-  close.title = 'Close (Esc)';
+  close.setAttribute('aria-label', t('Close'));
+  close.title = t('Close (Esc)');
   close.append(icon(ICON.close));
   close.addEventListener('click', () => { canvas.clearSelection(); showInspector(null); });
   // On a phone the inspector is a page of its own, and the way out of a page is back.
   const back = node('button', 'btn icon sm ghost ihead-back');
   back.type = 'button';
-  back.setAttribute('aria-label', 'Back to the list');
+  back.setAttribute('aria-label', t('Back to the list'));
   back.append(icon(ICON.back));
   back.addEventListener('click', () => { canvas.clearSelection(); showInspector(null); });
   close.classList.add('ihead-close');
-  const name = isSession ? 'Session' : n.kind === 'workflow' ? (n.workflowId ?? 'Workflow run') : shownType(n);
+  const name = isSession ? t('Session') : n.kind === 'workflow' ? (n.workflowId ?? t('Workflow run')) : shownType(n);
   const iname = node('h3', 'iname', name);
   if (n.kind === 'agent') iname.title = n.agentType ?? '';
   head.append(back, canvas.tileFor(n), iname, close);
@@ -993,14 +1043,14 @@ function paintInspector() {
   const meta = node('div', 'imeta');
   const pill = node('span', 'pill');
   // A state nobody read is said, not left as a blank pill.
-  pill.append(dot(st.tone), node('span', null, st.word ?? 'State not measured'));
+  pill.append(dot(st.tone), node('span', null, st.word ?? t('State not measured')));
   meta.append(pill, node('span', 'sub', timeLine(n, serverNow())));
   // The role is the name; the type as it is declared is said here, where there is room for it.
   if (n.kind === 'agent' && n.agentType) meta.append(node('code', 'ireal', n.agentType));
 
   const task = node('div', 'itask', isSession
     ? (sessionLabel(current) ?? n.sessionId ?? '')
-    : n.kind === 'workflow' ? `${n.members ?? 0} agents` : (n.description ?? ''));
+    : n.kind === 'workflow' ? (n.members === 1 ? t('{n} agent', { n: 1 }) : t('{n} agents', { n: n.members ?? 0 })) : (n.description ?? ''));
 
   const tabs = node('div', 'itabs');
   tabs.setAttribute('role', 'tablist');
@@ -1022,31 +1072,34 @@ function paintInspector() {
   else paintAgentOverview(body, n, detail);
 
   const foot = node('div', 'ifoot');
-  const open = node('button', 'btn', 'Open conversation');
+  const open = node('button', 'btn', t('Open conversation'));
   open.type = 'button';
   open.addEventListener('click', () => { if (current) openConversation(current); });
   const file = transcriptPathOf(n, detail);
   const copy = node('button', 'btn icon');
   copy.type = 'button';
   copy.append(icon(ICON.copy));
-  copy.setAttribute('aria-label', 'Copy the transcript path');
+  copy.setAttribute('aria-label', t('Copy the transcript path'));
   // A path nobody handed over is not built from parts here: the button says it has none.
   copy.disabled = !file;
-  copy.title = file ? `Copy the transcript path\n${file}` : 'Transcript path not read yet';
-  copy.addEventListener('click', () => copyText(file, 'Copied'));
+  copy.title = file ? `${t('Copy the transcript path')}\n${file}` : t('Transcript path not read yet');
+  copy.addEventListener('click', () => copyText(file, t('Copied')));
   foot.append(open, copy);
 
-  el.inspector.replaceChildren(inspectorSplit, head, meta, task, tabs, body, foot);
+  // Drawn again on every live frame: the place the reader scrolled to in the body or the task stays, until they
+  // pick another node or tab.
+  keepScroll(el.inspector, () => el.inspector.replaceChildren(inspectorSplit, head, meta, task, tabs, body, foot),
+    `${n.kind}:${n.id ?? n.sessionId ?? ''}|${inspectorTab}`);
 }
 
 function paintAgentOverview(body, n, detail) {
   const grid = node('div', 'itiles');
-  for (const t of tiles(n, serverNow())) {
+  for (const tl of tiles(n, serverNow())) {
     const tile = node('div', 'itile');
-    const value = node('strong', null, t.value);
-    if (!t.measured) { tile.classList.add('unmeasured'); tile.title = `Not measured — ${t.why}`; }
-    if (t.bad) value.classList.add('bad');
-    tile.append(node('span', 'itile-k', t.label), value);
+    const value = node('strong', null, tl.value);
+    if (!tl.measured) { tile.classList.add('unmeasured'); tile.title = t('Not measured — {reason}', { reason: tl.why }); }
+    if (tl.bad) value.classList.add('bad');
+    tile.append(node('span', 'itile-k', tl.label), value);
     grid.append(tile);
   }
   body.append(grid);
@@ -1062,14 +1115,14 @@ function paintAgentOverview(body, n, detail) {
       const dl = node('dl', 'icard');
       for (const l of lines) dl.append(node('dt', null, l.label), node('dd', null, l.text));
       // Why the gate called it critical, in its own words (`files ... is on a critical path: ...` or `change: ...`).
-      if (work.riskWhy) dl.append(node('dt', null, 'why critical'), node('dd', null, work.riskWhy));
-      const sec = isection('Task card', dl);
+      if (work.riskWhy) dl.append(node('dt', null, t('why critical')), node('dd', null, work.riskWhy));
+      const sec = isection(t('Task card'), dl);
       if (work.risk) { const tag = node('span', 'mv-tag', work.risk); tag.dataset.risk = work.risk; sec.children[0].append(tag); }
       body.append(sec);
     }
     // Not a crew agent: no card and no line, and that is said, so the empty space is not read as a record lost.
     const outside = !row && !lines.length ? outsideRouting(n.agentType) : null;
-    if (outside) body.append(isection('Model routing', node('p', 'istep-note', outside)));
+    if (outside) body.append(isection(t('Model routing'), node('p', 'istep-note', outside)));
     if (row || lines.length) {
       const ol = node('ol', 'isteps');
       work.steps.forEach((st, i) => {
@@ -1080,7 +1133,7 @@ function paintAgentOverview(body, n, detail) {
         li.append(node('span', 'istep-n', String(i + 1)), says);
         ol.append(li);
       });
-      const sec = isection('Model and verify', ...(work.steps.length ? [ol] : []), ...(work.note ? [node('p', 'istep-note', work.note)] : []));
+      const sec = isection(t('Model and verify'), ...(work.steps.length ? [ol] : []), ...(work.note ? [node('p', 'istep-note', work.note)] : []));
       body.append(sec);
     }
   }
@@ -1093,14 +1146,14 @@ function paintAgentOverview(body, n, detail) {
       const dd = node('dd', null, m.text);
       if (m.note) dd.title = m.note;
       if (m.goto) {
-        const go = node('button', 'ilink', 'show');
+        const go = node('button', 'ilink', t('show'));
         go.type = 'button';
         go.addEventListener('click', () => goTo(m.goto));
         dd.append(' ', go);
       }
       dl.append(node('dt', null, m.label), dd);
     }
-    body.append(isection('Model', dl));
+    body.append(isection(t('Model'), dl));
   }
 
   const gap = n.kind === 'agent' ? detailGap(n, detail) : null;
@@ -1119,30 +1172,30 @@ function paintAgentOverview(body, n, detail) {
   for (const s of skills) {
     const chip = node('button', 'ichip', s);
     chip.type = 'button';
-    chip.title = 'Copy the skill name';
-    chip.addEventListener('click', () => copyText(s, `Copied ${s}`));
+    chip.title = t('Copy the skill name');
+    chip.addEventListener('click', () => copyText(s, t('Copied {text}', { text: s })));
     chips.append(chip);
   }
-  body.append(isection('Skills applied',
-    gap ?? (skills.length ? chips : node('div', 'ihint', 'None — this agent invoked no skill.'))));
+  body.append(isection(t('Skills applied'),
+    gap ?? (skills.length ? chips : node('div', 'ihint', t('None — this agent invoked no skill.')))));
 
   const by = delegatedBy(n, [...canvas.nodes.values()]);
   if (by) {
     const link = node('button', 'ilink', by.text);
     link.type = 'button';
     link.addEventListener('click', () => canvas.focus(by.id));
-    body.append(isection('Delegated by', link));
+    body.append(isection(t('Delegated by'), link));
   }
 
-  if (gap) { body.append(isection('Report', node('div', 'ihint', 'Reading the agent transcript…'))); return; }
+  if (gap) { body.append(isection(t('Report'), node('div', 'ihint', t('Reading the agent transcript…')))); return; }
   const rep = reportOf(n, read);
-  if (!rep.present) { body.append(isection('Report', node('div', 'ihint', rep.text))); return; }
+  if (!rep.present) { body.append(isection(t('Report'), node('div', 'ihint', rep.text))); return; }
   const md = node('div', 'md');
   md.innerHTML = renderMarkdown(rep.text);
-  const copy = node('button', 'btn sm ghost', 'Copy');
+  const copy = node('button', 'btn sm ghost', t('Copy'));
   copy.type = 'button';
-  copy.addEventListener('click', () => copyText(rep.text, 'Copied the report'));
-  const sec = isection('Report', md);
+  copy.addEventListener('click', () => copyText(rep.text, t('Copied the report')));
+  const sec = isection(t('Report'), md);
   sec.querySelector('.isec-h').append(copy);
   body.append(sec);
 }
@@ -1152,13 +1205,13 @@ function paintSessionOverview(body, n) {
     // Said in the place the missing controls would have been: there is no approval dock for this session, and
     // no way to write to it, and this is why.
     const banner = node('div', 'ibanner');
-    banner.append(node('p', null, 'This session was not started here, so Studio can read it but not write to it.'));
+    banner.append(node('p', null, t('This session was not started here, so Studio can read it but not write to it.')));
     const acts = node('div', 'ibanner-acts');
-    const cont = node('button', 'btn sm primary', 'Continue here');
+    const cont = node('button', 'btn sm primary', t('Continue here'));
     cont.type = 'button';
-    cont.title = 'Start a new session holding a copy of this conversation. It does not write into the original.';
+    cont.title = t('Start a new session holding a copy of this conversation. It does not write into the original.');
     cont.addEventListener('click', () => continueHere(cont));
-    const term = node('button', 'btn sm', 'Open in terminal');
+    const term = node('button', 'btn sm', t('Open in terminal'));
     term.type = 'button';
     term.addEventListener('click', (e) => { e.stopPropagation(); offerTerminal(term, current); });
     acts.append(cont, term);
@@ -1178,29 +1231,29 @@ function paintSessionOverview(body, n) {
       if (c.age) row.append(node('span', 'sub', c.age));
       return row;
     });
-    const box = isection('In the background', ...rows);
+    const box = isection(t('In the background'), ...rows);
     body.append(box);
   }
 
   const b = kitData?.board;
   let board;
-  if (!kitData) board = node('div', 'ihint', 'Reading Crewforth…');
+  if (!kitData) board = node('div', 'ihint', t('Reading Crewforth…'));
   else if (!b?.measured) board = unmeasured(b?.reason);
   else if (!b.present) board = node('div', 'ihint', b.text);
   else board = node('pre', 'md-code', b.text);
-  body.append(isection('Board', board));
+  body.append(isection(t('Board'), board));
 }
 
 /** The agent's own transcript, read-only: what it was asked, what it did, what it said. */
 function paintTranscript(body, n, detail) {
-  const full = node('button', 'btn sm', 'Open full conversation');
+  const full = node('button', 'btn sm', t('Open full conversation'));
   full.type = 'button';
   full.addEventListener('click', () => { if (current) openConversation(current); });
 
   if (n.kind !== 'agent') {
     body.append(node('div', 'ihint', n.kind === 'session'
-      ? 'The session\'s conversation is in the conversation panel.'
-      : 'A workflow run has no transcript of its own; its agents do.'), full);
+      ? t('The session\'s conversation is in the conversation panel.')
+      : t('A workflow run has no transcript of its own; its agents do.')), full);
     return;
   }
   const gap = detailGap(n, detail);
@@ -1208,21 +1261,21 @@ function paintTranscript(body, n, detail) {
 
   const prompt = node('div', 'md');
   prompt.innerHTML = renderMarkdown(detail.prompt ?? '');
-  body.append(isection('Asked', detail.prompt ? prompt : node('div', 'ihint', 'No prompt recorded.')));
+  body.append(isection(t('Asked'), detail.prompt ? prompt : node('div', 'ihint', t('No prompt recorded.'))));
 
   const list = node('div', 'itimeline');
-  if (!detail.timeline?.length) list.append(node('div', 'ihint', 'No tool calls recorded.'));
+  if (!detail.timeline?.length) list.append(node('div', 'ihint', t('No tool calls recorded.')));
   for (const [i, step] of (detail.timeline ?? []).entries()) {
     const r = node('div', 'istep');
     r.append(node('span', 'istep-n', String(i + 1)), node('span', 'istep-tool', step.name), node('span', 'istep-label', step.label ?? ''));
     list.append(r);
   }
-  body.append(isection('Did', list));
+  body.append(isection(t('Did'), list));
 
   const said = node('div', 'isaid');
-  for (const t of detail.narration ?? []) {
+  for (const text of detail.narration ?? []) {
     const md = node('div', 'md md-narration');
-    md.innerHTML = renderMarkdown(t);
+    md.innerHTML = renderMarkdown(text);
     said.append(md);
   }
   const rep = reportOf(n, detail);
@@ -1233,7 +1286,7 @@ function paintTranscript(body, n, detail) {
   } else {
     said.append(node('div', 'ihint', rep.text));
   }
-  body.append(isection('Said', said), full);
+  body.append(isection(t('Said'), said), full);
 }
 
 /* ------------------------------------------------------------------ kit
@@ -1258,24 +1311,24 @@ async function loadKit(sessionId) {
 
 function unmeasured(reason) {
   const d = node('div', 'ihint');
-  d.append(node('strong', null, 'Not measured'));
-  d.append(node('div', null, reason || 'no reason given'));
-  d.append(node('div', 'why', 'Which is not the same as nothing having happened.'));
+  d.append(node('strong', null, t('Not measured')));
+  d.append(node('div', null, reason || t('no reason given')));
+  d.append(node('div', 'why', t('Which is not the same as nothing having happened.')));
   return d;
 }
 
 function paintStats(body) {
-  if (!kitData) { body.append(node('div', 'ihint', 'Reading Crewforth…')); return; }
+  if (!kitData) { body.append(node('div', 'ihint', t('Reading Crewforth…'))); return; }
   const s = kitData.stats;
   if (!s?.measured) {
     const reason = s?.reason ?? kitData.reason ?? '';
     const box = node('div', 'ihint');
-    box.append(node('strong', null, 'Not measured'), node('div', null, reason || 'no reason given'),
-      node('div', 'why', 'This is not a zero: there is nothing to read here.'));
+    box.append(node('strong', null, t('Not measured')), node('div', null, reason || t('no reason given')),
+      node('div', 'why', t('This is not a zero: there is nothing to read here.')));
     // The script that measures this comes with a full install. That is said only when its absence is the
     // reason, and no command is typed here: the page offers commands the server gave it, and it gave none.
     if (/session-stats\.sh is not present|not installed/.test(reason)) {
-      box.append(node('div', 'why', 'A full install of Crewforth in this project adds it.'));
+      box.append(node('div', 'why', t('A full install of Crewforth in this project adds it.')));
     }
     body.append(box);
     return;
@@ -1283,12 +1336,12 @@ function paintStats(body) {
   const dl = document.createElement('dl');
   for (const [k, v] of Object.entries(s.metrics)) {
     const dt = node('dt', null, k.replace(/_/g, ' '));
-    const dd = node('dd', null, v.toLocaleString());
+    const dd = node('dd', null, v.toLocaleString(numLocale()));
     if (v > 0 && /runaway|errors|interrupts/.test(k)) dd.classList.add('bad');
     dl.append(dt, dd);
   }
   body.append(dl);
-  body.append(node('div', 'ihint', 'session-stats.sh --raw, over this transcript.'));
+  body.append(node('div', 'ihint', t('session-stats.sh --raw, over this transcript.')));
 }
 
 async function revokeAllowance(tool, button) {
@@ -1304,13 +1357,13 @@ async function revokeAllowance(tool, button) {
     res = { ok: false, reason: e.message };
   }
   if (!res.ok) {
-    toast(`Not revoked — ${res.reason ?? 'no reason given'}`);
+    toast(t('Not revoked — {reason}', { reason: res.reason ?? t('no reason given') }));
     button.disabled = false;
     return;
   }
   const sn = owned.get(sessionId);
   if (sn) owned.set(sessionId, { ...sn, alwaysAllowed: res.always ?? [] });
-  toast(res.revoked ? `${tool} asks again from the next call` : `${tool} was already asking`);
+  toast(res.revoked ? t('{tool} asks again from the next call', { tool }) : t('{tool} was already asking', { tool }));
   if (inspectorNode) paintInspector();
 }
 
@@ -1323,24 +1376,24 @@ function paintGates(body) {
     const list = node('div', 'iallow');
     for (const tool of allowed) {
       const row = node('div', 'iallow-row');
-      const revoke = node('button', 'btn sm', 'Revoke');
+      const revoke = node('button', 'btn sm', t('Revoke'));
       revoke.type = 'button';
-      revoke.setAttribute('aria-label', `Revoke ${tool}`);
+      revoke.setAttribute('aria-label', t('Revoke {name}', { name: tool }));
       revoke.addEventListener('click', () => revokeAllowance(tool, revoke));
-      row.append(node('span', 'iallow-tool', tool), node('span', 'sub', 'not asked about here'), node('span', 'row-fill'), revoke);
+      row.append(node('span', 'iallow-tool', tool), node('span', 'sub', t('not asked about here')), node('span', 'row-fill'), revoke);
       list.append(row);
     }
     // What a session allowance is and is not: the dock stops asking, and nothing more. A call Claude Code
     // would itself have asked a person about is still refused, because nobody saw it.
-    if (allowed.length) list.append(node('div', 'ihint', 'Studio does not ask about these again. Claude Code\'s own checks still apply to each call.'));
-    body.append(isection('Allowed for this session',
-      allowed.length ? list : node('div', 'ihint', 'Nothing — every tool call asks first.')));
+    if (allowed.length) list.append(node('div', 'ihint', t('Studio does not ask about these again. Claude Code\'s own checks still apply to each call.')));
+    body.append(isection(t('Allowed for this session'),
+      allowed.length ? list : node('div', 'ihint', t('Nothing — every tool call asks first.'))));
   } else if (mine) {
-    body.append(isection('Allowed for this session',
-      node('div', 'ihint', 'This session runs without the approval gate, so nothing asks and nothing was allowed here.')));
+    body.append(isection(t('Allowed for this session'),
+      node('div', 'ihint', t('This session runs without the approval gate, so nothing asks and nothing was allowed here.'))));
   } else {
-    body.append(isection('Allowed for this session',
-      node('div', 'ihint', 'This session was not started here, so its tool calls do not wait for an answer in Studio.')));
+    body.append(isection(t('Allowed for this session'),
+      node('div', 'ihint', t('This session was not started here, so its tool calls do not wait for an answer in Studio.'))));
   }
 
   // Happened: what was seen with a time on it. The answers given to requests come from this page; the hook
@@ -1351,7 +1404,7 @@ function paintGates(body) {
     const rows = [];
     for (const a of answers.slice(-12)) {
       const row = node('div', 'gate-row');
-      row.append(node('span', 'gate-when', new Date(a.at - clock.offset).toLocaleTimeString()));
+      row.append(node('span', 'gate-when', new Date(a.at - clock.offset).toLocaleTimeString(numLocale())));
       row.append(node('span', 'gate-name', `${a.toolName}${a.agentType ? ` · ${roleName(a.agentType)}` : ''}`));
       const v = node('span', 'gate-verdict', OUTCOME_WORD[a.outcome]);
       v.dataset.verdict = a.outcome.startsWith('allowed') ? 'ALLOW' : a.outcome === 'answered-elsewhere' ? 'ASK' : 'BLOCK';
@@ -1360,7 +1413,7 @@ function paintGates(body) {
     }
     for (const e of live.slice(-12)) {
       const row = node('div', 'gate-row');
-      row.append(node('span', 'gate-when', new Date(e.at - clock.offset).toLocaleTimeString()));
+      row.append(node('span', 'gate-when', new Date(e.at - clock.offset).toLocaleTimeString(numLocale())));
       row.append(node('span', 'gate-name', e.name ?? e.event ?? 'hook'));
       const v = node('span', 'gate-verdict', e.phase === 'started' ? 'ran' : (e.exitCode === 2 ? 'blocked' : e.outcome ?? 'done'));
       v.dataset.verdict = e.exitCode === 2 ? 'BLOCK' : 'ALLOW';
@@ -1369,18 +1422,18 @@ function paintGates(body) {
     }
     // One list, newest first: both kinds carry the server's time.
     rows.sort((x, y) => y.at - x.at);
-    body.append(isection('Happened', ...rows.map((r) => r.row)));
+    body.append(isection(t('Happened'), ...rows.map((r) => r.row)));
   }
 
-  if (!kitData) { body.append(node('div', 'ihint', 'Reading Crewforth…')); return; }
+  if (!kitData) { body.append(node('div', 'ihint', t('Reading Crewforth…'))); return; }
   const log = kitData.log;
   const rep = kitData.report;
 
   const observed = [];
   if (rep?.measured) {
     const head = node('div', 'kit-sum');
-    head.append(node('span', 'cv-bit', `${rep.rules} rules`));
-    head.append(node('span', 'cv-bit', `${(rep.decisions ?? 0).toLocaleString()} decisions`));
+    head.append(node('span', 'cv-bit', t('{n} rules', { n: rep.rules })));
+    head.append(node('span', 'cv-bit', t('{n} decisions', { n: (rep.decisions ?? 0).toLocaleString(numLocale()) })));
     observed.push(head);
   } else {
     observed.push(unmeasured(rep?.reason ?? kitData.reason));
@@ -1388,20 +1441,22 @@ function paintGates(body) {
 
   if (!log?.measured) {
     observed.push(unmeasured(log?.reason ?? kitData.reason));
-    body.append(isection('Observed', ...observed));
+    body.append(isection(t('Observed'), ...observed));
     return;
   }
 
-  // The distinction is the point: this file has no timestamp column, so these
-  // are decisions found in the log, not decisions seen happening.
+  // The distinction is the point: a line written before 3.5.0 has no time, so
+  // it is a decision found in the log, not one seen happening.
   observed.push(node('div', 'ihint',
-    `${log.total.toLocaleString()} in the tail of gate-log.tsv${log.truncated ? ' (truncated)' : ''} · `
-    + 'no timestamps in this format, so these are what the log holds, not when they ran'
-    + (log.commandsRecorded ? '' : ' · commands not recorded (CREW_GATE_LOG_CMD=1 records them)')));
+    `${t('{n} in the tail of gate-log.tsv', { n: log.total.toLocaleString(numLocale()) })}${log.truncated ? ` ${t('(truncated)')}` : ''} · `
+    + (log.timestamped
+      ? t('lines written since 3.5.0 carry the time they were written (UTC); older lines carry none')
+      : t('no timestamps in this format, so these are what the log holds, not when they ran'))
+    + (log.commandsRecorded ? '' : ` · ${t('commands not recorded (CREW_GATE_LOG_CMD=1 records them)')}`)));
 
   const counts = node('div', 'kit-sum');
   for (const [k, v] of Object.entries(log.counts ?? {})) {
-    const b = node('span', 'cv-bit', `${v.toLocaleString()} ${k}`);
+    const b = node('span', 'cv-bit', `${v.toLocaleString(numLocale())} ${k}`);
     b.dataset.verdict = k;
     counts.append(b);
   }
@@ -1414,9 +1469,10 @@ function paintGates(body) {
     row.append(v);
     row.append(node('span', 'gate-name', e.rule ?? '—'));
     if (e.section) row.append(node('span', 'gate-sec', e.section));
+    if (e.at) row.append(node('span', 'gate-sec', `${e.at.slice(0, 16).replace('T', ' ')} UTC`));
     observed.push(row);
   }
-  body.append(isection('Observed', ...observed));
+  body.append(isection(t('Observed'), ...observed));
 }
 
 /* ------------------------------------------------------------ navigator
@@ -1512,7 +1568,7 @@ async function copyText(text, said) {
     toast(said);
   } catch {
     // A page without clipboard access still has to hand the text over.
-    toast(`Could not copy — ${text}`);
+    toast(t('Could not copy — {text}', { text }));
   }
 }
 
@@ -1598,15 +1654,15 @@ async function offerTerminal(anchor, sessionId) {
   try {
     plan = (await getJson(`/api/session/${encodeURIComponent(sessionId)}/terminal`)).plan;
   } catch (e) {
-    toast(`Could not read the terminal command — ${e.message}`);
+    toast(t('Could not read the terminal command — {reason}', { reason: e.message }));
     return;
   }
-  if (!plan) { toast('Not measured — this session recorded no working directory to open a terminal in.'); return; }
+  if (!plan) { toast(t('Not measured — this session recorded no working directory to open a terminal in.')); return; }
   openMenu(anchor, [
-    { note: `This will run in ${plan.via ?? 'a terminal'}:` },
+    { note: t('This will run in {where}:', { where: plan.via ?? t('a terminal') }) },
     { note: plan.line },
     {
-      label: 'Open terminal',
+      label: t('Open terminal'),
       primary: true,
       run: async () => {
         try {
@@ -1614,13 +1670,13 @@ async function offerTerminal(anchor, sessionId) {
             method: 'POST', headers: { ...writeHeaders, 'content-type': 'application/json' }, body: '{}',
           });
           const out = await r.json();
-          toast(out.ok ? `Opened in ${plan.via ?? 'a terminal'}` : `Could not open a terminal — ${out.reason ?? 'no reason given'}`);
+          toast(out.ok ? t('Opened in {where}', { where: plan.via ?? t('a terminal') }) : t('Could not open a terminal — {reason}', { reason: out.reason ?? t('no reason given') }));
         } catch (e) {
-          toast(`Could not open a terminal — ${e.message}`);
+          toast(t('Could not open a terminal — {reason}', { reason: e.message }));
         }
       },
     },
-    { label: 'Cancel', run: () => {} },
+    { label: t('Cancel'), run: () => {} },
   ]);
 }
 
@@ -1631,6 +1687,7 @@ let fleetData = null;
 let expanded = new Set();
 let filterText = '';
 let showMissing = false;
+let showBare = false;          // projects without Crewforth files stay folded away until asked for
 let showHidden = false;
 let renaming = null;          // the session whose name is being typed
 
@@ -1652,8 +1709,8 @@ function renderSessions(data) {
   if (!data.measured) {
     renderNote(el.sessions, {
       kind: 'unmeasured',
-      title: 'No transcripts here',
-      body: 'Nothing was read.',
+      title: t('No transcripts here'),
+      body: t('Nothing was read.'),
       why: data.reason,
     });
     return;
@@ -1680,8 +1737,8 @@ function paintFirstRun() {
   // with no transcripts this panel knows of no project to start it in.
   if (first && !el.firstRun.firstChild) {
     el.firstRun.append(
-      node('strong', null, 'No Claude Code sessions yet'),
-      node('p', null, 'Studio reads the sessions Claude Code saves on this machine. Start one in a terminal in any project and it shows up here within a few seconds.'),
+      node('strong', null, t('No Claude Code sessions yet')),
+      node('p', null, t('Studio reads the sessions Claude Code saves on this machine. Start one in a terminal in any project and it shows up here within a few seconds.')),
     );
   }
   el.firstRun.hidden = !first;
@@ -1704,11 +1761,11 @@ function mapRow(p, latest) {
   row.tabIndex = 0;
   row.setAttribute('role', 'treeitem');
   row.dataset.map = p.key;
-  const words = node('span', 'map-word', 'Map');
+  const words = node('span', 'map-word', t('Map'));
   row.append(icon(ICON.map), words, node('span', 'row-fill'));
-  if (p.map?.findings) { const n = node('span', 'map-count', String(p.map.findings)); n.title = `${p.map.findings} finding(s) on the map`; row.append(n); }
-  else if (!p.map) row.append(node('span', 'sub', 'no map'));
-  row.title = p.map ? 'Open the project map' : 'This project has no .crewforth/crew-map.json yet';
+  if (p.map?.findings) { const n = node('span', 'map-count', String(p.map.findings)); n.title = t('{n} finding(s) on the map', { n: p.map.findings }); row.append(n); }
+  else if (!p.map) row.append(node('span', 'sub', t('no map')));
+  row.title = p.map ? t('Open the project map') : t('This project has no .crewforth/crew-map.json yet');
   const go = () => { selectSession(latest.sessionId); setView('map'); };
   row.addEventListener('click', go);
   row.addEventListener('keydown', (e) => { if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(); } });
@@ -1728,13 +1785,13 @@ function sessionRow(project, sn) {
   const top = node('span', 'srow-top');
   const d = dot(status.tone);
   // The word travels with the colour; where there is no status to give, say why.
-  d.title = status.key === 'unmeasured' ? 'Status not measured — the session list could not be read' : (status.word ?? '');
+  d.title = status.key === 'unmeasured' ? t('Status not measured — the session list could not be read') : (status.word ?? '');
   top.append(d);
 
   if (renaming === sn.sessionId) {
     const input = node('input', 'srow-rename');
     input.value = name;
-    input.setAttribute('aria-label', `Rename ${name}`);
+    input.setAttribute('aria-label', t('Rename {name}', { name }));
     const done = (save) => {
       if (renaming !== sn.sessionId) return;
       renaming = null;
@@ -1759,18 +1816,18 @@ function sessionRow(project, sn) {
 
   const more = node('button', 'row-more');
   more.type = 'button';
-  more.setAttribute('aria-label', `More for ${name}`);
+  more.setAttribute('aria-label', t('More for {name}', { name }));
   more.setAttribute('aria-haspopup', 'menu');
   more.append(icon(ICON.more));
   more.addEventListener('click', (e) => {
     e.stopPropagation();
     openMenu(more, [
-      { label: 'Rename', run: () => { renaming = sn.sessionId; paintProjects(); } },
-      { label: 'Copy session id', run: () => copyText(sn.sessionId, 'Copied the session id') },
-      { label: 'Open in terminal', run: () => offerTerminal(more, sn.sessionId) },
+      { label: t('Rename'), run: () => { renaming = sn.sessionId; paintProjects(); } },
+      { label: t('Copy session id'), run: () => copyText(sn.sessionId, t('Copied the session id')) },
+      { label: t('Open in terminal'), run: () => offerTerminal(more, sn.sessionId) },
       hiddenIds.has(sn.sessionId)
-        ? { label: 'Show in list', run: () => { setHidden(sn.sessionId, false); paintProjects(); } }
-        : { label: 'Hide from list', run: () => { setHidden(sn.sessionId, true); paintProjects(); } },
+        ? { label: t('Show in list'), run: () => { setHidden(sn.sessionId, false); paintProjects(); } }
+        : { label: t('Hide from list'), run: () => { setHidden(sn.sessionId, true); paintProjects(); } },
     ]);
   });
   top.append(more);
@@ -1836,12 +1893,31 @@ function paintProjects() {
   // Typing a search is an explicit request, so it looks everywhere — including
   // the projects whose directories are gone. Hiding a result someone asked for
   // by name is worse than showing a dead path.
-  const pool = (showMissing || filterText) ? data.projects : data.projects.filter((p) => p.exists);
-  const missing = data.projects.length - pool.length;
+  const reachable = (showMissing || filterText) ? data.projects : data.projects.filter((p) => p.exists);
+  const missing = data.projects.length - reachable.length;
+  // Projects with Crewforth come first under their own heading; the rest sit under another and fold away. A project
+  // whose kit was not read is not assumed bare. The group opens by itself while the session on screen is in it.
+  const isBare = (p) => Boolean(p.kit) && !p.kit.installed;
+  const withKit = reachable.filter((p) => !isBare(p));
+  const bare = reachable.filter(isBare);
+  const bareOpen = showBare || Boolean(filterText) || Boolean(current && isBare(findSessionRow(current)?.project ?? {}));
+  const pool = bareOpen ? [...withKit, ...bare] : withKit;
+  const sectionHead = (text, label, run) => {
+    const line = node('div', 'nav-section');
+    line.append(node('span', null, text));
+    if (label) {
+      const btn = node('button', 'link', label);
+      btn.type = 'button';
+      btn.addEventListener('click', run);
+      line.append(btn);
+    }
+    return line;
+  };
 
   const frag = document.createDocumentFragment();
   let shown = 0;
   let hiddenCount = 0;
+  let section = null;
 
   for (const p of pool) {
     const projectHit = filterText && p.label.toLowerCase().includes(filterText);
@@ -1851,6 +1927,13 @@ function paintProjects() {
     });
     if (filterText && !projectHit && !sessions.length) continue;
     shown += 1;
+    const here = isBare(p) ? 'bare' : 'kit';
+    if (here !== section && bare.length) {
+      section = here;
+      frag.append(here === 'kit'
+        ? sectionHead(t('With Crewforth · {n}', { n: withKit.length }))
+        : sectionHead(t('Without Crewforth · {n}', { n: bare.length }), showBare && !filterText ? t('hide') : null, () => { showBare = false; paintProjects(); }));
+    }
 
     const open = expanded.has(p.key) || Boolean(filterText);
     const group = node('div', 'proj');
@@ -1883,7 +1966,7 @@ function paintProjects() {
       if (p.local !== false && p.exists && sessions.length) group.append(mapRow(p, sessions[0]));
       for (const sn of sessions) group.append(sessionRow(p, sn));
       if (p.total > p.sessions.length) {
-        group.append(node('div', 'nav-line', `${p.total - p.sessions.length} older session(s) not listed`));
+        group.append(node('div', 'nav-line', t('{n} older session(s) not listed', { n: p.total - p.sessions.length })));
       }
     }
     frag.append(group);
@@ -1891,13 +1974,13 @@ function paintProjects() {
 
   if (!shown) {
     renderNote(el.sessions, filterText
-      ? { title: 'No match', body: `Nothing here is called “${filterText}”.` }
-      : { title: 'No projects', body: 'Measured — no transcript was found on this machine.' });
+      ? { title: t('No match'), body: t('Nothing here is called “{query}”.', { query: filterText }) }
+      : { title: t('No projects'), body: t('Measured — no transcript was found on this machine.') });
     return;
   }
 
   for (const o of (data.origins ?? []).filter((x) => x.ok === false)) {
-    frag.append(node('div', 'nav-line bad', `${o.name} unreachable — ${o.reason}`));
+    frag.append(node('div', 'nav-line bad', t('{name} unreachable — {reason}', { name: o.name, reason: o.reason })));
   }
   const lineWith = (text, label, run) => {
     const line = node('div', 'nav-line');
@@ -1910,18 +1993,21 @@ function paintProjects() {
   };
   if (hiddenIds.size && !filterText) {
     frag.append(lineWith(
-      showHidden ? `${hiddenIds.size} hidden session(s) shown` : `${hiddenCount} session(s) hidden from this list`,
-      showHidden ? 'hide' : 'show',
+      showHidden ? t('{n} hidden session(s) shown', { n: hiddenIds.size }) : t('{n} session(s) hidden from this list', { n: hiddenCount }),
+      showHidden ? t('hide') : t('show'),
       () => { showHidden = !showHidden; paintProjects(); },
     ));
   }
+  if (bare.length && !bareOpen) {
+    frag.append(sectionHead(t('Without Crewforth · {n}', { n: bare.length }), t('show'), () => { showBare = true; paintProjects(); }));
+  }
   if (missing > 0 && !filterText) {
     frag.append(lineWith(
-      `${missing} project(s) hidden — their directories no longer exist`, 'show',
+      t('{n} project(s) hidden — their directories no longer exist', { n: missing }), t('show'),
       () => { showMissing = true; paintProjects(); },
     ));
   } else if (showMissing && !filterText) {
-    frag.append(lineWith('Showing projects whose directories no longer exist', 'hide',
+    frag.append(lineWith(t('Showing projects whose directories no longer exist'), t('hide'),
       () => { showMissing = false; paintProjects(); }));
   }
   el.sessions.replaceChildren(frag);
@@ -1953,20 +2039,21 @@ function paintLive() {
   if (!data.measured) {
     el.liveCount.hidden = false;
     el.liveCount.textContent = '?';
-    el.liveCount.title = 'Not measured';
+    el.liveCount.title = t('Not measured');
     renderNote(el.fleet, {
       kind: 'unmeasured',
-      title: 'Not measured',
-      body: 'This is not the same as "nothing is running" — nothing was read.',
-      why: data.reason || 'no reason reported',
+      title: t('Not measured'),
+      body: t('This is not the same as "nothing is running" — nothing was read.'),
+      why: data.reason || t('no reason reported'),
     });
     return;
   }
 
   const live = liveSessions(data);
-  el.liveCount.hidden = live.length === 0;
-  el.liveCount.textContent = String(live.length);
-  el.liveCount.title = `${live.length} working or waiting`;
+  const working = liveCount(data);
+  el.liveCount.hidden = working === 0;
+  el.liveCount.textContent = String(working);
+  el.liveCount.title = t('{n} working or waiting', { n: working });
 
   const rows = live.filter((s) => !filterText
     || [s.name, s.cwd, s.sessionId, s.origin].some((v) => typeof v === 'string' && v.toLowerCase().includes(filterText)));
@@ -1974,47 +2061,93 @@ function paintLive() {
   if (!live.length) {
     const open = (data.sessions ?? []).length;
     renderNote(el.fleet, {
-      title: 'No sessions running',
+      title: t('No sessions running'),
       body: open
-        ? `Measured — ${open} open on this machine, none of them working or waiting.`
-        : 'Measured — the machine has none open.',
+        ? t('Measured — {n} open on this machine, none of them working or waiting.', { n: open })
+        : t('Measured — the machine has none open.'),
     });
     return;
   }
   if (!rows.length) {
-    renderNote(el.fleet, { title: 'No match', body: `No live session is called “${filterText}”.` });
+    renderNote(el.fleet, { title: t('No match'), body: t('No live session is called “{query}”.', { query: filterText }) });
     return;
   }
 
-  el.fleet.replaceChildren(...rows.map((s) => {
-    const status = sessionStatus(s.sessionId, { measured: true, sessions: [{ ...s, local: true }] });
-    const known = findSessionRow(s.sessionId);
-    const name = known ? sessionName(known.session, labels.all()) : (s.name || s.sessionId.slice(0, 8));
-    const row = node('div', 'srow');
-    const top = node('span', 'srow-top');
-    top.append(dot(status.tone), marked(name, 'nm'));
-    if (s.origin && s.local === false) top.append(node('span', 'origin', s.origin));
-    top.append(node('span', 'row-fill'), node('span', 'sub', ago(s.startedAt, Date.now())));
-    row.append(top);
-    const where = known?.project.label ?? shortPath(s.cwd);
-    const said = status.key === 'waiting' && s.waitingFor ? `Needs you · ${s.waitingFor}` : (status.word ?? s.status);
-    row.append(marked([where, said].filter(Boolean).join(' · '), 'sub srow-sub'));
-
-    if (s.local !== false && s.sessionId) {
-      row.tabIndex = 0;
-      row.dataset.id = s.sessionId;
-      row.setAttribute('aria-current', String(s.sessionId === current));
-      row.title = `Open ${name}`;
-      const open = () => selectSession(s.sessionId);
-      row.addEventListener('click', open);
-      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
-    } else {
-      // A session on another machine has no transcript here to open.
-      row.classList.add('remote');
-      row.title = `${name} — on ${s.origin}. Its transcript is on that machine.`;
-    }
-    return row;
+  // One group per project, the project a session is in as the Projects tab names it.
+  const groups = liveGroups({ ...data, sessions: rows }, (s) => findSessionRow(s.sessionId)?.project.label ?? projectOfCwd(s.cwd));
+  el.fleet.replaceChildren(...groups.map((g) => {
+    const group = node('div', 'proj live-group');
+    const head = node('div', 'proj-head static');
+    head.append(node('span', 'proj-name', g.label));
+    if (g.origin) head.append(node('span', 'origin', g.origin));
+    head.append(node('span', 'row-fill'), node('span', 'sub', String(g.rows.length)));
+    group.append(head, ...g.rows.map(({ row, status }) => liveRow(row, status)));
+    return group;
   }));
+}
+
+function liveRow(s, status) {
+  const known = findSessionRow(s.sessionId);
+  const name = known ? sessionName(known.session, labels.all()) : (s.name || s.sessionId.slice(0, 8));
+  const row = node('div', `srow${status.key === 'quiet' ? ' quiet' : ''}`);
+  const top = node('span', 'srow-top');
+  top.append(dot(status.tone), marked(name, 'nm'));
+  if (s.origin && s.local === false) top.append(node('span', 'origin', s.origin));
+  top.append(node('span', 'row-fill'), node('span', 'sub', ago(s.startedAt, Date.now())));
+  // Ending is offered for a session on this machine only: a process elsewhere is not this server's to signal.
+  if (s.local !== false && Number.isInteger(s.pid)) {
+    const end = node('button', 'btn xs live-end', t('End'));
+    end.type = 'button';
+    end.title = t('End this session…');
+    end.addEventListener('click', (e) => { e.stopPropagation(); offerEnd(end, s, name); });
+    end.addEventListener('keydown', (e) => e.stopPropagation());
+    top.append(end);
+  }
+  row.append(top);
+  // What it said before it went quiet stays on the line: "quiet for 18h · was Needs you · permission prompt".
+  const before = status.key === 'quiet'
+    ? t('was {state}', { state: status.was === 'waiting' ? `${t('Needs you')}${status.waitingFor ? ` · ${status.waitingFor}` : ''}` : t('Running') })
+    : null;
+  const said = status.key === 'waiting' && s.waitingFor ? `${t('Needs you')} · ${s.waitingFor}` : (status.word ?? s.status);
+  row.append(marked([said, before].filter(Boolean).join(' · '), 'sub srow-sub'));
+  if (status.key === 'quiet') row.title = t('Nothing written for {span}. Its process is still open; End closes it.', { span: span(status.quietFor) });
+
+  if (s.local !== false && s.sessionId) {
+    row.tabIndex = 0;
+    row.dataset.id = s.sessionId;
+    row.setAttribute('aria-current', String(s.sessionId === current));
+    if (status.key !== 'quiet') row.title = t('Open {name}', { name });
+    const open = () => selectSession(s.sessionId);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  } else {
+    // A session on another machine has no transcript here to open.
+    row.classList.add('remote');
+    row.title = t('{name} — on {origin}. Its transcript is on that machine.', { name, origin: s.origin });
+  }
+  return row;
+}
+
+/*
+ * Ending a session that runs somewhere else is a signal to a real process, so it takes two presses: the first says
+ * what will happen, the second does it. The server refuses whatever it cannot show to be that session's process.
+ */
+function offerEnd(anchor, row, name, then = null) {
+  openMenu(anchor, [
+    { note: t('Ends {name} (process {pid}): Claude Code is asked to quit, as when its terminal is closed. Its history stays and can be continued; work it is doing now stops, and a question it is waiting on goes unanswered.', { name, pid: row.pid }) },
+    { label: t('End session'), primary: true, run: () => endSession(row, name, then) },
+    { label: t('Cancel'), run: () => {} },
+  ]);
+}
+
+async function endSession(row, name, then) {
+  const out = await remoteWrite('POST', `/api/fleet/${encodeURIComponent(row.sessionId)}/end`, { pid: row.pid });
+  if (!out.ok) { toast(t('Not ended: {reason}', { reason: out.reason ?? t('no reason given') })); return false; }
+  if (out.ended === false) { toast(t('{name} was asked to end and is still running.', { name })); return false; }
+  toast(t('{name} ended.', { name }));
+  try { renderFleet(await getJson('/api/fleet')); } catch { /* the next poll brings it */ }
+  then?.();
+  return true;
 }
 
 function machineRow(m) {
@@ -2023,16 +2156,16 @@ function machineRow(m) {
   top.append(icon(ICON.machine), node('span', 'mname', m.name), node('span', 'row-fill'));
   if (m.kind === 'snapshot') {
     // Recorded by a session, not asked just now: the label says which.
-    top.append(node('span', 'badge', 'snapshot'));
+    top.append(node('span', 'badge', t('snapshot')));
     row.append(top);
     const seen = seenAgo(m.seenAt, Date.now());
     row.append(node('div', 'sub srow-sub', [m.status, m.note, seen].filter(Boolean).join(' · ')));
-    row.title = `${m.name} — on another machine. Its transcript lives there, so the panel can list it but not draw it.`;
+    row.title = t('{name} — on another machine. Its transcript lives there, so the panel can list it but not draw it.', { name: m.name });
   } else {
-    top.append(node('span', 'badge', 'peer'));
+    top.append(node('span', 'badge', t('peer')));
     row.append(top);
     const sub = node('div', `sub srow-sub${m.ok ? '' : ' bad'}`,
-      m.ok ? `${m.sessions ?? 0} session(s) · asked just now` : `unreachable — ${m.reason ?? 'no reason given'}`);
+      m.ok ? t('{n} session(s) · asked just now', { n: m.sessions ?? 0 }) : t('unreachable — {reason}', { reason: m.reason ?? t('no reason given') }));
     row.append(sub);
   }
   return row;
@@ -2046,7 +2179,7 @@ function paintMachines() {
   if (self) {
     const row = node('div', 'srow remote');
     const top = node('span', 'srow-top');
-    top.append(icon(ICON.machine), node('span', 'mname', self.name), node('span', 'row-fill'), node('span', 'badge', 'this machine'));
+    top.append(icon(ICON.machine), node('span', 'mname', self.name), node('span', 'row-fill'), node('span', 'badge', t('this machine')));
     row.append(top);
     frag.append(row);
   }
@@ -2058,10 +2191,10 @@ function paintMachines() {
     const note = node('div', 'nav-note');
     renderNote(note, {
       kind: m.rosterMeasured ? '' : 'unmeasured',
-      title: m.rosterMeasured ? 'None reachable' : 'Not measured',
+      title: m.rosterMeasured ? t('None reachable') : t('Not measured'),
       body: m.rosterMeasured
-        ? 'A connected session looked and found no machines besides this one.'
-        : 'No session here has recorded a list of other machines yet.',
+        ? t('A connected session looked and found no machines besides this one.')
+        : t('No session here has recorded a list of other machines yet.'),
       why: m.rosterMeasured ? null : m.rosterReason,
     });
     frag.append(note);
@@ -2104,7 +2237,7 @@ async function remoteWrite(method, path, body) {
 }
 
 /** A time today or tomorrow as the clock on the wall says it, e.g. 23:40. */
-const clockTime = (ms) => (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
+const clockTime = (ms) => (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString(numLocale(), { hour: '2-digit', minute: '2-digit' }) : '—');
 
 let showTranscripts = false;   // the owner's choice for the next viewer: transcripts stay hidden unless ticked
 
@@ -2112,7 +2245,7 @@ async function addViewer(button) {
   button.disabled = true;
   const res = await remoteWrite('POST', '/api/remote', { transcripts: showTranscripts });
   if (!res.ok) {
-    toast(`No viewer added — ${res.reason ?? 'no reason given'}`);
+    toast(t('No viewer added — {reason}', { reason: res.reason ?? t('no reason given') }));
     button.disabled = false;
     return;
   }
@@ -2129,45 +2262,45 @@ async function revokeViewer(v, button) {
   button.disabled = true;
   const res = await remoteWrite('DELETE', `/api/remote/${encodeURIComponent(v.id)}`);
   if (!res.ok) {
-    toast(`Not revoked — ${res.reason ?? 'no reason given'}`);
+    toast(t('Not revoked — {reason}', { reason: res.reason ?? t('no reason given') }));
     button.disabled = false;
     return;
   }
   remote = { ...(remote ?? {}), viewers: res.viewers ?? [] };
   if (handed?.id === v.id) handed = null;
-  toast(res.revoked ? `${v.label} can no longer read this panel` : `${v.label} was already revoked`);
+  toast(res.revoked ? t('{name} can no longer read this panel', { name: v.label }) : t('{name} was already revoked', { name: v.label }));
   paintMachines();
 }
 
 function viewerRow(v) {
   const row = node('div', 'srow remote');
   const top = node('span', 'srow-top');
-  const revoke = node('button', 'btn sm ghost', 'Revoke');
+  const revoke = node('button', 'btn sm ghost', t('Revoke'));
   revoke.type = 'button';
-  revoke.setAttribute('aria-label', `Revoke ${v.label}`);
+  revoke.setAttribute('aria-label', t('Revoke {name}', { name: v.label }));
   revoke.addEventListener('click', () => revokeViewer(v, revoke));
   top.append(icon(ICON.machine), node('span', 'mname', v.label), node('span', 'row-fill'), revoke);
   row.append(top);
   const seen = v.lastSeenAt
-    ? `${seenAgo(v.lastSeenAt, Date.now())} · ${v.requests} request${v.requests === 1 ? '' : 's'}${v.open ? ' · watching now' : ''}`
-    : 'link not opened yet';
+    ? `${seenAgo(v.lastSeenAt, Date.now())} · ${v.requests === 1 ? t('{n} request', { n: 1 }) : t('{n} requests', { n: v.requests })}${v.open ? ` · ${t('watching now')}` : ''}`
+    : t('link not opened yet');
   row.append(node('div', 'sub srow-sub', seen));
-  row.append(node('div', 'sub srow-sub', `until ${clockTime(v.expiresAt)} · transcripts ${v.transcripts ? 'shown' : 'hidden'}${v.addresses?.length ? ` · from ${v.addresses.join(', ')}` : ''}`));
+  row.append(node('div', 'sub srow-sub', `${t('until {time}', { time: clockTime(v.expiresAt) })} · ${v.transcripts ? t('transcripts shown') : t('transcripts hidden')}${v.addresses?.length ? ` · ${t('from {where}', { where: v.addresses.join(', ') })}` : ''}`));
   return row;
 }
 
 function remoteSection() {
   const box = node('div', 'nav-foot rv');
   const head = node('div', 'rv-head');
-  const add = node('button', 'btn sm', 'Add viewer');
+  const add = node('button', 'btn sm', t('Add viewer'));
   add.type = 'button';
   const list = remote?.viewers ?? [];
   if (remote?.max != null && list.length >= remote.max) {
     add.disabled = true;
-    add.title = `${remote.max} viewers already; revoke one first`;
+    add.title = t('{n} viewers already; revoke one first', { n: remote.max });
   }
   add.addEventListener('click', () => addViewer(add));
-  head.append(node('span', 'rv-title', 'Remote viewers'), node('span', 'row-fill'), add);
+  head.append(node('span', 'rv-title', t('Remote viewers')), node('span', 'row-fill'), add);
   box.append(head);
 
   // Transcripts stay hidden on a new link unless this is ticked before Add viewer.
@@ -2175,24 +2308,26 @@ function remoteSection() {
   const tick = document.createElement('input');
   tick.type = 'checkbox'; tick.checked = showTranscripts;
   tick.addEventListener('change', () => { showTranscripts = tick.checked; });
-  opt.append(tick, document.createTextNode(' Show transcripts on the next link'));
+  opt.append(tick, document.createTextNode(` ${t('Show transcripts on the next link')}`));
   box.append(opt);
 
   if (handed) {
     const give = node('div', 'rv-give');
     give.append(node('div', 'sub rv-say', handed.wifi
-      ? `Link for ${handed.label}, shown once. Scan it with a phone on the same Wi-Fi. It lasts until ${clockTime(handed.expiresAt)}; transcripts ${handed.transcripts ? 'shown' : 'hidden'}.`
-      : `Link for ${handed.label}, shown once. No Wi-Fi address was found${handed.lanErrors.length ? ` (${handed.lanErrors.join('; ')})` : ''}, so it opens on this machine only.`));
+      ? t('Link for {name}, shown once. Scan it with a phone on the same Wi-Fi. It lasts until {time}; {transcripts}.', { name: handed.label, time: clockTime(handed.expiresAt), transcripts: handed.transcripts ? t('transcripts shown') : t('transcripts hidden') })
+      : handed.lanErrors.length
+        ? t('Link for {name}, shown once. No Wi-Fi address was found ({errors}), so it opens on this machine only.', { name: handed.label, errors: handed.lanErrors.join('; ') })
+        : t('Link for {name}, shown once. No Wi-Fi address was found, so it opens on this machine only.', { name: handed.label })));
     if (handed.wifi) {
       const code = node('div', 'rv-qr');
       code.innerHTML = qrSvg(handed.wifi, { px: 3 });
       give.append(code);
     }
     const url = node('code', 'rv-url', handed.url);
-    const copy = node('button', 'btn sm', 'Copy link');
+    const copy = node('button', 'btn sm', t('Copy link'));
     copy.type = 'button';
-    copy.addEventListener('click', () => copyText(handed.url, 'Link copied'));
-    const done = node('button', 'btn sm ghost', 'Done');
+    copy.addEventListener('click', () => copyText(handed.url, t('Link copied')));
+    const done = node('button', 'btn sm ghost', t('Done'));
     done.type = 'button';
     done.addEventListener('click', () => { handed = null; paintMachines(); });
     const acts = node('div', 'rv-acts');
@@ -2204,7 +2339,7 @@ function remoteSection() {
   for (const v of list) box.append(viewerRow(v));
   if (!list.length) {
     box.append(node('div', 'sub rv-say',
-      'A viewer watches this panel from a phone on the same Wi-Fi and changes nothing. Its link lasts eight hours. With no viewer, the server listens on 127.0.0.1 only.'));
+      t('A viewer watches this panel from a phone on the same Wi-Fi and changes nothing. Its link lasts eight hours. With no viewer, the server listens on 127.0.0.1 only.')));
   }
   return box;
 }
@@ -2215,11 +2350,11 @@ function paintOtherMachines() {
   const others = [...m.peers, ...m.remote];
   el.otherMachines.hidden = navTab !== 'projects' || others.length === 0;
   if (el.otherMachines.hidden) return;
-  const label = node('button', 'nav-foot-label', 'Other machines');
+  const label = node('button', 'nav-foot-label', t('Other machines'));
   label.type = 'button';
   label.addEventListener('click', () => setTab('machines'));
   const rows = others.slice(0, 2).map(machineRow);
-  const more = others.length > 2 ? [node('div', 'nav-line', `${others.length - 2} more in Machines`)] : [];
+  const more = others.length > 2 ? [node('div', 'nav-line', t('{n} more in Machines', { n: others.length - 2 }))] : [];
   el.otherMachines.replaceChildren(label, ...rows, ...more);
 }
 
@@ -2236,13 +2371,13 @@ function paintCrumb() {
   if (!found) { el.crumb.replaceChildren(); return; }
   const proj = node('button', 'crumb-project', found.project.label);
   proj.type = 'button';
-  proj.title = `Show ${found.project.label} in the navigator`;
+  proj.title = t('Show {name} in the navigator', { name: found.project.label });
   proj.addEventListener('click', () => showProject(found.project.key));
   const sep = icon(ICON.chevron);
   sep.classList.add('crumb-sep');
   const name = node('span', 'crumb-session', sessionName(found.session, labels.all()));
   // The branch is on the session's row and on its card; here it is one hover away.
-  name.title = found.session.branch ? `on ${found.session.branch}` : '';
+  name.title = found.session.branch ? t('on {branch}', { branch: found.session.branch }) : '';
   el.crumb.replaceChildren(proj, sep, name);
   fitBar();
 }
@@ -2268,7 +2403,7 @@ function paintSummary(stats, extra = []) {
     const b = node('button', 'pill chip');
     b.type = 'button';
     b.setAttribute('aria-pressed', String(statusFilter === c.status));
-    b.title = statusFilter === c.status ? 'Show every agent' : `Show only ${c.text.replace(/^\d+ /, '')}`;
+    b.title = statusFilter === c.status ? t('Show every agent') : t('Show only {what}', { what: c.text.replace(/^\d+ /, '') });
     b.append(dot(c.tone), document.createTextNode(c.text));
     b.addEventListener('click', () => toggle(c));
     return b;
@@ -2282,7 +2417,7 @@ function paintSummary(stats, extra = []) {
     const words = [...chips.map((c) => c.text), ...extra].join(', ');
     const b = node('button', 'pill chip chip-compact');
     b.type = 'button';
-    b.setAttribute('aria-label', `Session summary: ${words}. Open details`);
+    b.setAttribute('aria-label', t('Session summary: {words}. Open details', { words }));
     b.setAttribute('aria-haspopup', 'menu');
     b.setAttribute('aria-pressed', String(Boolean(statusFilter)));
     b.title = words;
@@ -2312,10 +2447,10 @@ window.addEventListener('resize', fitBar);
 function setStatusFilter(status, repaint = true) {
   statusFilter = status;
   show = 'all';
-  tbValue.show.textContent = status ? 'One status' : SHOW.all.word;
+  tbValue.show.textContent = status ? t('One status') : SHOW.all.word;
   canvas.setFilter(status ? [status] : null);
   timeline.setFilter(status ? [status] : null);
-  if (repaint) paintSummary(lastStats, lastStats?.malformed ? [`${lastStats.malformed} malformed`] : []);
+  if (repaint) paintSummary(lastStats, lastStats?.malformed ? [t('{n} malformed', { n: lastStats.malformed })] : []);
 }
 
 /** The Show menu: the same filter the chips are, by what the viewer is looking for rather than by one status. */
@@ -2325,7 +2460,7 @@ function setShow(key) {
   tbValue.show.textContent = SHOW[show].word;
   canvas.setFilter(SHOW[show].statuses, { keepWaiting: Boolean(SHOW[show].waiting) });
   timeline.setFilter(SHOW[show].statuses, { keepWaiting: Boolean(SHOW[show].waiting) });
-  paintSummary(lastStats, lastStats?.malformed ? [`${lastStats.malformed} malformed`] : []);
+  paintSummary(lastStats, lastStats?.malformed ? [t('{n} malformed', { n: lastStats.malformed })] : []);
 }
 
 /* ------------------------------------------------------ needs attention */
@@ -2352,14 +2487,14 @@ function paintAttention(nodes) {
     return b;
   });
   if (list.length > MAX) {
-    const more = node('button', 'att', `+${list.length - MAX} more`);
+    const more = node('button', 'att', t('+{n} more', { n: list.length - MAX }));
     more.type = 'button';
     more.addEventListener('click', () => setShow('attention'));
     chips.push(more);
   }
   el.attention.replaceChildren(
-    node('span', 'attention-label', 'Needs attention'), ...chips,
-    node('span', 'row-fill'), node('span', 'sub attention-hint', 'Click one to go to it'),
+    node('span', 'attention-label', t('Needs attention')), ...chips,
+    node('span', 'row-fill'), node('span', 'sub attention-hint', t('Click one to go to it')),
   );
 }
 
@@ -2440,9 +2575,9 @@ function selectSession(sessionId) {
   // used to share EventSource's 'error' event, so "no such session" was shown
   // as "reconnecting" and the reason was thrown away.
   source.addEventListener('fault', (e) => {
-    let reason = 'unknown';
+    let reason = t('unknown');
     try { reason = JSON.parse(e.data).reason ?? reason; } catch { /* keep default */ }
-    el.foot.textContent = `stream fault: ${reason}`;
+    el.foot.textContent = t('stream fault: {reason}', { reason });
     source.close();
     source = null;
   });
@@ -2452,7 +2587,7 @@ function selectSession(sessionId) {
   // does not decide Offline.
   source.onerror = () => {
     if (!source) return;               // already closed by a fault
-    el.foot.textContent = 'stream dropped — reconnecting';
+    el.foot.textContent = t('stream dropped — reconnecting');
   };
 }
 
@@ -2471,7 +2606,7 @@ function paintPulse() {
   pulse.detail.textContent = l.detail ? `· ${l.detail}` : '';
 }
 paintPulse();
-setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } if (view === 'map') loadMap(); }, 1000);
+setInterval(() => { paintPulse(); dock.tick(); timeline.tick(); list.tick(); paintStageNote(); if (view === 'models') { loadModels(); loadCosts(); } if (view === 'map') loadMap(); if (view === 'graph') loadTodo(); }, 1000);
 
 /* -------------------------------------------------------------- home, keys */
 
@@ -2581,7 +2716,7 @@ function sessionIsLive() {
 /** The session card's state: waiting on the viewer outranks what the fleet says, as it does for an agent. */
 function sessionStateNow() {
   const own = waitingNow.some((r) => r.sessionId === current && !r.agentId);
-  if (own) return { key: 'waiting', word: 'Needs you', tone: 'waiting', known: true };
+  if (own) return { key: 'waiting', word: t('Needs you'), tone: 'waiting', known: true };
   return sessionStatus(current, fleetData);
 }
 
@@ -2639,7 +2774,7 @@ async function setSessionMode(sessionId, mode) {
   } catch (e) {
     res = { ok: false, reason: e.message };
   }
-  if (!res.ok) toast(`Mode not changed — ${res.reason ?? 'no reason given'}`);
+  if (!res.ok) toast(t('Mode not changed — {reason}', { reason: res.reason ?? t('no reason given') }));
   else pollOwned();
 }
 
@@ -2660,7 +2795,7 @@ async function decideRequest(item, verdict, extra = {}) {
     decided.delete(item.key);
     dock.release(item.key);
     list.release(item.key);
-    toast(`Decision not recorded — ${res.reason ?? 'no reason given'}`);
+    toast(t('Decision not recorded — {reason}', { reason: res.reason ?? t('no reason given') }));
     return;
   }
   answered.add(item.key);
@@ -2716,7 +2851,7 @@ chat.onPermissions = () => pollOwned();
 
 let nextPollAt = null;
 let restartNote = null;          // staleServerNote(/api/health): the server runs older code than the page
-const stageNote = { text: node('span', 'stage-note-text'), retry: node('span', 'sub'), button: node('button', 'btn sm', 'Retry now') };
+const stageNote = { text: node('span', 'stage-note-text'), retry: node('span', 'sub'), button: node('button', 'btn sm', t('Retry now')) };
 stageNote.button.type = 'button';
 stageNote.button.addEventListener('click', () => retryNow());
 el.stageNote.append(stageNote.text, stageNote.retry, node('span', 'row-fill'), stageNote.button);
@@ -2748,7 +2883,7 @@ function paintStageNote() {
 /** The summary box, from the session on screen. A live session's time is counted to now, so this runs on the tick. */
 function paintSpend() {
   const usage = lastNodes?.find((n) => n.kind === 'session')?.usage ?? null;
-  canvas.setSpend(summaryRows(usage, { live: lastLive === true, now: serverNow() }));
+  canvas.setSpend(summaryRows(usage, { live: lastLive === true, now: serverNow(), agentRows: agentSpendRows(lastNodes) }));
 }
 
 function showGraph() {
@@ -2779,7 +2914,7 @@ function showGraph() {
   // other 243 failed. A count of records that could not be read stays beside
   // them: it is not a status, and it is not nothing.
   const s = g.stats ?? {};
-  paintSummary(s, s.malformed ? [`${s.malformed} malformed`] : []);
+  paintSummary(s, s.malformed ? [t('{n} malformed', { n: s.malformed })] : []);
   el.foot.textContent = '';
 }
 
@@ -2799,7 +2934,7 @@ function paintTerminalWait() {
     what.title = w.what ?? '';
     el.terminalWait.replaceChildren(
       node('span', 'terminal-wait-word', `${w.text}${w.what ? ':' : ''}`), what,
-      node('span', 'sub terminal-wait-note', 'Studio answers only for sessions started here'),
+      node('span', 'sub terminal-wait-note', t('Studio answers only for sessions started here')),
     );
   }
   canvas.fitIfUntouched();
@@ -2820,7 +2955,7 @@ const afterSummary = el.summary.nextElementSibling;
 function setDrawer(open) {
   shell.classList.toggle('side-open', open);
   el.menuBtn.setAttribute('aria-expanded', String(open));
-  el.menuBtn.setAttribute('aria-label', open ? 'Close the navigator' : 'Open the navigator');
+  el.menuBtn.setAttribute('aria-label', open ? t('Close the navigator') : t('Open the navigator'));
 }
 el.menuBtn.addEventListener('click', () => setDrawer(!shell.classList.contains('side-open')));
 // Choosing a session in the drawer is why it was opened; it closes behind the choice.
@@ -2853,7 +2988,7 @@ async function pollFleet() {
   try {
     renderFleet(await getJson('/api/fleet'));
   } catch (e) {
-    renderNote(el.fleet, { kind: 'unmeasured', title: 'Server unreachable', why: e.message });
+    renderNote(el.fleet, { kind: 'unmeasured', title: t('Server unreachable'), why: e.message });
   }
 }
 
@@ -2883,8 +3018,8 @@ getJson('/api/health').then((h) => {
   const badge = document.getElementById('role');
   badge.hidden = role !== 'viewer';
   if (transcriptsHidden) {
-    badge.textContent = 'Read-only · transcripts hidden';
-    badge.title = 'This link reads the panel and changes nothing; no transcript text is sent to it';
+    badge.textContent = t('Read-only · transcripts hidden');
+    badge.title = t('This link reads the panel and changes nothing; no transcript text is sent to it');
   }
   if (role === 'owner') pollRemote(); else paintMachines();
 }).catch(() => { /* the Live indicator says the server is unreachable */ });

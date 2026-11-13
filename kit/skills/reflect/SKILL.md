@@ -21,10 +21,12 @@ Run **`bash .claude/hooks/session-stats.sh`** (Bash tool, not PowerShell) before
 reports. A retro built only on recall is an interview with the least reliable witness in the room: the model
 reconstructs a tidy story from a context that has already been summarised, and the stretches where it span on a
 failing approach are exactly the ones it remembers least. The script counts what actually happened — prompts,
-tool calls, failing loops, near-duplicate prompts, interrupts, auto-compactions.
+tool calls, failing loops, near-duplicate prompts, interrupts, auto-compactions, a done/fixed claim with no command
+behind it, and a component the prompt triggered that never ran.
 
 Treat each ⚠️ as a **question to answer in the pass**, not a verdict: a runaway loop asks *what assumption kept
-failing*; a repeated prompt asks *what context never landed*; an interrupt asks *where intent diverged*; an auto
+failing*; a re-fetch loop asks *what the first truncated look hid*; an error loop asks *what the error said
+that the retries ignored*; a repeated prompt asks *what context never landed*; an interrupt asks *where intent diverged*; an auto
 compaction asks *what state was silently dropped*. If the numbers and your recollection disagree, the numbers are
 the record. If the script is missing, say the retro is recall-based —
 do not present recall as measurement.
@@ -47,6 +49,9 @@ Ask each question honestly and write the answer, not a reassurance:
 - **Honest, not performative.** A retro that only confirms good work is a failed retro. If nothing is found,
   say specifically *why* you're confident (what was verified), don't just assert it.
 - **Bounded.** One pass, concrete findings, then act or close — not an open rumination loop.
+- **A lesson needs a pattern.** A rule for the next session needs two or more occurrences in the
+  `session-stats.sh` evidence, or an explicit correction from the user. A one-off failure is a finding, not a
+  rule. A rule says "do X instead of Y"; one that restates the goal ("be careful with tests") is not a rule.
 - **Token discipline** ([[token-budget]]): a short ranked findings list to the main thread; detail to a file.
 
 ## DoD (this skill's contribution)

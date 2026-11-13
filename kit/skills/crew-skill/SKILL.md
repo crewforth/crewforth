@@ -30,7 +30,21 @@ Read `.claude/AGENT_TEMPLATE.md`. Then answer, in one line each:
 - Skill: `.claude/skills/<name>/SKILL.md` — the directory name and the `name:` field must match. Keep the body
   lean; depth goes to `references/*.md` and is loaded on demand.
 - Agent: a thin trigger — *who and when*. The *how* lives in the skill it applies; do not copy the method in.
-- The `description` says **when to reach for this**, not what its author knows.
+- The `description` says **when to reach for this**, not what its author knows. A description that summarises the
+  method gets acted on instead of the body.
+- A step that sends the reader to `references/<file>.md`: if that file is missing or unreadable, the skill says to
+  stop that step and name the path. It does not let the reader improvise the content.
+- How a rule is worded decides whether it holds:
+
+  | Form | How it fails | Write instead |
+  |---|---|---|
+  | A nuance clause ("unless clearly needed", "where sensible") | Read as permission; the exit gets taken | The rule, plus the one exception named by its test |
+  | An exemption clause ("except for X") | Does not stay scoped; it spreads to cases that look like X | The exception as its own rule, with its own check |
+  | A rule nothing can see broken | Broken silently | Name what a reviewer sees when it is broken |
+
+- A discipline skill ends with a **Before you finish** table: left column a pattern you can detect in the diff or
+  the output, right column what to do about it. Pruning test for every sentence: if it could appear unchanged in
+  another project's docs, it says nothing here. Cut it.
 
 ## 3. Register it — the cascade, in this order
 Skipping one of these is how a component ships half-installed:
@@ -54,6 +68,17 @@ bash .claude/eval/routing-eval.sh                        # the golden case, posi
 bash .claude/eval/smoke-test.sh                          # structure, budget, §3b routed, cross-links
 CREW_NO_STAR=1 bash .claude/eval/doctor.sh               # the live install still healthy (star line off here)
 ```
+
+**Rule text.** A change to the discipline file or to an agent's rule text ships a measured A/B: `evals/run.sh` with
+the two arms of `CREW_EVAL_ARMS` (the second set by `CREW_EVAL_DISCIPLINE_B`, `CREW_EVAL_OVERLAY_B`), at least 3 runs per arm, on one case the
+change should move and one it could break *(Crewforth repository only)*. When you probe wording by hand: one fresh
+session per sample, a control with no guidance, 5 or more repetitions, and report the spread, not only the mean.
+
+**Descriptions.** In the Crewforth repository a changed `description` needs
+`node packaging/skill-eval/run.mjs` before CI: `check.mjs` refuses a description it has no measurement for.
+
+**A new model.** Re-run `skill-eval --all` and the A/B evals before touching wording. Delete a rule only with a
+before/after probe that shows it no longer changes the outcome.
 
 In the plugin edition none of the four commands above exist — it ships no `eval/` scripts — so there the proof is
 the Crewforth repository's own suite, not a local run.

@@ -1,9 +1,7 @@
 ---
 name: release
 description: |
-  Versioning and CHANGELOG: SemVer mapped from Conventional Commits, Keep a Changelog format, tagging,
-  pre-release gates.
-  Use when cutting a version: bumping, writing the CHANGELOG entry, or tagging.
+  Use when cutting a version: bumping it, writing the CHANGELOG entry, or tagging.
 ---
 
 # Release & CHANGELOG
@@ -21,6 +19,9 @@ Headings: **Added · Changed · Fixed · Removed · Security · Deprecated**.
 Every version is dated; the `Unreleased` section can be auto-populated from commits.
 
 ## Pre-release gates (all must pass)
+- [ ] **Something to release.** Commits since the last tag, and a version that is not on the registry yet. Nothing
+      new → no tag, no draft release, no registry call: say so and stop. Every precondition here is checked before
+      the first object outside the repository is created.
 - [ ] Tests green + `sonarqube-check` PASSED
 - [ ] `dependency-audit` clean (0 HIGH/CRITICAL)
 - [ ] CHANGELOG up to date
@@ -40,5 +41,15 @@ Every version is dated; the `Unreleased` section can be auto-populated from comm
 git tag -a vX.Y.Z -m "vX.Y.Z"    # asks for approval (§4.4); push on explicit request (§4.5)
 ```
 
+## After publish
+- **Read it back from the registry**: the exact version exists and the dist-tag (`latest`, `next`, the channel
+  name) points where it should. A pre-release must not move `latest`.
+- **Install it from nothing.** In an empty temp directory, install the published version the way a user does and
+  run its smallest smoke (the CLI's `--version`, an import, the first command).
+- A check that cannot run here (no registry access, a store review pending) is reported as **partially verified**,
+  with what is missing. It is a coverage gap, not a pass.
+
 ## DoD
 - Correct SemVer bump; complete CHANGELOG; tag + rollback plan ready.
+- After publish: the version and dist-tag read back, an install from an empty directory ran, or "partially
+  verified" with the gap named.

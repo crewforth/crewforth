@@ -37,13 +37,15 @@
 #     (CLAUDE_CODE_SESSION_ATTENDED=0 — measured: `claude -p` sets 0, the terminal and desktop app set 1; the
 #     variable is undocumented, so the question text also tells Claude not to ask when nobody can answer).
 #   - Opt out entirely with CREW_NO_UPDATE_CHECK=1 — an outbound request nobody asked for is not acceptable in every
-#     environment, and the answer to that is a switch, not a justification.
+#     environment, and the answer to that is a switch, not a justification. Claude Code's own switches are honoured
+#     too: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC or DISABLE_TELEMETRY set to anything means no request either,
+#     because a user who turned the host's traffic off did not mean "except for the tools it runs".
 #
 # The version string is treated as untrusted input: it comes off the network, is filtered to [0-9A-Za-z.-], and must
 # look like a release before it is ever printed into the model's context.
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"
 # How an install's own version is read and ordered (an rc before its final): one definition, eval/lib/version.sh.
 [ -f "$_crew_d/../eval/lib/version.sh" ] && . "$_crew_d/../eval/lib/version.sh"; unset _crew_d
@@ -112,6 +114,8 @@ fi
 
 # ---- foreground half: one file read, then a decision. ---------------------------------------------------------
 [ -n "${CREW_NO_UPDATE_CHECK:-}" ] && exit 0
+[ -n "${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-}" ] && exit 0   # the host's own "no extra traffic" switch
+[ -n "${DISABLE_TELEMETRY:-}" ] && exit 0
 [ -n "${CI:-}" ] && exit 0                                   # a runner has nobody to ask
 [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 0 ] && exit 0      # claude -p / an SDK run: nobody to ask
 

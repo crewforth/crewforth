@@ -15,7 +15,7 @@ if [ -z "$OTHER" ]; then say PASS "no other client stack's files were created"
 else say FAIL "another client stack was started: $(printf '%s' "$OTHER" | tr '\n' ' ')"; fi
 
 # 3. Not asked again: the reply puts no stack choice to the user.
-if printf '%s\n' "$REPLY" | grep -qiE '(which|what) (client |mobile |ui )?(stack|framework)|flutter or |react native or |should (i|we) use (flutter|react native|swift|kotlin)'; then
+if grep -qiE '(which|what) (client |mobile |ui )?(stack|framework)|flutter or |react native or |should (i|we) use (flutter|react native|swift|kotlin)' <<<"$REPLY"; then
   say FAIL "the reply reopened the recorded client stack as a question"
 else say PASS "the recorded client stack was followed without a question"; fi
 

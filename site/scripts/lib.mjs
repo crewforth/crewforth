@@ -57,7 +57,7 @@ export function agents(root) {
 }
 
 // Skills split in two: a skill whose metadata marks it `kind: command` is a command (since 3.0). One marked
-// `experimental: true` still installs and still answers when typed, but no page counts or lists it.
+// `experimental: "true"` still installs and still answers when typed, but no page counts or lists it.
 export function skillsAndCommands(root) {
   const dir = path.join(root, 'kit/skills');
   const skills = []; const commands = [];
@@ -65,7 +65,7 @@ export function skillsAndCommands(root) {
     const f = path.join(dir, d, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     const raw = read(f);
-    if (/^\s+experimental:\s*true\s*$/m.test(raw.split('\n---')[0])) continue;
+    if (/^\s+experimental:\s*"?true"?\s*$/m.test(raw.split('\n---')[0])) continue;
     const fm = frontmatter(f);
     const item = { name: fm.name || d, summary: firstSentence(fm.description) };
     if (/^\s+kind:\s*command\s*$/m.test(raw.split('\n---')[0])) {
@@ -104,14 +104,14 @@ export function gateRules(root) {
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
-// The two counts the network diagrams print ("12 agents · 40 skills"), read from each SVG's <title>, which carries
+// The two counts the network diagrams print ("12 agents · 40 skills"), read from each SVG's <desc>, which carries
 // the diagram's words as text (the drawing itself is outlines). A stale picture is the claim a reader never checks.
 export function checkNetworkSvgs(root, nAgents, nSkills) {
   for (const loc of ['en', 'tr']) for (const theme of ['dark', 'light']) {
     const n = `network-${loc}-${theme}`, f = path.join(root, 'assets', `${n}.svg`);
     if (!fs.existsSync(f)) fail(`assets/${n}.svg is missing — the skills page embeds it`);
-    const m = (read(f).match(/<title[^>]*>[^<]*?(\d+) (?:agents|ajan) · (\d+) skills?/) || []);
-    if (!m[1]) fail(`assets/${n}.svg has no readable count in its <title>`);
+    const m = (read(f).match(/<desc[^>]*>[^<]*?(\d+) (?:agents|ajan) · (\d+) skills?/) || []);
+    if (!m[1]) fail(`assets/${n}.svg has no readable count in its <desc>`);
     if (Number(m[1]) !== nAgents || Number(m[2]) !== nSkills) fail(`assets/${n}.svg says ${m[1]} / ${m[2]} but the payload is ${nAgents} / ${nSkills} — rerun: node packaging/gen-diagrams.mjs`);
   }
 }

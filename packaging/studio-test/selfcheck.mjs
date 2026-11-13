@@ -28,7 +28,7 @@ import { redact, transcriptOnly } from '../../kit/studio/server/lib/redact.js';
 import { lanListener, lanAddresses } from '../../kit/studio/server/lib/lan.js';
 import http from 'node:http';
 import { prepare, decide, pending, cleanup, revoke, alwaysList, _internals as permInternals } from '../../kit/studio/server/lib/permissions.js';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import os from 'node:os';
 import { quickReplies, OwnedStream } from '../../kit/studio/web/chat.js';
 import { installDom } from './dom-stub.mjs';
@@ -415,8 +415,126 @@ check('prose without a notice yields nothing', none.size === 0);
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page settles what the stream sent against the fleet, and again when the fleet changes its mind',
     /const g = settle\(lastGraph, lastLive\);/.test(appSrc) && /if \(lastGraph && sessionIsLive\(\) !== lastLive\) showGraph\(\);/.test(appSrc)
-    && /isection\('In the background', \.\.\.rows\)/.test(appSrc)
-    && /p\.bg\.textContent = bg \? `\$\{bg\} in background` : '';/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+    && /isection\(t\('In the background'\), \.\.\.rows\)/.test(appSrc)
+    && /bg \? t\('\{n\} in background', \{ n: bg \}\) : null/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? ''));
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* A shell command running under an agent is work, not silence. A build or a test run writes nothing until it ends,
+   so an agent sitting inside one went quiet, was read as stale, and the page drew it stopped; the main session in
+   the same spot read as idle. Any agent, started in the background or not, and the session itself. */
+{
+  const { buildGraph, shellsIn } = await import(`../../kit/studio/server/lib/graph.js?sh=${Date.now()}`);
+  const gpl = await import(`../../kit/studio/web/graph-plan.js?sh=${Date.now()}`);
+  const nav = await import(`../../kit/studio/web/nav.js?sh=${Date.now()}`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sh-'));
+  const sub = path.join(dir, 'subagents');
+  fs.mkdirSync(sub);
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const MIN = 60_000;
+  const LONG = 'npm test -- --runInBand --coverage --reporters=default --reporters=jest-junit packages/api packages/web';
+  const use = (id, input, msAgo, name = 'Bash') => ({ type: 'assistant', timestamp: iso(msAgo), message: { content: [{ type: 'tool_use', id, name, input }] } });
+  const answer = (id, msAgo, tur = undefined) => ({ type: 'user', timestamp: iso(msAgo), message: { content: [{ type: 'tool_result', tool_use_id: id, content: '' }] }, ...(tur ? { toolUseResult: tur } : {}) });
+  const notice = (id, msAgo) => ({ type: 'user', timestamp: iso(msAgo), message: { content: `<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n</task-notification>` } });
+  const launch = (id, toolUseId, msAgo) => [
+    use(toolUseId, { subagent_type: 'crew-test-expert', description: `task ${id}` }, msAgo, 'Agent'),
+  ];
+  const main = [
+    { type: 'user', timestamp: iso(30 * MIN), message: { content: 'start' } },
+    ...launch('afg', 'tu1', 20 * MIN), ...launch('abg', 'tu2', 20 * MIN), ...launch('aread', 'tu3', 20 * MIN), ...launch('aended', 'tu4', 20 * MIN),
+    use('tu5', { command: 'make build' }, 20 * MIN),
+  ];
+  const file = path.join(dir, 'main.jsonl');
+  fs.writeFileSync(file, main.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const agent = (id, toolUseId, records, quietMs) => {
+    fs.writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ agentType: `crew-${id}-expert`, description: `task ${id}`, toolUseId }));
+    const f = path.join(sub, `agent-${id}.jsonl`);
+    fs.writeFileSync(f, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    fs.utimesSync(f, new Date(now - quietMs), new Date(now - quietMs));
+  };
+  // One type each, so every agent is a card of its own.
+  // Waited on, not in the background, and ten minutes inside one test run.
+  agent('afg', 'tu1', [use('f1', { command: LONG }, 10 * MIN)], 10 * MIN);
+  // Sent a server to the background, then waited on it with a read that has no answer either.
+  agent('abg', 'tu2', [use('b1', { command: 'npm run dev', run_in_background: true }, 9 * MIN), answer('b1', 9 * MIN, { backgroundTaskId: 'bsrv' }),
+    use('b2', { command: 'sleep 600' }, 9 * MIN, 'PowerShell')], 9 * MIN);
+  // Quiet inside a call that is not a shell: nothing here says it is working.
+  agent('aread', 'tu3', [use('r1', { file_path: '/x' }, 10 * MIN, 'Read')], 10 * MIN);
+  // Its command ended, by answer and by notice: nothing is running.
+  agent('aended', 'tu4', [use('e1', { command: 'make' }, 10 * MIN), answer('e1', 10 * MIN),
+    use('e2', { command: 'npm run watch', run_in_background: true }, 10 * MIN), answer('e2', 10 * MIN, { backgroundTaskId: 'bw' }), notice('bw', 9 * MIN),
+    { type: 'assistant', timestamp: iso(9 * MIN), message: { content: [{ type: 'text', text: 'Done.' }] } }], 9 * MIN);
+
+  check('the shells a transcript has running: an unanswered shell call, and a background command no notice ended',
+    shellsIn([use('x', { command: 'ls' }, 1), answer('x', 1)]).length === 0
+    && shellsIn([use('x', { command: 'ls' }, 1)])[0]?.detail === 'ls'
+    && shellsIn([use('x', { file_path: '/a' }, 1, 'Read')]).length === 0
+    && shellsIn([use('x', { command: 'srv', run_in_background: true }, 2), answer('x', 2, { backgroundTaskId: 'k' })])[0]?.background === true
+    && shellsIn([use('x', { command: 'srv', run_in_background: true }, 2), answer('x', 2, { backgroundTaskId: 'k' }), notice('k', 1)]).length === 0);
+
+  const g = await buildGraph({ sessionId: 'sh-session', file, subagentsDir: sub });
+  const node = (graph, id) => graph.nodes.find((n) => n.id === id);
+  const sh = (graph, id) => (node(graph, id)?.shells ?? []).map((c) => `${c.background ? 'bg:' : ''}${c.detail}`).sort().join(',');
+  check('each agent carries the shell commands it has running, and only those',
+    sh(g, 'afg') === LONG && sh(g, 'abg') === 'bg:npm run dev,sleep 600' && sh(g, 'aread') === '' && sh(g, 'aended') === '',
+    JSON.stringify(['afg', 'abg', 'aread', 'aended'].map((id) => sh(g, id))));
+  check('the server, reading files, still calls a quiet agent quiet: what is live is the page\'s to say',
+    node(g, 'afg').status === 'stale' && node(g, 'abg').status === 'stale' && node(g, 'afg').background === false);
+  const session = g.nodes.find((n) => n.kind === 'session');
+  check('the session carries the shell command it is running itself',
+    session.shellCommands.length === 1 && session.shellCommands[0].detail === 'make build', JSON.stringify(session.shellCommands));
+
+  const live = gpl.settle(g, true);
+  check('while the session is live, an agent inside a shell command is running, waited on or in the background',
+    node(live, 'afg').status === 'running' && node(live, 'abg').status === 'running'
+    && node(live, 'afg').shellNow.length === 1 && node(live, 'abg').shellNow.length === 2,
+    `${node(live, 'afg').status} / ${node(live, 'abg').status}`);
+  check('one quiet in a call that is not a shell, and one whose command ended, are left as the server read them',
+    node(live, 'aread').status === node(g, 'aread').status && node(live, 'aended').status === node(g, 'aended').status
+    && !node(live, 'aread').shellNow?.length && !node(live, 'aended').shellNow?.length);
+  check('the summary moves with the cards and still adds up',
+    live.stats.byStatus.running === (g.stats.byStatus.running ?? 0) + 2
+    && Object.values(live.stats.byStatus).reduce((a, b) => a + b, 0) === Object.values(g.stats.byStatus).reduce((a, b) => a + b, 0),
+    JSON.stringify(live.stats.byStatus));
+  check('the session\'s own command is drawn only while it is live',
+    live.nodes.find((n) => n.kind === 'session').shellNow.length === 1 && gpl.settle(g, false).nodes.find((n) => n.kind === 'session').shellNow.length === 0);
+  const over = gpl.settle(g, false);
+  check('in a session that is over, or not measured, no agent is called running on a shell, and none shows one',
+    ['afg', 'abg'].every((id) => node(over, id).status === 'stale' && !node(over, id).shellNow?.length && node(gpl.settle(g, null), id).status === 'stale'));
+  check('settling leaves the server\'s graph as it was', node(g, 'afg').status === 'stale' && node(g, 'afg').shellNow === undefined);
+
+  const line = gpl.shellLine(node(live, 'abg').shellNow);
+  check('the line says the command it waits on, and how many more; the tooltip says every one whole',
+    line?.text === '$ sleep 600 (+1)' && /npm run dev/.test(line?.title) && /sleep 600/.test(line?.title) && gpl.shellLine([]) === null,
+    JSON.stringify(line));
+  const busy = { key: 'busy', word: 'Running', tone: 'busy', known: true };
+  const idle = { key: 'idle', word: 'Idle', tone: 'idle', known: true };
+  const waiting = { key: 'waiting', word: 'Needs you', tone: 'waiting', known: true };
+  check('the session card says a shell command is running over "idle" and "running", never over "needs you"',
+    nav.withShell(idle, 1).word === 'Shell command running' && nav.withShell(idle, 1).tone === 'busy'
+    && nav.withShell(busy, 2).word === 'Shell command running' && nav.withShell(waiting, 1) === waiting
+    && nav.withShell(idle, 0) === idle && nav.withShell(null, 1) === null);
+
+  installDom();
+  const { Canvas } = await import(`../../kit/studio/web/canvas.js?sh=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  c.setSession('sh');
+  c.setDensity?.('comfortable');
+  c.setSessionState(idle);
+  c.render({ nodes: live.nodes, edges: [] });
+  const card = c.els.get('afg')?.parts;
+  check('the agent card says it is running a shell, and its third line is the command, cut, whole on hover',
+    card && card.pill.word.textContent === 'Running shell' && card.facts.textContent === `$ ${LONG}`
+    && card.facts.title.includes(LONG) && card.facts.classList.contains('cv-shell'),
+    card ? `"${card.pill.word.textContent}" / "${card.facts.textContent}"` : 'no card');
+  const sp = c.els.get('session')?.parts;
+  check('the session card says its command and that a shell command is running, not idle',
+    sp && sp.bg.hidden === false && sp.bg.textContent === '$ make build' && sp.pill.word.textContent === 'Shell command running',
+    sp ? `"${sp.bg.textContent}" / "${sp.pill.word.textContent}"` : 'no session card');
+  c.render({ nodes: over.nodes, edges: [] });
+  check('and once the session is over, both are gone',
+    c.els.get('afg').parts.facts.classList.contains('cv-shell') === false && c.els.get('session').parts.bg.hidden === true);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -528,10 +646,10 @@ check('prose without a notice yields nothing', none.size === 0);
   dom();
   const cssSrc = read(path.join(WEB_ROOT, 'style.css')) ?? '';
   check('the legend names the wire that is not a call, and it is drawn dotted and still',
-    /line\('inferred', 'after it reported \(inferred, not a call\)'\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
+    /line\('inferred', t\('after it reported \(inferred, not a call\)'\)\)/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
     && /\.cv-edge\[data-kind="inferred"\] \{[^}]*stroke-dasharray: 1\.5 5;/.test(cssSrc)
     && /\.cv-legend-line\[data-state="inferred"\] \{ border-top: 1\.5px dotted/.test(cssSrc)
-    && /order: 'Order'/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+    && /order: t\('Order'\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
 }
 
 /* Which model each piece of work ran on, and what its call asked for. Two facts, kept apart: the call's own
@@ -675,6 +793,24 @@ check('prose without a notice yields nothing', none.size === 0);
   check('behind the summary\'s cost is each model\'s new tokens and estimate, the most used first',
     withModels.detail[0][0] === 'Opus 5.5' && withModels.detail.map((d) => d[0]).sort().join() === 'Haiku 5.5,Opus 5.5,Sonnet 5.5'
     && /^\d.*\u00b7 [~<]\$/.test(withModels.detail[0][1]), withModels.detail.map((d) => d.join(' ')).join(' | '));
+  // Under "Agents": one line per kind of agent, the same shape as the models under "Cost".
+  const { agentSpendRows } = await import(`../../kit/studio/web/agent-spend.js?mdl=${Date.now()}`);
+  const spendRows = agentSpendRows(g.nodes);
+  const agentNodes = g.nodes.filter((n) => n.kind === 'agent' && n.usage);
+  const types = new Set(agentNodes.map((n) => n.agentType));
+  const freshOf = (v) => { const m = /^([\d.]+)(k?)/.exec(v); return Number(m[1]) * (m[2] ? 1000 : 1); };
+  const agentsRow = wu.summaryRows(g.nodes[0].usage, { agentRows: spendRows }).find((r) => r.label === 'Agents');
+  check('behind the summary\'s agents is each kind of agent\'s new tokens and estimate, the most spent first, a repeated type once with its runs',
+    spendRows.length === types.size && spendRows.length >= 3 && agentsRow.detail === spendRows
+    && /^\d.*\u00b7 [~<]\$/.test(spendRows[0][1]) && spendRows.map((r) => freshOf(r[1])).every((v, i, a) => i === 0 || a[i - 1] >= v)
+    && spendRows.some((r) => /\u00d72$/.test(r[0])) && spendRows.every((r) => !/^crew-/.test(r[0]))
+    && Math.abs(spendRows.reduce((a, r) => a + freshOf(r[1]), 0) - g.nodes[0].usage.parts.agents.tokens.fresh) < 100,
+    spendRows.map((d) => d.join(' ')).join(' | '));
+  check('with no agent to break down, the Agents row keeps the token kinds, and a type with no price makes its line a dash',
+    wu.summaryRows(g.nodes[0].usage).find((r) => r.label === 'Agents').detail[0][0] === 'Input'
+    && agentSpendRows([]).length === 0 && agentSpendRows(null).length === 0 && agentSpendRows([{ kind: 'agent', agentType: 'x' }]).length === 0
+    && agentSpendRows([{ kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: null } },
+      { kind: 'agent', agentType: 'crew-x-expert', usage: { tokens: { fresh: 5, cacheRead: 0 }, cost: 1 } }])[0].join() === 'X \u00d72,10 \u00b7 \u2014');
   const cardOf = (block, nodes) => cvo.delegationCard(block, nodes).model;
   check('a delegation card in the conversation says the model: what the call asks for, then what the agent ran on',
     cardOf(cvo.toolBlock({ id: 'zz', name: 'Agent', input: { subagent_type: 'crew-test-expert', model: 'opus' } }), []).asked === 'Opus'
@@ -709,7 +845,7 @@ check('prose without a notice yields nothing', none.size === 0);
   check('the Timeline\'s and the List\'s rows carry the same badge, and the model filter reaches both',
     /mk\('span', 'tl-model',/.test(src('timeline.js')) && /mk\('span', 'sub ls-model',/.test(src('list.js'))
     && /timeline\.setModelFilter\(family\);/.test(src('app.js')) && /canvas\.setModelFilter\(family\);/.test(src('app.js'))
-    && /label: `Only \$\{f\[0\]\.toUpperCase\(\)\}\$\{f\.slice\(1\)\}`/.test(src('app.js')) && /isection\('Model', dl\)/.test(src('app.js')));
+    && /label: t\('Only \{model\}', \{ model: `\$\{f\[0\]\.toUpperCase\(\)\}\$\{f\.slice\(1\)\}` \}\)/.test(src('app.js')) && /isection\(t\('Model'\), dl\)/.test(src('app.js')));
 }
 
 /* Expand all and Fold all. The case this was found on: Graph, "Workflow run", Auto density, a live session whose
@@ -964,7 +1100,7 @@ check('prose without a notice yields nothing', none.size === 0);
     /id="tb-reset" data-view="graph map"[^>]*disabled>/.test(html) && /el\.tbReset\.disabled = !\(st\?\.moved > 0\);/.test(app)
     && /key === 'r'\) \{\s*if \(view === 'graph' \|\| view === 'map'\) resetLayout\(\);/.test(app)
     && /const target = zoomed\(\);\s*const was = target\.resetLayout\(\);/.test(app)
-    && /toast\('Layout reset', \{ label: 'Undo', run: \(\) => \{ if \(target\.restoreLayout\(was\)\) toast\('Layout restored'\); \} \}\);/.test(app));
+    && /toast\(t\('Layout reset'\), \{ label: t\('Undo'\), run: \(\) => \{ if \(target\.restoreLayout\(was\)\) toast\(t\('Layout restored'\)\); \} \}\);/.test(app));
   const keys = await import(`../../kit/studio/web/keys.js?k=${Date.now()}`);
   const press = (key, extra = {}) => keys.shortcutOf({ key, target: { tagName: 'DIV' }, ...extra });
   check('r is a shortcut only as a bare key outside a field: not while typing, and not as Cmd+R, Ctrl+R or Alt+R',
@@ -1044,6 +1180,13 @@ check('prose without a notice yields nothing', none.size === 0);
     nm.modelBadge({ model: 'claude-opus-5-5' }) === 'Opus 5.5' && nm.modelBadge({ model: 'claude-haiku-4-5-20251001' }) === 'Haiku 4.5'
     && nm.modelBadge({ model: 'claude-opus-5-5', escalatedFrom: { from: 'claude-sonnet-5-5', to: 'opus' } }) === 'Sonnet → Opus'
     && nm.modelBadge({ model: 'claude-sonnet-5-5', modelAsked: 'haiku' }) === 'Sonnet 5.5 ≠' && nm.modelBadge({}) === '');
+  check('the effort a call asked for follows the model on its badge, label and title; a word that is not a level is not shown',
+    nm.modelBadge({ model: 'claude-opus-5-5', effort: 'high' }) === 'Opus 5.5 · high'
+    && nm.modelBadge({ model: 'claude-sonnet-5-5', modelAsked: 'haiku', effort: 'xhigh' }) === 'Sonnet 5.5 · xhigh ≠'
+    && nm.modelOf({ model: 'claude-opus-5-5', effort: 'max' }).label === 'Opus 5.5 · max'
+    && nm.modelOf({ model: 'claude-opus-5-5', effort: 'max' }).title.includes('max')
+    && nm.modelOf({ modelAsked: 'sonnet', effort: 'low' }).label === 'Sonnet · low'
+    && nm.modelBadge({ model: 'claude-opus-5-5', effort: 'turbo' }) === 'Opus 5.5' && nm.modelOf({ effort: 'high' }).label === '');
 
   const dom = installDom();
   const { Canvas } = await import(`../../kit/studio/web/canvas.js?auto=${Date.now()}`);
@@ -1071,7 +1214,7 @@ check('prose without a notice yields nothing', none.size === 0);
   const app = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   const css = (read(path.join(WEB_ROOT, 'style.css')) ?? '');
   check('when Auto has turned cards into chips the Density button says so, and its tooltip says why',
-    /st\.density === 'auto' && st\.drawnAs === 'compact' \? 'Auto \\u00b7 compact'/.test(app) && /fits this pane at \$\{Math\.round\(AUTO\.readable \* 100\)\}%/.test(app));
+    /st\.density === 'auto' && st\.drawnAs === 'compact' \? t\('Auto \\u00b7 compact'\)/.test(app) && /fits this pane at \{pct\}% or larger; choose Comfortable to keep them anyway\.', \{ pct: Math\.round\(AUTO\.readable \* 100\) \}/.test(app));
   check('the canvas plans again when its pane changes size: a window made taller gets its cards back',
     /new ResizeObserver\(\(\) => requestAnimationFrame\(\(\) => canvas\.paneResized\(\)\)\)\.observe\(el\.canvasEl\);/.test(app)
     && /this\.settleTimer = setTimeout\(\(\) => \{ this\.settleTimer = null; this\.fitIfUntouched\(\); \}, RESIZE_SETTLE_MS\);/.test(read(path.join(WEB_ROOT, 'canvas.js')) ?? '')
@@ -1544,8 +1687,8 @@ check('prose without a notice yields nothing', none.size === 0);
      "raised", though the floor that held was the lowered one. The rule for "does this lowering stand" is the
      gate's own (hooks/guard-agent-model.sh, _am_floor_now). */
   {
-    const floor = { agent: 'crew-docs-agent', change: 'text', risk: 'normal', model: 'sonnet', calls: 5, notFirstTry: 2, when: '2026-01-02T00:00:00Z' };
-    const low = (ts, from = 'sonnet', to = 'haiku', agent = 'crew-docs-agent') => ({ ts, agent, change: 'text', risk: 'normal', from, to });
+    const floor = { agent: 'crew-frontend-expert', change: 'text', risk: 'normal', model: 'sonnet', calls: 5, notFirstTry: 2, when: '2026-01-02T00:00:00Z' };
+    const low = (ts, from = 'sonnet', to = 'haiku', agent = 'crew-frontend-expert') => ({ ts, agent, change: 'text', risk: 'normal', from, to });
     check('a lowering stands when it is not older than the raise, from the raised model, one model down; the same second counts',
       mo.loweringOf(floor, [low('2026-01-02T00:00:01Z')])?.to === 'haiku' && mo.loweringOf(floor, [low('2026-01-02T00:00:00Z')])?.to === 'haiku'
       && mo.loweringOf(floor, []) === null);
@@ -1559,7 +1702,7 @@ check('prose without a notice yields nothing', none.size === 0);
     check('that rule is the gate\'s, line for line: not older than the raise, from its model, one down',
       /\[\[ "\$ts" < "\$_AMF_WHEN" \]\] && continue/.test(gateSrc2) && /\[ "\$lf" = "\$_AMF_TIER" \] \|\| continue/.test(gateSrc2)
       && /\[ "\$_AMR" = \$\(\(n-1\)\) \] \|\| continue/.test(gateSrc2), 'compared with _am_floor_now in hooks/guard-agent-model.sh');
-    const one = [{ agentId: 'x1', agent: 'crew-docs-agent', change: 'text', risk: 'normal', model: 'sonnet', verify: 'pass', fixes: 0, at: Date.parse('2026-01-02T01:00:00Z'), line: 1 }];
+    const one = [{ agentId: 'x1', agent: 'crew-frontend-expert', change: 'text', risk: 'normal', model: 'sonnet', verify: 'pass', fixes: 0, at: Date.parse('2026-01-02T01:00:00Z'), line: 1 }];
     const held = mp.classRow(mo.classesOf(one, [floor], [])[0]);
     const lowered = mp.classRow(mo.classesOf(one, [floor], [low('2026-01-05T10:00:00Z')])[0]);
     check('a class whose floor the user lowered says "lowered", with what raised it and when it was lowered; one still held says "raised"',
@@ -1753,13 +1896,84 @@ check('prose without a notice yields nothing', none.size === 0);
       && ce.length === 1 && ce[0].to === 'mod:h:api' && ce[0].calls === 1 && ce[0].missing === 1
       && mpl.edgesOf(here, { label: 'x', clients: [{ ...clients[0], calls: [{ method: 'GET', path: '/orders/1' }] }] }).length === 0,
       'a call with no module matched by the server draws no line: the view does not pick one');
-    const lay = mpl.layoutOf(mpl.nodesOf(ws), { width: 720 });
+    const wsView = mpl.outsideOf(mpl.nodesOf(ws), mpl.edgesOf(ws));
+    const lay = mpl.layoutOf(wsView.nodes, wsView.edges);
+    const placedIds = Object.keys(lay.pos);
     const overlap = Object.entries(lay.pos).some(([a, p], i, all) => all.slice(i + 1).some(([, q]) => p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h));
-    check('the layout keeps every card inside its band, no two cards over each other, and bands in the order of the design',
-      !overlap && mpl.nodesOf(ws).every((n) => { const b = lay.bands.find((x) => x.key === n.band); const p = lay.pos[n.id]; return b && p.y >= b.y && p.y + p.h <= b.y + b.h; })
-      && lay.bands.map((b) => b.key).join() === 'clients,entry,core,external,unplaced'
-      && lay.bands.every((b, i) => i === 0 || b.y === lay.bands[i - 1].y + lay.bands[i - 1].h),
-      lay.bands.map((b) => `${b.key}@${b.y}+${b.h}`).join(' '));
+    const colOf = (id) => lay.columns.find((c) => lay.pos[id].x >= c.x && lay.pos[id].x + lay.pos[id].w <= c.x + c.w)?.key;
+    check('the layout puts each card in its column, left to right in the order things are used, no two cards over each other; a folded strip names its modules and gives them no place',
+      !overlap && lay.columns.map((c) => c.key).join() === 'people,serve,shared,outside'
+      && wsView.nodes.filter((n) => mpl.placeOf(n.band) !== 'unplaced').every((n) => colOf(n.id) === mpl.placeOf(n.band))
+      && lay.columns.every((c, i) => i === 0 || c.x > lay.columns[i - 1].x + lay.columns[i - 1].w)
+      && lay.strips.length === 1 && lay.strips[0].key === 'unplaced' && lay.strips[0].open === false && lay.strips[0].ids.join() === 'mod:node:@demo/orphan-lib'
+      && !placedIds.includes('mod:node:@demo/orphan-lib') && lay.strips[0].y >= Math.max(...placedIds.map((id) => lay.pos[id].y + lay.pos[id].h)),
+      `${lay.columns.map((c) => `${c.key}@${c.x}`).join(' ')} · strips ${JSON.stringify(lay.strips.map((x) => [x.key, x.open, x.ids.length]))}`);
+    {
+      const open = mpl.layoutOf(wsView.nodes, wsView.edges, { open: new Set(['unplaced']) });
+      const o = open.pos['mod:node:@demo/orphan-lib'];
+      const columnsBottom = Math.max(...placedIds.map((id) => lay.pos[id].y + lay.pos[id].h));
+      check('an open strip lays its cards out under the columns, inside the strip, and the columns do not move',
+        Boolean(o) && o.strip === true && o.y > columnsBottom && o.y + o.h <= open.strips[0].y + open.strips[0].h
+        && placedIds.every((id) => JSON.stringify(open.pos[id]) === JSON.stringify(lay.pos[id])),
+        JSON.stringify(o));
+      // A card sits near what it is joined to: two modules in the second column, each joined to one card of the first.
+      const chain = [
+        { id: 'u1', kind: 'module', band: 'ui', name: 'a' }, { id: 'u2', kind: 'module', band: 'ui', name: 'b' },
+        { id: 's1', kind: 'module', band: 'api', name: 'a' }, { id: 's2', kind: 'module', band: 'api', name: 'b' },
+      ];
+      const crossed = mpl.layoutOf(chain, [{ from: 'u1', to: 's2', kind: 'calls' }, { from: 'u2', to: 's1', kind: 'calls' }]);
+      const plain = mpl.layoutOf(chain, []);
+      check('in a column a card sits as near as it can to the cards it is joined to, so lines cross less; joined to none, cards go by name',
+        crossed.pos.s2.y < crossed.pos.s1.y && plain.pos.s1.y < plain.pos.s2.y, `crossed s1@${crossed.pos.s1.y} s2@${crossed.pos.s2.y}`);
+    }
+    {
+      // Lines that share a side of a card are spread along it (k/(N+1) by where the other end sits), so a card with
+      // three dependents shows three lines, not one; a side with one line keeps the middle. Across columns a line
+      // leaves the facing side; within one column it bows out of the right side of both; to a strip it runs down.
+      const P = { a: { x: 0, y: 0, w: 100, h: 40 }, b: { x: 300, y: 0, w: 100, h: 40 }, c: { x: 300, y: 100, w: 100, h: 40 }, d: { x: 0, y: 100, w: 100, h: 40 }, s: { x: 0, y: 300, w: 100, h: 40, strip: true } };
+      const two = mpl.routesOf([{ from: 'a', to: 'b' }, { from: 'a', to: 'c' }], P);
+      const ends = two.map((r) => /^M([-\d.]+) ([-\d.]+)/.exec(r.d).slice(1).map((v) => Math.round(Number(v))).join(','));
+      const one = mpl.routesOf([{ from: 'a', to: 'b' }], P)[0];
+      check('two lines out of one side of a card leave it at two points, in the order of their other ends; one line keeps the middle',
+        ends[0] === '100,13' && ends[1] === '100,27' && one.d === mpl.pathOf(P.a, P.b).d,
+        ends.join(' | '));
+      const across = mpl.pathOf(P.a, P.c); const back = mpl.pathOf(P.c, P.a); const same = mpl.pathOf(P.a, P.d); const down = mpl.pathOf(P.a, P.s);
+      const nums = (p) => p.d.match(/-?[\d.]+/g).map(Number);
+      const [ax1, ay1, ac1x, ac1y, ac2x, ac2y, ax2, ay2] = nums(across);
+      const [sx1, , sc1x, , sc2x, , sx2] = nums(same);
+      const [dx1, dy1, , dc1y, , dc2y, dx2, dy2] = nums(down);
+      check('a line across columns leaves the facing side and enters the other square to it; one within a column bows out of the right side; one to a strip runs down',
+        ax1 === 100 && ay1 === 20 && ax2 === 300 && ay2 === 120 && ac1y === ay1 && ac2y === ay2 && ac1x > ax1 && ac2x < ax2
+        && nums(back)[0] === 300 && nums(back)[6] === 100
+        && sx1 === 100 && sx2 === 100 && sc1x > 100 && sc2x > 100
+        && dx1 === 50 && dy1 === 40 && dx2 === 50 && dy2 === 300 && dc1y > dy1 && dc2y < dy2,
+        `${across.d} | ${same.d} | ${down.d}`);
+      const built = mpl.routesOf([{ from: 'b', to: 'a', kind: 'builds' }], P)[0];
+      check('a container that builds a module is drawn as the module running in it: the line goes from the module to the container',
+        built.d === mpl.pathOf(P.a, P.b).d && mpl.endsOf({ from: 'x', to: 'y', kind: 'builds' }).join() === 'y,x' && mpl.endsOf({ from: 'x', to: 'y', kind: 'calls' }).join() === 'x,y',
+        built.d);
+      const ring = mpl.routesOf([{ from: 'a', to: 'z' }, { from: 'x', to: 'a' }], P);
+      check('a line with an end that is not placed is left out, the rest still drawn', ring[1] === null && ring[0] === null && mpl.routesOf([{ from: 'a', to: 'b' }, { from: 'x', to: 'a' }], P)[0] !== null);
+    }
+    {
+      // Outside services are cards: web addresses called by the same modules are one, everything else its own.
+      const ex = (id, resource, label) => ({ id, kind: 'external', resource, label, hosts: [label] });
+      const nodes = [ex('e1', 'http-api', 'b.io'), ex('e2', 'http-api', 'a.io'), ex('e3', 'http-api', 'c.io'), ex('e4', 'db', 'pg'), ex('e5', 'db', 'my'),
+        { id: 'm1', kind: 'module' }, { id: 'm2', kind: 'module' }];
+      const L = (from, to, confidence = 'evidence') => ({ from, to, kind: 'uses-http-api', confidence, line: confidence === 'inferred' ? 'inferred' : 'evidence', solid: confidence !== 'inferred' });
+      const lines = [L('m1', 'e1', 'inferred'), L('m1', 'e2'), L('m1', 'e3'), L('m2', 'e3'), { ...L('m1', 'e4'), kind: 'uses-db' }, { ...L('m1', 'e5'), kind: 'uses-db' }];
+      const v = mpl.outsideOf(nodes, lines);
+      const g = v.nodes.find((n) => n.members);
+      check('web addresses called by the same modules are one outside card, named by its first and how many more, its line solid when any was; a database, or an address another module also calls, keeps its own card',
+        g && g.members.join() === 'e2,e1' && g.label === 'a.io' && g.more === 1 && v.nodes.filter((n) => n.kind === 'external').length === 4
+        && v.edges.filter((e) => e.to === g.id).length === 1 && v.edges.find((e) => e.to === g.id).line === 'evidence'
+        && v.edges.length === 5 && v.nodes.some((n) => n.id === 'e3') && v.nodes.some((n) => n.id === 'e4') && v.nodes.some((n) => n.id === 'e5')
+        && mpl.outsideOf(nodes.slice(2), lines.slice(2)).nodes.length === 5,
+        JSON.stringify(v.nodes.map((n) => n.members ?? n.id)));
+      const gi = mpl.inspectOf(g, { nodes }, lines, []);
+      check('the inspector of a folded outside card lists every address it stands for and the lines into each',
+        gi.path === 'a.io, b.io' && gi.connections.in.length === 2, JSON.stringify([gi.path, gi.connections.in.length]));
+    }
     {
       // CM3: the layer /crew-map wrote is the band; without one the scan's band stands. A card says its kind, three of
       // what it is built with and how many more, and the outside services it calls; the tour keeps the stops on this
@@ -1771,21 +1985,17 @@ check('prose without a notice yields nothing', none.size === 0);
       apiN.tech = ['Express', 'TypeScript', 'Vitest', 'Docker', 'Prisma'];
       apiN.structure = { folders: [{ folder: 'src', files: 4 }], testFiles: 2 };
       const nodes2 = mpl.nodesOf(lw);
-      const lay2 = mpl.layoutOf(nodes2, { width: 960 });
+      const lay2 = mpl.layoutOf(nodes2, mpl.edgesOf(lw));
       const card = mpl.cardOf(apiN, lw);
-      const root = lw.nodes.find((n) => n.id === 'mod:node:demo-root');
       const tour = mpl.tourOf({ ...lw, tour: [{ node: apiN.id, text: 'a', cites: [c1] }, { node: 'mod:x:gone', text: 'b', cites: [] }] });
       const ins = mpl.inspectOf(nodes2.find((n) => n.id === apiN.id), lw, mpl.edgesOf(lw), []);
       check('a module /crew-map gave a layer is drawn in that layer\'s band, and a module it did not keeps the band the scan gives it',
         nodes2.find((n) => n.id === apiN.id).band === 'api' && nodes2.find((n) => n.id === 'mod:node:@demo/shared').band === mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared').band
-        && lay2.bands.some((b) => b.key === 'api' && lay2.pos[apiN.id].y >= b.y && lay2.pos[apiN.id].y < b.y + b.h) && mpl.nodesOf({ ...ws, nodes: [{ ...apiN, narrative: { ...apiN.narrative, layer: 'backend' } }] })[0].band !== 'backend',
-        lay2.bands.map((b) => b.key).join());
-      check('a card says its domain and what it is built with, three of it and how many more, and the outside services it calls, by name',
-        card.kind.startsWith('orders') && card.chips.join() === 'Express,TypeScript,Vitest' && card.more === 2
-        && mpl.cardOf(root, lw).outside.join() === [...new Set(lw.edges.filter((e) => e.from === root.id && e.to.startsWith('ext:'))
-          .map((e) => { const x = lw.nodes.find((n) => n.id === e.to); return x.label && x.label !== 'unknown' ? x.label : x.hosts[0]; }))].sort().join()
-        && mpl.cardOf(root, lw).outside.length === 4 && mpl.cardOf(lw.nodes.find((n) => n.id === 'mod:node:@demo/shared'), lw).outside.length === 0,
-        JSON.stringify([card, mpl.cardOf(root, lw).outside]));
+        && lay2.columns.some((c) => c.key === mpl.placeOf('api') && lay2.pos[apiN.id].x >= c.x && lay2.pos[apiN.id].x < c.x + c.w) && mpl.nodesOf({ ...ws, nodes: [{ ...apiN, narrative: { ...apiN.narrative, layer: 'backend' } }] })[0].band !== 'backend',
+        lay2.columns.map((c) => c.key).join());
+      check('a card says its domain and what it is built with, three of it and how many more',
+        card.kind.startsWith('orders') && card.chips.join() === 'Express,TypeScript,Vitest' && card.more === 2 && !('outside' in card),
+        JSON.stringify(card));
       check('the tour keeps the stops on this map, by name; a search names by name, folder and what a module is built with, and an empty one names none',
         tour.length === 1 && tour[0].name === apiN.name && mpl.searchOf('vitest', nodes2).has(apiN.id) && mpl.searchOf('SRC', nodes2).has(apiN.id)
         && mpl.searchOf('orders', nodes2).has(apiN.id) && mpl.searchOf('  ', nodes2).size === 0 && !mpl.searchOf('vitest', nodes2).has('mod:node:@demo/shared'),
@@ -1794,6 +2004,21 @@ check('prose without a notice yields nothing', none.size === 0);
         ins.layer === 'API' && ins.domain === 'orders' && ins.inside.folders[0].folder === 'src' && ins.inside.folders[0].files === 4 && ins.inside.tests === 2
         && mpl.inspectOf(mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared'), ws, mpl.edgesOf(ws), []).layer === null,
         JSON.stringify([ins.layer, ins.domain, ins.inside]));
+      // P11-04/-05/-07: where its tests are, how often it changed, and the WHY/HACK/FIXME lines the scan cited.
+      const tw = JSON.parse(JSON.stringify(lw));
+      const tN = tw.nodes.find((n) => n.id === apiN.id);
+      tN.tests = { files: ['packages/api/src/server.test.js'], total: 3, modules: ['mod:node:api-e2e'] };
+      tN.commits = 7; tw.source = { commit: 'a'.repeat(40), commitsRead: 120 };
+      tN.markers = { evidence: [{ file: 'packages/api/src/server.js', line: 4, text: 'WHY: one pool per process' }], evidenceTotal: 6 };
+      const ti = mpl.inspectOf(mpl.nodesOf(tw).find((n) => n.id === apiN.id), tw, mpl.edgesOf(tw), []);
+      const bare = mpl.inspectOf(mpl.nodesOf(ws).find((n) => n.id === 'mod:node:@demo/shared'), ws, mpl.edgesOf(ws), []);
+      check('the inspector names a module\'s test files, how often it changed in the commits the scan read, and the notes in its code',
+        ti.testFiles.join() === 'packages/api/src/server.test.js' && ti.testTotal === 3 && ti.changed === 'Changed in 7 of the last 120 commits'
+        && ti.notes.length === 1 && ti.notes[0].at === 'packages/api/src/server.js:4' && ti.notesTotal === 6,
+        JSON.stringify([ti.testFiles, ti.testTotal, ti.changed, ti.notes, ti.notesTotal]));
+      check('a module the scan found no tests, commits or notes for says none of them (a map scanned outside git has no count)',
+        bare.testFiles.length === 0 && bare.testTotal === 0 && bare.changed === null && bare.notes.length === 0,
+        JSON.stringify([bare.testFiles, bare.changed, bare.notes]));
     }
     const t = mpl.taskOf(fwAll.shown.find((f) => !f.proven));
     check('a finding copied as a task says what, where, and, for an inferred one, to check it first',
@@ -1824,23 +2049,21 @@ check('prose without a notice yields nothing', none.size === 0);
         sel.value = '/q'; sel.emit('change');
         const esc = view.escape();
         const after = walkAll(root, isLine).filter((p) => p.dataset.lit !== undefined).length;
-        // An outside service is not a card (CM3): it is named on the line under the card of every module that calls it.
-        const kindOf = new Map(ws.nodes.map((n) => [n.id, n.kind]));
-        const drawn = ws.nodes.filter((n) => n.kind !== 'external');
-        const between = ws.edges.filter((e) => kindOf.get(e.from) !== 'external' && kindOf.get(e.to) !== 'external');
-        const folds = Object.fromEntries(cards.map((c) => [c.dataset.id, walkAll(c, (e) => String(e.className).startsWith('mp-fold'))[0]?.textContent ?? '']));
-        const unfolded = ws.edges.filter((e) => kindOf.get(e.to) === 'external').filter((e) => {
-          const x = ws.nodes.find((n) => n.id === e.to); return !(folds[e.from] ?? '').includes(x.label && x.label !== 'unknown' ? x.label : x.hosts[0]);
-        });
-        check('the view draws one card for each module and service, one line for each edge between them, one row for each shown finding, and how far behind the map is; every outside service is named under the card of each module that calls it',
-          reading === 'Reading the map…' && empty === 'No map yet \u2014 no map here'
+        // Outside services are cards (folded where the same modules call them); a module in a folded strip has no card
+        // and no line, and the strip names it.
+        const sv = mpl.outsideOf(mpl.nodesOf(ws), mpl.edgesOf(ws));
+        const folded = new Set(mpl.layoutOf(sv.nodes, sv.edges).strips.flatMap((x) => x.ids));
+        const drawn = sv.nodes.filter((n) => !folded.has(n.id));
+        const between = sv.edges.filter((e) => !folded.has(e.from) && !folded.has(e.to));
+        const stripText = walkAll(root, (e) => e.className === 'mp-strip-names').map((e) => e.textContent).join();
+        const heads = walkAll(root, (e) => e.className === 'mp-colhead').map((e) => e.textContent);
+        check('the view draws a card for each module, service and outside card, a line for each edge between drawn cards with an arrowhead and no words on it, one row for each shown finding, column titles, the folded strip\'s names, and how far behind the map is',
+          reading === 'Reading the map\u2026' && empty === 'No map yet \u2014 no map here'
           && cards.length === drawn.length && paths.length === between.length && rows.length === fw.shown.length && pill === '2 commits behind'
-          && unfolded.length === 0 && ws.edges.some((e) => kindOf.get(e.to) === 'external'),
-          `${cards.length} cards, ${paths.length} lines, ${rows.length} rows; not named under their caller: ${unfolded.map((e) => `${e.from}>${e.to}`).join(' ')}`);
-        check('selecting a module lights its lines only; its findings copy as a task; Compare asks for the other project; Esc lets the selection go',
-          litNow === between.filter((e) => e.from === 'mod:node:@demo/api' || e.to === 'mod:node:@demo/api').length && litNow > 0
-          && copied.length === 1 && /Evidence: /.test(copied[0]) && compared.join() === '/q' && esc === true && after === 0 && view.escape() === false,
-          `${litNow} lit; copied ${copied.length}; compared ${compared.join()}`);
+          && paths.every((p) => /^url\(#mp-arrow-/.test(p.getAttribute('marker-end') ?? '')) && walkAll(root, (e) => e.className === 'mp-elab').length === 0
+          && heads.join() === 'What people use,What serves them,Shared code,Outside services' && stripText === '@demo/orphan-lib'
+          && cards.some((c) => c.dataset.kind === 'external'),
+          `${cards.length}/${drawn.length} cards, ${paths.length}/${between.length} lines, ${rows.length} rows; heads ${heads.join('|')}; strip ${stripText}`);
         // CM3: a map /crew-map described is drawn by its layers, and steps through its tour; a search dims what it does not name.
         const lw = JSON.parse(JSON.stringify(ws));
         const api = lw.nodes.find((n) => n.id === 'mod:node:@demo/api');
@@ -1883,10 +2106,10 @@ check('prose without a notice yields nothing', none.size === 0);
     const vpSrc = read(path.join(WEB_ROOT, 'viewport.js')) ?? '';
     const cvSrc = read(path.join(WEB_ROOT, 'canvas.js')) ?? '';
     const mapSrc = read(path.join(WEB_ROOT, 'map.js')) ?? '';
-    check('the map pans, zooms and places cards with the graph\'s own code: one viewport, used by both, and no second copy of the wheel or the drag',
+    check('the map pans and zooms with the graph\'s own code, one viewport used by both and no second copy of the wheel; its cards are not dragged, so nothing on it is left behind',
       /export class Viewport/.test(vpSrc) && /export function draggable/.test(vpSrc)
       && /this\.vp = new Viewport\(this\.root, this\.viewport,/.test(cvSrc) && /draggable\(el, \{/.test(cvSrc)
-      && /this\.vp = new Viewport\(this\.pane, this\.layer,/.test(mapSrc) && /draggable\(card, \{/.test(mapSrc)
+      && /this\.vp = new Viewport\(this\.pane, this\.layer,/.test(mapSrc) && !/draggable/.test(mapSrc)
       && !/addEventListener\('wheel'/.test(cvSrc + mapSrc) && (vpSrc.match(/addEventListener\('wheel'/g) ?? []).length === 1);
     const e = (o) => ({ from: 'a', to: 'b', kind: 'k', ...o });
     check('a line is drawn as what it rests on: a file, an inference, or the model; a resource only inferred is drawn as only inferred',
@@ -1895,43 +2118,6 @@ check('prose without a notice yields nothing', none.size === 0);
       && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' })]) === true
       && mpl.inferredOnly({ id: 'x', kind: 'external' }, [e({ to: 'x', confidence: 'inferred' }), e({ from: 'c', to: 'x', confidence: 'evidence' })]) === false
       && mpl.inferredOnly({ id: 'x', kind: 'external' }, []) === false && mpl.inferredOnly({ id: 'x', kind: 'module' }, [e({ to: 'x', confidence: 'inferred' })]) === false);
-    const mods = [
-      { id: 'm1', kind: 'module', band: 'core', path: 'src/a' }, { id: 'm2', kind: 'module', band: 'core', path: 'src/b' },
-      { id: 'm3', kind: 'module', band: 'entry', path: 'src/c' }, { id: 'm4', kind: 'module', band: 'core', path: 'lib' },
-      { id: 'x', kind: 'external', band: 'external' },
-    ];
-    const groups = mpl.groupsOf(mods);
-    const gid = 'grp:core:src';
-    const lines = [e({ from: 'm1', to: 'x', kind: 'uses-db', confidence: 'inferred' }), e({ from: 'm2', to: 'x', kind: 'uses-db', confidence: 'evidence' }), e({ from: 'm1', to: 'm2', kind: 'references' }), e({ from: 'm3', to: 'm1', kind: 'references' })].map((l) => ({ ...l, line: mpl.lineOf(l), solid: l.confidence !== 'inferred' }));
-    const fv = mpl.foldView(mods, lines, groups, new Set([gid]));
-    const open = mpl.foldView(mods, lines, groups, new Set());
-    check('modules of one band under one folder fold into one card; a module alone in its folder, or in another band, is in no group; folded, their lines are the group\'s, once each, solid when any was',
-      Object.keys(groups).join() === gid && groups[gid].members.join() === 'm1,m2'
-      && fv.nodes.map((n) => n.id).join() === 'grp:core:src,m3,m4,x' && fv.nodes[0].kind === 'group'
-      && fv.edges.length === 2 && fv.edges.find((l) => l.to === 'x').line === 'evidence' && !fv.edges.some((l) => l.from === l.to)
-      && fv.edges.some((l) => l.from === 'm3' && l.to === gid) && open.nodes.length === 5 && open.edges.length === 4,
-      fv.edges.map((l) => `${l.from}>${l.to}:${l.line}`).join(' '));
-    const lay = mpl.layoutOf(mods.map((n) => ({ ...n })), { width: 900 });
-    const pl = mpl.placed(lay, { m1: { x: 1500, y: 900 }, gone: { x: 1, y: 1 } });
-    check('a card placed by hand is drawn where it was put, the picture grows to hold it, and a placing for a card that is not drawn is ignored',
-      pl.pos.m1.x === 1500 && pl.pos.m1.y === 900 && pl.pos.m2.x === lay.pos.m2.x && pl.width >= 1500 + lay.pos.m1.w && pl.height >= 900 + lay.pos.m1.h && !pl.pos.gone);
-    {
-      // A folded card, then an open group of two, in one band: the group's frame must hold its own cards and no other.
-      const row = [{ id: 'gA', kind: 'group', band: 'core' }, { id: 'p', kind: 'module', band: 'core' }, { id: 'q', kind: 'module', band: 'core' }];
-      const key = (n) => (n.id === 'p' || n.id === 'q' ? 'grp:core:tools' : null);
-      const frameHoldsOther = (l) => {
-        const b = ['p', 'q'].map((id) => l.pos[id]);
-        const fx = Math.min(...b.map((v) => v.x)); const fy = Math.min(...b.map((v) => v.y));
-        const fx2 = Math.max(...b.map((v) => v.x + v.w)); const fy2 = Math.max(...b.map((v) => v.y + v.h));
-        const g = l.pos.gA; return g.x < fx2 && g.x + g.w > fx && g.y < fy2 && g.y + g.h > fy;
-      };
-      // Two cards to a row, so the group's second card wraps under the folded one: that is the frame's trap.
-      const keyed = mpl.layoutOf(row, { width: 900, rowKey: key });
-      const plain = mpl.layoutOf(row, { width: 900 });
-      check('an open group starts a row of its own, so its frame holds its own cards and no other; without that the frame took in a folded neighbour',
-        !frameHoldsOther(keyed) && frameHoldsOther(plain) && keyed.pos.p.y > keyed.pos.gA.y,
-        `with rows: ${JSON.stringify(keyed.pos)}`);
-    }
     const ws2 = JSON.parse(read(path.join(HERE, 'fixtures', 'crew-map', 'node-ws.json')) ?? 'null');
     const api = mpl.nodesOf(ws2).find((n) => n.id === 'mod:node:@demo/api');
     const ins = mpl.inspectOf(api, ws2, mpl.edgesOf(ws2), mpl.findingsOf(ws2).shown);
@@ -1972,7 +2158,7 @@ check('prose without a notice yields nothing', none.size === 0);
       const docListeners = [];
       document.addEventListener = (t, fn) => docListeners.push([t, fn]);
       try {
-        const { MapView, LAYOUT_KEY } = await import(`../../kit/studio/web/map.js?v2=${Date.now()}`);
+        const { MapView } = await import(`../../kit/studio/web/map.js?v2=${Date.now()}`);
         const walkAll = (el, pred, out = []) => { for (const c of el.children ?? []) { if (pred(c)) out.push(c); walkAll(c, pred, out); } return out; };
         const copied = []; const zooms = [];
         const root = document.createElement('div');
@@ -1982,26 +2168,24 @@ check('prose without a notice yields nothing', none.size === 0);
           edges: [...ws2.edges, { from: 'mod:node:extra', to: 'mod:node:@demo/shared', kind: 'references', confidence: 'evidence', source: 'scanner', evidence: [] }] };
         view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
         const card = (id) => walkAll(root, (x) => x.dataset?.id === id && String(x.className).startsWith('mp-card'))[0];
-        const frames = walkAll(root, (x) => x.className === 'mp-group');
-        // drag a card 50 px at 100%: it is placed, kept for this project, and the click that ends the drag selects nothing
+        // a press and a move on a card move nothing; its click selects it; Reset layout has nothing to forget
         const c = card('mod:node:@demo/api');
-        const at = { ...view.lay.pos['mod:node:@demo/api'] };
+        const at = JSON.stringify(view.lay.pos['mod:node:@demo/api']);
         c.emit('pointerdown', { clientX: 0, clientY: 0, pointerId: 1 }); c.emit('pointermove', { clientX: 50, clientY: 20 }); c.emit('pointerup'); c.emit('click');
-        const saved = JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`) ?? 'null');
-        const placedOk = view.pins['mod:node:@demo/api']?.x === at.x + Math.round(50 / view.zoom) && saved?.pins?.['mod:node:@demo/api'] && view.selected === null;
-        // another project starts from its own layout, and coming back restores this one
-        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-b', doc: ws2, behind: { count: 0 }, others: [], compare: null });
-        const otherClean = view.moved === 0;
-        view.setData({ measured: true, file: '.crewforth/crew-map.json', cwd: '/proj-a', doc: grouped, behind: { count: 0 }, others: [], compare: null });
-        const back = view.moved === 1;
-        const undo = view.resetLayout(); const reset = view.moved === 0 && undo && view.restoreLayout(undo) && view.moved === 1;
-        // fold the folder of two modules in one band, and open it again from its card
-        const fold = walkAll(root, (x) => x.className === 'mp-group-fold')[0];
-        fold?.emit('click');
-        const foldedCard = walkAll(root, (x) => x.dataset?.kind === 'group')[0];
-        const foldedOk = Boolean(foldedCard) && !card('mod:node:extra') && JSON.parse(localStorage.getItem(`${LAYOUT_KEY}/proj-a`)).folded.length === 1;
-        foldedCard?.emit('click');
-        const reopened = Boolean(card('mod:node:extra')) && !walkAll(root, (x) => x.dataset?.kind === 'group').length;
+        const still = JSON.stringify(view.lay.pos['mod:node:@demo/api']) === at && view.selected === 'mod:node:@demo/api' && view.moved === 0 && view.resetLayout() === null;
+        view.escape();
+        // a folded strip opens from its head, and folds back; selecting a module in it opens it
+        const head = () => walkAll(root, (x) => x.className === 'mp-strip-head')[0];
+        const closedFirst = !card('mod:node:@demo/orphan-lib') && head()?.getAttribute('aria-expanded') === 'false';
+        head().emit('click');
+        const opened1 = Boolean(card('mod:node:@demo/orphan-lib')) && head().getAttribute('aria-expanded') === 'true';
+        head().emit('click');
+        const refolded = !card('mod:node:@demo/orphan-lib');
+        view.select('mod:node:@demo/orphan-lib');
+        const bySelect = Boolean(card('mod:node:@demo/orphan-lib')) && card('mod:node:@demo/orphan-lib').dataset.selected === 'true';
+        head().emit('click');
+        const foldsWhileSelected = !card('mod:node:@demo/orphan-lib') && view.selected === 'mod:node:@demo/orphan-lib';
+        view.escape();
         // the legend opens, a press inside keeps it, a press outside closes it
         walkAll(root, (x) => x.tagName === 'BUTTON' && x.textContent === 'Legend')[0].emit('click');
         const opened = walkAll(root, (x) => x.className === 'mp-legend-box').length === 1;
@@ -2020,10 +2204,10 @@ check('prose without a notice yields nothing', none.size === 0);
         walkAll(root, (x) => String(x.className).includes('mp-cite'))[0]?.emit('click');
         const cite = copied.find(([w]) => w === 'path');
         const modRows = walkAll(root, (x) => x.className === 'mp-mrow').length;
-        check('a card dragged is placed and kept for its project, its click selects nothing, another project keeps its own, and Reset forgets and Undo brings back',
-          placedOk && otherClean && back && reset && frames.length === 1, `pins ${JSON.stringify(view.pins)}; frames ${frames.length}`);
-        check('a folder is folded into one card and opened again from it, and the fold is kept for the project',
-          foldedOk && reopened);
+        check('a card is not dragged: a press and a move leave it where the layout put it, its click selects it, and Reset layout has nothing to forget',
+          still, `at ${at} → ${JSON.stringify(view.lay.pos['mod:node:@demo/api'])}; selected ${view.selected}`);
+        check('a folded strip opens into cards from its head and folds back; selecting a module in it opens it, and it folds again while that module stays selected',
+          closedFirst && opened1 && refolded && bySelect && foldsWhileSelected, JSON.stringify([closedFirst, opened1, refolded, bySelect, foldsWhileSelected]));
         check('the legend is a popover: a press inside keeps it open, a press anywhere else closes it',
           opened && kept && closed);
         check('a finding row selects its module and brings its card to the middle of the pane; a file:line copies, as a path',
@@ -2310,7 +2494,7 @@ check('prose without a notice yields nothing', none.size === 0);
     textClasses.join(', '));
   const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
   check('the page draws the box from the session on screen, the row from a small batched request, and offers the box in the view menu',
-    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\) \}\)\);/.test(appSrc)
+    /canvas\.setSpend\(summaryRows\(usage, \{ live: lastLive === true, now: serverNow\(\), agentRows: agentSpendRows\(lastNodes\) \}\)\);/.test(appSrc)
     && /else if \(lastLive === true\) paintSpend\(\);/.test(appSrc)
     && /\/api\/usage\?ids=/.test(appSrc) && /slice\(0, 12\)/.test(appSrc) && /canvas\.showSpend\(!open\)/.test(appSrc)
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
@@ -3229,9 +3413,12 @@ process.stdout.write('\n== §12b the question and the plan ==\n');
     const transcript = path.join(repo, '..', `${path.basename(repo)}.jsonl`);
     fs.writeFileSync(transcript, '{"type":"user"}\n');
     const record = path.join(repo, '.git', 'crewforth-approval');
+    // The hooks read the user's config dir (settings, plugin hooks). Point them at an empty one, or a
+    // PermissionRequest hook installed on this machine (a terminal's plugin, say) turns "ask" into a refusal.
+    const config = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-gate-config-'));
     const gate = (mode, command) => {
       const r = spawnSync('bash', [path.join(hooks, 'guard-bash.sh')], {
-        cwd: repo, encoding: 'utf8', env: { ...process.env, CREW_GATE_LOG: '/dev/null' },
+        cwd: repo, encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: config, CREW_GATE_LOG: '/dev/null' },
         input: JSON.stringify({ session_id: 's', cwd: repo, permission_mode: mode, tool_name: 'Bash', tool_input: { command } }),
       });
       let decision = null;
@@ -3239,7 +3426,7 @@ process.stdout.write('\n== §12b the question and the plan ==\n');
       return { rc: r.status, decision, err: r.stderr };
     };
     const typed = (prompt, attended) => {
-      const env = { ...process.env };
+      const env = { ...process.env, CLAUDE_CONFIG_DIR: config };
       delete env.CLAUDE_CODE_SESSION_ATTENDED;
       if (attended !== null) env.CLAUDE_CODE_SESSION_ATTENDED = attended;
       return spawnSync('bash', [path.join(hooks, 'prompt-approval.sh')], {
@@ -3302,6 +3489,7 @@ process.stdout.write('\n== §12b the question and the plan ==\n');
     perm.cleanup(gsid);
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(remote, { recursive: true, force: true });
+    fs.rmSync(config, { recursive: true, force: true });
     fs.rmSync(transcript, { force: true });
   }
 
@@ -3545,6 +3733,22 @@ check('the log is marked as carrying no timestamps',
   'the format has no timestamp column, and the panel must not imply one');
 check('whether commands were recorded is stated, not assumed',
   own.measured && own.commandsRecorded === true);
+
+// Since 3.5.0 a line carries the time it was written in a fifth column; a line
+// without one, or with something that is not a UTC time there, has none.
+const tsHome = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-studio-gatelog-ts-'));
+fs.mkdirSync(path.join(tsHome, '.claude'), { recursive: true });
+fs.writeFileSync(path.join(tsHome, '.claude', 'gate-log.tsv'),
+  ['BLOCK\t§4.5\tdestructive rm -rf\t',
+    'BLOCK\t§4.5\tdestructive rm -rf\t\t2026-11-09T08:27:54Z',
+    'NOTE\t§model\tnote: x\t\tyesterday',
+    ''].join('\n'));
+let ts;
+try { ts = gateLog(tsHome); } finally { fs.rmSync(tsHome, { recursive: true, force: true }); }
+check('a line with a fifth column is read with its time, and only a UTC time counts as one',
+  ts.measured && ts.timestamped === true && ts.total === 3
+    && ts.entries.filter((e) => e.at).length === 1 && ts.entries.some((e) => e.at === '2026-11-09T08:27:54Z'),
+  JSON.stringify(ts.entries?.map((e) => e.at)));
 check('verdicts are counted', own.measured && typeof own.counts?.BLOCK === 'number', JSON.stringify(own.counts));
 
 const noLog = gateLog(os.tmpdir());
@@ -3653,7 +3857,7 @@ const chatSrc2 = read(path.join(STUDIO, 'web', 'chat.js')) ?? '';
 check('a resumed pane loads what was said before it',
   /loadHistory/.test(chatSrc2) && /resumedFrom/.test(chatSrc2));
 check('the seam between history and this run is drawn, not implied',
-  /chat-seam/.test(chatSrc2) && /forked from \$\{from/.test(chatSrc2));
+  /chat-seam/.test(chatSrc2) && /forked from \{id\}/.test(chatSrc2));
 check('an observed session is shown but not writable',
   /openReadOnly/.test(chatSrc2) && /readOnly/.test(chatSrc2));
 check('the read-only pane says why it cannot be written to, and what to do instead',
@@ -3806,7 +4010,7 @@ check('the conversation is a column beside the graph, not a drawer under it',
 check('who spoke is read from which side it sits on',
   /\.msg-user\s*\{\s*align-items:\s*flex-end/.test(cssSrc)
   && /\.msg-assistant\s*\{\s*align-items:\s*stretch/.test(cssSrc)
-  && /el\('div', 'msg-role', 'Session'\)/.test(chatSrc2),
+  && /el\('div', 'msg-role', t\('Session'\)\)/.test(chatSrc2),
   'what the viewer wrote is a bubble on the right; what the session said runs the width under its name');
 check('either panel can be collapsed without leaving a gap where it was',
   /\.shell\.no-side/.test(cssSrc) && /\.shell\.no-chat/.test(cssSrc));
@@ -4674,7 +4878,8 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
   /* -- 1. a tree that reads left to right ------------------------------- */
 
   const one = gp.plan(screenOne(), {});
-  const col = (p, d) => p.items.filter((it) => it.depth === d);
+  // A column top to bottom: the order it is drawn in, which is not always the order its items were made in.
+  const col = (p, d) => p.items.filter((it) => it.depth === d).sort((a, b) => a.y - b.y);
   check('the session is on the left, what it spawned in the next column, what those spawned in the one after',
     at(one, 'session').x < at(one, 'b').x && at(one, 'b').x < at(one, 'k1').x
     && new Set(col(one, 1).map((it) => it.x)).size === 1 && new Set(col(one, 2).map((it) => it.x)).size === 1,
@@ -4714,9 +4919,23 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
     const after = gp.plan(more, { seq, density: 'comfortable', sessionY: before.sessionY });
     const was = boxes(before);
     const moved = [...was].filter(([id, xy]) => boxes(after).get(id) !== xy).map(([id]) => id);
-    check('a new agent lands at the end of its column and nothing already drawn moves',
-      moved.length === 0 && col(after, 1).at(-1).id === 'late',
-      moved.length ? `moved: ${moved.join(', ')}` : `${was.size} boxes held; the new one is last of ${col(after, 1).length}`);
+    // A Crewforth agent lands at the end of Crewforth's part of the column: Claude Code's own (Explore, general-purpose)
+    // stand below it and are the only thing that moves, down by its height.
+    const low = new Set(['type:session:Explore', 'g']);
+    const crewLast = col(after, 1).filter((it) => !low.has(it.id)).at(-1)?.id;
+    check('a new Crewforth agent lands at the end of Crewforth\'s part of its column; only Claude Code\'s agents below it move',
+      moved.every((id) => low.has(id)) && crewLast === 'late'
+      && [...low].every((id) => at(after, id).y > at(after, 'late').y && at(after, id).x === at(before, id).x),
+      `moved: ${moved.join(', ') || 'nothing'}; last Crewforth card: ${crewLast}`);
+    {
+      const more2 = [...nodes, A('late2', 'Plan', { parentId: 'session', startedAt: 0 })];
+      gp.sequence(more2, seq);
+      const after2 = gp.plan(more2, { seq, density: 'comfortable', sessionY: before.sessionY });
+      const moved2 = [...was].filter(([id, xy]) => boxes(after2).get(id) !== xy).map(([id]) => id);
+      check('a new Claude Code agent lands at the very end of its column and nothing already drawn moves',
+        moved2.length === 0 && col(after2, 1).at(-1).id === 'late2',
+        moved2.length ? `moved: ${moved2.join(', ')}` : `${was.size} boxes held; the new one is last of ${col(after2, 1).length}`);
+    }
 
     const grown = [...more, A('w9', 'crew-docs-agent', { parentId: 'wf:audit', workflow: 'audit', startedAt: 99 })];
     gp.sequence(grown, seq);
@@ -5216,6 +5435,77 @@ process.stdout.write('\n== §27 where everything on the graph goes ==\n');
       !c.els.has('b2') && c.cellEls.has('b2') && c.els.get('type:session:crew-backend-expert').classList.contains('cv-open'));
     check('the window decides which way: beside itself above the band where the navigator is a rail',
       /canvas\.setAside\(!railBand\.matches\);\s*railBand\.addEventListener\('change', \(\) => canvas\.setAside\(!railBand\.matches\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+  }
+
+  /* -- 9b. two sides: the agents that build to the left of the session ---- */
+
+  {
+    const nodes = screenOne();
+    const flat = gp.plan(nodes, { density: 'comfortable' });
+    const two = gp.plan(nodes, { density: 'comfortable', sides: true });
+    const s = at(two, 'session');
+    const builders = ['b', 'd', 'f', 'p'];
+    const others = ['type:session:Explore', 'g', 'wf:audit'];
+    check('in a window with room the agents that build stand to the left of the session, everything else to its right',
+      builders.every((id) => at(two, id).x + at(two, id).w <= s.x) && others.every((id) => at(two, id).x >= s.x + s.w)
+      && two.sides === true && flat.sides === false,
+      `left: ${builders.filter((id) => at(two, id).x < s.x).join(', ')} · right: ${others.filter((id) => at(two, id).x > s.x).join(', ')}`);
+    check('a branch stays on the side its top stands on: a builder\'s child further left, a run member\'s child further right',
+      at(two, 'k1').x + at(two, 'k1').w <= at(two, 'b').x && at(two, 'k2').x >= at(two, 'wf:audit').x + at(two, 'wf:audit').w);
+    const leftWires = two.edges.filter((e) => e.dir === -1);
+    check('a wire on the left leaves the left edge of what spawned it and enters the right edge of the card',
+      leftWires.length === 5 && leftWires.every((e) => e.to.x < e.from.x)
+      && two.edges.filter((e) => e.dir === 1).every((e) => e.to.x > e.from.x)
+      && Math.abs(two.edges.find((e) => e.target === 'b').from.x - s.x) < 1
+      && Math.abs(two.edges.find((e) => e.target === 'b').to.x - (at(two, 'b').x + at(two, 'b').w)) < 1,
+      `${leftWires.length} wires to the left, ${two.edges.length - leftWires.length} to the right`);
+    const shortest = (p) => Math.max(...p.items.map((it) => it.y + it.h));
+    check('two columns of four are shorter than one of eight, and nothing overlaps',
+      overlap(two).length === 0 && shortest(two) < shortest(flat) && two.drawn === flat.drawn,
+      `${shortest(flat)}px in one column, ${shortest(two)}px on two sides`);
+    check('a side is the type\'s, not the count\'s: a builder that arrives later does not move one already drawn',
+      (() => {
+        const seq = gp.sequence(nodes);
+        const before = gp.plan(nodes, { seq, density: 'comfortable', sides: true });
+        const more = [...nodes, A('t9', 'crew-test-expert', { startedAt: 90 })];
+        gp.sequence(more, seq);
+        const after = gp.plan(more, { seq, density: 'comfortable', sides: true, sessionY: before.sessionY });
+        return ['b', 'd', 'f', 'p', 'type:session:Explore', 'g'].every((id) => at(after, id).y === at(before, id).y) && at(after, 't9').x < at(after, 'session').x;
+      })());
+    check('with nobody that builds the picture is what it was: the session on the left, its agents to the right',
+      (() => {
+        const plain = nodes.filter((n) => !['b', 'd', 'f', 'p', 'k1'].includes(n.id));
+        const a = gp.plan(plain, { density: 'comfortable' });
+        const b = gp.plan(plain, { density: 'comfortable', sides: true });
+        return [...boxes(a)].every(([id, xy]) => boxes(b).get(id) === xy);
+      })());
+    check('"Order" keeps its waves left to right: the sides are the tree\'s',
+      gp.plan(nodes.map((n, i) => (n.kind === 'agent' ? { ...n, order: i, wave: i } : n)), { group: 'order', sides: true }).sides === false);
+    check('the window decides: the canvas asks for two sides where an agent group opens beside itself',
+      /aside: this\.aside, sides: this\.aside,/.test(canvasSrc) && /const k = c \* \(e\.dir \?\? 1\);/.test(canvasSrc));
+  }
+
+  /* -- 9c. Claude Code's own agents at the bottom of the column ----------- */
+
+  {
+    const nodes = screenOne();
+    const low = (it) => it.kind === 'agent' ? !it.node.agentType.startsWith('crew-') : it.kind === 'group' && it.type === 'type' && !String(it.real).startsWith('crew-');
+    for (const sides of [false, true]) {
+      const p = gp.plan(nodes, { density: 'comfortable', sides });
+      const right = p.items.filter((it) => it.depth === 1 && it.side >= 0).sort((a, b) => a.y - b.y);
+      const firstLow = right.findIndex(low);
+      check(`Claude Code's own agents the session called stand below Crewforth's in their column${sides ? ' (two sides)' : ''}, called first or not`,
+        firstLow > 0 && right.slice(firstLow).every(low) && overlap(p).length === 0,
+        right.map((it) => it.id).join(' > '));
+    }
+    const ownKit = gp.plan(nodes, { density: 'comfortable', kit: (type) => type === 'Explore' || type.startsWith('crew-') });
+    const order = ownKit.items.filter((it) => it.depth === 1).sort((a, b) => a.y - b.y).map((it) => it.id);
+    check('what counts as Crewforth\'s is the caller\'s to say: the canvas\'s own word moves a type up',
+      order.at(-1) === 'g' && order.indexOf('type:session:Explore') < order.indexOf('g'), order.join(' > '));
+    check('only what the session called is reordered: a run\'s members and an agent\'s children keep their places',
+      (() => { const a = gp.plan(nodes, { density: 'comfortable' }); const run = at(a, 'wf:audit'); return run.cells.map((c) => c.id).join() === 'w0,w1,w2,w3'; })());
+    check('the canvas decides by the mark: an agent drawn with Crewforth\'s chevrons stands above the rest',
+      /kit: \(type\) => this\.#identity\(\{ agentType: type \}\)\.source === 'kit'/.test(canvasSrc));
   }
 
   /* -- 10. the viewer's own arrangement is kept --------------------------- */
@@ -6310,7 +6600,7 @@ process.stdout.write('\n== §31 the approval dock and the inspector ==\n');
   check('the copy button copies a path the server handed over, and is disabled when there is none',
     /copy\.disabled = !file/.test(appJs) && /transcriptPath: file/.test(read(path.join(STUDIO, 'server', 'lib', 'graph.js')) ?? ''),
     'a path is not assembled from parts in the page');
-  check('a skill chip copies the skill\'s name', /copyText\(s, `Copied \$\{s\}`\)/.test(appJs));
+  check('a skill chip copies the skill\'s name', /copyText\(s, t\('Copied \{text\}', \{ text: s \}\)\)/.test(appJs));
 }
 
 /** Every piece of text under a stub element, for claims about what a built panel says. */
@@ -6392,6 +6682,42 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
     check('a session Studio only reads is "Read only" and claims nothing else',
       cv.headerOf({ permissionMode: 'read-only' }, { readOnly: true }).badge === 'Read only'
       && cv.headerOf({}, { readOnly: true }).parts.length === 0);
+    // What a session started here has changed: counted from git against the commit recorded at its start, said in
+    // the strip only when something changed, and read without git rewriting the index (GIT_OPTIONAL_LOCKS=0).
+    check('the strip names files changed and new untracked files, and says nothing when nothing changed or nobody counted',
+      cv.headerOf({ permissionMode: 'plan', turns: 1, gated: true, changes: { measured: true, files: 2, added: 7, removed: 1, untracked: 1 } }).parts.join(' | ')
+        === 'mode: plan | 1 turn | 2 files changed (+7 −1) · 1 new untracked'
+      && cv.changesLine({ measured: true, files: 0, untracked: 0 }) === null
+      && cv.changesLine({ measured: false, reason: 'x' }) === null && cv.changesLine(null) === null);
+    {
+      const wc = await import('../../kit/studio/server/lib/worktree-changes.js');
+      const ns = wc.parseNumstat('3\t1\ta.txt\0-\t-\timg.png\0' + '10\t0\tdir/b c.md\0');
+      check('numstat is read file by file, a binary file counted as a file with no lines',
+        ns.files === 3 && ns.added === 13 && ns.removed === 1 && ns.binary === 1);
+      const gd = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-studio-chg-'));
+      try {
+        const g = (...a) => execFileSync('git', ['-c', 'user.email=s@example.test', '-c', 'user.name=s', ...a], { cwd: gd, stdio: ['ignore', 'pipe', 'ignore'] });
+        g('init', '-q'); fs.writeFileSync(path.join(gd, 'a.txt'), 'one\ntwo\n'); fs.writeFileSync(path.join(gd, 'keep.txt'), 'k\n');
+        g('add', '.'); g('commit', '-qm', 'init');
+        const start = await wc.headOf(gd);
+        fs.writeFileSync(path.join(gd, 'a.txt'), 'one\nTWO\nthree\n');
+        fs.writeFileSync(path.join(gd, 'c.txt'), 'c\n'); g('add', 'c.txt'); g('commit', '-qm', 'second');
+        fs.writeFileSync(path.join(gd, 'new.txt'), 'n\n');
+        // keep.txt's content is the same, its time is not: an index refresh would rewrite the index for it.
+        const later = new Date(Date.now() + 5000); fs.utimesSync(path.join(gd, 'keep.txt'), later, later);
+        const idx = path.join(gd, '.git', 'index'); const before = fs.statSync(idx).mtimeMs;
+        const c = await wc.readChanges(gd, start);
+        const after = fs.statSync(idx).mtimeMs;
+        check('a session\'s changes count its commits and its uncommitted edits against the start, and new untracked files',
+          c.measured === true && c.files === 2 && c.added === 3 && c.removed === 1 && c.untracked === 1, JSON.stringify(c));
+        check('reading the changes leaves the index as it was', after === before, `index mtime ${before} -> ${after}`);
+        execFileSync('git', ['status', '--porcelain'], { cwd: gd, stdio: 'ignore' });
+        check('twin: a plain git status rewrites that same index, so the check above could see a write',
+          fs.statSync(idx).mtimeMs !== before);
+        const none = await wc.readChanges(os.tmpdir(), null);
+        check('no commit recorded at the start is "not measured", never zero', none.measured === false && typeof none.reason === 'string');
+      } finally { fs.rmSync(gd, { recursive: true, force: true }); }
+    }
     check('a session started here without the gate says it has none', cv.headerOf({ gated: false }).ungated === true
       && /No approval gate/.test(chatJs));
     check('a waiting request is said in the conversation, and Review leads to the dock',
@@ -6450,7 +6776,7 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
         && /continueAs === 'copy'[\s\S]*so Studio starts a copy/.test(chatJs) && /Open it in the desktop app again/.test(chatJs));
     }
     check('the terminal command at the foot is the server\'s, read before anything runs',
-      /\/api\/session\/\$\{encodeURIComponent\(this\.id\)\}\/terminal/.test(chatJs) && /r\?\.plan\?\.line \?\? 'not measured/.test(chatJs));
+      /\/api\/session\/\$\{encodeURIComponent\(this\.id\)\}\/terminal/.test(chatJs) && /r\?\.plan\?\.line \?\? t\('not measured/.test(chatJs));
     check('options are offered on the reply waiting for an answer, not on the history',
       /this\.renderMessage\(m, \{ quick: false \}\)/.test(chatJs) && /if \(quick && !this\.readOnly\)/.test(chatJs)
       && /Clicking an option sends it as your reply\./.test(chatJs));
@@ -6507,7 +6833,7 @@ process.stdout.write('\n== §32 the conversation panel and New session ==\n');
       ns.projectChoices(projects, 'a').find((p) => p.initial).key === 'a');
     check('the branch is named only when the server read one',
       ns.runsIn(pc[0]).branch === 'feat/x' && ns.runsIn(pc[1]).branch === null && ns.runsIn(null) === null
-      && /if \(r\.branch\) parts\.push\(' on branch '/.test(web('newsession.js')));
+      && /r\.branch\s*\? tParts\('Runs in \{path\} on branch \{branch\}\.'/.test(web('newsession.js')));
 
     /* -- 7. two clicks, one session ------------------------------------------------ */
 
@@ -7016,7 +7342,7 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   check('a toolbar that gives up Group, Density, Show, Expand and Fold gives them up only together with a menu that holds them',
     optBase > 0 && optShown > optBase
     && /\.toolbar:is\(\[data-fit="2"\], \[data-fit="3"\]\) :is\(#tb-group, #tb-density, #tb-show, #tb-expand, #tb-fold\) \{ display: none; \}\s*\.toolbar:is\(\[data-fit="2"\], \[data-fit="3"\]\) #tb-options \{ display: inline-flex; \}/.test(css34)
-    && /el\.tbOptions\.addEventListener\('click'/.test(appJs) && /\{ label: 'Expand all', run: \(\) => canvas\.expandAll\(\) \}/.test(appJs),
+    && /el\.tbOptions\.addEventListener\('click'/.test(appJs) && /\{ label: t\('Expand all'\), run: \(\) => canvas\.expandAll\(\) \}/.test(appJs),
     'the rule that hides the menu comes before the one that shows it: the other way round it never appeared');
 
   // The steps were widths in the stylesheet (880, 760, 520 px), and the first was a guess that was 200 px low:
@@ -7352,6 +7678,463 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
     /reason: restartNote \?\? e\.message/.test(appSrc) && /restartNote = staleServerNote\(h\);/.test(appSrc)
     && /if \(view === 'map'\) loadMap\(true\)/.test(appSrc)
     && /\.stage-note\[data-kind="restart"\] \.stage-note-text \{ white-space: normal; \}/.test(cssSrc));
+}
+
+/* ------------------------------------------ §34b the plan's to-do list ---
+   The same boxes /crew-todo draws under the status line, read by the server from the session's project and drawn
+   in the graph's corner. The rules are todo.awk's; where the two can be run side by side, they are. */
+
+{
+  installDom();
+  const pt = await import('../../kit/studio/server/lib/plan-todo.js');
+  const tb = await import(`../../kit/studio/web/todo.js?t=${Date.now()}`);
+  const PLAN = [
+    '# Export — Plan', 'commit: abc123', 'status: active',
+    '## Acceptance criteria', '- [x] AC-1: exports — proven by: unit', '- [ ] AC-2: imports — proven by: e2e',
+    '## Tasks (order)', 'Progress: tick a task [x] when its check passes.',
+    '### Phase 1 — Base', '1. [x] Write the reader — satisfies: AC-1 — size: S', '2. [~] Write the writer — size: M', '   - [ ] a sub-step',
+    '### Phase 2 — Wire', '3. [ ] Hook it up', '```', '- [ ] a template, not a task', '```',
+    '### Phase 3 — Empty', 'nothing boxed here',
+    '## Risks', '- [ ] not in the Tasks section',
+  ].join('\n');
+  const p = pt.parsePlan(PLAN);
+  check('a plan reads into its phases and tasks as /crew-todo reads it: Tasks only, no sub-steps, no code blocks, AC counted apart',
+    p.title === 'Export — Plan' && p.active && p.total === 3 && p.done === 1 && p.ac?.done === 1 && p.ac?.total === 2
+    && p.phases.map((x) => `${x.name}:${x.done}/${x.total}`).join('|') === 'Phase 1 — Base:1/2|Phase 2 — Wire:0/1'
+    && p.phases[0].tasks.map((x) => `${x.state}:${x.text}`).join('|') === 'done:1. Write the reader|work:2. Write the writer',
+    JSON.stringify(p.phases));
+  check('the task in work is the one marked [~]; with none marked the first open task is the next, never "in work"',
+    p.now.kind === 'work' && p.now.task === '2. Write the writer'
+    && (() => { const q = pt.parsePlan(PLAN.replace('2. [~]', '2. [ ]')); return q.now.kind === 'next' && q.now.task === '2. Write the writer' && q.now.phase === 'Phase 1 — Base'; })()
+    && pt.parsePlan(PLAN.replace(/\[[ ~]\]/g, '[x]')).now.kind === 'done' && pt.parsePlan('# x\nno boxes').now === null);
+  check('a paused, dropped or done plan is not the work in progress; anything else, or no status line, is',
+    ['paused', 'on hold', 'dropped', 'done', 'beklemede', 'iptal'].every((w) => !pt.parsePlan(PLAN.replace('status: active', `status: ${w}`)).active)
+    && ['active', 'in progress', ''].every((w) => pt.parsePlan(PLAN.replace('status: active', w ? `status: ${w}` : '')).active)
+    && pt.parsePlan(`${PLAN}\n## Later\nstatus: paused`).active, 'a status line under a ## heading is not the plan\'s');
+  // A file that keeps several plans, each with its own Tasks heading: the newest that holds a task, at the bottom.
+  const MANY = ['# Log', 'status: active', '## Tasks', '| T1 | a table, no box |', '## Old', '### Tasks', '- [x] old one',
+    '- [x] old two', '## New', '### Tasks', '- [x] new one', '- [ ] new two', '## Newest, not yet boxed', '### Tasks', '| T1 | x |'].join('\n');
+  check('a file with several plans is read at the last Tasks heading that holds a task; with none holding one, the first',
+    (() => { const q = pt.parsePlan(MANY); return q.total === 2 && q.done === 1 && q.now?.task === 'new two'; })()
+    && pt.parsePlan('# T\n## Tasks\n| a |\n## Tasks\n| b |\n## Later\n- [ ] outside\n').total === 0,
+    JSON.stringify(pt.parsePlan(MANY).phases));
+  check('CRLF reads as LF, and a plan with no Tasks heading is read whole',
+    JSON.stringify(pt.parsePlan(PLAN.replace(/\n/g, '\r\n')).phases) === JSON.stringify(p.phases)
+    && pt.parsePlan('# T\n- [x] a\n- [ ] b\n').phases.length === 1 && pt.parsePlan('# T\n- [x] a\n- [ ] b\n').phases[0].name === '');
+
+  // Side by side with todo.awk, which draws the status line's count: the same plans, the same "done/total".
+  const awk = path.join(PAYLOAD, 'eval', 'lib', 'todo.awk');
+  // Through bash, as the status line runs it: on Windows awk is Git Bash's, on bash's PATH and not on node's.
+  const hasAwk = spawnSync('bash', ['-c', 'awk "BEGIN{}"'], { encoding: 'utf8' }).status === 0;
+  if (hasAwk && fs.existsSync(awk)) {
+    const cases = [PLAN, PLAN.replace('2. [~]', '2. [ ]'), '# T\n- [x] a\n- [ ] b\n  - [x] sub\n', '# T\n## Tasks\n### A\n- [x] a\n### B\n- [ ] b\n- [x] c\n## Notes\n- [ ] n\n', MANY];
+    const counts = cases.map((c) => {
+      const r = spawnSync('bash', ['-c', 'LC_ALL=C awk -v color=0 -v maxl=14 -v name=PLAN.md -f "$1"', 'bash', awk], { input: c, encoding: 'utf8' });
+      const q = pt.parsePlan(c);
+      return [r.stdout.split('\n')[0].replace('📋 ', ''), `${q.done}/${q.total}`];
+    });
+    check('the panel and the status line count the same: todo.awk and the server agree on every plan',
+      counts.every(([a, b]) => a === b), JSON.stringify(counts));
+  } else skip('the panel and the status line count the same', 'tool', 'no awk here');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-todo-'));
+  try {
+    const proj = path.join(dir, 'proj');
+    fs.mkdirSync(path.join(proj, 'docs'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.claude', 'state', 'todo'), { recursive: true });
+    const none = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(proj, 'docs', 'PLAN.md'), PLAN);
+    const dflt = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(proj, 'other.md'), '# Other\n- [x] one\n');
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), 'other.md\r\n');
+    const named = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(dir, 'outside.md'), '- [ ] secret task\n');
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), '../outside.md\n');
+    const out = pt.readPlanTodo(proj);
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), `${path.join(dir, 'outside.md')}\n`);
+    const abs = pt.readPlanTodo(proj);
+    let link = { measured: false, reason: 'outside the project' };
+    try { fs.symlinkSync(path.join(dir, 'outside.md'), path.join(proj, 'linked.md')); fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), 'linked.md\n'); link = pt.readPlanTodo(proj); } catch { /* no symlinks here: the two above stand */ }
+    check('the plan file is the one /crew-todo reads: docs/PLAN.md, or the file it was pointed at',
+      none.measured && none.exists === false && none.file === 'docs/PLAN.md'
+      && dflt.exists && dflt.total === 3 && dflt.file === 'docs/PLAN.md' && named.file === 'other.md' && named.title === 'Other' && named.done === 1,
+      JSON.stringify([none, named.file]));
+    check('a plan path that leaves the project is not read, whether by .., an absolute path or a link',
+      [out, abs, link].every((r) => r.measured === false && /outside the project/.test(r.reason) && !JSON.stringify(r).includes('secret task')),
+      JSON.stringify([out.reason, abs.reason, link.reason]));
+    fs.writeFileSync(path.join(proj, '.claude', 'state', 'todo', 'path'), 'big.md\n');
+    fs.writeFileSync(path.join(proj, 'big.md'), 'x'.repeat(pt.MAX_PLAN_BYTES + 1));
+    check('a plan past the size limit is said to be too large, not read', /larger than/.test(pt.readPlanTodo(proj).reason ?? ''));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+
+  // The box.
+  const all = (e) => [e, ...(e.children ?? []).flatMap(all)];
+  const box = new tb.TodoBox();
+  const data = { measured: true, exists: true, file: 'docs/PLAN.md', cwd: '/p', ...p };
+  box.show(true);
+  box.render(data);
+  const rows = () => box.listEl.children;
+  const words = () => rows().map((r) => r.children.map((c) => c.textContent).join(' '));
+  check('the box shows the phases, opens the one in work, and marks done ✓, in work ◐, open ☐',
+    !box.el.hidden && box.nameEl.textContent === 'Export — Plan' && box.lineEl.textContent === '1/3 done · AC 1/2'
+    && words().join('|') === '◐ Phase 1 — Base 1/2|✓ 1. Write the reader|◐ 2. Write the writer|☐ Phase 2 — Wire 0/1',
+    words().join('|'));
+  rows()[3].emit('click');
+  check('a folded phase opens on a click, and stays open when the plan is read again',
+    words().at(-1) === '☐ 3. Hook it up' && (box.render({ ...data, modifiedAt: 2 }), words().at(-1) === '☐ 3. Hook it up'), words().join('|'));
+  box.render({ ...data, ...pt.parsePlan(PLAN.replace('2. [~]', '2. [ ]')) });
+  check('with nothing in work the first open task says it is next',
+    rows().some((r) => r.dataset.state === 'next' && r.children.at(-1).textContent === 'next'));
+  box.render({ ...data, ...pt.parsePlan(PLAN.replace('status: active', 'status: paused')) });
+  check('a paused plan shows one line and no tasks', box.lineEl.textContent === 'paused: not the work in progress (1/3 done)' && rows().length === 0);
+  box.render({ measured: true, exists: false, file: 'docs/PLAN.md' });
+  const hiddenNoPlan = box.el.hidden && !box.has;
+  box.render(data);
+  box.show(false);
+  const chipShown = !box.chip.hidden;
+  check('no plan, no box; closed, it stays closed and leaves a tab in the corner',
+    hiddenNoPlan && box.el.hidden && chipShown && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
+  box.chip.emit('click');
+  check('the corner tab opens a closed plan again, wherever the toolbar is wide or narrow',
+    !box.el.hidden && box.chip.hidden && localStorage.getItem('crewforth-studio-todo') === 'open');
+  box.show(false);
+  box.render({ measured: true, exists: false, file: 'docs/PLAN.md' });
+  check('no plan, no tab either', box.chip.hidden);
+  box.render(data);
+  box.show(true);
+  // Resizable: the size outlives the page, a hover shows the whole title, and a stored size that is not a size is ignored.
+  localStorage.setItem('crewforth-studio-todo-size', JSON.stringify({ w: 420, h: 300 }));
+  const sized = new tb.TodoBox();
+  localStorage.setItem('crewforth-studio-todo-size', '{"w":"x"}');
+  const junk = tb.readSize();
+  localStorage.removeItem('crewforth-studio-todo-size');
+  box.render({ ...data, modifiedAt: 3 });
+  check('the plan box remembers the size it was dragged to, ignores a stored size that is not one, and shows full titles on hover',
+    sized.el.style.width === '420px' && sized.el.style.height === '300px' && junk === null && tb.readSize() === null
+    && all(box.listEl).filter((e) => /cv-todo-(task|phase)/.test(e.className ?? '')).every((e) => e.title),
+    JSON.stringify([sized.el.style.width, junk]));
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const srvSrc = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('the page asks for the plan of the session on screen while the graph is the view, and View options toggles the box',
+    /if \(view === 'graph'\) loadTodo\(\);/.test(appSrc) && /\/api\/todo\?session=\$\{encodeURIComponent\(asked\)\}/.test(appSrc)
+    && /todo\.show\(!on\)/.test(appSrc) && /document\.getElementById\('canvas'\)\.append\(todo\.el, todo\.chip\)/.test(appSrc));
+  check('the server finds the project from the session only: no cwd is taken from the request',
+    /url\.pathname === '\/api\/todo'[\s\S]{0,400}const cwd = session \? await sessionCwd\(session\.file, session\.bytes\) : null;/.test(srvSrc));
+}
+
+/* ------------------------------------------------- §35 the panel's language ---
+   English is the panel's own; Turkish is a choice. The English sentence is the key (web/i18n.js), so a sentence
+   nobody translated still reads — in English, in a Turkish panel. That fallback is what makes a missing entry
+   invisible, so the coverage is asserted here and not trusted to the screen: every t('…') in web/, every word of
+   index.html, nothing left over in the dictionary, and the same {slots} on both sides. */
+
+process.stdout.write('\n== §35 the panel\'s language ==\n');
+{
+  const i18n = await import('../../kit/studio/web/i18n.js');
+  const { TR } = await import('../../kit/studio/web/i18n-tr.js');
+  // A t( or tParts( that is not a method of something else; spread (`...tParts(`) counts.
+  const CALL = /(?<![\w$])(?<!\w\.)t(?:Parts)?\(\s*(?:(['"`])((?:\\.|(?!\1)[^\\])*)\1)?/g;
+  const keysOf = (src) => {
+    const keys = []; const dynamic = [];
+    for (const m of src.matchAll(CALL)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      if (!m[1] || (m[1] === '`' && m[2].includes('${'))) { dynamic.push(`${line}: ${src.slice(m.index, m.index + 50)}`); continue; }
+      keys.push(Function(`return ${m[1]}${m[2]}${m[1]}`)());
+    }
+    return { keys, dynamic };
+  };
+  // Names and values JS overwrites at once are not words to translate.
+  const KEEP = new Set(['Crewforth', 'Studio', '15m', '100%']);
+  const htmlWords = (html) => {
+    const body = html.slice(html.indexOf('<body')).replace(/<script[\s\S]*?<\/script>/g, '');
+    const out = new Set();
+    for (const m of body.matchAll(/\s(?:aria-label|title|placeholder)="([^"]+)"/g)) out.add(m[1]);
+    for (const m of body.matchAll(/>([^<]+)</g)) { const w = m[1].trim(); if (w) out.add(w); }
+    return [...out].filter((w) => !KEEP.has(w));
+  };
+  const slots = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort().join();
+  const audit = (sources, html, dict) => {
+    const used = new Map(); const dynamic = [];
+    for (const [f, src] of sources) {
+      const r = keysOf(src);
+      for (const k of r.keys) used.set(k, f);
+      for (const d of r.dynamic) dynamic.push(`${f}:${d}`);
+    }
+    const words = htmlWords(html);
+    return {
+      used, words, dynamic,
+      missing: [...used].filter(([k]) => !Object.hasOwn(dict, k)).map(([k, f]) => `${f}: ${k}`),
+      htmlMissing: words.filter((w) => !Object.hasOwn(dict, w)),
+      extra: Object.keys(dict).filter((k) => !used.has(k) && !words.includes(k)),
+      slotsDiffer: Object.entries(dict).filter(([k, v]) => slots(k) !== slots(v)).map(([k]) => k),
+      empty: Object.entries(dict).filter(([, v]) => typeof v !== 'string' || !v.trim()).map(([k]) => k),
+    };
+  };
+  const webJs = walk(WEB_ROOT).filter((f) => f.endsWith('.js') && !/[\\/]i18n(-tr)?\.js$/.test(f))
+    .map((f) => [path.relative(WEB_ROOT, f), read(f) ?? '']);
+  const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+  const a = audit(webJs, html, TR);
+  // The set read against the set that has to be read: a file that renders words and is not scanned is a blind spot.
+  const mustScan = ['app.js', 'canvas.js', 'chat.js', 'map.js', 'timeline.js', 'list.js', 'dock.js', 'models.js', 'newsession.js', 'nav.js'];
+  const unscanned = mustScan.filter((f) => !webJs.some(([n]) => n === f));
+  check('the language audit reads every script of the panel that renders words',
+    unscanned.length === 0 && webJs.length >= 25, unscanned.length ? `not read: ${unscanned.join(', ')}` : `${webJs.length} scripts`);
+  check('every sentence the scripts put on screen has its Turkish',
+    a.used.size > 600 && a.missing.length === 0, a.missing.length ? a.missing.slice(0, 8).join(' · ') : `${a.used.size} of ${a.used.size} sentences`);
+  check('every word of index.html has its Turkish, names and values set at run time aside',
+    a.words.length > 40 && a.htmlMissing.length === 0, a.htmlMissing.length ? a.htmlMissing.join(' · ') : `${a.words.length} of ${a.words.length}`);
+  check('nothing in the dictionary is left over from a sentence that is gone',
+    a.extra.length === 0, a.extra.length ? a.extra.slice(0, 8).join(' · ') : `${Object.keys(TR).length} entries, every one in use`);
+  check('every key is written out where it is used, so the audit can read it: no t() of a variable or a template',
+    a.dynamic.length === 0, a.dynamic.slice(0, 5).join(' · '));
+  check('the Turkish has the same {slots} as the English, and none is empty',
+    a.slotsDiffer.length === 0 && a.empty.length === 0, [...a.slotsDiffer, ...a.empty].slice(0, 5).join(' · '));
+
+  // Calibration: inputs whose answer is known before the audit runs.
+  const twin = audit([['x.js', "const a = t('Known'); const b = t('Not in it'); const c = t(word); const d = t(`Hi ${n}`); const e = obj.t('a method');"
+    + " parts.push(...tParts('Spread {x}', { x }));"]],
+    '<body><button aria-label="Known">Keep me</button><span>Studio</span></body>', { Known: 'Bilinen', 'Spread {x}': 'Yayılmış {x}', Gone: 'Gitti', 'Two {a}': 'İki' });
+  check('twin: a missing sentence, a word of the page, a leftover entry and a slot that differs are each caught',
+    twin.missing.join() === 'x.js: Not in it' && twin.htmlMissing.join() === 'Keep me' && twin.extra.join() === 'Gone,Two {a}'
+    && twin.slotsDiffer.join() === 'Two {a}', JSON.stringify({ m: twin.missing, h: twin.htmlMissing, e: twin.extra, s: twin.slotsDiffer }));
+  check('twin: a key the audit cannot read is caught, a method called t is not a key, and a spread tParts is read',
+    twin.dynamic.length === 2 && twin.used.has('Spread {x}') && !twin.used.has('a method'), twin.dynamic.join(' · '));
+
+  // What t() does.
+  i18n.setLang('en');
+  const enSaid = i18n.t('Reconnecting in {n}s', { n: 4 });
+  i18n.setLang('tr');
+  const trSaid = i18n.t('Reconnecting in {n}s', { n: 4 });
+  const fallback = i18n.t('A sentence nobody wrote down', { n: 1 });
+  const parts = i18n.tParts('Runs in {path} on branch {branch}.', { path: 'P', branch: 'B' });
+  check('English by default, Turkish when chosen, {slots} filled, and a sentence with no entry still reads in English',
+    enSaid === 'Reconnecting in 4s' && trSaid === '4 sn sonra yeniden denenecek' && fallback === 'A sentence nobody wrote down'
+    && i18n.numLocale() === 'tr-TR', JSON.stringify([enSaid, trSaid, fallback]));
+  check('tParts puts the nodes where the Turkish sentence has them, not where the English one did',
+    JSON.stringify(parts) === JSON.stringify(['P', ' içinde, ', 'B', ' dalında çalışır.']), JSON.stringify(parts));
+  // index.html put into Turkish: a text node, its surrounding spaces kept, and the three attributes a reader meets.
+  const mkEl = (attrs, texts) => ({
+    attrs: { ...attrs },
+    getAttribute(k) { return this.attrs[k] ?? null; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    childNodes: texts.map((v) => ({ nodeType: 3, nodeValue: v })),
+  });
+  const btn = mkEl({ 'aria-label': 'Graph view', title: 'Not a key' }, ['\n  ', ' Graph ']);
+  const input = mkEl({ placeholder: 'Search projects and sessions' }, []);
+  let langSet = null;
+  const root = { querySelectorAll: () => [btn, input], ownerDocument: { documentElement: { setAttribute: (k, v) => { langSet = `${k}=${v}`; } } } };
+  i18n.translateDom(root);
+  check('the page in Turkish: words and labels replaced, spaces kept, what is not a key left alone, and <html lang> said',
+    btn.attrs['aria-label'] === 'Grafik görünümü' && btn.attrs.title === 'Not a key' && btn.childNodes[1].nodeValue === ' Grafik '
+    && input.attrs.placeholder === 'Proje ve oturum ara' && langSet === 'lang=tr', JSON.stringify([btn.attrs, btn.childNodes[1].nodeValue, langSet]));
+  // The button: it names the language it goes to, remembers it, and reloads; storage that refuses costs only the memory.
+  const stored = new Map();
+  const lsOk = { setItem: (k, v) => stored.set(k, v) };
+  const lsNo = { setItem: () => { throw new Error('blocked'); } };
+  const fakeBtn = () => { const b = { attrs: {}, title: '', textContent: '', handlers: [], setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(e, f) { this.handlers.push(f); } }; return b; };
+  let reloads = 0;
+  const b1 = fakeBtn(); i18n.initLang(b1, lsOk, () => { reloads += 1; }); b1.handlers.forEach((f) => f());
+  const b2 = fakeBtn(); i18n.initLang(b2, lsNo, () => { reloads += 1; }); b2.handlers.forEach((f) => f());
+  i18n.setLang('en');
+  const b3 = fakeBtn(); i18n.initLang(b3, lsOk, () => {});
+  check('the language button names where it goes in that language, remembers it, and reloads; a blocked storage still reloads',
+    b1.textContent === 'EN' && b1.attrs['aria-label'] === 'English' && stored.get(i18n.LANG_KEY) === 'en' && reloads === 2
+    && b3.textContent === 'TR' && b3.attrs['aria-label'] === 'Türkçe', JSON.stringify({ b1: b1.textContent, b3: b3.textContent, reloads, stored: [...stored] }));
+  i18n.setLang('en');
+  check('the panel starts the language before anything is drawn, and the button is in the bar',
+    /<button id="lang" [^>]*aria-label="Switch language"/.test(html)
+    && /translateDom\(document\.body\);\s*initLang\(document\.getElementById\('lang'\), themeStorage, \(\) => location\.reload\(\)\);/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
+}
+
+/* == Live sessions that are not live: quiet ones, the project they are in, and ending one ================== */
+{
+  const nav = await import(`../../kit/studio/web/nav.js?t=${Date.now()}`);
+  const { activityOf, statusFile, sessionsRoot } = await import(`../../kit/studio/server/lib/activity.js?t=${Date.now()}`);
+  const { endForeignSession, ancestry } = await import(`../../kit/studio/server/lib/end-session.js?t=${Date.now()}`);
+  const H = 60 * 60 * 1000;
+  const now = 100 * H;
+
+  // Measured on a real machine: a "waiting · permission prompt" row silent for 1124 minutes, a "busy" row whose own
+  // status file said "shell". The rule is read against those two shapes, and against the rows that must not move.
+  const rs = (row) => nav.rowStatus(row, now);
+  const stuck = rs({ status: 'waiting', waitingFor: 'permission prompt', activityAt: now - 18 * H });
+  check('a session that waits and has written nothing for an hour is quiet, and keeps what it waited for',
+    stuck.key === 'quiet' && stuck.tone === 'idle' && stuck.was === 'waiting' && stuck.waitingFor === 'permission prompt'
+    && stuck.word === 'Quiet for 18h', JSON.stringify(stuck));
+  check('one that wrote just now keeps its state; so does one whose clock was not read, or with no clock to read it against',
+    rs({ status: 'waiting', activityAt: now - 60000 }).key === 'waiting' && rs({ status: 'busy', activityAt: now - H + 1000 }).key === 'busy'
+    && rs({ status: 'waiting' }).key === 'waiting' && nav.rowStatus({ status: 'busy', activityAt: 0 }, null).key === 'busy',
+    'not read is not quiet');
+  check('an idle session is never called quiet: idle already says it',
+    rs({ status: 'idle', activityAt: now - 50 * H }).key === 'idle');
+  check('"shell" from the session itself is said as a shell command, not as the model at work',
+    rs({ status: 'busy', rawStatus: 'shell', activityAt: now - 60000 }).word === 'Shell command running'
+    && rs({ status: 'busy', rawStatus: 'busy', activityAt: now - 60000 }).word === 'Running');
+  check('the session card reads the fleet against the server\'s own clock',
+    nav.sessionStatus('s', { measured: true, now, sessions: [{ sessionId: 's', status: 'waiting', activityAt: now - 2 * H }] }).key === 'quiet'
+    && nav.sessionStatus('s', { measured: true, sessions: [{ sessionId: 's', status: 'waiting', activityAt: now - 2 * H }] }).key === 'waiting');
+
+  const fleet = { measured: true, now, sessions: [
+    { sessionId: 'q', status: 'waiting', cwd: '/w/crewforth', activityAt: now - 18 * H, startedAt: 9 },
+    { sessionId: 'r1', status: 'busy', cwd: '/w/ReportAI', activityAt: now, startedAt: 5 },
+    { sessionId: 'r2', status: 'busy', cwd: '/w/ReportAI', activityAt: now - 3 * H, startedAt: 4 },
+    { sessionId: 'w', status: 'waiting', cwd: '/w/crewforth/.claude/worktrees/m336', activityAt: now, startedAt: 1 },
+    { sessionId: 'i', status: 'idle', cwd: '/w/crewforth', activityAt: now, startedAt: 1 },
+    { sessionId: 'p', status: 'busy', cwd: '/w/crewforth', activityAt: now, startedAt: 1, local: false, origin: 'mini' },
+  ] };
+  check('the live badge counts live work only: a quiet session is listed, not counted',
+    nav.liveCount(fleet) === 3 && nav.liveSessions(fleet).length === 5
+    && nav.liveSessions(fleet).map((s) => s.sessionId).slice(-2).join() === 'q,r2', nav.liveSessions(fleet).map((s) => s.sessionId).join());
+  const groups = nav.liveGroups(fleet);
+  check('Live is grouped by project, a worktree folded into its repository, another machine in a group of its own',
+    groups.map((g) => `${g.origin ?? ''}/${g.label}:${g.rows.map((r) => r.row.sessionId).join('+')}`).join(' | ')
+      === '/crewforth:w+q | /ReportAI:r1+r2 | mini/crewforth:p',
+    groups.map((g) => `${g.origin ?? ''}/${g.label}:${g.rows.map((r) => r.row.sessionId).join('+')}`).join(' | '));
+  check('a Windows path is a project too', nav.projectOfCwd('C:\\Users\\x\\ReportAI') === 'ReportAI'
+    && nav.projectOfCwd('C:\\Users\\x\\crewforth\\.claude\\worktrees\\a') === 'crewforth' && nav.projectOfCwd(null) === '');
+
+  // The server's clocks, from files in a temp config dir: the status file is believed only when it names the session.
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-activity-'));
+  try {
+    const root = path.join(d, 'sessions');
+    const proj = path.join(d, 'projects', 'p');
+    fs.mkdirSync(root, { recursive: true });
+    fs.mkdirSync(path.join(proj, 'abc', 'subagents', 'workflows', 'w1'), { recursive: true });
+    fs.writeFileSync(path.join(root, '4242.json'), JSON.stringify({ sessionId: 'abc', status: 'shell', statusUpdatedAt: 1000, entrypoint: 'cli' }));
+    fs.writeFileSync(path.join(proj, 'abc.jsonl'), '{}\n');
+    fs.writeFileSync(path.join(proj, 'abc', 'subagents', 'workflows', 'w1', 'agent-x.jsonl'), '{}\n');
+    const t0 = new Date('2026-01-01T00:00:00Z'); const t1 = new Date('2026-01-02T00:00:00Z');
+    fs.utimesSync(path.join(proj, 'abc.jsonl'), t0, t0);
+    fs.utimesSync(path.join(proj, 'abc', 'subagents', 'workflows', 'w1', 'agent-x.jsonl'), t1, t1);
+    const find = async (id) => (id === 'abc' ? { dir: proj, modifiedAt: fs.statSync(path.join(proj, 'abc.jsonl')).mtimeMs } : null);
+    const a = await activityOf({ sessionId: 'abc', pid: 4242 }, { root, find });
+    check('a session\'s last activity is the latest of its status file and every transcript under it, a nested agent included',
+      a.statusSince === 1000 && a.lastWriteAt === t1.getTime() && a.activityAt === t1.getTime() && a.rawStatus === 'shell',
+      JSON.stringify(a));
+    const other = await activityOf({ sessionId: 'zzz', pid: 4242 }, { root, find });
+    check('a status file that names another session is not this one\'s (a pid is reused), and an unread clock is null, not 0',
+      other.statusSince === null && other.rawStatus === null && other.lastWriteAt === null && other.activityAt === null
+      && (await statusFile(4242, 'zzz', root)) === null && (await statusFile(-1, 'abc', root)) === null, JSON.stringify(other));
+    check('the status files are read from <config dir>/sessions, the way transcripts are',
+      sessionsRoot({}, '/h') === path.join('/h', '.claude', 'sessions') && sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h') === path.join(path.resolve('/c'), 'sessions'),
+      JSON.stringify([sessionsRoot({}, '/h'), sessionsRoot({ CLAUDE_CONFIG_DIR: '/c' }, '/h')]));
+
+    // Ending: a real process, really signalled. The fleet and the ancestry are the only stand-ins.
+    if (process.platform === 'win32') {
+      na += 1;
+    } else {
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+      await new Promise((r) => child.once('spawn', r));
+      const gone = new Promise((r) => child.once('exit', (code, sig) => r(sig)));
+      fs.writeFileSync(path.join(root, `${child.pid}.json`), JSON.stringify({ sessionId: 'live-1', status: 'waiting' }));
+      const listed = async () => ({ measured: true, sessions: [{ sessionId: 'live-1', pid: child.pid }] });
+      const base = { fleet: listed, root, mine: async () => new Set([process.pid]), waitMs: 3000 };
+      const refusals = [
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid + 1 }, base),
+        await endForeignSession({ sessionId: 'other', pid: child.pid }, base),
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid }, { ...base, mine: async () => new Set([child.pid]) }),
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid }, { ...base, fleet: async () => ({ measured: false, reason: 'no CLI' }) }),
+        await endForeignSession({ sessionId: 'live-1', pid: child.pid }, { ...base, root: path.join(d, 'nowhere') }),
+        await endForeignSession({ sessionId: '../x', pid: child.pid }, base),
+      ];
+      check('ending refuses what it cannot show to be that session\'s process: another pid, a session not listed, the server\'s own ancestor, an unread fleet, no status file, a bad id',
+        refusals.map((r) => `${r.ok}:${r.status}`).join() === 'false:409,false:404,false:409,false:409,false:409,false:400'
+        && child.exitCode === null && child.signalCode === null,
+        refusals.map((r) => `${r.status} ${r.reason}`).join(' / '));
+      const out = await endForeignSession({ sessionId: 'live-1', pid: child.pid }, base);
+      const sig = await Promise.race([gone, new Promise((r) => setTimeout(() => r('still running'), 3000))]);
+      check('and ends the one it can: SIGTERM, then it reports the process gone', out.ok === true && out.ended === true && sig === 'SIGTERM',
+        JSON.stringify({ out, sig }));
+      // A process its parent has not collected still answers to its pid; Claude Code's own record going away is the
+      // other sign it left. Calibrated both ways: the record removed reads ended, a process that ignores the signal not.
+      fs.writeFileSync(path.join(root, '777777.json'), JSON.stringify({ sessionId: 'z-1', status: 'idle' }));
+      const zList = async () => ({ measured: true, sessions: [{ sessionId: 'z-1', pid: 777777 }] });
+      const leftRecord = await endForeignSession({ sessionId: 'z-1', pid: 777777 },
+        { ...base, fleet: zList, signal: () => fs.rmSync(path.join(root, '777777.json')) });
+      fs.writeFileSync(path.join(root, `${process.pid}.json`), JSON.stringify({ sessionId: 'self-1', status: 'idle' }));
+      const stays = await endForeignSession({ sessionId: 'self-1', pid: process.pid },
+        { ...base, fleet: async () => ({ measured: true, sessions: [{ sessionId: 'self-1', pid: process.pid }] }), mine: async () => new Set(), signal: () => {}, waitMs: 300 });
+      check('a session whose own record is gone has ended; one still running after the wait is said to be running',
+        leftRecord.ended === true && stays.ok === true && stays.ended === false && /still running/.test(stays.reason ?? ''),
+        JSON.stringify({ leftRecord, stays }));
+      const chain = await ancestry();
+      check('the server\'s ancestry includes itself and its parent', chain.has(process.pid) && chain.has(process.ppid), [...chain].join());
+    }
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+  const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const chatSrc = read(path.join(WEB_ROOT, 'chat.js')) ?? '';
+  check('the panel asks before it ends a session, and Continue here offers ending the holder only when it would copy',
+    /function offerEnd\(anchor, row, name, then = null\) \{\s*openMenu\(/.test(appSrc) && /run: \(\) => endSession\(row, name, then\)/.test(appSrc)
+    && /endCont\.hidden = r\?\.continueAs !== 'copy';/.test(chatSrc) && /offerEnd\(button, row, name, \(\) => continueHere\(button, id\)\)/.test(appSrc));
+}
+
+/* ------------------------------------- §36 a redraw keeps the reader's place ---
+   The inspector, the List and the Timeline drawer are built again on every live frame. A box that scrolls is a
+   new element each time; before this it started at the top again, so reading down a transcript while a session
+   worked threw the reader back to the start every second. */
+
+process.stdout.write('\n== §36 a redraw keeps the reader\'s place ==\n');
+
+{
+  const ks = await import(`../../kit/studio/web/keep-scroll.js?t=${Date.now()}`);
+  const box = (cls, kids = [], tag = 'div') => ({ tagName: tag.toUpperCase(), className: cls, children: kids, scrollTop: 0, scrollLeft: 0, dataset: {} });
+  // The inspector as it is drawn: a head, the task, the tabs, the body that scrolls, and a scrolling block inside it.
+  const frame = () => {
+    const pre = box('tool-out', [], 'pre');
+    const body = box('ibody', [box('isec'), box('isec', [pre])]);
+    return { head: box('ihead'), task: box('itask'), tabs: box('itabs'), body, pre };
+  };
+  const root = box('inspector');
+  const draw = (f) => { root.children = [f.head, f.task, f.tabs, f.body]; };
+  const a = frame(); draw(a);
+  a.body.scrollTop = 840; a.pre.scrollTop = 60; a.task.scrollLeft = 12;
+  root.dataset.scrollView = 'agent:a1|conversation';
+  const b = frame();
+  ks.keepScroll(root, () => draw(b), 'agent:a1|conversation');
+  check('a live redraw of the same node and tab puts the body, a block inside it and the task back where they were',
+    root.children[3] === b.body && b.body.scrollTop === 840 && b.pre.scrollTop === 60 && b.task.scrollLeft === 12,
+    JSON.stringify({ body: b.body.scrollTop, pre: b.pre.scrollTop, task: b.task.scrollLeft }));
+
+  const c = frame();
+  ks.keepScroll(root, () => draw(c), 'agent:a2|conversation');
+  check('another node is a new page: it starts at the top', c.body.scrollTop === 0 && c.pre.scrollTop === 0
+    && root.dataset.scrollView === 'agent:a2|conversation', JSON.stringify({ body: c.body.scrollTop, view: root.dataset.scrollView }));
+
+  c.body.scrollTop = 300;
+  const d = frame();
+  ks.keepScroll(root, () => draw(d), 'agent:a2|overview');
+  check('another tab of the same node starts at the top too', d.body.scrollTop === 0, String(d.body.scrollTop));
+
+  // A box found by class and place among its siblings: a hint that appears above the body does not move the body's key.
+  d.body.scrollTop = 500;
+  const e = frame();
+  ks.keepScroll(root, () => { root.children = [e.head, e.task, box('ihint'), e.tabs, e.body]; }, 'agent:a2|overview');
+  check('a line that appears above the scrolling body does not lose its place', e.body.scrollTop === 500, String(e.body.scrollTop));
+
+  // A box that is gone after the redraw is left alone, and nothing throws.
+  e.body.scrollTop = 200;
+  const f = frame();
+  let threw = null;
+  try { ks.keepScroll(root, () => { root.children = [f.head, f.task, f.tabs]; }, 'agent:a2|overview'); } catch (err) { threw = err.message; }
+  check('a box missing after the redraw is skipped, without an error', threw === null && f.body.scrollTop === 0, threw ?? 'ok');
+
+  // A view not named keeps its places always: the List and its rows.
+  const list = box('ls', [box('ls-sec', [box('ls-cmd', [], 'pre')])]);
+  list.scrollTop = 410; list.children[0].children[0].scrollTop = 30;
+  ks.keepScroll(list, () => { list.children = [box('ls-sec', [box('ls-cmd', [], 'pre')])]; });
+  check('the List keeps its own place and a long command\'s place across a redraw',
+    list.scrollTop === 410 && list.children[0].children[0].scrollTop === 30,
+    JSON.stringify({ list: list.scrollTop, cmd: list.children[0].children[0].scrollTop }));
+
+  const appJs = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const listJs = read(path.join(WEB_ROOT, 'list.js')) ?? '';
+  const tlJs = read(path.join(WEB_ROOT, 'timeline.js')) ?? '';
+  check('the inspector, the List and the Timeline drawer each redraw through keepScroll',
+    /keepScroll\(el\.inspector, \(\) => el\.inspector\.replaceChildren\(/.test(appJs)
+    && /keepScroll\(this\.root, \(\) => this\.root\.replaceChildren\(/.test(listJs)
+    && /keepScroll\(this\.drawer, \(\) => this\.drawer\.replaceChildren\(/.test(tlJs));
 }
 
 process.stdout.write(`${pass}/${pass + fail} assertions passed`

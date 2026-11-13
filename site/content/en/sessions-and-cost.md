@@ -8,7 +8,7 @@ The standing cost is published, not hidden. The discipline plus every agent and 
 
 ## Which model does the work
 
-Most of what a session costs is the model that runs each piece of work, so that is chosen per task and not per session. A `crew-*` agent is called with a card (the files, the kind of change, the command that proves it), and the card decides: `haiku` where a command checks the work, `sonnet` for ordinary work and for anything nothing can verify, `opus` for critical work (a migration, security, architecture, an unknown-cause bug, or a file under auth, payments, migrations and the like). Prose is the exception both ways: a text change runs on `haiku` with no command to check it (a reader is all prose ever has, and a commit message is checked by the commit hook), and on a critical path it is written on `sonnet` while its audit stays on `opus`. When the agent stops, its verify command runs; work that fails it twice is repeated once, one model up. A model that was too small therefore costs one more run, and the expensive model is kept for the work that needs it.
+Most of what a session costs is the model that runs each piece of work, so that is chosen per task and not per session. A `crew-*` agent is called with a card (the files, the kind of change, the command that proves it), and the card decides: `haiku` where a command checks the work, `sonnet` for ordinary work and for anything nothing can verify, `opus` for critical work (a migration, security, architecture, an unknown-cause bug, or a file under auth, payments, migrations and the like). Prose is the exception both ways: a text change runs on `haiku` with no command to check it (a reader is all prose ever has, and a commit message is checked by the commit hook), and on a critical path it is written on `sonnet` while its audit stays on `opus`. The call names an effort too: `medium`, `low` for a test run, never above `high`, since one more level past it costs about as much as the next model. When the agent stops, its verify command runs; work that fails it twice is repeated once on the same model at `high` (when it ran below), then once one model up. A model or an effort that was too small therefore costs one more run, and the expensive model is kept for the work that needs it. The built-in Explore agent, which only searches and reads, runs on `haiku`.
 
 What that came to is recorded, one line per call, in `.claude/state/model-outcomes.tsv`, and stays in your project. Studio reads it (see the Studio page): the **Models** view shows, for each kind of task, the model, how often the first try passed, how often it was repeated one model up, and an estimated cost at API list price. A class whose first try fails too often is held one model up from then on; `/crew-loosen` lowers it again when you decide to.
 
@@ -37,6 +37,24 @@ One line under the prompt says what Crewforth's hooks know about this session:
 The gate's last word in this session, an approval you gave for a commit or a push that still holds, the crew agents started in this session and still running, the context fill Claude Code measured, and what Claude Code puts the session's cost at. Each part shows only when there is something to say, and nothing from before the session: the gate log carries no time, so a line from last week would otherwise read as now.
 
 The installers set it only where no status line is set, in the project or in your own settings, because the project's setting would win over yours. With one of your own, they leave it and `/crew-doctor` says how to turn Crewforth's on. The plugin edition cannot set a status line.
+
+### The plan's to-do panel
+
+When the project has a plan (`docs/PLAN.md`, written by `/crew-plan`), the line ends with how many of its tasks are done: `📋 7/12`. `/crew-todo` opens the panel under the line, and the same command closes it:
+
+```
+📋 Export — Plan · 7/12 done · phase 2/3 · AC 3/5
+✓ Phase 1 — Parser  4/4
+◐ Phase 2 — Panel  3/5
+   ✓ 6. Draw the lines
+   ◐ 7. Wire the toggle
+   ☐ 8. Cache the drawing
+☐ Phase 3 — Docs  0/3
+```
+
+Done tasks are ticked (✓), the task in work has a half-filled circle (◐), open ones are boxed (☐); a phase gets ◐ once it is started. When no task is marked in work, the first open one is shown as `☐ … ← next`, never as in work. Only the phase in work is opened up; a long list is cut to a window around the task in work, and `CREW_TODO_LINES` sets the height (14 lines by default). The panel reads the plan's own boxes: `- [ ]` open, `- [x]` done, `- [~]` in work, each heading a phase, and only what is under the `## Tasks` heading when the plan has one (in a file that keeps several plans, the last `Tasks` heading that holds a task). It never ticks a box itself; the plan says to tick a task when its check passes. With no plan file yet, `/crew-todo` writes an empty one, and every call brings the file up to date with the plan made in the conversation (approved in plan mode, returned by `crew-planner`, or a task added or finished since): the panel and Studio read only the file. `/crew-todo <file>` reads another plan, `/crew-todo show` prints the panel in the chat.
+
+The panel follows the work in progress, not whichever plan happens to be on disk. A `status:` line in the plan's head says whether it is: when the work on a plan stops, its `status:` becomes `paused` (or `dropped`, or `done`), and the line drops its count and the panel shows one line saying the plan is paused, instead of a task nobody is working on. The plan's own rules tell whoever works it to set that line when the user stops or replaces the work; `/crew-todo pause` and `/crew-todo resume` set it directly. Redrawing costs nothing while the plan stands still: the drawing is cached until the plan changes.
 
 ## Compaction
 

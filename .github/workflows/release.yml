@@ -17,14 +17,18 @@ on:
     tags:
       - 'v*'
 
+# Read-only unless a job says otherwise. Both jobs below name their own permissions (the release job writes the
+# GitHub release and advances plugin-stable; the site job deploys Pages), so this default grants nothing either uses.
 permissions:
-  contents: write   # create the GitHub release with GITHUB_TOKEN
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    # The limit is on the job's own run (4 to 5 minutes measured); the wait for the approval comes before it starts.
-    timeout-minutes: 20
+    # The limit is on the job's own run; the wait for the approval comes before it starts. Measured in this job:
+    # smoke 5.2 / 5.4 / 7.8 min and the installer e2e 9.8 / 9.9 / >12.3 min (rc.3 / rc.4 / rc.5), so 20 cut the
+    # 3.5.0-rc.5 run inside e2e and nothing was published. 45 leaves room for the suites to grow.
+    timeout-minutes: 45
     environment: release   # publish waits for manual approval (see repo → Environments → release)
     # Job-level permissions replace the workflow's, so both are named. id-token lets the job ask GitHub for the
     # short-lived OIDC token npm exchanges for publish rights; without it `npm publish` has no identity at all.
@@ -34,8 +38,9 @@ jobs:
     outputs:
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 
       # VERSION and package.json must match the tag, and the CHANGELOG's first heading must fit it: a final tag needs
@@ -81,7 +86,7 @@ jobs:
       # Before anything is published, so an npm that cannot be installed stops the release with no channel moved.
       # Trusted Publishing needs Node 22.14+ and npm 11.5.1+; moving a dist-tag over OIDC needs npm 11.21.0+, and
       # Node 24 ships an older one (24.21.0 carries 11.19.0), so npm is pinned to an exact version here.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'

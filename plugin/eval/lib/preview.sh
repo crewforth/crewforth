@@ -66,7 +66,7 @@ _crew_preview(){
   esac
   case "$kind" in
     reset)
-      n="$(git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
+      n="$(git -c core.fsmonitor= status --porcelain --untracked-files=no 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
       _pv_words "$cmd" reset; t=""
       for w in $_PV_W; do case "$w" in -*) ;; *) t="$w"; break ;; esac; done
       a=""
@@ -82,7 +82,7 @@ _crew_preview(){
         -*) case "$w" in --*) ;; *) case "$w" in *d*) flags="$flags -d" ;; esac; case "$w" in *x*) flags="$flags -x" ;; *X*) flags="$flags -X" ;; esac ;; esac ;;
       esac; done
       # shellcheck disable=SC2086 # the flags are words of our own
-      n="$(git clean $flags 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
+      n="$(git -c core.fsmonitor= clean $flags 2>/dev/null | wc -l)"; n="${n//[!0-9]/}"
       _CREW_PV="Preview: a dry run (git clean $flags) lists ${n:-0} path(s) it would delete."
       ;;
     push)
@@ -102,9 +102,15 @@ _crew_preview(){
     rm)
       local root out="" one c
       root="$(pwd -P 2>/dev/null)"
-      _pv_words "x $cmd" rm
-      for w in $_PV_W; do
-        case "$w" in -*|'') continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
+      # The words of the rm itself, up to the end of its own command. _pv_words is for git: it cut at the first "git"
+      # in the call, so `rm -rf /tmp/x 2>/dev/null; git status` previewed "status: not there" (measured in the field,
+      # 30 of 99 such refusals named a word of another command). A redirection is not a target either.
+      t="$cmd"
+      local rmre='(^|[;&|({[:space:]])rm[[:space:]]+(.*)$'
+      if [[ $t =~ $rmre ]]; then t="${BASH_REMATCH[2]}"; else t=""; fi
+      t="${t%%[;&|]*}"; t="${t%%$'\n'*}"; t="${t//\"/}"; t="${t//\'/}"
+      for w in $t; do
+        case "$w" in -*|'') continue ;; [0-9]'>'*|'>'*|'<'*|'&>'*) continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
         # A drive-letter path (D:/x, as Git Bash passes it) is absolute too: measured on Windows, it read as relative
         # and the line said "not there" for a folder that was.
         one="$w"; case "$one" in /*|[A-Za-z]:[/\\]*) ;; *) one="$root/$one" ;; esac
@@ -118,7 +124,7 @@ _crew_preview(){
       [ -n "$out" ] && _CREW_PV="Preview: $out."
       ;;
     commit)
-      case " $cmd " in *' -a'*|*' --all'*|*' -[A-Za-z]*a'*) line="$(git diff HEAD --shortstat 2>/dev/null)" ;; *) line="$(git diff --cached --shortstat 2>/dev/null)" ;; esac
+      case " $cmd " in *' -a'*|*' --all'*|*' -[A-Za-z]*a'*) line="$(git -c core.fsmonitor= diff --no-ext-diff --no-textconv HEAD --shortstat 2>/dev/null)" ;; *) line="$(git -c core.fsmonitor= diff --no-ext-diff --no-textconv --cached --shortstat 2>/dev/null)" ;; esac
       line="${line# }"
       _CREW_PV="Preview: ${line:-nothing staged}."
       ;;

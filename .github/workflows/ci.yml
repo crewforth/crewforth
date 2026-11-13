@@ -31,6 +31,10 @@ env:
 # (measured: next @ 6109a8d, cancelled). One commit, one group, nothing to cancel.
 # A label other than full-ci starts a run too (GitHub cannot filter labels at the trigger): it gets a group of its own,
 # so it cancels nothing, and every job skips it.
+# No job here writes or calls the API: the token can read the repository and nothing else.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && '-label' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -53,8 +57,9 @@ jobs:
       site: ${{ steps.scope.outputs.site }}
       cross: ${{ steps.cross.outputs.cross }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0
       - name: Documentation-only pull request?
@@ -100,10 +105,12 @@ jobs:
   verify:
     if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 18.4 and 18.5 min on next (2026-11-04/05); a PR run was cancelled at 20 inside e2e with every step passing.
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 
@@ -170,10 +177,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: site/.nvmrc
           cache: npm
@@ -200,13 +208,16 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
+    # Windows: the smoke job ran 35 and 42 min on next (2026-11-04) and was cancelled at 45 with every check passing
+    # (a slower runner: 945 s slower spread over 1,402 steps, not one case). 60 leaves room for runner variance.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 
@@ -270,7 +281,7 @@ jobs:
       - name: i18n audit — the bilingual tables hold their invariants
         run: bash packaging/verify.sh i18n
 
-  # Windows in three shards (packaging/e2e.sh holds the map and checks it holds every block once): one run was 48
+  # Windows in four shards (packaging/e2e.sh holds the map and checks it holds every block once): one run was 48
   # minutes there. macOS runs every block in one job; it took 14.
   verify-cross-e2e:
     needs: changes
@@ -279,21 +290,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, shard: 1/3 }
-          - { os: windows-latest, shard: 2/3 }
-          - { os: windows-latest, shard: 3/3 }
+          - { os: windows-latest, shard: 1/4 }
+          - { os: windows-latest, shard: 2/4 }
+          - { os: windows-latest, shard: 3/4 }
+          - { os: windows-latest, shard: 4/4 }
           - { os: macos-latest, shard: '' }
     name: verify-cross-e2e (${{ matrix.os }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}
     # macOS runs the whole e2e in one job, ~14 min on a normal runner. On 2026-10-21 a slow runner (every block 1.5-2.5x
     # its usual time, GitHub reporting macOS capacity constraints) reached the last block at 20 min, twice in a row.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 30 }}
+    # On 2026-11-09 the 30 min limit cancelled it twice more (#350, #352), so macOS gets 45.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 45 }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'schedule' && 'next' || '' }}
           fetch-depth: 0   # e2e rehearses the 3.0 migration on the real v2.13.0 tree (git archive)
 

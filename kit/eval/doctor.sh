@@ -6,7 +6,7 @@
 # Zero-dep, bash-only, Git-Bash safe. Run from the project root (or pass the path):  bash .claude/eval/doctor.sh
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/lib/crew-env.sh" ] && . "$_crew_d/lib/crew-env.sh"
 [ -f "$_crew_d/lib/version.sh" ] && . "$_crew_d/lib/version.sh"   # an rc orders before its final
 _DOC_LIB="$(cd "$_crew_d/lib" 2>/dev/null && pwd)"; unset _crew_d          # absolute: the doctor cd's into ROOT below
@@ -75,6 +75,7 @@ _mt() {
       'restore guard-bash.sh from Crewforth (npx crewforth update)') s="guard-bash.sh'yi Crewforth'tan geri yükleyin (npx crewforth update)" ;;
       'guard-bash.sh blocks a force-push (gate live, not neutered)') s="guard-bash.sh force-push'u engelliyor (kapı canlı, etkisiz değil)" ;;
       'guard-bash.sh enforces the §4.6 review gate (gate live, not neutered)') s='guard-bash.sh §4.6 review kapısını uyguluyor (kapı canlı, etkisiz değil)' ;;
+      'CLAUDE_GIT_OK is set in this session: commit and push are pre-authorised and the §4.6 review gate is skipped (headless/CI key)') s="bu oturumda CLAUDE_GIT_OK tanımlı: commit ve push önceden onaylı, §4.6 inceleme kapısı atlanıyor (headless/CI anahtarı)" ;;
       'guard-bash.sh did NOT enforce §4.6 — a commit can land with no review of its diff') s="guard-bash.sh §4.6'yı UYGULAMADI — diff'i review edilmemiş bir commit geçebilir" ;;
       'restore guard-bash.sh from Crewforth (and check crew-review-agent still writes .claude/review-pass.json)') s="guard-bash.sh'yi Crewforth'tan geri yükleyin (ve crew-review-agent'ın .claude/review-pass.json'u hâlâ yazdığını kontrol edin)" ;;
       'core.hooksPath -> %s (commit-time gates active)') s='core.hooksPath -> %s (commit anındaki kapılar devrede)' ;;
@@ -125,6 +126,7 @@ _mt() {
       'the advisor (%s) is below the critical tier (opus): Claude Code does not attach an advisor below the model it would advise, so critical work runs without one') s="advisor (%s) kritik seviyenin (opus) altında: Claude Code danışacağı modelin altındaki bir advisor'ı eklemiyor, yani kritik iş advisor'sız koşuyor" ;;
       "settings.json wires prompt-approval.sh but the script is missing — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="settings.json prompt-approval.sh'i bağlıyor ama betik yok — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
       "prompt-approval.sh is not wired on UserPromptSubmit — in auto and dontAsk '/crew-approve commit' records nothing; switch mode with Shift+Tab or commit in your own terminal (update Crewforth)") s="prompt-approval.sh UserPromptSubmit'e bağlı değil — auto ve dontAsk modunda '/crew-approve commit' hiçbir şey kaydetmez; Shift+Tab ile mod değiştirin ya da kendi terminalinizden commit edin (Crewforth'u güncelleyin)" ;;
+      "worktree %s has no .claude/settings.json — a Claude Code session resumed there runs none of Crewforth's hooks (entering it with the EnterWorktree tool copies .claude/ in; otherwise copy it yourself)") s="%s worktree'sinde .claude/settings.json yok — orada sürdürülen bir Claude Code oturumu Crewforth'un hiçbir hook'unu koşmaz (EnterWorktree aracıyla girilince .claude/ oraya kopyalanır; yoksa kendiniz kopyalayın)" ;;
       "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)") s="%s worktree'sinde Crewforth %s var, burada %s — orada açılan oturum o sürümün kapılarını ve onay yolunu koşar (Crewforth'u orada güncelleyin)" ;;
       "fix the syntax by hand — restoring Crewforth's file would drop any hooks you added") s="sözdizimini elle düzeltin — Crewforth'un dosyasını geri yüklemek eklediğiniz hook'ları siler" ;;
       'settings.json wires hooks through the %s placeholder — on Windows its separators are stripped before bash runs, so NO hook launches and every gate is silently absent') s="settings.json hook'ları %s yer tutucusuyla bağlıyor — Windows'ta ayırıcılar bash çalışmadan silinir, bu yüzden HİÇBİR hook başlamaz ve bütün kapılar sessizce yok olur" ;;
@@ -153,6 +155,13 @@ _mt() {
       'CLAUDE.md (or a doc it references) names auto-delegated agent(s) that no installed agent matches — delegation to them silently fails') s='CLAUDE.md (ya da başvurduğu bir belge) kurulu hiçbir ajanla eşleşmeyen, otomatik devredilen ajan(lar) anıyor — onlara devretmek sessizce başarısız olur' ;;
       'rename each bare reference to its `crew-` id:') s='her çıplak anmayı `crew-` kimliğiyle değiştirin:' ;;
       'CLAUDE.md (or a referenced doc) names pull-only agent(s) by their old bare id — invoked explicitly, so delegation still works; rename for consistency:%s') s='CLAUDE.md (ya da başvurduğu bir belge) yalnız açıkça çağrılan ajan(lar)ı eski çıplak kimliğiyle anıyor — açıkça çağrıldıkları için devretme yine çalışır; tutarlılık için yeniden adlandırın:%s' ;;
+      'CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s') s='CLAUDE.md var olmayan dosya(lar)ı içe aktarıyor — hiçbir şey yüklenmiyor ve bu söylenmiyor:%s' ;;
+      'CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s') s='CLAUDE.md var olmayan yol(lar)ı gösteriyor (taşındı ya da silindi mi?):%s' ;;
+      'set in this environment, read by no Crewforth file (a typo?):%s — it changes nothing') s="bu ortamda ayarlı ama hiçbir Crewforth dosyası okumuyor (yazım hatası mı?):%s — hiçbir şeyi değiştirmiyor" ;;
+      'Crewforth switch(es) that take a whole number set to something else:%s — a hook may ignore it and use its default') s='tam sayı bekleyen Crewforth anahtar(lar)ı başka bir şeye ayarlı:%s — hook onu yok sayıp varsayılanını kullanabilir' ;;
+      'CLAUDE.md line(s)%s read as loosening a §4 rule (approval, review or hooks) — a project CLAUDE.md can tighten §4, never loosen it, and the gates still apply; reword them so the model and the gates agree') s="CLAUDE.md satır(lar)ı%s bir §4 kuralını (onay, review ya da hook) gevşetiyor gibi okunuyor — proje CLAUDE.md'si §4'ü sıkılaştırabilir, asla gevşetemez, kapılar yine işler; model ile kapılar aynı şeyi söylesin diye bu satırları yeniden yazın" ;;
+      '%s points at path(s) that do not exist (moved or deleted?):%s') s='%s var olmayan yol(lar)ı gösteriyor (taşındı ya da silindi mi?):%s' ;;
+      'every import and file path in CLAUDE.md resolves') s="CLAUDE.md'deki her içe aktarma ve dosya yolu çözülüyor" ;;
       'agent references resolve to installed agents (CLAUDE.md + referenced docs)') s='ajan anmaları kurulu ajanlara çözülüyor (CLAUDE.md ve başvurduğu belgeler)' ;;
       'CLAUDE.md missing — .claude/DISCIPLINE.md is never loaded (routing / DoD / session rules absent)') s='CLAUDE.md yok — .claude/DISCIPLINE.md hiç yüklenmiyor (yönlendirme / DoD / oturum kuralları yok)' ;;
       'create CLAUDE.md with this as its own line: @.claude/DISCIPLINE.md') s="CLAUDE.md'yi oluşturun ve şunu ayrı bir satır olarak yazın: @.claude/DISCIPLINE.md" ;;
@@ -189,6 +198,13 @@ _mt() {
       'CLAUDE.md project section is still the template (placeholders left in)') s='CLAUDE.md proje bölümü hâlâ şablon (yer tutucular duruyor)' ;;
       'fill in Project / Stack / Project skills — agents read the stack from there') s='Project / Stack / Project skills bölümlerini doldurun — ajanlar yığını oradan okur' ;;
       'CLAUDE.md project section is filled in') s='CLAUDE.md proje bölümü doldurulmuş' ;;
+      'quality analysis recorded: %s') s='kalite analizi kayıtlı: %s' ;;
+      'dependency audit ran %s day(s) ago (limit %s)') s='bağımlılık denetimi %s gün önce koştu (sınır %s)' ;;
+      'dependency audit last ran %s days ago (limit %s) — a CVE is published without the lockfile changing') s='bağımlılık denetimi en son %s gün önce koştu (sınır %s) — bir CVE lockfile değişmeden de yayımlanır' ;;
+      'no dependency audit is recorded for the %s lockfile(s) this repository tracks') s='bu deponun izlediği %s lockfile için kayıtlı bir bağımlılık denetimi yok' ;;
+      'apply the dependency-audit skill (a read-only report) and record it: record.sh --periodic') s="dependency-audit skill'ini uygulayın (salt okunur rapor) ve kaydedin: record.sh --periodic" ;;
+      'CLAUDE.md names no quality analysis (## Stack → Quality analysis: %s) — the quality gate cannot tell a skipped analysis from a declined one') s='CLAUDE.md kalite analizi belirtmiyor (## Stack → Quality analysis: %s) — kalite kapısı atlanmış analizi reddedilmiş olandan ayıramıyor' ;;
+      'add "Quality analysis: sonarqube-local" (or sonarqube-server, or declined) under ## Stack; sonarqube-check stands a local server up') s='## Stack altına "Quality analysis: sonarqube-local" (ya da sonarqube-server, ya da declined) ekleyin; sonarqube-check yerel sunucuyu kurar' ;;
       "%s project-specific skill(s) alongside Crewforth's") s="Crewforth'unkilerin yanında %s projeye özel skill" ;;
       "no project-specific skill — every skill installed here ships with Crewforth") s="projeye özel skill yok — burada kurulu her skill Crewforth ile geliyor" ;;
       "no project-specific skill — %s, which CLAUDE.md lists under Project skills, ships with Crewforth") s="projeye özel skill yok — CLAUDE.md'nin Project skills altında saydığı %s Crewforth ile geliyor" ;;
@@ -205,6 +221,18 @@ _mt() {
       're-read it against the code and update Stack / Project skills; keep the @.claude/DISCIPLINE.md line and your own rule sections as they are') s='kodla karşılaştırarak yeniden okuyun ve Stack / Project skills bölümlerini güncelleyin; @.claude/DISCIPLINE.md satırını ve kendi kural bölümlerinizi olduğu gibi bırakın' ;;
       'freshness signal skipped (cannot read CLAUDE.md mtime on this platform)') s="güncellik sinyali atlandı (bu platformda CLAUDE.md'nin değişme zamanı okunamıyor)" ;;
       '  → readiness %s/%s') s='  → hazırlık %s/%s' ;;
+      'hook injection every turn (UserPromptSubmit): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run') s="hook enjeksiyonu her turda (UserPromptSubmit): %s bayt, ~%s token (tahmin: bayt/4), %s hook çalıştı" ;;
+      'hook injection each session start (SessionStart): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run') s="hook enjeksiyonu her oturum başında (SessionStart): %s bayt, ~%s token (tahmin: bayt/4), %s hook çalıştı" ;;
+      '%s (%s): %s bytes') s='%s (%s): %s bayt' ;;
+      '%s (%s): 0 bytes for this fixture') s='%s (%s): bu fixture için 0 bayt' ;;
+      'not measured: %s (%s) — %s') s='ölçülmedi: %s (%s) — %s' ;;
+      'writes .claude/state/crew-critical-paths.auto in the project') s="projede .claude/state/crew-critical-paths.auto dosyasını yazıyor" ;;
+      'writes .claude/.state/update-asked (it would silence the real update question) and starts a network check') s="projede .claude/.state/update-asked dosyasını yazıyor (gerçek güncelleme sorusunu susturur) ve bir ağ denetimi başlatıyor" ;;
+      'its scratch folder is inside a git repository, where it would empty a recorded approval') s="geçici klasörü bir git deposunun içinde; orada kayıtlı bir onayı boşaltırdı" ;;
+      'the script is not in .claude/hooks') s=".claude/hooks içinde betik yok" ;;
+      "not one of Crewforth's checked hooks, so what it writes is unknown") s="Crewforth'un denetlenmiş hook'larından değil; ne yazdığı bilinmiyor" ;;
+      'a floor for one fixture (prompt: %s; a new session), not a maximum: a hook that speaks only for some prompts or states says nothing here') s='tek bir fixture için alt sınır (istem: %s; yeni oturum), üst sınır değil: yalnız bazı istemlerde ya da durumlarda konuşan bir hook burada hiçbir şey söylemez' ;;
+      'hook injection NOT MEASURED — the measurement printed no totals (eval/lib/hook-inject.sh)') s='hook enjeksiyonu ÖLÇÜLMEDİ — ölçüm toplam basmadı (eval/lib/hook-inject.sh)' ;;
       'npx crewforth adopt') ;;   # identifier, printed as is
       'chmod +x .claude/hooks/*.sh .claude/hooks/pre-commit .claude/hooks/commit-msg') ;;   # identifier, printed as is
       'git config core.hooksPath .claude/hooks') ;;   # identifier, printed as is
@@ -295,12 +323,18 @@ if [ -x .claude/hooks/guard-bash.sh ]; then
   #     verdict is read from the MESSAGE rather than the exit code for the same reason. Mode `default` so that a
   #     disarmed gate answers "ask" and exits 0 instead of colliding with §4.4's fail-closed branch. Nothing
   #     runs: this is a PreToolUse payload, not a command.
+  #     Without CLAUDE_GIT_OK: a session started with the key (a project's settings.local.json env) hands it to
+  #     every command, this one included, and the probe then met the pre-authorised branch instead of the gate: a
+  #     live gate read ❌ in the field. What the key does is said apart, once, as information.
   PROBE46="$(printf '%s' '{"tool_name":"Bash","permission_mode":"default","tool_input":{"command":"git -C /nonexistent-crew-probe commit -m probe"}}' \
-             | CREW_GATE_LOG=/dev/null bash .claude/hooks/guard-bash.sh 2>&1 >/dev/null)"
+             | CREW_GATE_LOG=/dev/null env -u CLAUDE_GIT_OK bash .claude/hooks/guard-bash.sh 2>&1 >/dev/null)"
   case "$PROBE46" in
     *"4.6"*) ok "guard-bash.sh enforces the §4.6 review gate (gate live, not neutered)" ;;
     *)       bad "guard-bash.sh did NOT enforce §4.6 — a commit can land with no review of its diff" \
                  "restore guard-bash.sh from Crewforth (and check crew-review-agent still writes .claude/review-pass.json)" ;;
+  esac
+  case "${CLAUDE_GIT_OK:-}" in 1|yes|true|on|YES|TRUE|ON)
+    warn "CLAUDE_GIT_OK is set in this session: commit and push are pre-authorised and the §4.6 review gate is skipped (headless/CI key)" ;;
   esac
 fi
 
@@ -450,7 +484,12 @@ if [ -f .claude/VERSION ] && git rev-parse --git-dir >/dev/null 2>&1; then
   _wv0="$(head -1 .claude/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.-')"; _wt0="$(git rev-parse --show-toplevel 2>/dev/null)"
   while IFS= read -r _wl; do
     case "$_wl" in "worktree "*) _wp="${_wl#worktree }" ;; *) continue ;; esac
-    [ "$_wp" != "$_wt0" ] && [ -f "$_wp/.claude/VERSION" ] || continue
+    [ "$_wp" != "$_wt0" ] || continue
+    # A linked worktree with no settings.json loads no project hook in a session resumed there (measured, see
+    # worktree-provision.sh). One Claude Code makes under .claude/worktrees/ still runs this checkout's hooks.
+    case "$_wp" in "$_wt0"/.claude/worktrees/*) ;; *)
+      [ -d "$_wp" ] && [ ! -f "$_wp/.claude/settings.json" ] && warn "worktree %s has no .claude/settings.json — a Claude Code session resumed there runs none of Crewforth's hooks (entering it with the EnterWorktree tool copies .claude/ in; otherwise copy it yourself)" "$_wp" ;; esac
+    [ -f "$_wp/.claude/VERSION" ] || continue
     _wv="$(head -1 "$_wp/.claude/VERSION" 2>/dev/null | tr -cd '0-9A-Za-z.-')"
     [ "$_wv" = "$_wv0" ] || warn "worktree %s carries Crewforth %s, this one %s — a session there runs that version's gates and approval path (update Crewforth there)" "$_wp" "${_wv:-?}" "$_wv0"
   done <<EOF_WT
@@ -509,6 +548,56 @@ EOF_SLA
       warn "  %s%% of a 200k window — instead of at most %s chars. (4 characters per token is how Claude Code sizes" "$PCT" "$B200"
       warn "  this budget on a 200k window: 0.01 of 200,000 tokens is 8,000 characters.)"
     fi
+  fi
+fi
+
+# 4c) Per-turn hook injection. What the hooks on UserPromptSubmit (every turn) and SessionStart (each start, resume,
+#     clear, compact) add to the context, in bytes: eval/lib/hook-inject.sh runs each one on a fixture payload with a
+#     throwaway HOME/TMPDIR and a session id no real session has, and skips, by name, a hook it cannot run without a
+#     lasting write. A FLOOR for that fixture, not a maximum: a hook that speaks only for some prompts or states says
+#     nothing here, and Claude Code's own framing around each injection is not counted. Tokens are bytes/4, an
+#     estimate, not a tokenizer count. Advisory, never a failure.
+_HI="$_DOC_LIB/hook-inject.sh"; [ -f "$_HI" ] || _HI=.claude/eval/lib/hook-inject.sh
+if [ -f .claude/settings.json ] && [ -f "$_HI" ]; then
+  _hio="$(bash "$_HI" . 2>/dev/null)"
+  _hip=""; _hiu=""; _his=""; _hil=""
+  while IFS=$'\t' read -r _k _e _h _b _r; do
+    case "$_k" in
+      prompt) _hip="$_e" ;;
+      total) case "$_e" in UserPromptSubmit) _hiu="$_h $_b" ;; *) _his="$_h $_b" ;; esac ;;
+      run) _hil="$_hil$_e	$_h	$_b
+" ;;
+      skip) case "$_b" in
+              writes-state)   _mt "writes .claude/state/crew-critical-paths.auto in the project" ;;
+              writes-update)  _mt "writes .claude/.state/update-asked (it would silence the real update question) and starts a network check" ;;
+              scratch-in-repo) _mt "its scratch folder is inside a git repository, where it would empty a recorded approval" ;;
+              missing)        _mt "the script is not in .claude/hooks" ;;
+              *)              _mt "not one of Crewforth's checked hooks, so what it writes is unknown" ;;
+            esac
+            _hil="$_hil$_e	$_h	!$_M
+" ;;
+    esac
+  done <<EOF_HI
+$_hio
+EOF_HI
+  if [ -n "$_hiu" ] && [ -n "$_his" ]; then
+    read -r _ub _un <<< "$_hiu"; read -r _sb _sn <<< "$_his"
+    ok "hook injection every turn (UserPromptSubmit): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run" "$_ub" "$((_ub / 4))" "$_un"
+    ok "hook injection each session start (SessionStart): %s bytes, ~%s tokens (estimate: bytes/4), %s hook(s) run" "$_sb" "$((_sb / 4))" "$_sn"
+    while IFS=$'\t' read -r _e _h _v; do
+      [ -n "$_h" ] || continue
+      case "$_v" in
+        !*) _mt "not measured: %s (%s) — %s" "$_h" "$_e" "${_v#!}" ;;
+        0)  _mt "%s (%s): 0 bytes for this fixture" "$_h" "$_e" ;;
+        *)  _mt "%s (%s): %s bytes" "$_h" "$_e" "$_v" ;;
+      esac
+      echo "     ↳ $_M"
+    done <<EOF_HL
+$_hil
+EOF_HL
+    _mt "a floor for one fixture (prompt: %s; a new session), not a maximum: a hook that speaks only for some prompts or states says nothing here" "$_hip"; echo "     ↳ $_M"
+  else
+    skip "hook injection NOT MEASURED — the measurement printed no totals (eval/lib/hook-inject.sh)"
   fi
 fi
 
@@ -579,6 +668,10 @@ if [ -f CLAUDE.md ] && ls .claude/agents/*.md >/dev/null 2>&1; then
       }
     }' .claude/agents/*.md)"
   export CREW_AGENT_BASES
+  # A path segment is not a mention: planner.py:245, modules/planner/ and reports/{planner,prompts}.py name a project
+  # file that shares an agent id, and delegation is not what that line asks for. The awk below skips the word when a
+  # slash or an opening brace comes right before it, or a slash or a dot-and-letter (a file extension) right after.
+  # (No quote or backtick inside that awk text: this runs in an unquoted here-document, where bash reads them.)
   STALE=""; STALE_PULL=""
   while IFS="$(printf '\t')" read -r base name f lines; do
     [ -n "$base" ] || continue
@@ -596,8 +689,9 @@ $(awk '
   {
     # bare `base` NOT touching a `-` on either side (so not crew-base, nor base-local) and not glued into a longer word — the identical
     # boundary the grep used. Agent ids are [a-z-] only, so nothing here needs regex escaping.
+    # a path segment is not a mention (see the note above the loop): skip a slash or brace before, a slash or file extension after
     for (i=1;i<=nb;i++)
-      if ($0 ~ ("(^|[^a-zA-Z0-9_-]|@agent-)" base[i] "([^a-zA-Z0-9_-]|$)"))
+      if ($0 ~ ("(^|[^a-zA-Z0-9_/{-]|@agent-)" base[i] "([^a-zA-Z0-9_/.-]|\\.([^a-zA-Z]|$)|$)"))
         hit[i, FILENAME] = (hit[i, FILENAME]=="" ? FNR : hit[i, FILENAME] "," FNR)
   }
   # Emitted in agent order, then scanned-file order, so the report reads the same as it always did rather
@@ -635,6 +729,94 @@ if [ -f .claude/DISCIPLINE.md ]; then
     bad "CLAUDE.md does not import .claude/DISCIPLINE.md — the discipline is on disk but never loaded" \
         "add this as its own line at the top of CLAUDE.md: @.claude/DISCIPLINE.md"
   fi
+fi
+
+# 6a) Pointers in ./CLAUDE.md that lead nowhere. An `@path` import whose file is gone loads nothing and says nothing;
+#     a backticked path to a file that was moved or deleted sends the model to read what is not there. Imports are read
+#     where Claude Code reads them (its memory docs: `@` anywhere in the file, not inside a code span or block):
+#     a line of its own is always one; inside a sentence only a word shaped like a file (an extension), so `@types/node`
+#     or `@agent-x` is not mistaken for one. `~/` and absolute paths live outside the repository and are not judged,
+#     nor is a path with an escaped space. A backticked path counts when it is shaped like one (a `/`, an extension, no
+#     placeholder, glob or space); a `:42` or `#L10` after it is a location in the file, not part of its name. An
+#     example path in prose that is shaped like a real one is still named: doctor cannot tell an example from a pointer.
+#     Nested instruction files (a CLAUDE.md or AGENTS.md below the root, and an AGENTS.md at it) are read the same
+#     way: Claude Code loads a subdirectory's CLAUDE.md when it works there, and AGENTS.md is the file other tools
+#     read. A path in one resolves against its own folder first, then the root. Found by find, not git ls-files: an
+#     install gitignores CLAUDE.md, and the pattern hides the nested ones too. Dependency and build folders are not
+#     walked, and at most 20 files are read, so a monorepo does not make the doctor slow. Information only.
+# _ptrs FILE BASE: the imports and backticked paths in FILE that resolve neither under BASE nor at the root.
+_ptrs() {
+  _imp=""; _btp=""; local _fen=0 _l _r _p _t _own _w _ws _b="$2"
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    _l="${_l%$'\r'}"
+    case "$_l" in '```'*|'~~~'*) _fen=$((1-_fen)); continue ;; esac
+    [ "$_fen" = 1 ] && continue
+    # Backticked spans: collected as path candidates, and removed from the text the imports are read in.
+    _r="$_l"; _p=""
+    while case "$_r" in *'`'*'`'*) true ;; *) false ;; esac; do
+      _p="$_p ${_r%%\`*}"; _r="${_r#*\`}"; _t="${_r%%\`*}"; _r="${_r#*\`}"
+      _t="${_t%%#*}"; case "$_t" in *:[0-9]*) _t="${_t%%:[0-9]*}" ;; esac
+      case "$_t" in *[[:space:]\<\>\*\{\}\$\|]*|'~'*|@*|/*|http*|-*|*://*) continue ;; */*.[A-Za-z]*) ;; *) continue ;; esac
+      _t="${_t#./}"; [ -e "$_b/$_t" ] || [ -e "$_t" ] || case "$_btp" in *" $_t"*) ;; *) _btp="$_btp $_t" ;; esac
+    done
+    _p="$_p $_r"
+    case "$_l" in @*) _own=1 ;; *) _own=0 ;; esac
+    read -r -a _ws <<< "$_p"
+    for _w in "${_ws[@]+"${_ws[@]}"}"; do
+      case "$_w" in @?*) ;; *) continue ;; esac
+      _t="${_w#@}"; while case "$_t" in *[.,\;:\)\]]) true ;; *) false ;; esac; do _t="${_t%?}"; done
+      case "$_t" in ''|'~/'*|/*|*\\*) continue ;; esac
+      [ "$_own" = 1 ] || case "$_t" in *.[A-Za-z]*) ;; *) continue ;; esac
+      _own=0
+      [ -e "$_b/$_t" ] || case "$_imp" in *" @$_t"*) ;; *) _imp="$_imp @$_t" ;; esac
+    done
+  done < "$1"
+  # A path written relative to a sub-project (`services/x.py` for backend/app/services/x.py) is not missing: one
+  # `git ls-files`, asked only when something looked missing, and a tracked file that ends with the path resolves it.
+  if [ -n "$_btp" ] && [ -n "${_ls:=$(git ls-files 2>/dev/null)}" ]; then
+    local _nl=$'\n' _k=""
+    for _t in $_btp; do case "$_nl$_ls$_nl" in *"/$_t$_nl"*|*"$_nl$_t$_nl"*) ;; *) _k="$_k $_t" ;; esac; done
+    _btp="$_k"
+  fi
+}
+_ls=""
+if [ -f CLAUDE.md ]; then
+  _ptrs CLAUDE.md .
+  [ -n "$_imp" ] && warn "CLAUDE.md imports file(s) that do not exist — they load nothing, silently:%s" "$_imp"
+  [ -n "$_btp" ] && warn "CLAUDE.md points at path(s) that do not exist (moved or deleted?):%s" "$_btp"
+  [ -z "$_imp$_btp" ] && ok "every import and file path in CLAUDE.md resolves"
+fi
+_nst=0
+while IFS= read -r _nf; do
+  _nf="${_nf#./}"; [ "$_nf" = CLAUDE.md ] && continue
+  _nst=$((_nst+1)); [ "$_nst" -gt 20 ] && break
+  _ptrs "$_nf" "$(dirname "$_nf")"
+  [ -n "$_imp$_btp" ] && warn "%s points at path(s) that do not exist (moved or deleted?):%s" "$_nf" "$_imp$_btp"
+done < <(find . -maxdepth 6 \( -name .git -o -name .claude -o -name node_modules -o -name vendor -o -name dist \
+           -o -name build -o -name target -o -name .venv -o -name venv -o -name Pods \) -prune \
+           -o \( -name CLAUDE.md -o -name AGENTS.md \) -type f -print 2>/dev/null | LC_ALL=C sort)
+
+# 6b) A line in ./CLAUDE.md that reads as loosening §4. The discipline says a project CLAUDE.md can tighten §4, never
+#     loosen it, and the gates hold either way; but a line like "no need to ask before committing" tells the model
+#     the opposite of what the gate will do, and the session then argues with the gate. Information only, and a
+#     phrase list, not a judge: a loosening phrase on a line about commits, pushes, reviews or hooks, with no
+#     "never", "do not", "don't" or "must not" before it. Code fences and the @import line are not read.
+if [ -f CLAUDE.md ]; then
+  _lz="$(LC_ALL=C awk '
+    /^[[:space:]]*(```|~~~)/ { f = !f; next }
+    f || /^@/ { next }
+    { l = tolower($0) }
+    l !~ /commit|push|review|hook|verify|approv|force|reset/ { next }
+    {
+      n = split("no need to ask|no need for approval|no approval needed|without asking|without approval|without confirmation|skip the review|skip review|skip the hook|auto-commit|autocommit|commit directly|push directly|commit freely|push freely|you may commit|you may push|use --no-verify|--no-verify is fine|--no-verify is ok|force-push is fine|force push is fine", ph, "|")
+      for (i = 1; i <= n; i++) {
+        p = index(l, ph[i]); if (!p) continue
+        pre = substr(l, 1, p - 1)
+        if (pre ~ /never|do not|don.t|must not|not allowed|forbidden/) continue
+        printf " %d", NR; break
+      }
+    }' CLAUDE.md 2>/dev/null)"
+  [ -n "$_lz" ] && warn "CLAUDE.md line(s)%s read as loosening a §4 rule (approval, review or hooks) — a project CLAUDE.md can tighten §4, never loosen it, and the gates still apply; reword them so the model and the gates agree" "$_lz"
 fi
 
 # 8b) The shell matcher. Claude Code's hooks reference is explicit: inspect shell commands with
@@ -858,6 +1040,27 @@ fi
 _pre=""; [ -n "$_DOC_LIB" ] && [ -f "$_DOC_LIB/preset.sh" ] && _pre="$(bash "$_DOC_LIB/preset.sh" --show 2>/dev/null)"
 ok "organisation preset: %s" "${_pre:-none}"
 
+# 9f) Crewforth's own switches, as set in this environment. A CREW_ variable no Crewforth file reads is almost always
+#     a typo (a misspelt routing switch set to off switches nothing off, and nothing says so), and a switch that
+#     takes a number set to something else may be ignored for its default without a word. The names are read from the installed files
+#     themselves, so the list cannot go stale; a value is judged only for names that end like a number (_MAX, _MIN,
+#     _PCT, _N, _TIMEOUT, _AGE, _BYTES, _CHARS, _TURNS, _TOOLS, _ERRORS, _TOLERANCE). Information only.
+# Read where this doctor runs from too (its own eval/ and hooks/ beside it): a suite that drives it sets names of its own.
+_kd="${_DOC_LIB:+${_DOC_LIB%/lib}}"
+_kn="$(grep -rhoE 'CREW_[A-Z0-9_]+' .claude/hooks .claude/eval .claude/skills .claude/studio ${_kd:+"$_kd" "${_kd%/eval}/hooks"} 2>/dev/null | LC_ALL=C sort -u)"
+if [ -n "$_kn" ]; then
+  _nl=$'\n'; _uk=""; _nv=""
+  while IFS='=' read -r _vn _vv; do
+    case "$_vn" in CREW_[A-Z0-9_]*) ;; *) continue ;; esac
+    case "$_nl$_kn$_nl" in *"$_nl$_vn$_nl"*) ;; *) _uk="$_uk $_vn"; continue ;; esac
+    case "$_vn" in *_MAX|*_MIN|*_PCT|*_N|*_TIMEOUT|*_AGE|*_BYTES|*_CHARS|*_TURNS|*_TOOLS|*_ERRORS|*_TOLERANCE|*_MAX_*|*_MIN_*)
+      case "$_vv" in ''|*[!0-9]*) _nv="$_nv $_vn=$_vv" ;; esac ;;
+    esac
+  done < <(env 2>/dev/null | LC_ALL=C sort)
+  [ -n "$_uk" ] && warn "set in this environment, read by no Crewforth file (a typo?):%s — it changes nothing" "$_uk"
+  [ -n "$_nv" ] && warn "Crewforth switch(es) that take a whole number set to something else:%s — a hook may ignore it and use its default" "$_nv"
+fi
+
 # 10) Gate activity. The suite proves the gates CAN fire; this reports whether anything actually tripped them.
 #     Recording is on by default (rule names only, never the command), so "no log" here means no gate has
 #     fired yet — a measured zero, not a gap. Never a failure either way.
@@ -906,6 +1109,43 @@ if [ -f CLAUDE.md ]; then
     gap "CLAUDE.md project section is still the template (placeholders left in)" \
         "fill in Project / Stack / Project skills — agents read the stack from there"
   else rdy "CLAUDE.md project section is filled in"; fi
+  # R1b) Which quality analysis the DoD's quality gate runs. It was written six times as "(if SonarQube is in use)",
+  #      and on a project with no server that condition was simply false: one project measured 0 analyses in its
+  #      first 8 days. The answer is now a line in ## Stack; a missing or empty one is said here, by value.
+  QA="<missing>"
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "$_l" in 'Quality analysis:'*) _l="${_l#Quality analysis:}"; _l="${_l%$'\r'}"; _l="${_l# }"; QA="${_l:-<empty>}"; break ;; esac
+  done < CLAUDE.md
+  case "$QA" in '<missing>'|'<empty>') ;; '<'*) QA='<template>' ;; esac
+  case "$QA" in
+    sonarqube-local*|sonarqube-server*|declined*) rdy "quality analysis recorded: %s" "${QA%% *}" ;;
+    *) gap "CLAUDE.md names no quality analysis (## Stack → Quality analysis: %s) — the quality gate cannot tell a skipped analysis from a declined one" \
+           'add "Quality analysis: sonarqube-local" (or sonarqube-server, or declined) under ## Stack; sonarqube-check stands a local server up' "${QA%% *}" ;;
+  esac
+fi
+
+# R1c) How old the dependency audit is. §4.7 audits a lockfile when it CHANGES; a CVE is published without it changing
+#      (a field project: a pyasn1 advisory against a lockfile untouched for weeks). Said only where the repository
+#      tracks a lockfile, dated by the record's "epoch" (dependency-audit's record.sh, --periodic when nothing is
+#      staged). CREW_DEPS_AUDIT_DAYS (default 7) is the limit; 0 turns the line off. The age is read first, with
+#      builtins, so a fresh audit costs no git call.
+_dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
+if [ "$_dd" -gt 0 ] && [ -n "${_DOC_LIB:-}" ] && . "$_DOC_LIB/gate-log.sh" 2>/dev/null && . "$_DOC_LIB/lockfiles.sh" 2>/dev/null; then
+  crew_deps_audit_age .
+  if [ "$CREW_DEPS_AGE" -ge 0 ] && [ "$CREW_DEPS_AGE" -lt "$_dd" ]; then
+    rdy "dependency audit ran %s day(s) ago (limit %s)" "$CREW_DEPS_AGE" "$_dd"
+  else
+    crew_tracked_lockfiles .
+    if [ "${#CREW_LOCKS[@]}" -gt 0 ]; then
+      if [ "$CREW_DEPS_AGE" -ge 0 ]; then
+        gap "dependency audit last ran %s days ago (limit %s) — a CVE is published without the lockfile changing" \
+            "apply the dependency-audit skill (a read-only report) and record it: record.sh --periodic" "$CREW_DEPS_AGE" "$_dd"
+      else
+        gap "no dependency audit is recorded for the %s lockfile(s) this repository tracks" \
+            "apply the dependency-audit skill (a read-only report) and record it: record.sh --periodic" "${#CREW_LOCKS[@]}"
+      fi
+    fi
+  fi
 fi
 
 # R2) A project-specific skill — Crewforth ships the generic 'how's; the domain ones (payment-contract,

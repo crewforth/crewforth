@@ -16,15 +16,47 @@ export const SKIP_DIRS = new Set(['.git', '.hg', '.svn', 'node_modules', 'bower_
 const MAX_BYTES = 2 * 1024 * 1024;
 
 // Every child process the scanner starts goes through here, so the gate can count them.
+// A git call never runs a program the scanned repository's own config names: /crew-map on a freshly cloned
+// third-party repo would otherwise start its `core.fsmonitor` (measured: `ls-files -co` runs it, git 2.54).
+export const GIT_SAFE = ['-c', 'core.fsmonitor=', '-c', 'core.quotePath=false'];
 export const spawned = { count: 0 };
 export function run(cmd, args, cwd) {
   spawned.count++;
+  if (cmd === 'git') args = [...GIT_SAFE, ...args];
   const r = spawnSync(cmd, args, { cwd, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, windowsHide: true,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' } });
   return { ok: r.status === 0 && !r.error, out: r.stdout ? r.stdout.toString('utf8') : '' };
 }
 
 const skipped = (rel) => rel.split('/').some((seg) => SKIP_DIRS.has(seg));
+
+// The project's own exclusions: `.crewforth/crew-map-ignore`, one pattern a line, `#` for a comment. A pattern with
+// no `/` but a trailing one matches a name at any depth (`fixtures/`, `*.generated.ts`); one with a `/` inside is
+// anchored at the root (`docs/legacy/`, `/tools/gen.js`). `*` stays inside one segment, `**` crosses them, and a
+// trailing `/` matches the folder and everything in it. No negation: a map that leaves a file out says so in
+// `coverage.excluded`, and a rule that could bring it back is one more thing to read wrong.
+export const IGNORE_FILE = '.crewforth/crew-map-ignore';
+export function ignoreRules(text) {
+  const out = [];
+  for (const raw of String(text).split('\n')) {
+    let p = raw.replace(/\r$/, '').trim();
+    if (!p || p.startsWith('#') || p.startsWith('!')) continue;
+    const dir = p.endsWith('/'); p = p.replace(/\/+$/, '');
+    const anchored = p.startsWith('/') || p.includes('/'); p = p.replace(/^\/+/, '');
+    if (!p) continue;
+    let re = '';
+    for (let i = 0; i < p.length; i++) {
+      const c = p[i];
+      if (c === '*' && p[i + 1] === '*') { i++; if (p[i + 1] === '/') { re += '(.*/)?'; i++; } else re += '.*'; }
+      else if (c === '*') re += '[^/]*';
+      else if (c === '?') re += '[^/]';
+      else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+    out.push(new RegExp(`${anchored ? '^' : '(^|/)'}${re}${dir ? '/' : '(/|$)'}`));
+  }
+  return out;
+}
+const excludedBy = (rules, rel) => rules.some((re) => re.test(rel));
 
 export function openProject(root) {
   const real = fs.realpathSync(root);
@@ -48,10 +80,14 @@ export function openProject(root) {
     };
     walk(real, '');
   }
-  files = [...new Set(files)].sort();
+  let ignore = []; try { ignore = ignoreRules(fs.readFileSync(path.join(real, IGNORE_FILE), 'utf8')); } catch { /* none */ }
+  const listed = [...new Set(files)];
+  files = listed.filter((f) => !excludedBy(ignore, f)).sort();
+  const excluded = listed.length - files.length;
   const cache = new Map();
-  const tooBig = [];
-  // { text, lines } or null (unreadable, binary or over the size limit)
+  const tooBig = []; const unreadable = []; const binary = [];
+  // { text, lines } or null (unreadable, binary or over the size limit). Each null lands in a list, so a file the
+  // scanner asked for and could not use is reported as not measured instead of vanishing.
   const read = (rel) => {
     if (cache.has(rel)) return cache.get(rel);
     let r = null;
@@ -61,16 +97,17 @@ export function openProject(root) {
       if (st.size > MAX_BYTES) tooBig.push(rel);
       else {
         const buf = fs.readFileSync(abs);
-        if (!buf.subarray(0, 8000).includes(0)) {
+        if (buf.subarray(0, 8000).includes(0)) binary.push(rel);
+        else {
           const text = buf.toString('utf8').replace(/^﻿/, '');
           r = { text, lines: text.split('\n').map((l) => l.replace(/\r$/, '')) };
         }
       }
-    } catch { r = null; }
+    } catch { r = null; unreadable.push(rel); }
     cache.set(rel, r);
     return r;
   };
-  return { root: real, files, commit, read, tooBig, git: git.ok };
+  return { root: real, files, commit, read, tooBig, unreadable, binary, git: git.ok, excluded, ignoreRules: ignore.length };
 }
 
 // A citation. `anchor` must be a piece of the cited line (the validator checks it, collapsing whitespace); the
@@ -112,6 +149,8 @@ export function bearsValues(rel) {
 
 // A test, a fixture or an example: its routes, URLs and environment reads describe a fake system, not this one.
 export const isTestPath = (rel) => /(^|\/)(tests?|__tests__|spec|specs|fixtures?|e2e|testdata|examples?|[\w-]*-test)(\/|$)|\.(test|spec)\.[\w]+$|(^|\/)test_[^/]*\.py$|_test\.go$|Tests?\.cs$|Tests?\.(java|kt)$/i.test(rel);
+// A module whose every source file is a test (Api.Tests, a tests package): nothing references it, by design.
+export const isTestModule = (m) => m.files.length > 0 && m.files.every((f) => isTestPath(f));
 // A host that is this machine or a name reserved for tests and documentation is not an external resource.
 export const isLocalHost = (h) => !h || /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1)(:\d*)?$/.test(h) || /\.(invalid|example|test|localhost)(:\d*)?$/.test(h);
 

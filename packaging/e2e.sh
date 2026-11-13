@@ -125,15 +125,19 @@ legacy_dotnet_install(){        # $1 = dir, $2 = pattern skill (cqrs-aop-module 
 
 # ==== shards ====
 # CREW_E2E_SHARD=i/3 runs the blocks this map gives shard i; unset, every block runs, as it always did. ci.yml splits
-# the Windows leg in three because there one run took 48 minutes. The map is balanced on that run's own times, and
+# the Windows leg in four (three until start-legacy split off) because there one run took 48 minutes. The map is balanced on that run's own times, and
 # two pairs sit together because a later block reads what an earlier one left in $WORK: start writes proj-generic
 # (channel-parity and panel-runs read it), adopt-brownfield writes adopt-generic (legacy-sweep reads it).
 # The map is checked against the blocks in this file on EVERY run, sharded or not: a block in no shard, or in two,
 # stops the run before anything is rehearsed. A skipped block is never a passed one.
-E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf
-2 adopt-brownfield legacy-sweep migrate-dotnet wizard star-line trace-gate-keep install-count
-3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename'
-E2E_SHARDS=3
+# start-legacy has a shard of its own: start ran three installs, each with an install-scope smoke, and on a slow
+# Windows runner that one block reached 35 minutes alone (2026-11-07, 2068 s), past the job's limit.
+# migrate-dotnet sits in shard 1: shard 2 measured 1990 s on Windows against the 35-minute limit, shard 1 820 s.
+E2E_SHARD_MAP='1 start channel-parity panel-runs no-install-doors update-panel vendor-crlf migrate-dotnet ignore-local
+2 adopt-brownfield legacy-sweep wizard star-line trace-gate-keep install-count planted-hooks
+3 pattern-trust migrate-2.13 hookspath legacy-blobs hook-chain adopt-writes legacy-forward vendor-preserved profile-migration devarch-rename
+4 start-legacy'
+E2E_SHARDS=4
 _e2e_blocks="$(grep -E '^if _e2e_mine [a-z0-9.-]+; then$' "${BASH_SOURCE[0]}" | awk '{print $3}' | tr -d ';' | LC_ALL=C sort)"
 _e2e_mapped="$(printf '%s\n' "$E2E_SHARD_MAP" | awk '{for (i = 2; i <= NF; i++) print $i}' | LC_ALL=C sort)"
 if [ -z "$_e2e_blocks" ] || [ "$_e2e_blocks" != "$_e2e_mapped" ]; then
@@ -167,7 +171,6 @@ _e2e_done(){
 
 
 # ---- start.sh: 2 combinations (one install shape + old command lines) ----
-if _e2e_mine start; then
 # 2.0 removed the profile split and 3.0 removed the backend pattern choice: every install lands the same set on
 # disk. What is still rehearsed is that the set does not vary silently, and that old flags keep installing it.
 # The legacy-flag case is here rather than in the smoke-test because only an end-to-end run proves an old
@@ -211,15 +214,28 @@ combo() {
 KIT_AG=$(ls "$ROOT"/kit/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
 KIT_SK=$(ls -d "$ROOT"/kit/skills/*/ 2>/dev/null | wc -l | tr -d ' ')
 [ "${KIT_AG:-0}" -gt 0 ] && [ "${KIT_SK:-0}" -gt 0 ] || { echo "FAIL: cannot count the payload at $ROOT/kit"; exit 1; }
+if _e2e_mine start; then
 echo "payload: $KIT_AG agents, $KIT_SK skills (expectations derived, not typed)"
 combo generic       'yes\n'  "$KIT_AG" "$KIT_SK"
+grep -qx 'stack=generic' "$WORK/proj-generic/.claude/kit.conf" || { echo "FAIL [generic]: kit.conf does not record stack=generic"; exit 1; }
+[ ! -e "$WORK/proj-generic/.claude/skills/cqrs-aop-module" ] || { echo "FAIL [generic]: the removed .NET pattern skill was installed"; exit 1; }
+[ ! -e "$WORK/proj-generic/backend" ] && [ ! -e "$WORK/proj-generic/frontend" ] || { echo "FAIL [generic]: the installer scaffolded ./backend or ./frontend"; exit 1; }
+# §4.2 on a clean install. The blocklist ships the vendor name COMMENTED; since 3.0 no install arms it, because
+# no install brings the vendor onto the machine. (The one project that still arms it is a MIGRATED .NET install
+# that keeps its pattern skill — asserted, with the real hook, in the legacy-dotnet-migration case below.)
+grep -qx '# DevArchitecture' "$WORK/proj-generic/.claude/hooks/trace-blocklist.txt" \
+  || { echo "FAIL: a clean 3.0 install armed a vendor pattern it has no reason to block"; exit 1; }
+echo "[trace-4.2] a clean install leaves the vendor name commented"
+fi
+
+if _e2e_mine start-legacy; then
 # Old command lines must still install, and must install the FULL set — the flags are accepted, not obeyed.
 # --dotnet is the 3.0 case: it once selected a .NET-only install and now warns and installs the same kit.
 combo legacy-flags  'yes\n'  "$KIT_AG" "$KIT_SK"  --frontend --generic
 combo legacy-dotnet 'yes\n'  "$KIT_AG" "$KIT_SK"  --dotnet
 grep -q 'no effect' "$WORK/proj-legacy-flags/.claude/kit.conf" && { echo "FAIL: notice leaked into kit.conf"; exit 1; }
 [ -f "$WORK/proj-legacy-flags/.claude/agents/crew-backend-expert.md" ] || { echo "FAIL: --frontend still pruned the backend agent"; exit 1; }
-for _p in generic legacy-flags legacy-dotnet; do
+for _p in legacy-flags legacy-dotnet; do
   grep -qx 'stack=generic' "$WORK/proj-$_p/.claude/kit.conf" || { echo "FAIL [$_p]: kit.conf does not record stack=generic"; exit 1; }
   [ ! -e "$WORK/proj-$_p/.claude/skills/cqrs-aop-module" ] || { echo "FAIL [$_p]: the removed .NET pattern skill was installed"; exit 1; }
   [ ! -e "$WORK/proj-$_p/backend" ] && [ ! -e "$WORK/proj-$_p/frontend" ] || { echo "FAIL [$_p]: the installer scaffolded ./backend or ./frontend"; exit 1; }
@@ -231,16 +247,41 @@ grep -q 'the .NET-specific path was removed in 3.0' "$(printf '%s/e2e-step-%02d.
 echo "[legacy-flags] --frontend and --dotnet accepted, not obeyed; --dotnet warns; full set, stack=generic"
 
 
-# §4.2 on a clean install. The blocklist ships the vendor name COMMENTED; since 3.0 no install arms it, because
-# no install brings the vendor onto the machine. (The one project that still arms it is a MIGRATED .NET install
-# that keeps its pattern skill — asserted, with the real hook, in the legacy-dotnet-migration case below.)
-grep -qx '# DevArchitecture' "$WORK/proj-generic/.claude/hooks/trace-blocklist.txt" \
-  || { echo "FAIL: a clean 3.0 install armed a vendor pattern it has no reason to block"; exit 1; }
 grep -qx '# DevArchitecture' "$WORK/proj-legacy-dotnet/.claude/hooks/trace-blocklist.txt" \
   || { echo "FAIL: start.sh --dotnet armed the vendor pattern — the flag is supposed to change nothing"; exit 1; }
-echo "[trace-4.2] clean installs (with and without --dotnet) leave the vendor name commented"
+echo "[trace-4.2] start.sh --dotnet leaves the vendor name commented too"
 
 
+fi
+
+if _e2e_mine ignore-local; then
+# K12: --ignore-local writes the ignore lines to this clone's .git/info/exclude and leaves the tracked .gitignore
+# alone, for init and for adopt. Asked of git afterwards: the file did not change and .claude/ (init) or docs/
+# (adopt) is still ignored. The default is unchanged, so one install without the flag must still write .gitignore.
+# The fixture's package.json has no "dependencies": that shape stopped init with rc 1 under set -e (verify-detect), and
+# this block is where an init runs in a repository that holds one.
+_k12(){   # $1 = label -> _K: a repository with a tracked .gitignore, at $WORK/k12-$1 (not in $( ): its exit must stop the run)
+  local d="$WORK/k12-$1"; rm -rf "$d"; mkdir -p "$d"
+  ( cd "$d" && git init -q . && git config user.email k@x && git config user.name k && printf 'node_modules\n' > .gitignore \
+      && printf '{"name":"k"}' > package.json && git add -A && git -c core.hooksPath=/dev/null commit -qm seed ) >/dev/null 2>&1 \
+    || { echo "FAIL: FIXTURE — the k12 repository could not be made"; exit 1; }
+  _K="$d"
+}
+_k12 init; cp start.sh "$_K/"; cp -R kit "$_K/"
+_slog; ( cd "$_K" && printf 'yes\n' | bash start.sh --ignore-local ) >"$_L" 2>&1 || _evidence "start.sh --ignore-local in $_K" "$_L" $?
+( cd "$_K" && git diff --quiet -- .gitignore ) || { echo "FAIL [ignore-local/init]: the tracked .gitignore changed"; exit 1; }
+( cd "$_K" && git check-ignore -q .claude && grep -qx '.claude/' "$(git rev-parse --git-path info/exclude)" ) \
+  || { echo "FAIL [ignore-local/init]: .claude/ is not ignored through .git/info/exclude"; exit 1; }
+_k12 adopt; cp adopt.sh "$_K/"; cp -R kit "$_K/"; cp VERSION "$_K/"
+run_adopt "$_K" --yes --here --ignore-local
+[ "$ADOPT_RC" = 0 ] || { echo "FAIL [ignore-local/adopt]: adopt.sh exited $ADOPT_RC"; printf '%s\n' "$ADOPT_OUT" | tail -5; exit 1; }
+( cd "$_K" && git diff --quiet HEAD -- .gitignore ) || { echo "FAIL [ignore-local/adopt]: the tracked .gitignore changed"; exit 1; }
+( cd "$_K" && git check-ignore -q docs/x && grep -qx 'docs/' "$(git rev-parse --git-path info/exclude)" ) \
+  || { echo "FAIL [ignore-local/adopt]: docs/ is not ignored through .git/info/exclude"; exit 1; }
+_k12 default; cp start.sh "$_K/"; cp -R kit "$_K/"
+_slog; ( cd "$_K" && printf 'yes\n' | bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $_K" "$_L" $?
+( cd "$_K" && grep -qx '.claude/' .gitignore ) || { echo "FAIL [ignore-local/default]: without the flag .gitignore was not written — the default moved"; exit 1; }
+echo "[ignore-local] init and adopt leave .gitignore alone and ignore through .git/info/exclude; without the flag .gitignore is written"
 fi
 # ---- adopt.sh: a brownfield .NET project (solution under ./backend) + agent-overlap takeover ----
 if _e2e_mine adopt-brownfield; then
@@ -302,7 +343,9 @@ case "$DOUT" in *"enforces the §4.6 review gate"*) ;;
 # fork too and is not counted — the number is a floor, which is the right side to err on for a ceiling gate.
 fork_words(){   # $1 = xtrace file, $2 = the traced script (for its function names) -> one line per external command
   { compgen -b; compgen -k; echo '(('
-    grep -hoE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\(\)' "$2" | tr -d ' ()' | sort -u; } > "$1.excl"
+    # ...and the functions of the libraries it sources (eval/lib): `crew_is_lockfile` is a call, not a process. Counted
+    # as one, eight calls of it alone read as eight forks and put doctor over budget on a machine where it was not.
+    grep -hoE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\(\)' "$2" "${2%/*}"/lib/*.sh 2>/dev/null | tr -d ' ()' | sort -u; } > "$1.excl"
   # Read as BYTES (LC_ALL=C). An xtrace is not always valid text: bash 3.2 prints a four-byte character it assigns
   # half escaped (`_l=$'\xf0\237\xa4\226'` for the robot emoji of the trace blocklist, which doctor now reads line by
   # line), and BSD sed under a UTF-8 locale stops on it with "RE error: illegal byte sequence". Measured: this e2e
@@ -394,6 +437,32 @@ rm -f "$G/.claude/.legacy-backup"; cp kit/AGENT_TEMPLATE.md "$G/.claude/"
 echo "[owned-files] README, AGENT_TEMPLATE, DISCIPLINE written on adopt · each edited one kept byte for byte in one .legacy-backup and named, then refreshed · this version's content and its CRLF copy: no backup · no place for a backup: left as it is, and said"
 
 fi
+# ---- a first adopt never runs a hook it found in .claude/hooks ----
+if _e2e_mine planted-hooks; then
+# A cloned repository can carry .claude/hooks/pre-commit. A first adopt keeps files it finds, and then pointed git at
+# .claude/hooks and ran pre-commit as its proof: the repository's code, run by the user. It must stop before any
+# change instead, name the file, and run nothing. The twin moves the file away and the same adopt goes through, so
+# the stop is the file's and not some other refusal.
+PH="$WORK/planted-hooks"; rm -rf "$PH"; mkdir -p "$PH/.claude/hooks"
+cp adopt.sh "$PH/"; cp -R kit "$PH/"; cp VERSION "$PH/"; printf '{"name":"x"}' > "$PH/package.json"
+printf '#!/bin/sh\n: > "$(git rev-parse --show-toplevel)/PLANTED-RAN"\n' > "$PH/.claude/hooks/pre-commit"; chmod +x "$PH/.claude/hooks/pre-commit"
+( cd "$PH" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
+_phhead="$(git -C "$PH" rev-parse HEAD)"
+run_adopt "$PH" --yes
+[ "$ADOPT_RC" != 0 ]                                       || die "a first adopt went ahead over a .claude/hooks/pre-commit it did not write" planted-hooks "$PH"
+case "$ADOPT_OUT" in *"STOP: .claude/hooks already holds files"*" pre-commit"*) ;; *) die "the stop did not name the planted pre-commit" planted-hooks "$PH" ;; esac
+[ ! -e "$PH/PLANTED-RAN" ]                                 || die "the planted pre-commit RAN during adopt" planted-hooks "$PH"
+[ -z "$(git -C "$PH" config --get core.hooksPath)" ]       || die "core.hooksPath was set although adopt stopped" planted-hooks "$PH"
+[ ! -d "$PH/.claude/agents" ] && [ "$(git -C "$PH" rev-parse HEAD)" = "$_phhead" ] \
+  && [ -z "$(git -C "$PH" status --porcelain -- .claude)" ]  || die "adopt changed the project before it stopped" planted-hooks "$PH"
+# Twin: the file moved out of .claude/hooks, the same first adopt completes.
+mv "$PH/.claude/hooks/pre-commit" "$PH/planted-pre-commit"; ( cd "$PH" && git add -A && git commit -qm moved )
+cp adopt.sh "$PH/"; cp -R kit "$PH/"; run_adopt "$PH" --yes
+[ "$ADOPT_RC" = 0 ] && [ -d "$PH/.claude/agents" ]         || die "twin: with the file moved away the first adopt still did not complete (rc $ADOPT_RC)" planted-hooks/twin "$PH"
+[ ! -e "$PH/PLANTED-RAN" ]                                 || die "twin: the moved file ran" planted-hooks/twin "$PH"
+echo "[planted-hooks] a first adopt over a .claude/hooks/pre-commit it did not write stops before any change, names it, runs nothing; moved away, the same adopt completes"
+fi
+
 # ---- a project with a hook chain of its own keeps it through every update ----
 if _e2e_mine hook-chain; then
 # The first run puts .claude/git-shim in front of the project's chain and points git at it. The SECOND run then read
@@ -781,7 +850,7 @@ cmp -s "$U/settings.first" "$N/.claude/settings.json" \
 # jq merge put it — asserted by name here, and against that jq program itself where jq exists.
 R="$WORK/selfheal-rich"; mk_stale_install "$R" '{
   "model": "opus", "env": { "A": "1", "B": "say \"hi\" \\ ç" }, "skillListingBudgetFraction": 0.5,
-  "permissions": { "allow": [ "Bash", "WebFetch(domain:example.com)" ], "ask": [ "Bash(git push:*)", "Bash(terraform apply:*)" ],
+  "permissions": { "allow": [ "Bash", "WebFetch(domain:example.com)", "Bash(rsync:*)" ], "ask": [ "Bash(git push:*)", "Bash(terraform apply:*)" ],
     "deny": [ "Read(.env)", "Read(secrets/**)" ], "defaultMode": "acceptEdits" },
   "hooks": {
     "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "my-own-check.sh", "timeout": 5 } ] },
@@ -796,6 +865,10 @@ for _k in '"my-own-check.sh"' '"notify-send hi"' '"model": "opus"' '"defaultMode
   grep -qF "$_k" "$R/.claude/settings.json" || { echo "FAIL: the merge lost the project's $_k"; exit 1; }; done
 ! grep -qF 'old/.claude/hooks/guard-bash.sh' "$R/.claude/settings.json" || { echo "FAIL: a stale kit hook survived the refresh"; exit 1; }
 ! grep -qF '"Bash(git push:*)"' "$R/.claude/settings.json"              || { echo "FAIL: a retired ask rule survived the merge"; exit 1; }
+# The project allows the kit's own ask rule "Bash(rsync:*)": ask outranks allow, so keeping the kit's copy would undo
+# that choice on every update. It stays in allow and leaves ask; the kit's other ask rules stay.
+[ "$(grep -cF '"Bash(rsync:*)"' "$R/.claude/settings.json")" = 1 ]          || { echo "FAIL: a rule the project allows was put back into ask"; exit 1; }
+grep -qF '"Bash(scp:*)"' "$R/.claude/settings.json"                          || { echo "FAIL: dropping the project-allowed rule also dropped another kit ask rule"; exit 1; }
 [ "$(grep -cF '"Read(.env)"' "$R/.claude/settings.json")" = 1 ]           || { echo "FAIL: a rule both sides carry was not deduplicated"; exit 1; }
 # Parity with the program the awk merge replaced. It lives here only, as the oracle; the product never runs it.
 # Compared after `jq -S .`, so key order is out and array order stays in. Needs a jq that RUNS (not a stub).
@@ -810,8 +883,8 @@ def merge_hooks(kh;ph):
   (((kh|keys_unsorted)+(ph|keys_unsorted))|unique) as $e
   | reduce $e[] as $k ({}; .[$k]=((kh[$k] // [])+((ph[$k] // [])|map(select(is_kit|not)))));
 def retired: ["Bash(git add:*)","Bash(git commit:*)","Bash(git push:*)","Bash(git checkout -b:*)"];
-def drop_retired: if (.permissions.ask|type)=="array" then .permissions.ask -= retired else . end;
-(dm($k[0]; $p[0]) | drop_retired) | .hooks=merge_hooks(($k[0].hooks // {}); ($p[0].hooks // {}))'
+def drop_retired(own): if (.permissions.ask|type)=="array" then .permissions.ask -= (retired + own) else . end;
+(dm($k[0]; $p[0]) | drop_retired([$p[0].permissions.allow // [] | .[] | strings])) | .hooks=merge_hooks(($k[0].hooks // {}); ($p[0].hooks // {}))'
 if printf '{}' | jq -e . >/dev/null 2>&1; then
   # `|`, not `:`, between the two paths: a Windows temp dir is `D:\a\_temp`, so a colon split handed jq "D" —
   # measured on windows-latest ("Could not open D:"), where jq exists and this oracle actually runs.
@@ -835,13 +908,20 @@ IOUT="$( cd "$I" && PATH="$STUBS:$PATH" bash adopt.sh --here </dev/null 2>&1 )"
 cmp -s "$I/settings.stale" "$I/.claude/settings.json" || { echo "FAIL: an invalid settings.json was overwritten"; exit 1; }
 case "$IOUT" in *"INVALID JSON -> merge ABORT"*) ;; *) echo "FAIL: an invalid settings.json was not reported as such"; exit 1 ;; esac
 grep -q 'settings.json: NOT merged' "$I/docs/HANDOVER.md" 2>/dev/null || { echo "FAIL: HANDOVER claims a merge that did not run"; exit 1; }
+# (G) A hook entry Claude Code rejects (no "type") makes it ignore the WHOLE file: the merge is refused, the entry is
+#     named by its path, the file stays byte-for-byte, and HANDOVER says it was not merged (P16-01).
+I="$WORK/selfheal-hookshape"; mk_stale_install "$I" '{ "hooks": { "Stop": [ { "hooks": [ { "command": "echo own" } ] } ] } }'
+IOUT="$( cd "$I" && PATH="$STUBS:$PATH" bash adopt.sh --here </dev/null 2>&1 )"
+cmp -s "$I/settings.stale" "$I/.claude/settings.json" || { echo "FAIL: a settings.json with a rejected hook entry was overwritten"; exit 1; }
+case "$IOUT" in *"hook entry Claude Code rejects"*"hooks.Stop.0.hooks.0: no string \"type\""*) ;; *) echo "FAIL: a rejected hook entry was not named"; exit 1 ;; esac
+grep -q 'settings.json: NOT merged' "$I/docs/HANDOVER.md" 2>/dev/null || { echo "FAIL: HANDOVER claims a merge over a rejected hook entry"; exit 1; }
 # (C) FIRST adopt (no kit present) · non-interactive · NO --yes -> declines (a brownfield change still needs consent)
 F="$WORK/firstadopt"; rm -rf "$F"; mkdir -p "$F"
 cp adopt.sh "$F/"; cp -R kit "$F/"; cp VERSION "$F/"; printf '{"name":"x"}' > "$F/package.json"
 ( cd "$F" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
 _slog; ( cd "$F" && bash adopt.sh --here </dev/null ) >"$_L" 2>&1 || _evidence "adopt.sh in $F" "$_L" $?
 [ ! -f "$F/.claude/DISCIPLINE.md" ]                     || { echo "FAIL: first adopt must NOT apply non-interactively without --yes"; exit 1; }
-echo "[adopt-selfheal] update self-heals off a TTY, same file with jq/python failing · $PARITY_NOTE · retired §4.4 ask rules dropped, own rules and hooks kept · invalid JSON refused · CLAUDE.md preserved · first adopt still needs --yes"
+echo "[adopt-selfheal] update self-heals off a TTY, same file with jq/python failing · $PARITY_NOTE · retired §4.4 ask rules dropped, own rules and hooks kept · invalid JSON refused · a rejected hook entry refused and named · CLAUDE.md preserved · first adopt still needs --yes"
 
 # (D) TTY + --yes must NOT hang — the /crew-update regression. adopt.sh once tested `-t 0` BEFORE --yes, so an
 # --yes run that inherited a TTY (Claude Code drives commands under a pty on Windows) blocked on a prompt. Every
@@ -1021,7 +1101,7 @@ else
   CMDN=0; for kf in $(grep -l '^  kind: command' kit/skills/crew-*/SKILL.md); do CMDN=$((CMDN+1)); kn="${kf%/SKILL.md}"; kn="${kn##*/}"
     [ -f "$MG/.claude/skills/$kn/SKILL.md" ] || { echo "FAIL: the update did not bring /$kn to skills/$kn/SKILL.md"; exit 1; }
   done
-  [ "$CMDN" = 15 ] || { echo "FAIL: FIXTURE — expected 15 command skills in the payload, found $CMDN"; exit 1; }   # 11 came from 2.x; /crew-approve and /crew-loosen are new in 3.1.0, /crew-map in 3.2.0, /crew-allow-verify in 3.2.2
+  [ "$CMDN" = 19 ] || { echo "FAIL: FIXTURE — expected 19 command skills in the payload, found $CMDN"; exit 1; }   # 11 came from 2.x; /crew-approve and /crew-loosen are new in 3.1.0, /crew-map in 3.2.0, /crew-allow-verify in 3.2.2, /crew-audit, /crew-interview, /crew-pr and /crew-todo in 3.5.0
   KLEFT="$(cd "$MG/.claude" && { ls commands 2>/dev/null | grep -v '^my-cmd\.md$' || true; } | tr '\n' ' ')"   # grep -v finding nothing is the pass
   [ -z "$KLEFT" ] || { echo "FAIL: kit command files were left in .claude/commands/: $KLEFT"; exit 1; }
   cmp -s "$MG/.claude/commands/my-cmd.md" "$WORK/my-cmd.before" || { echo "FAIL: the move touched the user's own .claude/commands/my-cmd.md"; exit 1; }
@@ -1470,7 +1550,7 @@ if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
   A5="$WORK/add-5"; rm -rf "$A5"; mkdir -p "$A5/.claude"; printf 'stack=generic\n' > "$A5/.claude/kit.conf"; H5="$(treehash "$A5")"
   ( cd "$A5" && node "$CLI" add testing >/dev/null 2>&1 ) && [ "$(treehash "$A5")" = "$H5" ] || { echo "FAIL: add wrote into a project with the full install"; exit 1; }
   # 6 · --list covers the catalogue exactly, less what is marked experimental (it installs by name, unlisted).
-  NX="$(grep -l '^  experimental: true' kit/skills/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
+  NX="$(grep -lE '^  experimental: "?true' kit/skills/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
   NL="$(node "$CLI" add --list | grep -c '^  ')"; NC=$(( $(ls kit/agents/*.md | wc -l) + $(ls -d kit/skills/*/ | wc -l) - NX ))
   [ "$NL" = "$NC" ] || { echo "FAIL: add --list shows $NL entries, the catalogue has $NC (after $NX experimental)"; exit 1; }
   node "$CLI" add --list | grep -qE '^  (/crew-board|teamboard) ' && { echo "FAIL: add --list shows an experimental entry"; exit 1; }
@@ -1502,6 +1582,31 @@ if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
   ( cd "$A9b" && node "$CLI" add testing >/dev/null 2>&1 )
   [ -f "$A9b/.claude/skills/code-review-csk/my-notes.md" ] || { echo "FAIL: the migration removed a user's own file from an old skill dir"; exit 1; }
   echo "[add] security-expert + $(printf '%s\n' $DEPS | grep -c .) inferred skill(s) · record matches · rerun unchanged · conflict rc=1 untouched, --force replaces · unknown rc=2, 0 files · full install left alone · --list $NL = catalogue · unprefixed = prefixed = 2.x name · 2.x record moved to crew- names, user file kept"
+  # remove (P16-02): a dry run changes nothing; --apply takes out every hook entry that runs .claude/hooks/ and keeps
+  # the project's own, unsets a core.hooksPath that points at .claude/hooks, moves Crewforth's files aside (never
+  # deletes them), keeps the project's own skill and CLAUDE.md; a second run finds nothing.
+  R1="$WORK/remove-1"; rm -rf "$R1"; mkdir -p "$R1"; cp start.sh VERSION "$R1/"; cp -R kit "$R1/"
+  ( cd "$R1" && git init -q && bash start.sh --yes --lang en ) >/dev/null 2>&1 || { echo "FAIL: FIXTURE — the install for remove did not finish"; exit 1; }
+  mkdir -p "$R1/.claude/skills/my-own"; printf -- '---\nname: my-own\n---\n' > "$R1/.claude/skills/my-own/SKILL.md"
+  node -e 'const f=process.argv[1]+"/.claude/settings.json",fs=require("fs");const s=JSON.parse(fs.readFileSync(f,"utf8"));
+    (s.hooks.Stop=s.hooks.Stop||[]).push({hooks:[{type:"command",command:"echo own-hook"}]});fs.writeFileSync(f,JSON.stringify(s,null,2))' "$R1"
+  _rmc="$(cksum < "$R1/CLAUDE.md")"; H0="$(treehash "$R1")"
+  ( cd "$R1" && node "$CLI" remove >/dev/null 2>&1 ) || { echo "FAIL: remove (dry run) exited non-zero"; exit 1; }
+  [ "$(treehash "$R1")" = "$H0" ] || { echo "FAIL: a remove dry run changed the tree"; exit 1; }
+  ROUT="$( cd "$R1" && node "$CLI" remove --apply 2>&1 )" || { echo "FAIL: remove --apply exited non-zero:"; printf '%s\n' "$ROUT"; exit 1; }
+  ! grep -q '\.claude/hooks/' "$R1/.claude/settings.json" || { echo "FAIL: remove left a .claude/hooks/ entry in settings.json"; exit 1; }
+  grep -q 'echo own-hook' "$R1/.claude/settings.json" || { echo "FAIL: remove dropped the project's own hook"; exit 1; }
+  ! grep -q '"Bash"' "$R1/.claude/settings.json" || { echo "FAIL: remove left the blanket Bash allow without the guard that made it safe"; exit 1; }
+  ( cd "$R1" && git config --get core.hooksPath ) >/dev/null 2>&1 && { echo "FAIL: remove left core.hooksPath set"; exit 1; }
+  [ ! -e "$R1/.claude/hooks" ] && [ ! -e "$R1/.claude/DISCIPLINE.md" ] && [ ! -e "$R1/.claude/agents/crew-backend-expert.md" ] \
+    || { echo "FAIL: remove left Crewforth files in place"; exit 1; }
+  _rmb="$(ls -d "$R1"/.claude/.crewforth-removed-* 2>/dev/null | head -1)"
+  [ -n "$_rmb" ] && [ -f "$_rmb/hooks/guard-bash.sh" ] && [ -f "$_rmb/agents/crew-backend-expert.md" ] || { echo "FAIL: remove did not keep the files it moved"; exit 1; }
+  [ -f "$R1/.claude/skills/my-own/SKILL.md" ] && [ "$(cksum < "$R1/CLAUDE.md")" = "$_rmc" ] || { echo "FAIL: remove touched the project's own skill or CLAUDE.md"; exit 1; }
+  H1="$(treehash "$R1")"; R2OUT="$( cd "$R1" && node "$CLI" remove --apply 2>&1 )"
+  [ "$(treehash "$R1")" = "$H1" ] && case "$R2OUT" in *"nothing of Crewforth is left here"*) true ;; *) false ;; esac \
+    || { echo "FAIL: a second remove was not a no-op: $R2OUT"; exit 1; }
+  echo "[remove] dry run changes nothing · --apply: Crewforth hook entries and the Bash allow out, own hook kept · core.hooksPath unset · files moved aside, not deleted · own skill and CLAUDE.md untouched · second run a no-op"
 
   # studio through the npm entry: the offline self-check, then the real serve probe (listen, 403 without the token,
   # 200 with it, clean exit).
@@ -2024,7 +2129,7 @@ printf '%s\n' "$ADOPT_OUT" | grep -q 'git branch -m main' || die "adopt on an un
 ( cd "$U1" && eval "$_dl" ) >/dev/null 2>&1 || die "the printed discard command failed when run" adopt-unborn "$U1"
 [ -z "$(cd "$U1" && git diff --cached --name-only)" ] && [ "$(cd "$U1" && git symbolic-ref --short HEAD)" = main ] \
   || die "after the printed discard something is still staged, or HEAD is not back on main" adopt-unborn "$U1"
-_xs=0; _xc=0; for _f in kit/skills/*/SKILL.md; do grep -qx '  experimental: true' "$_f" && continue
+_xs=0; _xc=0; for _f in kit/skills/*/SKILL.md; do grep -qxE '  experimental: "?true"?' "$_f" && continue
   if grep -qx '  kind: command' "$_f"; then _xc=$((_xc+1)); else _xs=$((_xs+1)); fi; done
 _ps="$(printf '%s\n' "$ADOPT_OUT" | sed -n 's/^  skills  *+\([0-9]*\).*/\1/p' | head -1)"; _pc="$(printf '%s\n' "$ADOPT_OUT" | sed -n 's/^  commands  *+\([0-9]*\).*/\1/p' | head -1)"
 [ "$_ps" = "$_xs" ] && [ "$_pc" = "$_xc" ] || die "adopt's summary says skills +$_ps, commands +$_pc; the README's rule counts $_xs and $_xc" adopt-unborn "$U1"
@@ -2053,7 +2158,7 @@ lb_check(){  # $1 = installed project -> prints "<legacy files> <matched> <first
   while IFS= read -r f; do
     rel="${f#"$d"/}"; comp="${rel#.claude/}"
     case "$comp" in skills/*/*) comp="${comp%%/*}/$(printf '%s' "${comp#skills/}" | cut -d/ -f1)" ;; esac
-    printf '%s\n' "$now" | grep -qxF "$comp" && continue            # shipped today: refreshed, not legacy
+    grep -qxF "$comp" <<<"$now" && continue   # shipped today: refreshed, not legacy (a here-string: under pipefail an early grep -q would SIGPIPE a printf)
     n=$((n+1)); h="$(git hash-object --no-filters "$f")"; hl="$(tr -d '\r' < "$f" | git hash-object --no-filters --stdin)"
     if awk -F'\t' -v p="$rel" -v a="$h" -v b="$hl" '$2 == p && ($3 == a || $3 == b) { f = 1 } END { exit !f }' kit/legacy-blobs.tsv
     then m=$((m+1)); else [ "$miss" = - ] && miss="$rel"; fi

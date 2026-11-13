@@ -32,11 +32,11 @@ fi
 #    to the reader, a stated assumption, a TODO, or both readings named side by side. The rule is that a
 #    reviewer can SEE the requirement was unclear; it is not that they used the kit's marker syntax.
 BOTH=0
-printf '%s' "$BODY" | grep -qiE 'per[- ]plan|each plan|every plan|per tier|any plan' \
-  && printf '%s' "$BODY" | grep -qiE 'ever|lifetime|once per (user|account)|only one trial (ever|total)|across all' \
+grep -qiE 'per[- ]plan|each plan|every plan|per tier|any plan' <<<"$BODY" \
+  && grep -qiE 'ever|lifetime|once per (user|account)|only one trial (ever|total)|across all' <<<"$BODY" \
   && BOTH=1
 MARK=0
-printf '%s' "$BODY" | grep -qiE 'needs clarification|clarif|ambigu|unclear|assum|to confirm|confirm with|open question|TODO|\?$' \
+grep -qiE 'needs clarification|clarif|ambigu|unclear|assum|to confirm|confirm with|open question|TODO|\?$' <<<"$BODY" \
   && MARK=1
 if [ "$BOTH" = 1 ] || [ "$MARK" = 1 ]; then
   say PASS "the plan shows the requirement was open to more than one reading"
@@ -46,7 +46,7 @@ fi
 
 # 4. Which reading shipped, in words. A plan that surfaces the doubt and then leaves the answer implicit in the
 #    code hands the next reader the same puzzle. Distinct from 3: 3 is that a choice existed, 4 is what it was.
-if printf '%s' "$BODY" | grep -qiE '(one|single|1) trial (per|for each|ever|in total|per account)|(never|not) .*(second|another) trial|treat.*(cancel|cancelled)'; then
+if grep -qiE '(one|single|1) trial (per|for each|ever|in total|per account)|(never|not) .*(second|another) trial|treat.*(cancel|cancelled)' <<<"$BODY"; then
   say PASS "the plan states which meaning of 'one trial' was implemented"
 else
   say FAIL "the shipped semantics live only in the code"

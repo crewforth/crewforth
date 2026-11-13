@@ -33,6 +33,15 @@ if [ "$_HELP_ONLY" = 0 ] && [ ! -d "$SRC" ]; then
   echo "start.sh and kit/ must be in the SAME directory (both come together when you unzip)."
   exit 1
 fi
+# A payload that lost files (a truncated archive, a folder dropped in a copy) is refused before the first write, so
+# a broken download says so instead of installing gates that fail on every call. English, like the check above: it
+# answers before the language is chosen. eval/lib/payload-check.sh says what it reads.
+if [ "$_HELP_ONLY" = 0 ] && [ "${CREW_PAYLOAD_UNCHECKED:-0}" != 1 ] && [ -f "$SRC/eval/lib/payload-check.sh" ]; then
+  _pc="$(bash "$SRC/eval/lib/payload-check.sh" "$SRC" 2>&1)" || {
+    echo "ERROR: the kit/ payload is incomplete — nothing installed:"; printf '%s\n' "$_pc" | sed 's/^/  /'
+    echo "Download it again (npx crewforth@latest, or a fresh archive). CREW_PAYLOAD_UNCHECKED=1 installs it anyway."
+    exit 1; }
+fi
 
 # Refuse to run inside a checkout of the kit's own source repository. This script ends by deleting
 # kit/ and itself, which is correct when the kit has been unpacked into a project and is being
@@ -95,6 +104,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
   local s="$1"; shift
   if [ "$CREW_LANG" = tr ]; then
     case "$s" in
+      "Verify commands an agent may run, read from the project: %s (delete a line of .claude/crew-model-rules to take one back)") s="Ajanların doğrulama komutu olarak çalıştırabileceği proje komutları: %s (birini geri almak için .claude/crew-model-rules dosyasındaki satırını silin)" ;;
       "Crewforth · setup wizard") s='Crewforth · kurulum' ;;
       "Status line: Crewforth's (the gate's last word, a standing approval, crew agents, fill, cost).") s="Durum satırı: Crewforth'unki (kapının son sözü, geçerli onay, crew ajanları, doluluk, maliyet)." ;;
       "Status line: yours is kept; Crewforth's is one command away (see /crew-doctor).") s="Durum satırı: seninki korundu; Crewforth'unki tek komutla açılır (/crew-doctor'a bak)." ;;
@@ -143,6 +153,10 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "(shared: .claude/ and CLAUDE.md stay committable)") s="(paylaşımlı: .claude/ ve CLAUDE.md commit'lenebilir kalır)" ;;
       "(default — pass --shared to commit .claude/ and CLAUDE.md)") s="(varsayılan — .claude/ ve CLAUDE.md'yi commit'lemek için --shared verin)" ;;
       "no") s='hayır' ;;
+      "Just me, and leave .gitignore untouched") s=".gitignore'a dokunmadan yalnız ben" ;;
+      "the same lines go to .git/info/exclude, which only this clone reads; the tracked .gitignore is not changed") s="aynı satırlar yalnız bu klonun okuduğu .git/info/exclude dosyasına yazılır; izlenen .gitignore değişmez" ;;
+      "(this clone only)") s='(yalnız bu klon)' ;;
+      "--ignore-local needs a git repository; there is none here, so the lines go to .gitignore") s='--ignore-local bir git deposu ister; burada yok, bu yüzden satırlar .gitignore dosyasına yazılır' ;;
       "yes") s='evet' ;;
       "[yes/no]") s='[evet/hayır]' ;;
       "Crewforth always installs in full (all agents · all skills).") s="Crewforth her zaman eksiksiz kurulur (tüm ajanlar · tüm skill'ler)." ;;
@@ -191,6 +205,7 @@ Crewforth her zaman eksiksiz kurulur: tüm ajanlar ve skill'ler — backend, web
 (CLAUDE.md ## Stack ya da depo). React Native/Expo, hazır isteğe bağlı katmanlardan yalnız biridir.
   --backend | --frontend | --mobile | --fullstack   hâlâ kabul edilir ama etkisi yok (eski komutlar bozulmasın diye)
   --private | --shared   kurulum yalnızca sizin mi, yoksa ekiple paylaşılıp commit'lenecek mi? (varsayılan: private)
+  --ignore-local         yok sayılacak satırları .gitignore yerine .git/info/exclude'a yaz (yalnız bu klon; .gitignore değişmez)
   --preset <ad|dosya>    bir kurum preset'i uygula: kritik yollar, model tabanları, izinli verify komutları
                          (gelenler: default, strict, solo; ya da kendi .json dosyanız)
   --lang tr|en   kurulum dili (verilmezse sihirbaz sorar)
@@ -211,6 +226,7 @@ Every install ships everything: all agents, all skills — backend, web and mobi
 (CLAUDE.md ## Stack, or the repo). React Native/Expo is only one of the optional ready-made layers.
   --backend | --frontend | --mobile | --fullstack   accepted, no effect (kept so older commands still run)
   --private | --shared   is the install yours alone, or committed for the team? (default: private)
+  --ignore-local         write the ignore lines to .git/info/exclude instead of .gitignore (this clone only; .gitignore unchanged)
   --preset <name|file>   apply an organisation preset: critical paths, model floors, allowed verify commands
                          (shipped: default, strict, solo; or a .json file of your own)
   --lang tr|en   installer language (asked interactively when not given)
@@ -271,21 +287,22 @@ ask_yes() {  # $1 = question; returns 0 if the user says 'yes'
 #     gets a second, redundant line. Ask git the real question instead — `git check-ignore` answers about
 #     the PATH, whatever spelling the existing rule uses. It is only asked inside a repo; outside one we
 #     fall back to the literal test, which is all that is knowable there.
-gi_add() {   # $@ = entries to ensure in ./.gitignore; prints nothing, sets GI_WROTE to what it added
+gi_add() {   # $@ = entries to ensure in $GI_FILE (./.gitignore unless --ignore-local); sets GI_WROTE to what it added
   local e
   GI_WROTE=""
-  [ -e .gitignore ] || : > .gitignore
+  local gf="${GI_FILE:-.gitignore}"
+  mkdir -p "$(dirname "$gf")" 2>/dev/null; [ -e "$gf" ] || : > "$gf"
   for e in "$@"; do
     if git rev-parse --git-dir >/dev/null 2>&1; then
       git check-ignore -q --no-index "$e" 2>/dev/null && continue   # --no-index: a dir holding tracked files (docs/HANDOVER.md) still counts as ignored
     else
-      grep -qxF "$e" .gitignore 2>/dev/null && continue
+      grep -qxF "$e" "$gf" 2>/dev/null && continue
     fi
     # last byte is not a newline (and the file is not empty) -> close the line first
-    if [ -s .gitignore ] && [ "$(tail -c 1 .gitignore | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
-      printf '\n' >> .gitignore
+    if [ -s "$gf" ] && [ "$(tail -c 1 "$gf" | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
+      printf '\n' >> "$gf"
     fi
-    printf '%s\n' "$e" >> .gitignore
+    printf '%s\n' "$e" >> "$gf"
     GI_WROTE="$GI_WROTE $e"
   done
   GI_WROTE="${GI_WROTE# }"
@@ -452,6 +469,7 @@ for a in "$@"; do
     --yes|-y) ASSUME_YES=1 ;;
     --private) VISIBILITY="private" ;;
     --shared)  VISIBILITY="shared" ;;
+    --ignore-local) GI_LOCAL=1 ;;
     -h|--help) usage; exit 0 ;;
     *) printf '%s\n' "$(m 'Unknown parameter: %s' "$a")"; echo; usage; exit 1 ;;
   esac
@@ -546,16 +564,27 @@ if [ -z "$VISIBILITY" ]; then
   add  '.claude/ and CLAUDE.md are committable — everyone gets the same agents, skills and gates'
   skip 'internal working documents (docs/) stay private in BOTH answers'
   echo
+  opt 3 'Just me, and leave .gitignore untouched' 0 'private'
+  add  'the same lines go to .git/info/exclude, which only this clone reads; the tracked .gitignore is not changed'
+  echo
   _mt 'Choice'; _a="$_M"; _mt 'empty=1'
-  printf '  %s->%s %s %s[1-2, %s]%s: ' "$CY" "$R" "$_a" "$D" "$_M" "$R"
+  printf '  %s->%s %s %s[1-3, %s]%s: ' "$CY" "$R" "$_a" "$D" "$_M" "$R"
   crew_read s                        # empty => default (private = today's behaviour)
-  case "$s" in 2) VISIBILITY="shared" ;; *) VISIBILITY="private" ;; esac
+  case "$s" in 2) VISIBILITY="shared" ;; 3) VISIBILITY="private"; GI_LOCAL=1 ;; *) VISIBILITY="private" ;; esac
 fi
 # The exact lines this install will append, resolved once so the summary and the writer cannot disagree.
 if [ "$VISIBILITY" = "shared" ]; then
   GI_PLAN='docs/ .private-terms.txt .claude/.state/'   # .state is runtime state (update cache, snapshot), never shared
 else
   GI_PLAN='docs/ .claude/ CLAUDE.md .private-terms.txt'
+fi
+# K12: where those lines go. .gitignore is the default and is tracked in most repos; --ignore-local (or answer 3)
+# writes them to this clone's info/exclude instead, which git reads the same way and nobody else sees. The path is
+# asked of git, so a linked worktree resolves to the shared one. Without a repository there is no such file.
+GI_FILE=.gitignore; GI_LABEL=.gitignore
+if [ "${GI_LOCAL:-0}" = 1 ]; then
+  if _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ]; then GI_FILE="$_gx"; GI_LABEL=.git/info/exclude
+  else _mt '--ignore-local needs a git repository; there is none here, so the lines go to .gitignore'; printf '  %s!%s %s\n' "$YE" "$R" "$_M"; fi
 fi
 
 # ===================== STEP 2 · SUMMARY + CONFIRM =====================
@@ -569,7 +598,7 @@ count_installed() {   # $1=glob  -> count to install
 }
 N_AG="$(count_installed "$SRC/agents/*.md")"
 # Skills and commands the way the README and crewforth.com count them, so the install does not print a third number:
-# a skill whose metadata says `kind: command` is a command, one marked `experimental: true` is neither (it is
+# a skill whose metadata says `kind: command` is a command, one marked `experimental: "true"` is neither (it is
 # installed and works when typed, but nothing advertises it). Read from the frontmatter with builtins only.
 count_showcase() {   # $1 = a skills directory -> N_SKL N_CMD
   N_SKL=0; N_CMD=0; local f l k e d
@@ -577,7 +606,7 @@ count_showcase() {   # $1 = a skills directory -> N_SKL N_CMD
     [ -f "$f" ] || continue; k=0; e=0; d=0
     while IFS= read -r l || [ -n "$l" ]; do
       l="${l%$'\r'}"
-      case "$l" in ---) d=$((d+1)); [ "$d" -ge 2 ] && break ;; "  kind: command") k=1 ;; "  experimental: true") e=1 ;; esac
+      case "$l" in ---) d=$((d+1)); [ "$d" -ge 2 ] && break ;; "  kind: command") k=1 ;; "  experimental: true"|"  experimental: \"true\"") e=1 ;; esac
     done < "$f"
     [ "$e" = 1 ] && continue
     if [ "$k" = 1 ]; then N_CMD=$((N_CMD+1)); else N_SKL=$((N_SKL+1)); fi
@@ -606,10 +635,10 @@ row 'Will write' "${D}./.claude (agents·skills·commands·hooks·eval·studio·
 # ignores are dropped at write time, so what is listed here is the upper bound, not a promise of four lines.
 if [ "$VISIBILITY" = "shared" ]; then
   _mt '(shared: .claude/ and CLAUDE.md stay committable)'
-  row ".gitignore" "${D}$(printf '%s · ' $GI_PLAN | sed 's/ · $//')  ${YE}${_M}${R}"
+  row "$GI_LABEL" "${D}$(printf '%s · ' $GI_PLAN | sed 's/ · $//')  ${YE}${_M}${R}"
 else
-  _mt 'private'; _a="$_M"
-  row ".gitignore" "${D}$(printf '%s · ' $GI_PLAN | sed 's/ · $//')  ${GR}(${_a})${R}"
+  _mt 'private'; _a="$_M"; [ "$GI_LABEL" = .gitignore ] || { _mt '(this clone only)'; _a="$_a $_M"; }
+  row "$GI_LABEL" "${D}$(printf '%s · ' $GI_PLAN | sed 's/ · $//')  ${GR}(${_a})${R}"
 fi
 # What this machine is missing, BEFORE the confirm prompt — not after, when it becomes a symptom pointing
 # somewhere else. Report-only and never blocking: the kit degrades rather than breaks, and that is exactly why
@@ -702,6 +731,14 @@ cp "$SRC/README.md"         .claude/ 2>/dev/null || true
 } > .claude/kit.conf
 # The organisation's preset, now that .claude/ is in place (checked above): a block at the top of crew-model-rules.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
+# The project's own test, lint and type-check commands become `verify` lines of .claude/crew-model-rules
+# (eval/lib/verify-detect.sh), so an agent's verify command runs them from the first card on; the user is told which,
+# here, and takes one back by deleting its line. One already added once is not added again after it was deleted.
+if [ -f .claude/eval/lib/verify-detect.sh ] && [ -f .claude/eval/lib/verify-cmd.sh ]; then
+  _VD_ADDED=""
+  . .claude/eval/lib/verify-cmd.sh && . .claude/eval/lib/verify-detect.sh && crew_verify_detect_apply . 2>/dev/null
+  [ -n "$_VD_ADDED" ] && { _mt 'Verify commands an agent may run, read from the project: %s (delete a line of .claude/crew-model-rules to take one back)' "$_VD_ADDED"; echo "  ${_M}"; }
+fi
 
 # Discipline (kit-owned, refreshed on every update) vs project section (yours, written once), joined by @import.
 kit_require_sentinel "$SRC/CLAUDE.md"
@@ -728,7 +765,7 @@ fi
 # space-separated list this script built, not user input.
 # shellcheck disable=SC2086
 gi_add $GI_PLAN
-[ -n "$GI_WROTE" ] && printf '  %s+%s .gitignore: %s\n' "$GR" "$R" "$GI_WROTE"
+[ -n "$GI_WROTE" ] && printf '  %s+%s %s: %s\n' "$GR" "$R" "$GI_LABEL" "$GI_WROTE"
 # Pinned only when git will actually CHECK .claude/ OUT — and that question goes to git, not to the mode
 # variable, for the same reason gi_add asks `git check-ignore` instead of grepping the file: the variable is
 # what we intended, the answer is what is true. They agree in the normal case (a private install has just

@@ -69,6 +69,7 @@ _CREW_LOCALE="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
 case "$_CREW_LOCALE" in C|POSIX) _CREW_LOCALE="" ;; esac
 export LC_ALL=C
 # ---- /CREW-LOCALE
+ASK_TREE=""; ASK_HEAD=""; ASK_BRANCH=""   # what an approval was asked for (the question, or a refused command); _pa_record compares
 # guard-schedule.sh SOURCES this file for one thing, _crew_appr_op: which text is an approval is decided here and
 # nowhere else. Sourced, the file defines its functions and returns before anything is read or written.
 _PA_LIB=0; [ "${BASH_SOURCE[0]}" != "$0" ] && _PA_LIB=1
@@ -472,8 +473,10 @@ _crew_q_op(){  # $1 = the label the user chose -> OP: commit | commit+push | pus
 # NOT READ, and written as the limit in the docs: `--settings` given on the command line, managed settings a server
 # delivers, a plugin loaded with --plugin-dir. A hook added while the session runs is read at the next question:
 # the scan runs at every question and every commit, never cached.
-# _PRH names the first file found, for the message. No process is started; this runs only when a question or a
-# commit is decided, never on an ordinary prompt.
+# EXCEPT a hook that can only notify (_crew_prh_notify_only, below): Warp's, pinned by content.
+# _PRH names the first file found, for the message. No process is started, except one `git hash-object` when a
+# plugin's hook has the notify-only shape; this runs only when a question or a commit is decided, never on an
+# ordinary prompt.
 _crew_prh_text(){  # $1 = json | fm, $2 = text -> 0 when it may wire a PermissionRequest hook
   local t="$2" nc=0 r=1
   shopt -q nocasematch && nc=1; shopt -s nocasematch
@@ -490,6 +493,54 @@ _crew_prh_text(){  # $1 = json | fm, $2 = text -> 0 when it may wire a Permissio
   fi
   [ "$nc" = 0 ] && shopt -u nocasematch
   return "$r"
+}
+# A PermissionRequest HOOK THAT ONLY NOTIFIES. Warp's plugin wires one to show a desktop notification: its script
+# prints {"terminalSequence":…} and nothing else, so it cannot answer a prompt. Found by its name, it closed the
+# question for everyone who runs Claude Code in Warp, and the way left was a typed command (field report, 3.5.0-rc.3).
+# Such a hook is let through only when ALL of this holds; anything else counts as found:
+#   * the file is a plugin's hooks/hooks.json in the plugin cache, with no backslash in it (no escaped spelling can
+#     hide a second key) and the event's name in it once, in any letter case;
+#   * its PermissionRequest entry, with the whitespace outside strings removed, is exactly _CREW_PRH_NOTIFY;
+#   * the script that entry runs, and every script it sources or runs, has the content pinned in _CREW_PRH_PINS, by
+#     git's blob id (git does the hashing, as for the review record: no other hasher is assumed).
+# Pinned from the plugin's public repository: the entry and the five scripts are the same from 2.1.0 to 2.4.0. A
+# version that changes any of them counts as found again until it is pinned here: a pin is a reading of that
+# version's scripts, never a name. The plugin's other events cannot answer a permission prompt.
+_CREW_PRH_NOTIFY='[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/on-permission-request.sh"}]}]'
+_CREW_PRH_PINS='7d46ed2c3c0fafb8f876d90f53b4e2fe3bfa9089 scripts/on-permission-request.sh
+13360e00a959ce23871d2addfbe21c9b1df46930 scripts/should-use-structured.sh
+9ad610ee79f4ba9b4b908309861d127c6e2cd0d4 scripts/build-payload.sh
+f65559a9a035118a7fb76a81827782f3fb2dc99c scripts/warp-notify.sh
+b6a83b986a1cec1285b36adc2f43bca7b2bf9972 scripts/emit-terminal-sequence.sh'
+_CREW_PRH_MEMO=""   # one answer per plugin folder in this process: the scan runs more than once per decision
+_crew_prh_notify_only(){  # $1 = a file the scan found, $2 = its text -> 0 when it is the known notify-only hook
+  local f="$1" t="$2" root rest seg out="" inq=0 m P l want="" got=""
+  local -a files=()
+  case "$f" in */plugins/cache/*/*/*/hooks/hooks.json) ;; *) return 1 ;; esac
+  root="${f%/hooks/hooks.json}"
+  case "$_CREW_PRH_MEMO" in *"|ok:$root|"*) return 0 ;; *"|no:$root|"*) return 1 ;; esac
+  _CREW_PRH_MEMO="$_CREW_PRH_MEMO|no:$root|"
+  case "$t" in *\\*) return 1 ;; esac
+  P='[Pp][Ee][Rr][Mm][Ii][Ss][Ss][Ii][Oo][Nn][Rr][Ee][Qq][Uu][Ee][Ss][Tt]'
+  rest="${t#*$P}"; case "$rest" in *$P*) return 1 ;; esac
+  # Whitespace outside strings goes; with no backslash, a string is plainly what lies between two quotes.
+  rest="$t"
+  while :; do
+    seg="${rest%%\"*}"
+    if [ "$inq" = 0 ]; then out="$out${seg//[[:space:]]/}"; else out="$out$seg"; fi
+    [ "$seg" = "$rest" ] && break
+    out="$out\""; rest="${rest#*\"}"; inq=$((1-inq))
+  done
+  m="${out#*\"PermissionRequest\":}"; [ "$m" != "$out" ] || return 1
+  case "$m" in "$_CREW_PRH_NOTIFY"[,}]*) ;; *) return 1 ;; esac
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    [ -f "$root/${l#* }" ] || return 1
+    want="$want${l%% *}"$'\n'; files+=("$root/${l#* }")
+  done <<< "$_CREW_PRH_PINS"
+  got="$(git hash-object --no-filters -- "${files[@]}" 2>/dev/null)" || return 1
+  [ -n "$got" ] && [ "$got"$'\n' = "$want" ] || return 1
+  _CREW_PRH_MEMO="$_CREW_PRH_MEMO|ok:$root|"
 }
 _crew_prh_fm(){  # $1 = a markdown file -> _FM: its front matter, "" when it has none
   local l n=0
@@ -521,7 +572,9 @@ _crew_prh_scan(){  # -> 0 when a PermissionRequest hook may be wired; _PRH names
   shopt -q nullglob && ng=1; shopt -s nullglob
   for f in "$u"/plugins/cache/*/*/*/*.json "$u"/plugins/cache/*/*/*/hooks/*.json "$u"/plugins/cache/*/*/*/.claude-plugin/*.json; do
     t=""; IFS= read -r -d '' t < "$f" || true
-    _crew_prh_text json "$t" && { _PRH="$f"; r=0; break; }
+    _crew_prh_text json "$t" || continue
+    _crew_prh_notify_only "$f" "$t" && continue
+    _PRH="$f"; r=0; break
   done
   if [ "$r" = 1 ]; then
     for f in "$p"/.claude/skills/*/SKILL.md "$p"/.claude/agents/*.md "$p"/.claude/agents/*/*.md "$p"/.claude/commands/*.md "$p"/.claude/commands/*/*.md \
@@ -540,7 +593,7 @@ _crew_prh_scan(){  # -> 0 when a PermissionRequest hook may be wired; _PRH names
 # guard-bash.sh offers it in a refusal; agent-outcome.sh offers it when crew-commit-agent is called in `auto`, so the
 # click is on offer before any commit is tried (B-2, a real session: with the refusal as the only way to it, a session
 # that asked for /crew-approve first never showed it). The text the user is asked stays _CREW_Q_JSON, here only.
-_CREW_Q_HERE="${BASH_SOURCE[0]%/*}"; [ "$_CREW_Q_HERE" = "${BASH_SOURCE[0]}" ] && _CREW_Q_HERE=.
+_CREW_Q_HERE="${BASH_SOURCE[0]//\\//}"; _CREW_Q_HERE="${_CREW_Q_HERE%/*}"; [ "$_CREW_Q_HERE" = "${BASH_SOURCE[0]//\\//}" ] && _CREW_Q_HERE=.
 _crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (guard-question.sh, then this file)
   local f t d="${CLAUDE_PROJECT_DIR:-.}"
   d="${d//\\//}"; d="${d%/}"
@@ -548,6 +601,38 @@ _crew_q_wired(){  # 0 = a settings file wires both halves on AskUserQuestion (gu
     [ -n "$f" ] && [ -f "$f" ] || continue
     t=""; IFS= read -r -d '' t < "$f" || true
     case "$t" in *'"PreToolUse"'*AskUserQuestion*guard-question.sh*'"PostToolUse"'*AskUserQuestion*prompt-approval.sh*) return 0 ;; esac
+  done
+  return 1
+}
+# A BACKGROUND SESSION (claude --bg, the agent view, a session the phone reaches). Claude Code marks it unattended
+# (CLAUDE_CODE_SESSION_ATTENDED=0), the same mark as `claude -p` and the SDK, where a program answers a question by
+# itself (canUseTool) and no person is involved at all. Measured on 2.1.319: what does tell a background session apart
+# is Claude Code's own record of it, ~/.claude/sessions/<pid>.json, with "kind":"bg" and a "jobId" whose folder is
+# under ~/.claude/jobs; a -p session has no job. So the CLICK (the approval question) is open there; the typed
+# approval is not, since another session can send a background session a message.
+# HONEST SCOPE, measured the same day: a program that drives a terminal can answer that question, and the hook cannot
+# tell its answer from a tap. That is the driven-terminal limit this file already names for an interactive session.
+# guard-bash.sh refuses the forms of it a command shows (another session's screen or socket); a program that hides
+# them is past it. The record is a file of the user's, so a program can
+# also write one. Both are deliberate circumvention, not an accident.
+_crew_bg_session(){  # $1 = session id -> 0 when Claude Code's own record says this live session is a background job
+  local sid="$1" d f l p j
+  case "$sid" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  d="${CLAUDE_CONFIG_DIR:-${HOME:+$HOME/.claude}}"; d="${d//\\//}"
+  [ -n "$d" ] && [ -d "$d/sessions" ] || return 1
+  for f in "$d"/sessions/*.json; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    l=""; IFS= read -r -d '' l < "$f" || true
+    case "$l" in *"\"sessionId\":\"$sid\""*) ;; *) continue ;; esac
+    case "$l" in *'"kind":"bg"'*) ;; *) return 1 ;; esac
+    p="${f##*/}"; p="${p%.json}"; case "$p" in ''|*[!0-9]*) return 1 ;; esac
+    case "$l" in *"\"pid\":$p,"*) ;; *) return 1 ;; esac
+    j="${l#*\"jobId\":\"}"; [ "$j" != "$l" ] || return 1; j="${j%%\"*}"
+    case "$j" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+    [ -d "$d/jobs/$j" ] || return 1
+    [ -z "${CLAUDE_JOB_DIR:-}" ] || [ "${CLAUDE_JOB_DIR%/}" = "$d/jobs/$j" ] || return 1
+    kill -0 "$p" 2>/dev/null || return 1
+    return 0
   done
   return 1
 }
@@ -605,11 +690,25 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
                          qno "in $PM, with a PermissionRequest hook that may be wired ($_PRH), only the typed approval counts." ;;
     *) qno "in ${PM:-an unknown mode} this approval is not open (bypassPermissions and plan fail closed)." ;;
   esac
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) qno "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || qno "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ;; esac
   case "$SID$_QTU" in *[!A-Za-z0-9._-]*) qno "the call carries no session or tool id this hook can bind the answer to." ;; esac
   { [ -n "$SID" ] && [ -n "$_QTU" ]; } || qno "the call carries no session or tool id this hook can bind the answer to."
   _crew_prh_scan && qno "a PermissionRequest hook may be wired ($_PRH). Such a hook can answer the question before the user does, and the answer cannot be told from a click."
-  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\n' "$SID" "$_QTU" "$_QNOW" > "$ASKED"; } 2>/dev/null \
+  # WHAT THE QUESTION IS ABOUT, written down when it is asked: the tree the index writes and HEAD. The answer is
+  # recorded only if both are still the same, however long the user took (a question asked at night is answered in
+  # the morning); a change in between is a different thing from what the user was shown, so it is asked again.
+  local _qh _qt _qe _qb
+  _qh="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
+  _qb="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)" || _qb=""; [ -n "$_qb" ] || _qb=-
+  case "$_qb" in *[!A-Za-z0-9._/+@-]*) qno "the branch name could not be written down." ;; esac
+  case "$_qh" in NONE) ;; *[!0-9a-f]*|'') qno "git could not name HEAD here." ;; esac
+  _qt="$(git -C "$CWD" -c core.fsmonitor= write-tree 2>/dev/null)"
+  case "$_qt" in *[!0-9a-f]*|'') qno "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
+  if [ "$_qh" = NONE ]; then _qe=4b825dc642cb6eb9a060e54bf8d69288fbee4904; else _qe="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
+  # NOTHING STAGED: every commit answer would be refused after the user gave it (field: 35 times in three projects,
+  # most of them "Commit + push" for a commit already made). So the question is not asked; a push alone is typed.
+  [ "$_qt" = "$_qe" ] && qno "nothing is staged, so there is no commit to approve. If the commit is already made and only the push is wanted, ask with no question: the user can type /crew-approve push as their whole message; to commit, stage the change with git add, show the commit message, then ask again." nohint
+  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" > "$ASKED"; } 2>/dev/null \
     || qno "the state folder could not be written, so the answer could not be bound to this question."
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
     "Crewforth §4.4: only the person in front of this session answers the approval question."
@@ -621,6 +720,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
 # Whatever records an approval says why when it does not - to the user and to the model - instead of leaving a
 # commit to fail later with no explanation. EVN is the event this hook answers, SRC what the user gave.
 EVN=UserPromptSubmit; SRC="message"; SRC_BY="in their own message"
+_PA_BGQ=""                      # set only by the question route, below; never taken from the environment
 say(){  # $1 = for the user, $2 = for the model. Both are built from fixed text and values checked below.
   printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$1" "$EVN" "$2"
   exit 0
@@ -652,8 +752,8 @@ _pa_record(){
   #      first message and the session is not one that keeps no transcript.
   # HONEST SCOPE: a session started with an emptied environment and driven through a pseudo-terminal for a second
   # message passes both. guard-bash.sh refuses the forms of that it can read; a program that types is past it.
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in
-    0) no "this session has nobody in front of it (it was started with -p, or by a program), and an approval is what a person types into their own session." ;;
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}${_PA_BGQ:-}" in
+    0) no "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal), and an approval is what a person types into their own session." ;;
   esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "this is the first message of this session, or the session keeps no transcript (one started from inside another session keeps none). An approval answers a commit message the session has shown: have it shown, then approve."
@@ -665,19 +765,26 @@ _pa_record(){
 
   HEAD_NOW="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
   case "$HEAD_NOW" in NONE) ;; *[!0-9a-f]*|'') no "git could not name HEAD here." ;; esac
+  [ -n "$ASK_HEAD" ] && [ "$HEAD_NOW" != "$ASK_HEAD" ] && no "HEAD moved after the approval was asked for, so the answer is not about this branch as it is now. Ask again."
+  if [ -n "$ASK_BRANCH" ]; then
+    _cb="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)" || _cb=""; [ -n "$_cb" ] || _cb=-
+    [ "$_cb" = "$ASK_BRANCH" ] || no "the branch changed after the approval was asked for ($ASK_BRANCH, now $_cb). Ask again."
+  fi
   TREE=""; BR=""; RM=""; URL=""
   case "$OP" in commit*)
     # THE TREE THE INDEX WRITES, not the text of the staged diff: what `git diff` prints is configurable
     # (`diff.external`, a textconv filter), and with it two different staged changes can print the same text.
-    TREE="$(git -C "$CWD" write-tree 2>/dev/null)"
+    TREE="$(git -C "$CWD" -c core.fsmonitor= write-tree 2>/dev/null)"
     case "$TREE" in *[!0-9a-f]*|'') no "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
     if [ "$HEAD_NOW" = NONE ]; then _ht=4b825dc642cb6eb9a060e54bf8d69288fbee4904      # the empty tree
     else _ht="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
     # A commit+push with nothing staged is most often a push alone, answered with the option people pick first (field
     # report, 3.2.1: twice in a row). It is not turned into a push approval, which the user did not give; the line
     # names the one they can.
+    # What was asked about, or refused, is what is approved: the staged tree written down then is the one now.
+    [ -n "$ASK_TREE" ] && [ "$TREE" != "$ASK_TREE" ] && no "what is staged changed after the approval was asked for, so the answer is not about what is staged now. Show the commit message again and ask again."
     if [ "$TREE" = "$_ht" ]; then
-      [ "$OP" = commit+push ] && no "nothing is staged, so there is no commit to approve. For a push of the branch as it is, the answer is Push only (or the user can type /crew-approve push); for a commit, stage it with git add, show the commit message, then ask again."
+      [ "$OP" = commit+push ] && no "nothing is staged, so there is no commit to approve. For a push of the branch as it is, the user can type /crew-approve push; for a commit, stage it with git add, show the commit message, then ask again."
       no "nothing is staged, so there is nothing to approve. Stage the change with git add, show the commit message, then ask again."
     fi ;;
   esac
@@ -735,20 +842,24 @@ _pa_record(){
 # ---- THE APPROVAL QUESTION (PreToolUse and PostToolUse of AskUserQuestion) -----------------------------------
 # Only the fixed question is this hook's business: any other question gets no decision from it, here or later.
 _pa_question(){
-  local _as="" _at="" _au="" _al _an
+  local _as="" _at="" _au="" _al _an _aq="" _ah="" _ab=""
   _crew_q_ctx
   # PostToolUse: the user has answered. Recorded only if THIS call was asked by the half above.
   SRC="answer to the approval question"; SRC_BY="by answering the approval question"; OP="a commit or a push"
   [ -n "$SID" ] && [ -n "$_QTU" ] || no "the answer carries no session or tool id."
   if [ -f "$ASKED" ]; then
     while IFS= read -r _al || [ -n "$_al" ]; do
-      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; esac
+      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; esac
     done < "$ASKED"
   fi
   { [ "$_as" = "$SID" ] && [ "$_au" = "$_QTU" ]; } || no "Crewforth did not ask this question (guard-question.sh, its PreToolUse half, is not wired or did not pass it), so the answer cannot be shown to have come from the user."
   : > "$ASKED" 2>/dev/null                                 # one question, one answer
   case "$_at$_QNOW" in *[!0-9]*|'') no "the time of the question could not be read." ;; esac
-  [ $((_QNOW - _at)) -ge 0 ] && [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."
+  [ $((_QNOW - _at)) -ge 0 ] || no "the time of the question is in the future."
+  # A question written down with its tree and HEAD holds until the answer, however long that takes: _pa_record
+  # compares them. One written before that (no tree, no head) keeps the old 30 minutes.
+  if [ -n "$_aq" ] && [ -n "$_ah" ] && [ -n "$_ab" ]; then ASK_TREE="$_aq"; ASK_HEAD="$_ah"; ASK_BRANCH="$_ab"
+  else [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."; fi
   _crew_q_is "$INPUT" || no "the question answered is not the fixed one."
   [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
   _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
@@ -761,7 +872,7 @@ _pa_question(){
     no) [ -n "$REC" ] && { : > "$REC"; } 2>/dev/null
         say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
   esac
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) no "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || no "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ; _PA_BGQ=1 ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
   BARE=0
@@ -858,10 +969,10 @@ _crew_appr_op "$_JU"
 # that class from here, so the old failures do not raise it straight back.
 if [ "$OP" = loosen ]; then
   nol(){ say "Crewforth: floor NOT lowered - $1" "The user sent the command only the user can type /crew-loosen, for $LO_AGENT $LO_CHANGE $LO_RISK, and Crewforth did not lower anything: $1 Tell the user exactly that."; }
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || nol "this is the first message of this session, or the session keeps no transcript."
-  _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
+  _lh="${BASH_SOURCE//\\//}"; _lh="${_lh%/*}"; [ "$_lh" = "${BASH_SOURCE//\\//}" ] && _lh=.
   [ -f "$_lh/guard-agent-model.sh" ] || nol "model routing is not installed beside this hook."
   [ "${CREW_MODEL_ROUTING:-}" = off ] && nol "model routing is switched off (CREW_MODEL_ROUTING=off), so no floor is in force."
   CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"; . "$_lh/guard-agent-model.sh"
@@ -902,10 +1013,10 @@ fi
 # + % - and spaces, so it can neither chain another (the gate would refuse a chain anyway) nor need escaping here.
 if [ "$OP" = allowverify ]; then
   noa(){ say "Crewforth: verify command NOT allowed - $1" "The user sent the command only the user can type /crew-allow-verify, and Crewforth added no rule: $1 Tell the user exactly that."; }
-  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) noa "this session has nobody in front of it (it was started with -p, or by a program)." ;; esac
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) noa "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || noa "this is the first message of this session, or the session keeps no transcript."
-  _lh="${BASH_SOURCE%/*}"; [ "$_lh" = "${BASH_SOURCE}" ] && _lh=.
+  _lh="${BASH_SOURCE//\\//}"; _lh="${_lh%/*}"; [ "$_lh" = "${BASH_SOURCE//\\//}" ] && _lh=.
   [ -f "$_lh/../eval/lib/verify-cmd.sh" ] || noa "Crewforth's verify reading is not installed beside this hook (eval/lib/verify-cmd.sh)."
   . "$_lh/../eval/lib/verify-cmd.sh"
   _avr="${CLAUDE_PROJECT_DIR:-$CWD}"; _avr="${_avr//\\//}"; _avr="${_avr%/}"
@@ -921,7 +1032,7 @@ if [ "$OP" = allowverify ]; then
     _avm=""; [ "$_avx" -gt 0 ] && _avm=" $_avx more hold a character this command does not write; those lines go into .claude/crew-model-rules by hand, as verify <command>."
     say "Crewforth: verify commands refused for want of a rule:${_avl:- none in a form this command writes}.$_avm" "The user sent the command only the user can type, /crew-allow-verify, with nothing after it. Show them, in their language, the lines in Crewforth's message, one per line, as they stand: $_avwho. Do not type one for them."
   fi
-  case "$AV_CMD" in *[\;\&\|\<\>\`]*|*'$('*) noa "this is more than one command (a ; & | < > or a substitution): the hook runs a verify command alone, so no rule makes it run a chain. Give the card a single command, or a script that holds the chain." ;; esac
+  case "$AV_CMD" in *[\;\&\|\<\>\`]*|*'$('*) noa "this is more than one command (a ; & | < > or a substitution): a rule names one command. A card's verify may join steps with &&, and each step is allowed by its own rule: the user can type /crew-allow-verify once for each." ;; esac
   _avok "$AV_CMD" || noa "'${AV_CMD//[!A-Za-z0-9 ._\/=:,@+%-]/?}' is not one plain command (letters, digits, . _ / = : , @ + % - and spaces only, not starting with -). Write such a line into .claude/crew-model-rules by hand, as verify <command>."
   case " $AV_CMD " in *" git commit "*|*" git push "*) noa "a git commit or push is never a verify command: the hook does not commit or push." ;; esac
   crew_verify_open_ended "$AV_CMD" && noa "a rule '$AV_CMD' would let the hook run any command that begins with it (an interpreter, a shell, a wrapper or a package runner, with nothing after it that names the file or the task). Name the script or the test: bash tools/check.sh, npm test, pytest tests/."
@@ -936,13 +1047,14 @@ if [ "$OP" = allowverify ]; then
   # Said only when it is TRUE: the line is read back from the file.
   _avh=0; while IFS= read -r _avl || [ -n "$_avl" ]; do [ "${_avl%$'\r'}" = "verify $AV_CMD" ] && _avh=1; done < "$_avf"
   [ "$_avh" = 1 ] || noa "the line was written but is not read back from .claude/crew-model-rules."
-  say "Crewforth: verify command allowed - the hook may now run: $AV_CMD (the line is in .claude/crew-model-rules)." "The user allowed the verify command $AV_CMD with their own command; Crewforth added the line verify $AV_CMD to .claude/crew-model-rules. From the next agent call, the hook runs it when a card names it, and judges the result. Tell the user that in one line. A deny rule of the settings still stops it, and it is still run alone, with no chain."
+  say "Crewforth: verify command allowed - the hook may now run: $AV_CMD (the line is in .claude/crew-model-rules)." "The user allowed the verify command $AV_CMD with their own command; Crewforth added the line verify $AV_CMD to .claude/crew-model-rules. From the next agent call, the hook runs it when a card names it, and judges the result. Tell the user that in one line. A deny rule of the settings still stops it, and in a card's verify it runs as one step of a && chain or alone, never after ; | or ||."
 fi
 
 # ---- `/crew-approve` with nothing after it: what this session was last refused ---------------------------------
 # guard-bash.sh, when it refuses a commit or a push in auto / dontAsk, writes down what it refused
 # (.claude/state/crew-approval-pending: the session, commit | push | commit+push, the second). The bare command
-# approves THAT and nothing else: the same session's, not older than 30 minutes. What is approved is therefore
+# approves THAT and nothing else: the same session's, with HEAD, the branch and (for a commit) the staged tree still
+# as they were when it was refused — or, for a record that does not carry them, not older than 30 minutes. What is approved is therefore
 # never read from the message and never from the model: the gate wrote it, from the command it refused. From here
 # on the flow is the one a spelled-out approval takes, with every proof it asks for (the mode, a session that is
 # attended, a transcript on disk) and the same record at the end.
@@ -956,7 +1068,7 @@ if [ "$OP" = pending ]; then
   _bs=""; _bo=""; _bt=""
   if [ -f "$_bp" ]; then
     while IFS= read -r _bl || [ -n "$_bl" ]; do
-      case "$_bl" in sid=*) _bs="${_bl#sid=}" ;; op=*) _bo="${_bl#op=}" ;; ts=*) _bt="${_bl#ts=}" ;; esac
+      case "$_bl" in sid=*) _bs="${_bl#sid=}" ;; op=*) _bo="${_bl#op=}" ;; ts=*) _bt="${_bl#ts=}" ;; tree=*) ASK_TREE="${_bl#tree=}" ;; head=*) ASK_HEAD="${_bl#head=}" ;; branch=*) ASK_BRANCH="${_bl#branch=}" ;; esac
     done < "$_bp"
   fi
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _bn '%(%s)T' -1; else _bn="$(date +%s)"; fi
@@ -964,7 +1076,16 @@ if [ "$OP" = pending ]; then
   case "$_bo" in commit|push|commit+push) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
   { [ -n "$_bsid" ] && [ "$_bs" = "$_bsid" ]; } || no "what is waiting for approval was refused in another session, not this one. Nothing is approved; have it tried here first."
   case "$_bt$_bn" in *[!0-9]*|'') no "the time of what is waiting could not be read." ;; esac
-  [ $((_bn - _bt)) -ge 0 ] && [ $((_bn - _bt)) -le 1800 ] || no "what was waiting for approval ($_bo) is more than 30 minutes old. Nothing is approved; have it tried again first."
+  [ $((_bn - _bt)) -ge 0 ] || no "the time of what is waiting is in the future."
+  # Written down with HEAD and the branch (and, for a commit, the staged tree) when it was refused: it holds until the
+  # user approves, however long that takes, as long as those are unchanged (_pa_record compares them). A record
+  # without them — an older one, or a commit whose tree could not be written — keeps 30 minutes, and compares nothing.
+  case "$_bo" in commit*) [ -n "$ASK_TREE" ] || ASK_HEAD="" ;; esac
+  [ -n "$ASK_BRANCH" ] || ASK_HEAD=""
+  [ -n "$ASK_HEAD" ] || { ASK_TREE=""; ASK_BRANCH=""; }
+  if [ -z "$ASK_HEAD" ]; then
+    [ $((_bn - _bt)) -le 1800 ] || no "what was waiting for approval ($_bo) is more than 30 minutes old. Nothing is approved; have it tried again first."
+  fi
   OP="$_bo"                                                 # used up further down, once the approval is on record
 fi
 

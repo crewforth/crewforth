@@ -15,6 +15,8 @@
 # are different answers, and only one of them belongs on a security surface.
 # Usage:  bash scan-skill.sh [path]   (default: .claude)
 set -uo pipefail
+# The C locale, so the byte patterns below are matched as bytes and `-i` folds ASCII only (as in every other gate).
+export LC_ALL=C
 TARGET="${1:-.claude}"
 
 # --- pattern groups (ERE) ------------------------------------------------------------------------------------
@@ -31,10 +33,50 @@ CRIT='(curl|wget|fetch)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(bash|sh|zsh|python
 # an ordinary outbound URL stays LOW: measured against Crewforth's own payload, this flags 0 of 59 files, and the
 # two places Crewforth itself names WebFetch (a `tools:` line and a `Requires-tool` marker) are untouched.
 HIGH='ignore[[:space:]]+(all[[:space:]]+)?(the[[:space:]]+)?(previous|prior|above)[[:space:]]+(instruction|prompt)|disregard[[:space:]]+(the[[:space:]]+|all[[:space:]]+)?(previous|above|prior)|ignore[[:space:]]+your[[:space:]]+(system[[:space:]]+)?(prompt|instruction)|(cat|less|more|tail|head|base64|xxd|od|strings|curl|wget|scp|cp|rsync)[^|]*(~/\.ssh|id_rsa|/etc/(passwd|shadow)|\.aws/credentials|\.netrc|\.git-credentials)|(~/\.ssh|id_rsa|/etc/(passwd|shadow)|\.aws/credentials|\.netrc|\.git-credentials)[^|]{0,80}(curl|wget|scp|nc |netcat|base64|exfiltrat)|base64[[:space:]]+-[A-Za-z]*d[^|]*\||(curl|wget)[[:space:]][^|]*https?://[^[:space:]]*\.(md|txt|ya?ml|json)|(WebFetch|web_fetch)[^|]{0,120}(instruction|prompt|then follow|steps to follow)'
+# A HIDDEN INSTRUCTION in an HTML comment: it renders as nothing in a Markdown preview and in a PR's rich diff, and the
+# model reads it like any other line. Only a comment that OPENS on an imperative is flagged, so Crewforth's own
+# machine-readable markers (`<!-- routing-eval …`, `<!-- Requires-tool …`) and explanatory comments stay clean.
+HIGH="$HIGH"'|<!--[[:space:]]*(ignore|disregard|forget|override|run|execute|send|post|upload|fetch|download|install|delete|remove|exfiltrate|you[[:space:]]+(must|should|are|will)|do[[:space:]]+not|always|never)([^a-z]|$)'
+# INVISIBLE TEXT, as UTF-8 bytes (one more grep, in the C locale): Unicode tag characters (U+E0000-E007F, which spell
+# ASCII nobody sees), bidi overrides and isolates (U+202A-202E, U+2066-2069, which reorder what an editor shows), and a
+# zero-width character (U+200B-200D, U+2060, U+FEFF) BETWEEN two letters, where it splits a word a pattern would catch
+# (`ign<ZWSP>ore previous instructions`). A BOM at the start of a file is not between letters and is not flagged.
+# Reported as a count only: printing the decoded text would put the hidden instruction in front of the reader.
+_ZW='('$'\xe2\x80\x8b''|'$'\xe2\x80\x8c''|'$'\xe2\x80\x8d''|'$'\xe2\x81\xa0''|'$'\xef\xbb\xbf'')'
+INVIS=$'\xf3\xa0[\x80\x81]|\xe2\x80[\xaa\xab\xac\xad\xae]|\xe2\x81[\xa6\xa7\xa8\xa9]|[A-Za-z]'"$_ZW"'+[A-Za-z]'
 # MED: named cloud/CI secret env vars, process.env secret access, chmod 777, code eval/exec.
 MED='(GITHUB_TOKEN|AWS_SECRET|AWS_ACCESS_KEY|NPM_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|SLACK_TOKEN)|process\.env\.[A-Za-z_]*(TOKEN|SECRET|KEY|PASSWORD)|chmod[[:space:]]+(-R[[:space:]]+)?0?777|[^a-zA-Z](eval|exec)[[:space:]]*\('
 # LOW: an outbound URL fetch or a raw socket — common in benign deploy/example prose, hence low weight.
 LOW='(^|[^a-zA-Z])(curl|wget)[[:space:]]+[^|]*https?://|/dev/tcp/|[^a-zA-Z]nc[[:space:]]+-[A-Za-z]*e'
+
+# FRONTMATTER: what a component asks the HOST for, read from its YAML header — one awk over all files. A `hooks:` or
+# `mcpServers:` key (it brings its own code to run), a `permissionMode:` other than default/plan/manual, and an
+# `allowed-tools:` entry that is a bare `Bash` or a `Bash(…)` rule with `*` in it (any command, or any arguments).
+# The one `*` rule not counted is a call of the component's OWN script: `Bash(bash ${CLAUDE_SKILL_DIR}/…)` reaches
+# only files that ship inside the skill, and the scan already reads those. Anywhere in the file, a `!`cmd`` line
+# counts too: it runs when the component loads, before anyone reads it.
+FM_AWK='
+function tools(v,   n, m, inner) {
+  n = 0; sub(/^[[:space:]]*-[[:space:]]*/, "", v)
+  if (v ~ /(^|[^A-Za-z])Bash([^A-Za-z(]|$)/) n++
+  if (v ~ /(^|[,[:space:]])\*([,[:space:]]|$)/) n++
+  while (match(v, /Bash\([^)]*\)/)) {
+    inner = substr(v, RSTART + 5, RLENGTH - 6); v = substr(v, RSTART + RLENGTH)
+    if (inner ~ /\*/ && inner !~ /^((bash|sh)[[:space:]]+)?\$\{CLAUDE_SKILL_DIR\}\//) n++
+  }
+  return n }
+FNR == 1 { if (NR > 1) print f ":" c; f = FILENAME; c = 0; key = ""; sub(/^\357\273\277/, ""); fm = ($0 ~ /^---[[:space:]]*$/); if (fm) next }
+fm && /^---[[:space:]]*$/ { fm = 0; next }
+fm {
+  if ($0 ~ /^[A-Za-z]/) { key = $0; sub(/:.*/, "", key) }
+  if ($0 ~ /^(hooks|mcpServers):/) c++
+  if ($0 ~ /^permissionMode:/) { v = $0; sub(/^permissionMode:/, "", v); gsub(/["\047[:space:]]/, "", v)
+    if (v != "" && v != "default" && v != "plan" && v != "manual") c++ }
+  if (key == "allowed-tools") { v = $0; sub(/^allowed-tools:/, "", v); c += tools(v) }
+}
+/(^|[[:space:]])!`[^`]+`/ { c++ }
+END { if (NR > 0) print f ":" c }'
+fm_counts(){ awk "$FM_AWK" "$@" 2>/dev/null; return 0; }   # `path:count` per non-empty file, in the order given
 
 FAIL=0; N=0
 # The score ranks; the SEVERITY decides. A single HIGH costs 10 points and lands on exactly 90 — the SAFE line —
@@ -81,36 +123,38 @@ emit(){        # prints one line per file, in FILES order, from the four count a
   while [ "$i" -lt "${#FILES[@]}" ]; do
     f="${FILES[$i]}"
     c="${CNT_C[$i]:-0}"; h="${CNT_H[$i]:-0}"; m="${CNT_M[$i]:-0}"; l="${CNT_L[$i]:-0}"
+    report "$f" "$c" "$h" "${CNT_I[$i]:-0}" "${CNT_F[$i]:-0}" "$m" "$l"
     i=$((i+1))
-    score=$((100 - c*20 - h*10 - m*3 - l*1)); [ "$score" -lt 0 ] && score=0
-    v="$(verdict "$score" "$c" "$h")"
-    N=$((N+1))
-    case "$v" in
-      SAFE)   printf '  ✅ %-3s %s\n' "$score" "$f" ;;
-      REVIEW) printf '  ⚠️  %-3s %s  (crit:%s high:%s med:%s low:%s) — REVIEW\n' "$score" "$f" "$c" "$h" "$m" "$l"; FAIL=1 ;;
-      DANGER) printf '  ❌ %-3s %s  (crit:%s high:%s med:%s low:%s) — DANGER\n' "$score" "$f" "$c" "$h" "$m" "$l"; FAIL=1 ;;
-    esac
   done
+}
+
+# One file's line. Invisible text and frontmatter requests score as HIGH and are named beside the counts: the reader
+# cannot see the first in an editor, and should not have to guess which header line the second is.
+report(){      # $1 file, $2 crit, $3 high, $4 invisible, $5 frontmatter, $6 med, $7 low
+  local f="$1" c="$2" h=$(( $3 + $4 + $5 )) m="$6" l="$7" score v x=""
+  [ "$4" -gt 0 ] && x="$x · invisible characters: $4"
+  [ "$5" -gt 0 ] && x="$x · frontmatter requests: $5"
+  score=$((100 - c*20 - h*10 - m*3 - l*1)); [ "$score" -lt 0 ] && score=0
+  v="$(verdict "$score" "$c" "$h")"
+  N=$((N+1))
+  case "$v" in
+    SAFE)   printf '  ✅ %-3s %s\n' "$score" "$f" ;;
+    REVIEW) printf '  ⚠️  %-3s %s  (crit:%s high:%s med:%s low:%s%s) — REVIEW\n' "$score" "$f" "$c" "$h" "$m" "$l" "$x"; FAIL=1 ;;
+    DANGER) printf '  ❌ %-3s %s  (crit:%s high:%s med:%s low:%s%s) — DANGER\n' "$score" "$f" "$c" "$h" "$m" "$l" "$x"; FAIL=1 ;;
+  esac
 }
 
 # A single file keeps the old path: grep prints a bare count with one argument, so the batch parser would have to
 # special-case it anyway, and one file means one process either way.
 scan_file(){
   local f="$1"
-  local c h m l
+  local c h m l iv fm
   # grep -c prints the count (0 on no match) and exits 1 on no match; that non-zero exit is fine here (no set -e),
   # and a `|| echo 0` would DOUBLE the printed 0 and break the arithmetic — so don't add one.
   c=$(grep -icE "$CRIT" "$f" 2>/dev/null); h=$(grep -icE "$HIGH" "$f" 2>/dev/null)
   m=$(grep -icE "$MED"  "$f" 2>/dev/null); l=$(grep -icE "$LOW"  "$f" 2>/dev/null)
-  c=${c:-0}; h=${h:-0}; m=${m:-0}; l=${l:-0}
-  local score=$((100 - c*20 - h*10 - m*3 - l*1)); [ "$score" -lt 0 ] && score=0
-  local v; v="$(verdict "$score" "$c" "$h")"
-  N=$((N+1))
-  case "$v" in
-    SAFE)   printf '  ✅ %-3s %s\n' "$score" "$f" ;;
-    REVIEW) printf '  ⚠️  %-3s %s  (crit:%s high:%s med:%s low:%s) — REVIEW\n' "$score" "$f" "$c" "$h" "$m" "$l"; FAIL=1 ;;
-    DANGER) printf '  ❌ %-3s %s  (crit:%s high:%s med:%s low:%s) — DANGER\n' "$score" "$f" "$c" "$h" "$m" "$l"; FAIL=1 ;;
-  esac
+  iv=$(grep -cE "$INVIS" "$f" 2>/dev/null); fm=$(fm_counts "$f"); fm="${fm##*:}"
+  report "$f" "${c:-0}" "${h:-0}" "${iv:-0}" "${fm:-0}" "${m:-0}" "${l:-0}"
 }
 
 echo "== skill/agent security scan: $TARGET =="
@@ -141,12 +185,15 @@ elif [ -d "$TARGET" ]; then
     ST="$(mktemp -d)"
     counts_of "$CRIT" "$ST/c"; counts_of "$HIGH" "$ST/h"
     counts_of "$MED"  "$ST/m"; counts_of "$LOW"  "$ST/l"
+    grep -cHE "$INVIS" -- "${FILES[@]}" > "$ST/i" 2>/dev/null; fm_counts "${FILES[@]}" > "$ST/f"
     read_counts "$ST/c" CNT_C; NC=$RC_N;  read_counts "$ST/h" CNT_H; NH=$RC_N
     read_counts "$ST/m" CNT_M; NM=$RC_N;  read_counts "$ST/l" CNT_L; NL=$RC_N
+    read_counts "$ST/i" CNT_I; NI=$RC_N;  read_counts "$ST/f" CNT_F; NF=$RC_N
     rm -rf "$ST"
     # If grep skipped a file (unreadable, vanished mid-run) the rows no longer line up with FILES, and a silently
-    # misaligned count would score the wrong file. Fall back to the per-file path rather than report a guess.
-    if [ "$NC" = "${#FILES[@]}" ] && [ "$NH" = "$NC" ] && [ "$NM" = "$NC" ] && [ "$NL" = "$NC" ]; then
+    # misaligned count would score the wrong file. Fall back to the per-file path rather than report a guess. awk
+    # prints nothing for an empty file, so one empty file sends the whole run down that path: correct, only slower.
+    if [ "$NC" = "${#FILES[@]}" ] && [ "$NH" = "$NC" ] && [ "$NM" = "$NC" ] && [ "$NL" = "$NC" ] && [ "$NI" = "$NC" ] && [ "$NF" = "$NC" ]; then
       emit
     else
       for f in "${FILES[@]}"; do scan_file "$f"; done

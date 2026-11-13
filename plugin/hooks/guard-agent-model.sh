@@ -28,7 +28,11 @@
 #     the commit-msg hook (seen on a real project: a commit message proposed on sonnet for that reason alone).
 #   * a class that failed too often is held one model up (crew-model-floors.auto, written by hooks/agent-outcome.sh),
 #     until the user lowers it again with /crew-loosen (one model, once for each raise).
-#   * a card whose verify failed is not run again on the same or a lower model, and not a third time at all.
+#   * a card whose verify failed is not run again on the same or a lower model, and not after the repeat one
+#     model up. EFFORT BEFORE MODEL: a first run that named an effort below `high` may be repeated once on the same
+#     model at `high`; then one model up; then the user. A run whose effort is unknown goes one model up, as before.
+#   * CLAUDE_CODE_SUBAGENT_MODEL_FORCE runs every subagent on one model, whatever the call names: the gate judges
+#     that model, and refuses when it is below the card's floor, since no model in the call can change it.
 #   * critical work with a verify command is not sent to the background (run_in_background true), where its
 #     result does not reach the session. A call that leaves the field out passes: not every Agent tool has it.
 # THE WORDING IS READ BY ANOTHER PROGRAM (the Studio panel): a refusal is one line that begins
@@ -42,6 +46,7 @@
 # SWITCHES, read from the session's environment:
 #   CREW_MODEL_ROUTING=off   nothing here does anything, which is how it was before 3.1.0.
 #   CREW_ALLOW_FABLE=1       `fable` may be named; without it a call that names it is refused.
+#   CLAUDE_CODE_EFFORT_LEVEL Claude Code's own: it outranks the call's `effort`, so the gate reads the effort from it.
 # HONEST SCOPE: the card is written by the caller and can be wrong. The write-time check and the verify command are
 # what bound that; neither reads intent.
 set -uo pipefail
@@ -352,6 +357,15 @@ _am_rank(){  # $1 = haiku|sonnet|opus|fable -> _AMR 1..4, 0 for anything else
   case "$1" in haiku) _AMR=1 ;; sonnet) _AMR=2 ;; opus) _AMR=3 ;; fable) _AMR=4 ;; *) _AMR=0 ;; esac; }
 _am_name(){  # $1 = 1..4 -> _AMN
   case "$1" in 1) _AMN=haiku ;; 2) _AMN=sonnet ;; 3) _AMN=opus ;; 4) _AMN=fable ;; *) _AMN="" ;; esac; }
+_am_erank(){  # $1 = low|medium|high|xhigh|max -> _AME 1..5, 0 for anything else (an effort nobody named)
+  case "$1" in low) _AME=1 ;; medium) _AME=2 ;; high) _AME=3 ;; xhigh) _AME=4 ;; max) _AME=5 ;; *) _AME=0 ;; esac; }
+_am_forced(){  # -> _AMFORCE: the tier every subagent is forced onto, "" when nothing forces one, "?" when unreadable
+  # CLAUDE_CODE_SUBAGENT_MODEL alone is a DEFAULT, below the call's own model (Claude Code 2.1.251 and later).
+  # With CLAUDE_CODE_SUBAGENT_MODEL_FORCE also set, every subagent runs on it, whatever the call names.
+  _AMFORCE=""
+  case "${CLAUDE_CODE_SUBAGENT_MODEL_FORCE:-}" in ''|0|false|FALSE|False) return 0 ;; esac
+  [ -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ] || return 0
+  _am_tier "$CLAUDE_CODE_SUBAGENT_MODEL"; _AMFORCE="${_AMT:-?}"; return 0; }
 _am_tier(){  # $1 = a model as a call or a transcript names it -> _AMT haiku|sonnet|opus|fable, "" unknown
   local nc=0; shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$1" in *haiku*) _AMT=haiku ;; *sonnet*) _AMT=sonnet ;; *opus*) _AMT=opus ;; *fable*) _AMT=fable ;; *) _AMT="" ;; esac
@@ -426,10 +440,20 @@ _am_prose(){  # $1 = a path or a glob -> 0 when it is prose a person reads (the 
   case "$1" in *.md|*.MD|*.markdown|*.txt|*.TXT|*.rst|*.adoc) return 0 ;; esac
   return 1
 }
+# The files of a card without what is written in parentheses: `files: staged diff (branch docs/widget-privacy-texts)`
+# read the branch name as a path and `privacy` as a critical one, and `files: legal/x.md (only if needed)` read `(only`,
+# `if`, `needed)` as three files that are not prose (measured in the field on rc.4: 2 of 6 critical-path refusals, and
+# a legal note raised to opus). A note in parentheses is a note; a path is written outside them.
+_am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an unclosed ( dropping the rest
+  local x="$1" re='\([^()]*\)'
+  while [[ $x =~ $re ]]; do x="${x/"${BASH_REMATCH[0]}"/ }"; done
+  _AMUP="${x%%(*}"
+}
 _am_all_prose(){  # after _am_card -> 0 when every file of the card is prose
   local f r=0 unglob=0
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
-  for f in ${CARD_FILES//,/ }; do _am_prose "$f" || { r=1; break; }; done
+  _am_unparen "$CARD_FILES"
+  for f in ${_AMUP//,/ }; do _am_prose "$f" || { r=1; break; }; done
   [ "$unglob" = 1 ] && set +f
   return "$r"
 }
@@ -506,7 +530,7 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
   case "$CARD_CHANGE" in *' ('*')') v="${CARD_CHANGE%% (*}"; case "$_AM_CHANGES" in *" $v "*) CARD_CHANGE="$v" ;; esac ;; esac
   case "$_AM_CHANGES" in *" $CARD_CHANGE "*) ;; *) CARD_WHY="change: is '${CARD_CHANGE:0:40}', not one of:$_AM_CHANGES"; return 1 ;; esac
   [ -n "$CARD_VERIFY" ] || { CARD_WHY="verify: is empty (a command, or none)"; return 1; }
-  case "$CARD_VERIFY" in none|None|NONE|-|'none '*|'none('*|'None '*|'NONE '*) CARD_VERIFY=none ;; esac   # "none (the author ran it)" is none
+  case "$CARD_VERIFY" in none|None|NONE|-|'none '*|'none('*|'None '*|'NONE '*|[Nn]one[.,\;:]*|NONE[.,\;:]*) CARD_VERIFY=none ;; esac   # "none (the author ran it)", "none. main checkout" are none
   # Optional, right after the three: `above: <why>` keeps a model above the card's floor. Without it a call above
   # the floor is run on the floor (the cost of a model nobody needed is what this gate exists to stop).
   while [ -z "$CARD_ABOVE" ] && [ -n "$s" ]; do
@@ -516,6 +540,20 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     case "$l" in above:*) v="${l#above:}"; while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done; CARD_ABOVE="${v:0:200}" ;; esac
     break
   done
+  # ...or written anywhere in the card's own lines: `model: opus · above: <why> · effort: medium`, `model above: <why>`,
+  # `change: feature (above: opus — <why>)`. 12 calls on rc.4 wrote a reason this way and ran a model lower than asked
+  # without a word (measured). The reason runs to the end of its line, a ` · `, or a closing parenthesis.
+  if [ -z "$CARD_ABOVE" ]; then
+    local cl="$1" i=0 lr
+    while [ "$i" -lt 8 ] && [ -n "$cl" ]; do
+      lr="${cl%%$'\n'*}"; if [ "$lr" = "$cl" ]; then cl=""; else cl="${cl#*$'\n'}"; fi; i=$((i+1))
+      case "$lr" in *above:*)
+        v="${lr#*above:}"; v="${v%%' · '*}"; v="${v%%')'*}"
+        while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done
+        [ -n "$v" ] && { CARD_ABOVE="${v:0:200}"; break; } ;;
+      esac
+    done
+  fi
   return 0
 }
 _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
@@ -523,7 +561,8 @@ _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
   CARD_RISK=normal; CARD_RISKWHY=""
   case " migration security architecture fix-unknown " in *" $CARD_CHANGE "*) CARD_RISK=critical; CARD_RISKWHY="change: $CARD_CHANGE" ;; esac
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
-  for f in ${CARD_FILES//,/ }; do
+  _am_unparen "$CARD_FILES"
+  for f in ${_AMUP//,/ }; do
     if _am_crit_path "$f"; then CARD_RISK=critical; [ -n "$CARD_RISKWHY" ] || CARD_RISKWHY="$f is on a critical path: $_AMW"; fi
   done
   [ "$unglob" = 1 ] && set +f
@@ -543,13 +582,18 @@ _am_digest(){  # after _am_card -> CARD_ID: 12 hex of what the card says, so "th
 #     would have had an opus floor for it, so the way round the crew must not be the cheaper one. Nothing is raised.
 #   * It names no model, and the agent takes the session's (general-purpose, or a project or user agent whose
 #     definition has no model of its own): it runs on sonnet, unless the session itself is on haiku, read from the
-#     end of its transcript. An agent whose definition names a model (Explore, claude-code-guide) is left to it:
-#     a model in the call would override a cheaper one there.
+#     end of its transcript. An agent whose definition names a model (claude-code-guide, a project's Explore) is
+#     left to it: a model in the call would override a cheaper one there.
+#   * Explore is held to haiku, not sonnet: it searches and reads, which the vendor's model guidance gives to haiku.
+#     The built-in Explore has no model of its own (it takes the session's; opus when the session is on fable).
 # Measured on 2.1.299: a general-purpose call that named no model ran on the session's model; CLAUDE_CODE_SUBAGENT_MODEL
 # in the project's settings `env` did not change that (in the shell's environment it did), so the hook sets it.
 _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
-  local m pr to=sonnet ui name="$2" f d l ln inherit=0 tp last
+  local m pr to=sonnet ui name="$2" f d l ln inherit=0 tp last own=0
   case "$name" in ''|*[!A-Za-z0-9._-]*) name="an agent" ;; esac
+  # Explore only searches and reads: the vendor's guidance runs it on haiku, and the built-in one runs on the
+  # session's model (opus when the session is on fable), so it is held to haiku unless its task says why not.
+  [ "$name" = Explore ] && to=haiku
   _json_keycount "$1" prompt; [ "$_KC" = 1 ] || return 0
   _json_slice "$1" prompt >/dev/null; pr="${_JS:0:6000}"; _json_unescape "$pr" >/dev/null; pr=$'\n'"${_JU//$'\r'/}"
   case "$pr" in *$'\n'above:*|*$'\n'[$' \t']above:*) return 0 ;; esac
@@ -560,13 +604,15 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
       'an agent') ;;
       *) for d in "${CLAUDE_PROJECT_DIR:-.}/.claude/agents" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents"; do
            f="$d/$name.md"; [ -f "$f" ] || continue
-           inherit=1; ln=0
+           inherit=1; own=1; ln=0
            while IFS= read -r l || [ -n "$l" ]; do
              ln=$((ln+1)); [ "$ln" -le 40 ] || break
              case "$l" in ---*) [ "$ln" -gt 1 ] && break ;; model:*) case "${l#model:}" in *inherit*|'') ;; *) inherit=0 ;; esac ;; esac
            done < "$f"
            break
-         done ;;
+         done
+         # No definition of its own: the built-in Explore, which takes the session's model.
+         [ "$name" = Explore ] && [ "$own" = 0 ] && inherit=1 ;;
     esac
     [ "$inherit" = 1 ] || return 0
     _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; tp="$_JU"
@@ -578,7 +624,7 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
   else
     [ "$_KC" = 1 ] || return 0
     _json_slice "$1" model >/dev/null; _json_unescape "$_JS" >/dev/null; _am_tier "$_JU"; m="$_AMT"
-    case "$m" in opus|fable) ;; *) return 0 ;; esac
+    case "$m" in opus|fable) ;; sonnet) [ "$to" = haiku ] || return 0 ;; *) return 0 ;; esac
   fi
   if _am_card "$pr"; then
     [ -z "$CARD_ABOVE" ] || return 0
@@ -635,7 +681,8 @@ _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog
   case "$1" in "note: "*) v=NOTE ;; esac          # something worth knowing that refused nothing
   declare -F crew_gate_log_write >/dev/null || return 0
   crew_gate_log_write; gl="$_CREW_GL"; [ -n "$gl" ] || return 0
-  printf '%s\t§model\t%s\t\n' "$v" "$1" >> "$gl" 2>/dev/null || true
+  _CREW_TS=""; declare -F crew_gate_log_ts >/dev/null && crew_gate_log_ts "$gl"   # the fifth column: when (UTC)
+  printf '%s\t§model\t%s\t\t%s\n' "$v" "$1" "$_CREW_TS" >> "$gl" 2>/dev/null || true
 }
 
 # ---- IS THIS VERIFY COMMAND ONE A HOOK MAY RUN? ------------------------------------------------------------------
@@ -664,7 +711,7 @@ _am_log(){  # $1 = the rule. Same file and line shape as guard-bash.sh's gatelog
 #           allowed beforehand, so there the list allows nothing and only a or b does.
 #   5. THE SHELL GATE AGREES, asked under a session id that is not the session's: only "nothing to say" or an
 #      explicit allow passes.
-_AM_HERE="${BASH_SOURCE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE}" ] && _AM_HERE=.
+_AM_HERE="${BASH_SOURCE//\\//}"; _AM_HERE="${_AM_HERE%/*}"; [ "$_AM_HERE" = "${BASH_SOURCE//\\//}" ] && _AM_HERE=.
 [ -f "$_AM_HERE/../eval/lib/gate-log.sh" ] && . "$_AM_HERE/../eval/lib/gate-log.sh"   # where the gate log goes
 # CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
 _AM_RUNNERS=('npm test' 'npm t' 'pnpm test' 'yarn test' 'bun test' 'deno test'
@@ -740,6 +787,87 @@ _am_perm_hit(){  # $1 = command, $2 = allow|deny|ask -> 0 a Bash(...) rule of th
 # How a verify command is read (the `cd <folder> && <command>` split): eval/lib/verify-cmd.sh, shared with doctor.
 [ -f "$_AM_HERE/../eval/lib/verify-cmd.sh" ] && . "$_AM_HERE/../eval/lib/verify-cmd.sh"
 _am_verify_split(){ _AMVD=""; _AMVC="$1"; declare -F crew_verify_split >/dev/null && crew_verify_split "$1" "${_AMP:-.}"; return 0; }
+# Whether the hook runs a card's verify command when its agent ends, and what it runs: ONE answer, read by
+# agent-outcome.sh at that moment and by this gate when the agent is called, so what the session is told up front is
+# what then happens. Steps joined by ` && ` are judged one by one (eval/lib/verify-cmd.sh crew_verify_steps), and the
+# script is built from the judged steps only: `cd "$CREW_VR/<folder>" && <step> && …`.
+# A verify command that ran out of time here, remembered so the next card that carries it is told BEFORE the agent
+# runs: in the field every timeout was the project's whole test suite (494-1005 s against the 540 s limit), the agent
+# was held for the full limit, and the session then ran the same suite again itself. One line per command in
+# .claude/state/verify-slow (seconds<TAB>command<TAB>epoch it was stopped), at most 50, the newest last; a pass of the
+# same command removes it. A line of 3.5.0-rc.5 has no epoch: it is read, and counts as stopped long ago.
+# For CREW_VERIFY_SLOW_DAYS (7) after it was stopped the stop hook does not run it again (agent-outcome.sh): in the
+# field it ran the same suite into the same limit for the next agent, 9 minutes for nothing. After that it is run once
+# more, so a suite that became faster is learnt again. Nothing here refuses: the card's verify is still the session's choice.
+_am_slow_key(){  # $1 = verify command -> _AMSK, one line with single spaces ("" when nothing is left)
+  local k="$1"; k="${k//$'\t'/ }"; k="${k//$'\r'/ }"; k="${k//$'\n'/ }"
+  while :; do case "$k" in *'  '*) k="${k//  / }" ;; *) break ;; esac; done
+  k="${k# }"; _AMSK="${k% }"; }
+_am_slow_put(){  # $1 = verify command, $2 = the seconds it was given ("" = it passed: forget it)
+  local f="$_AMS/verify-slow" l keep="" n=0 skip now
+  _am_slow_key "$1"; [ -n "$_AMSK" ] || return 0
+  [ -n "$2" ] || [ -f "$f" ] || return 0
+  if [ -f "$f" ] && [ ! -L "$f" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in *$'\t'*) _am_slow_line "$l"; [ "$_AMSLC" = "$_AMSK" ] && continue ;; *) continue ;; esac
+      keep="$keep$l"$'\n'; n=$((n+1))
+    done < "$f"
+  fi
+  skip=$((n - 49)); [ -n "$2" ] || skip=0
+  while [ "$skip" -gt 0 ]; do keep="${keep#*$'\n'}"; skip=$((skip-1)); done
+  if [ -n "$2" ]; then
+    now="$(date +%s 2>/dev/null)"; case "$now" in ''|*[!0-9]*) now="" ;; esac
+    keep="$keep$2"$'\t'"$_AMSK${now:+$'\t'$now}"$'\n'
+  fi
+  mkdir -p "$_AMS" 2>/dev/null || return 0
+  { printf '%s' "$keep" > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"; } 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+  return 0; }
+_am_slow_line(){  # $1 = a line of verify-slow -> _AMSLC (the command), _AMSLT (the epoch it was stopped, "" unknown)
+  local r="${1#*$'\t'}"; _AMSLC="${r%%$'\t'*}"; _AMSLT=""
+  [ "$_AMSLC" = "$r" ] || { _AMSLT="${r#*$'\t'}"; case "$_AMSLT" in ''|*[!0-9]*) _AMSLT="" ;; esac; }; }
+_am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given) and _AMST (the epoch, "" unknown) when it
+  # ran out of time here before
+  local f="$_AMS/verify-slow" l
+  _am_slow_key "$1"; [ -n "$_AMSK" ] && [ -f "$f" ] && [ ! -L "$f" ] || return 1
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in *$'\t'*) ;; *) continue ;; esac
+    _am_slow_line "$l"; [ "$_AMSLC" = "$_AMSK" ] || continue
+    _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
+    _AMST="$_AMSLT"
+    return 0
+  done < "$f"
+  return 1; }
+_am_slow_fresh(){  # after _am_slow_get -> 0 while the stop hook leaves the command unrun; _AMSD = the days
+  local now
+  _AMSD="${CREW_VERIFY_SLOW_DAYS:-7}"; case "$_AMSD" in ''|*[!0-9]*) _AMSD=7 ;; esac
+  [ "$_AMSD" -gt 0 ] && [ -n "${_AMST:-}" ] || return 1
+  now="$(date +%s 2>/dev/null)"; case "$now" in ''|*[!0-9]*) return 1 ;; esac
+  [ $((now - _AMST)) -lt $((_AMSD * 86400)) ]; }
+_am_verify_plan(){  # $1 = verify command, $2 = permission mode -> 0: _AMVRUN, _AMVDIR; 1: _AMVWHY, _AMVSTEP ("" = all of it)
+  local i=0
+  _AMVRUN=""; _AMVDIR=""; _AMVWHY=""; _AMVSTEP=""
+  if ! declare -F crew_verify_steps >/dev/null 2>&1; then
+    _am_verify_split "$1"; _AMVDIR="$_AMVD"; _AMVRUN="$_AMVC"
+    _am_verify_ok "$_AMVRUN" "$2" || { _AMVWHY="$_AMVW"; return 1; }
+    return 0
+  fi
+  crew_verify_steps "$1" "${_AMP:-.}" || { _AMVWHY="$_VS_WHY"; return 1; }
+  while [ "$i" -lt "$_VS_N" ]; do
+    if ! _am_verify_ok "${_VS_C[i]}" "$2"; then
+      _AMVWHY="$_AMVW"; [ "$_VS_N" -gt 1 ] && { _AMVSTEP="${_VS_C[i]}"; _AMVWHY="the step '$_AMVSTEP': $_AMVW"; }
+      return 1
+    fi
+    # its plain NAME=value settings go with it (crew_verify_steps judged their names and values)
+    _AMVRUN="${_AMVRUN:+$_AMVRUN && }cd \"\$CREW_VR/${_VS_D[i]}\" && ${_VS_E[i]:+env ${_VS_E[i]} }${_VS_C[i]}"
+    i=$((i+1))
+  done
+  return 0
+}
+_am_json(){  # $1 = text -> _AMJ, safe inside a JSON string
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/ }"; s="${s//$'\r'/}"
+  _AMJ="$(printf '%s' "$s" | tr -d '\000-\010\013-\037\177')"
+}
 _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMVB says by what); 1 and _AMVW says why not
   local c="$1" pm="${2:-default}" f r rc k g
   _AMVW=""; _AMVB=""
@@ -834,7 +962,7 @@ _am_agent_floor(){  # $1 = agent -> floor (rank) and why. The agent's own floor,
 floor=0; why=""
 case "$1" in
   crew-security-expert) floor=3; why="the security audit" ;;
-  crew-privacy-agent|crew-review-agent|crew-planner|crew-database-expert) floor=2; why="this agent's floor" ;;
+  crew-privacy-agent|crew-review-agent|crew-planner|crew-database-expert|crew-docs-agent) floor=2; why="this agent's floor" ;;
 esac
 return 0
 }
@@ -869,7 +997,7 @@ _crew_stop(){  # $1 = what happened
 trap '_crew_rc=$?; trap - EXIT; case "$_crew_rc" in 0|2) exit "$_crew_rc" ;; esac; _crew_stop "exit status $_crew_rc"' EXIT
 # ---- /CREW-FAILCLOSED
 _gate_main(){
-local tn st m ti rank=0 floor=0 fname="" why="" prompt bg tid here nf=0 l d f p pm vrc r a b c t
+local hd vnote="" tn st m ti rank=0 floor=0 fname="" why="" prompt bg tid here nf=0 l d f p pm vrc r a b c t eff="" erank=0 lo=9 pe=0 e
 [ "${CREW_MODEL_ROUTING:-}" = off ] && exit 0
 IFS= read -r -d '' INPUT || true
 _json_slice "$INPUT" tool_name >/dev/null; tn="$_JS"
@@ -877,7 +1005,7 @@ case "$tn" in Agent|Task) ;; *) exit 0 ;; esac
 # The call's own fields: everything from "tool_input" on, so a key of the same name in front of it is not read.
 _json_find "$INPUT" '"tool_input"'
 [ "$_JF" -ge 0 ] || exit 0
-ti="${INPUT:_JF}"
+ti="${INPUT:_JF}"; hd="${INPUT:0:_JF}"
 _json_keycount "$ti" subagent_type
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names subagent_type more than once, so which agent it starts cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
 _json_slice "$ti" subagent_type >/dev/null; _json_unescape "$_JS" >/dev/null; st="$_JU"
@@ -902,6 +1030,27 @@ if [ "$rank" = 4 ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ]; then
   echo "GUARD (agent model): fable is not used for a crew agent unless the user has set CREW_ALLOW_FABLE=1 for the session.${fname:+ $st runs on $fname or above.} Repeat the call to $st with haiku, sonnet or opus, by the table in CLAUDE.md." >&2
   _am_log "fable not allowed"; exit 2
 fi
+# ---- the effort it runs at: the call's own, unless Claude Code's environment variable outranks it ----
+# Read from the tool_input object itself, not by key name over the rest of the payload: Claude Code puts the
+# session's own effort at the top level ("effort":{"level":…}), and the order of top-level keys is not a contract.
+# Two awk reads, only when the word is there at all.
+_json_find "$ti" '"effort"'
+if [ "$_JF" -ge 0 ]; then
+  a="$(printf '%s' "$INPUT" | awk -v op=keys -v path=tool_input -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null | grep -c '^effort$')"
+  if [ "${a:-0}" -gt 1 ]; then echo "GUARD (agent model): this call names effort more than once, so which effort it asks for cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
+  if [ "${a:-0}" = 1 ]; then
+    eff="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input.effort -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)"
+    case "$eff" in '"'*'"') eff="${eff#\"}"; eff="${eff%\"}" ;; '') eff="?" ;; esac
+  fi
+fi
+case "$eff" in ''|low|medium|high|xhigh|max) ;; *)
+  echo "GUARD (agent model): '${eff:0:20}' is not an effort level. Repeat the call to $st with effort low, medium or high, by the table in CLAUDE.md." >&2
+  _am_log "unknown effort"; exit 2 ;; esac
+case "${CLAUDE_CODE_EFFORT_LEVEL:-}" in low|medium|high|xhigh|max) eff="$CLAUDE_CODE_EFFORT_LEVEL" ;; esac
+_am_erank "$eff"; erank="$_AME"
+# ---- a model forced onto every subagent: that is the model this call runs on, so it is the one judged ----
+_am_forced
+if [ -n "$_AMFORCE" ]; then _am_rank "$_AMFORCE"; [ "$_AMR" -gt 0 ] && { m="$_AMFORCE"; rank="$_AMR"; }; fi
 # ---- the card ----
 _json_keycount "$ti" prompt
 if [ "$_KC" -gt 1 ]; then echo "GUARD (agent model): this call names prompt more than once, so its task card cannot be read and the call is refused. Send one." >&2; _am_log "an ambiguous call"; exit 2; fi
@@ -930,23 +1079,49 @@ if [ -n "$_AMF_EFF" ]; then
   _am_rank "$_AMF_EFF"
   if [ "$_AMR" -gt "$floor" ]; then floor="$_AMR"; why="this class ($st, $CARD_CHANGE, $CARD_RISK) failed its first try too often on the model below"; [ "$_AMF_LOOSE" = 1 ] && why="$why; lowered once by the user, from $_AMF_TIER"; fi
 fi
-# A card whose verify failed: not on the same or a lower model again, and not a third time.
+# A card whose verify failed. Effort before model: a first run that named an effort below high may be repeated ONCE on
+# the same model at high (or one model up straight away); after that, one model up; after a repeat one model up, the
+# user. Each line of the record is "<model> <effort>"; a line with no effort (written before 3.5.0) counts as unknown,
+# and an unknown effort goes one model up, which is what every failure did before.
 p=""
 if [ -f "$_AMD/fails/$CARD_ID" ]; then
   d=0
-  while IFS= read -r l || [ -n "$l" ]; do l="${l%$'\r'}"; [ -n "$l" ] || continue; nf=$((nf+1)); _am_rank "$l"; if [ "$_AMR" -gt "$d" ]; then d="$_AMR"; p="$l"; fi; done < "$_AMD/fails/$CARD_ID"
+  while IFS= read -r l || [ -n "$l" ]; do
+    l="${l%$'\r'}"; [ -n "$l" ] || continue; nf=$((nf+1))
+    e="-"; case "$l" in *' '*) e="${l#* }"; l="${l%% *}" ;; esac
+    _am_rank "$l"; r="$_AMR"; [ "$r" -lt "$lo" ] && lo="$r"
+    if [ "$r" -gt "$d" ]; then d="$r"; p="$l"; pe=0; fi
+    if [ "$r" = "$d" ]; then _am_erank "$e"; [ "$_AME" -gt "$pe" ] && pe="$_AME"; fi
+  done < "$_AMD/fails/$CARD_ID"
 fi
-if [ "$nf" -ge 2 ]; then
-  echo "GUARD (agent model): this card's verify command has failed twice, the second time one model up, so it is not run a third time. Ask the user what to do (AskUserQuestion): what failed, on which models, and the choices. A changed task is a new card." >&2
+if [ "$nf" -ge 3 ] || { [ "$nf" -ge 2 ] && [ "$d" -gt "$lo" ]; }; then
+  echo "GUARD (agent model): this card's verify command has failed $nf times, the last one model up, so it is not run again. Ask the user what to do (AskUserQuestion): what failed, on which models, and the choices. A changed task is a new card." >&2
   _am_log "a third run of a failed card"; exit 2
 fi
-if [ "$nf" = 1 ]; then
-  _am_rank "$p"; d=$((_AMR+1))
+if [ "$nf" = 1 ] && [ "$pe" -ge 1 ] && [ "$pe" -lt 3 ] && [ "$rank" -le "$d" ]; then
+  # The effort step: the same model, at high. Below it, or at the same effort again, is refused.
+  if [ -n "$_AMFORCE" ] && [ "$rank" -lt "$d" ]; then :   # the forced model is below it: said just below
+  elif [ "$rank" -lt "$d" ] || [ "$erank" -lt 3 ]; then
+    _am_name $((d+1)); a="$_AMN"
+    echo "GUARD (agent model): this card's verify command failed on $p at a lower effort, so the repeat runs on $p at effort high${a:+, or on $a}. Repeat the same call with model $p and effort high." >&2
+    _am_log "a failed card repeated without more effort"; exit 2
+  fi
+  if [ "$d" -gt "$floor" ]; then floor="$d"; why="its verify command failed on $p, so the repeat is on $p at effort high"; fi
+elif [ "$nf" -ge 1 ]; then
+  d=$((d+1))
   if [ "$d" -gt 3 ] && [ "${CREW_ALLOW_FABLE:-}" != 1 ]; then
     echo "GUARD (agent model): this card's verify command failed on $p and there is no model above it to repeat on. Ask the user what to do (AskUserQuestion). A changed task is a new card." >&2
     _am_log "a failed card with no model above"; exit 2
   fi
   if [ "$d" -gt "$floor" ]; then floor="$d"; why="its verify command failed on $p, so the repeat goes one model up"; fi
+fi
+if [ -n "$_AMFORCE" ]; then
+  # Every subagent runs on the forced model: the model in the call does not decide anything, so no call can fix it.
+  _am_name "$floor"; fname="$_AMN"; _am_rank "$_AMFORCE"
+  if [ "$_AMR" -lt "$floor" ] || [ "$_AMR" = 0 ]; then
+    echo "GUARD (agent model): every subagent of this session runs on ${CLAUDE_CODE_SUBAGENT_MODEL:0:40}, because CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set, and $st runs on ${fname:-a model this gate knows} or above for this card${why:+ ($why)}. A model in the call cannot change that: ask the user to unset CLAUDE_CODE_SUBAGENT_MODEL_FORCE, or to set CLAUDE_CODE_SUBAGENT_MODEL to ${fname:-haiku} or above." >&2
+    _am_log "a forced model below the floor of the card"; exit 2
+  fi
 fi
 _am_name "$floor"; fname="$_AMN"
 if [ "$rank" -lt "$floor" ]; then
@@ -960,7 +1135,7 @@ fi
 # 2.1.299: a call asking for opus ran on haiku alone). The rewrite is one awk over the payload, on this path only.
 lowered=""
 low=$floor; [ "$low" -lt 1 ] && low=1
-if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ]; then
+if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ] && [ -z "$_AMFORCE" ]; then
   _am_name "$low"; to="$_AMN"
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || ui=""
   case "$ui" in '{'*'}') ;; *) ui="" ;; esac
@@ -985,10 +1160,33 @@ if [ "$CARD_RISK" = critical ] && [ "$CARD_VERIFY" != none ] && [ "$bg" = true ]
   echo "GUARD (agent model): critical work with a verify command is not sent to the background, where its result does not come back to you: repeat the same call with run_in_background set to false." >&2
   _am_log "critical work sent to the background"; exit 2
 fi
-# The verify command is NOT judged here. Whether the hook runs it is decided when it would start (_am_verify_ok, in
-# hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is told to run it
-# itself with the Bash tool, where the permission layer and the shell gate see it. Refusing the call for it would
-# leave no way to use a verify command in a mode where nothing is allowed by name.
+# The verify command is not REFUSED here. Whether the hook runs it is decided again when it would start
+# (_am_verify_plan, in hooks/agent-outcome.sh): a command it will not run is recorded as blocked and the session is
+# told to run it itself with the Bash tool, where the permission layer and the shell gate see it. Refusing the call
+# for it would leave no way to use a verify command in a mode where nothing is allowed by name. But the session is
+# TOLD now, with the same answer, while the card can still be fixed: in the field 89 of 121 verify commands were
+# never run, most of them written so no hook could run them (a placeholder, a sentence, a `;` or a pipe), and the
+# session heard it only after the agent had finished.
+if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
+  _json_slice "$hd" permission_mode >/dev/null; pm="$_JS"
+  if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
+    vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
+    _am_log "note: a verify command the hook will not run ($_AMVWHY)"
+  elif _am_slow_get "$CARD_VERIFY"; then
+    _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
+    vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
+    _am_log "note: a verify command that ran out of time here before"
+  fi
+fi
+# ---- effort: a note in the record, never a refusal ----
+# Two things the gate does not refuse. A call that names no effort cannot take the cheap first step after a failed
+# verify (the repeat at high on the same model, above), so it goes one model up; and past high the vendor's guidance is
+# to try the next model at a lower effort before the next level. The session is not told here: the note is for the
+# gate log (Studio, gate-report), where how often it happens can be counted.
+case "$eff" in
+  ''|'?') _am_log "note: $st called with no effort; name one (medium, low for test-run) so a failed card can be repeated at high before a bigger model" ;;
+  xhigh|max) _am_log "note: $st called at effort $eff; past high one more level can cost as much as a bigger model, so try the next model at a lower effort first" ;;
+esac
 # ---- the record of this call, for the agent it starts ----
 _json_slice "$INPUT" tool_use_id >/dev/null; tid="$_JS"; case "$tid" in ''|*[!A-Za-z0-9._-]*) tid="x$RANDOM" ;; esac
 if mkdir -p "$_AMD/pending" 2>/dev/null; then
@@ -996,11 +1194,16 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
   # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
-  { printf 'agent=%s\ntier=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
-# The call, on the floor: the same input with `model` replaced, and allowed. Nothing else is printed on this path.
+# The call, on the floor: the same input with `model` replaced, and allowed; and the verify notice, when there is one.
+# The verify notice rides along as additionalContext: with no permissionDecision it changes nothing about the call
+# (measured on Claude Code 2.1.322: the text reaches the model; a twin hook that prints nothing gets NONE back).
+_AMJ=""; [ -n "$vnote" ] && _am_json "$vnote"
 if [ -n "$lowered" ]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui" "${_AMJ:+,\"additionalContext\":\"$_AMJ\"}"
+elif [ -n "$_AMJ" ]; then
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}\n' "$_AMJ"
 fi
 exit 0
 }

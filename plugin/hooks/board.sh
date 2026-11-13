@@ -27,7 +27,7 @@
 #   as BOTH an ISO string for humans and an epoch integer for arithmetic, so nothing ever has to be re-parsed.
 set -uo pipefail
 # The 2.x names of the variables a user can set still work (one helper: eval/lib/crew-env.sh).
-_crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
+_crew_d="${BASH_SOURCE//\\//}"; _crew_d="${_crew_d%/*}"; [ "$_crew_d" = "${BASH_SOURCE//\\//}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
 
 # ---------------------------------------------------------------- repo primitives
@@ -40,7 +40,7 @@ _git_dir(){ git rev-parse --git-common-dir 2>/dev/null; }
 # Claude reads must give it the command it can run itself — this script — and name the slash form for the user.
 # The plugin edition's copy lives outside the project, so it names its own absolute path. Only called when a message
 # is printed, never on the hot path.
-_selfcmd(){ local d="${BASH_SOURCE%/*}"; [ "$d" = "$BASH_SOURCE" ] && d=.   # run by bare name: the name has no slash
+_selfcmd(){ local d="${BASH_SOURCE//\\//}"; d="${d%/*}"; [ "$d" = "${BASH_SOURCE//\\//}" ] && d=.   # run by bare name: the name has no slash
   d="$(cd "$d" 2>/dev/null && pwd)"
   if [ -f "$d/../.claude-plugin/plugin.json" ]; then _SELF="bash \"$d/board.sh\""; else _SELF='bash .claude/hooks/board.sh'; fi; }
 _act(){ _selfcmd; printf '%s %s (Bash tool, not PowerShell — or the user can type /crew-board %s)' "$_SELF" "$1" "${2:-$1}"; }
@@ -90,15 +90,22 @@ _remote(){ printf '%s\n' "${_C_REMOTE:-${_L_REMOTE:-origin}}"; }
 # `timeout` is coreutils and macOS does not ship it; Homebrew's coreutils installs it as `gtimeout`. Looking for
 # both is not the same as ASSUMING one — an assumed binary would fail silently, a searched one either bounds the
 # call or is honestly absent. When neither exists the prompt suppression above still applies and the call is
-# NOT time-bounded: measured against a black-holed remote, 15s with the bound and 21s without, where the 21s is
-# git giving up on its own. So the unbounded case is slower, not infinite — the infinite case is the credential
-# prompt, and that one is closed on every platform.
+# bounded by a watchdog here instead: git in the background, polled against $SECONDS (the clock, not a count of
+# polls, so a slow fork does not stretch the bound) and killed past it. Measured on macOS, which ships no timeout,
+# against a black-holed remote: 75 s unbounded (git gives up only at the TCP connect timeout), and an earlier
+# figure of 21 s written here was not what this machine does.
 _TMO="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
 _gitnet(){
   if [ -n "$_TMO" ]; then
     GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never "$_TMO" "${CREW_NET_TIMEOUT:-15}" git "$@"
   else
-    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"
+    local p end=$((SECONDS + ${CREW_NET_TIMEOUT:-15}))
+    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@" & p=$!
+    while kill -0 "$p" 2>/dev/null; do
+      [ "$SECONDS" -lt "$end" ] || { kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 124; }
+      sleep 0.05
+    done
+    wait "$p"
   fi
 }
 
@@ -125,7 +132,7 @@ _join(){ # _join <3.x commit> <2.x commit> -> a commit that has both as parents
   base="$(git merge-base "$n" "$l" 2>/dev/null)"
   if [ -n "$base" ]; then bt="$base^{tree}"; else bt="$(git hash-object -w -t tree /dev/null)"; fi
   idx="$(_git_dir)/crew-index.$$"; rm -f "$idx"
-  GIT_INDEX_FILE="$idx" git read-tree -m -i --aggressive "$bt" "$n^{tree}" "$l^{tree}" 2>/dev/null || { rm -f "$idx"; return 1; }
+  GIT_INDEX_FILE="$idx" git -c core.fsmonitor= read-tree -m -i --aggressive "$bt" "$n^{tree}" "$l^{tree}" 2>/dev/null || { rm -f "$idx"; return 1; }
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if [ "$p" = refusals.log ]; then
@@ -133,12 +140,12 @@ _join(){ # _join <3.x commit> <2.x commit> -> a commit that has both as parents
     else
       b="$(git rev-parse -q --verify "$n:$p" 2>/dev/null || git rev-parse -q --verify "$l:$p" 2>/dev/null)"
     fi
-    GIT_INDEX_FILE="$idx" git update-index --force-remove "$p" 2>/dev/null
-    [ -n "$b" ] && GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "100644,$b,$p" 2>/dev/null
+    GIT_INDEX_FILE="$idx" git -c core.fsmonitor= update-index --force-remove "$p" 2>/dev/null
+    [ -n "$b" ] && GIT_INDEX_FILE="$idx" git -c core.fsmonitor= update-index --add --cacheinfo "100644,$b,$p" 2>/dev/null
   done <<EOF
-$(GIT_INDEX_FILE="$idx" git ls-files -u 2>/dev/null | cut -f2 | sort -u)
+$(GIT_INDEX_FILE="$idx" git -c core.fsmonitor= ls-files -u 2>/dev/null | cut -f2 | sort -u)
 EOF
-  t="$(GIT_INDEX_FILE="$idx" git write-tree 2>/dev/null)"; rm -f "$idx"
+  t="$(GIT_INDEX_FILE="$idx" git -c core.fsmonitor= write-tree 2>/dev/null)"; rm -f "$idx"
   [ -n "$t" ] || return 1
   git commit-tree "$t" -p "$n" -p "$l" -m 'board: join the 2.x and 3.x boards'
 }
@@ -278,13 +285,13 @@ _tree_with(){ # _tree_with <path> <blob>  [<path2> <blob2> ...] -> tree sha, bas
   rm -f "$idx"
   local rc=0
   if _have_board; then
-    GIT_INDEX_FILE="$idx" git read-tree "$(_ref)^{tree}" 2>/dev/null || rc=1
+    GIT_INDEX_FILE="$idx" git -c core.fsmonitor= read-tree "$(_ref)^{tree}" 2>/dev/null || rc=1
   fi
   while [ $# -ge 2 ]; do
-    GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "100644,$2,$1" 2>/dev/null || rc=1
+    GIT_INDEX_FILE="$idx" git -c core.fsmonitor= update-index --add --cacheinfo "100644,$2,$1" 2>/dev/null || rc=1
     shift 2
   done
-  local t; t="$(GIT_INDEX_FILE="$idx" git write-tree 2>/dev/null)" || rc=1
+  local t; t="$(GIT_INDEX_FILE="$idx" git -c core.fsmonitor= write-tree 2>/dev/null)" || rc=1
   rm -f "$idx"
   [ "$rc" = 0 ] || return 1
   printf '%s' "$t"
@@ -570,8 +577,15 @@ cmd_status(){
   # the next thing the reader does is decide what to work on.
   #
   # Fails open: an unreachable remote falls through to whatever is local, so the view still appears offline.
-  _fetch >/dev/null 2>&1 || true
-  _have_board || { echo "No board in this repo yet (and none on '$(_remote)'). Create one: $(_act init)"; return 0; }
+  local frc=0; _fetch >/dev/null 2>&1 || frc=$?
+  if ! _have_board; then
+    # _fetch: 1 = the remote could not be reached, so whether it holds a board is not known. Saying "none on origin"
+    # there was a wrong sentence (measured: a black-holed origin, 75 s, then "none on 'origin'").
+    if [ "$frc" = 1 ]; then echo "No board in this repo yet, and '$(_remote)' could not be reached to look for one. Run $(_act status) again when the remote is reachable, or create one: $(_act init)"
+    else echo "No board in this repo yet (and none on '$(_remote)'). Create one: $(_act init)"; fi
+    return 0
+  fi
+  [ "$frc" = 1 ] && echo "board: '$(_remote)' could not be reached — showing the last known state"
   local me p c id st ow ti dep bl now stale_h
   me="$(_me)"; now="$(_now_epoch)"; stale_h="$(_conf stale_hours 8)"
   # HELD is not decoration: "who holds it" without "for how long" is the question a teammate actually asks, and

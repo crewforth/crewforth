@@ -28,6 +28,11 @@ Principle: **agent = thin trigger** ("who / when"), **skill = "how"**. Knowledge
     - **No unbounded ping-pong.** More than 3 handovers between the SAME two agents on one task (e.g. `crew-backend-expert` ↔ `crew-database-expert`) is a loop, not coordination: stop before the fourth, summarise what each round changed and what is still open, and put it to the user with `AskUserQuestion`. Model discipline — nothing counts the hops for you.
 5. **DoD** — closure responsibility: `/simplify` + tests green + `sonarqube-check` (0/0/0/0, build 0/0).
 6. **Output & context (token)** — what returns to the main thread: a **short summary**, not raw logs/dumps; heavy output goes to `docs/*.md` (token-budget skill).
+   **An agent that writes (holds `Edit`) ends its Output section with this paragraph, word for word** — smoke compares each copy with this one:
+   Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
+   Two working rules every agent follows (given to crew agents at SubagentStart, so they are not copied into each file): a `file:line` handed to you is a range to open with offset/limit, not a reason to read the whole file or search again; a Read returns at most 2000 lines and does not say it stopped, so judging a whole file means paging to its last line and naming the line count read; a file being listed is not a reason to change it. The same block tells an agent that stops short to open its
+   report with `stopped: too-big`, `needs-confirm`, `ambiguous` or `regressed`, to end a cut list with `+N omitted`,
+   and to cite only a `path:line` range it read.
 7. **Errors/escalation** — when stuck/unsure, **stop and report** or hand off to the relevant expert; do not proceed on a guess.
 8. **Example delegation** — 1 ✅ triggers / 1 ❌ does-not-trigger line (delegation accuracy).
 9. **Constraints** — read-only or not, what it does not do, platform/policy limits.
@@ -48,6 +53,10 @@ verify: npm test -- orders
 `change` is one of `text` · `feature` · `fix-known` · `fix-unknown` · `refactor` · `migration` · `security` ·
 `architecture` · `test-run` · `test-write` · `audit`. `verify` is the command that proves the work, or `none`.
 
+**What the dispatch carries.** Paths, the card and, when there is more to say, a brief file — never pasted history
+(token-budget rule 12). A dispatch to a reviewer or an auditor carries **no verdict hint**: no "don't flag X", no
+"at most low", no "this is fine, just confirm". The referee is there to find what the author did not expect.
+
 **Risk class.** `critical` when the change is `migration`, `security`, `architecture` or `fix-unknown`, or a file is
 on a critical path (auth, payments, billing, migrations, security, crypto, secrets, legal, privacy, consent, terms,
 `*.sql`, `schema.prisma`, store-listing text under `store/` or `fastlane/metadata/`; the
@@ -60,7 +69,7 @@ Otherwise `normal`.
 | `test-run` | `haiku` | `haiku` (running the tests is objective) |
 | `test-write`, `audit` | `sonnet` or above | `opus` |
 | `feature`, `fix-known`, `refactor` (not the commit agent) | `sonnet` or above | `opus` |
-| `crew-review-agent`, `crew-privacy-agent`, `crew-planner`, `crew-database-expert` | `sonnet` or above | `opus` |
+| `crew-review-agent`, `crew-privacy-agent`, `crew-planner`, `crew-database-expert`, `crew-docs-agent` | `sonnet` or above | `opus` |
 | `crew-security-expert` | `opus` | `opus` |
 | `verify: none` | `sonnet` or above | `opus` |
 
@@ -68,11 +77,15 @@ Otherwise `normal`.
   their model is set by the risk of the work. In normal work an author on Opus does not pull the review up to Opus;
   in critical work the review is on Opus whoever wrote the code.
 - **Verify, then escalate.** When the agent stops, `hooks/agent-outcome.sh` runs the card's `verify` command. Red
-  once: the agent is kept running and told to fix it. Red again: the agent ends, the session is told to repeat the
-  task once, one model up, and the gate refuses the same card on the same or a lower model. Red there too: the user
-  is asked; there is no third run.
+  once: the agent is kept running and told to fix it. Red again: the agent ends. When the call named an effort below
+  `high`, the session is told to repeat the task once on the same model at `high`, and the gate refuses it on a lower
+  model or at a lower effort; otherwise, and after that repeat, once one model up at `medium`, and the gate refuses
+  the same or a lower model. Red there too: the user is asked; there is no further run. (Effort before model: past
+  `high`, one more level costs about as much as the next model.)
 - **At write time.** An agent that is not on Opus cannot write to a critical path, whatever its card said. When that
   refusal comes, stop and say so (the lines below).
+- **Name the effort** on the call: `medium`, `low` for `test-run`, never above `high`. `CLAUDE_CODE_EFFORT_LEVEL`
+  outranks it, and the gate reads it from there when it is set.
 - **Use a tier ALIAS** (`haiku`/`sonnet`/`opus`), not a dated model ID. `fable` is refused for a crew agent unless
   the user set `CREW_ALLOW_FABLE=1`. `CREW_MODEL_ROUTING=off` turns all of this off.
 - **A frontmatter `model` is the exception**, for an agent whose every task is the same tier (`crew-commit-agent`:
@@ -118,6 +131,12 @@ until it passes. Crewforth's evals ARE those tests.
    description fails the suite rather than quietly taxing every session. Add the Turkish summary line
    (`packaging/skill-summaries.tr.tsv`; agents and commands have their own `.tr.tsv`) — the site build fails without it.
 4. **Only then** write `SKILL.md` (+ `references/` for depth) until all three go green. Red → green, never green-by-assertion-weakening (that's the Verifier-integrity anti-pattern the review skill itself flags).
+
+## Shipped text states mechanism, not effect
+A hook header, an agent or a skill says what it does and what was measured: "prints the handoff line once at 75%
+and once at 90%", "0 of 42 vs 3 of 3 in the routing eval". It does not promise an outcome it cannot see: "guarantees
+the user is told", "saves tokens", "catches every leak". A promise reads as a gate to the next author and to the
+model; a mechanism can be checked, and a measured run says how far it was.
 
 ## Reference example
 `crew-backend-expert.md` is this contract applied verbatim; when creating a new agent, copy it and fill it in.

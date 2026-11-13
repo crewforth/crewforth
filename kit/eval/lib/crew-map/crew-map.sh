@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # crew-map.sh — the shell entry to scan.mjs. It does one thing: find a Node that RUNS and hand over.
 #
-#   bash crew-map.sh [--root DIR] [--stdout | --check]      the arguments and exit codes of scan.mjs (0, 1, 2)
+#   bash crew-map.sh [--root DIR] [--stdout | --check | --validate] [--force]   the arguments and exit codes of
+#       scan.mjs (0, 1, 2); --force writes a rescan that would lose most of the map (it refuses with rc 1 otherwise)
 #       rc 3 = no usable Node here, so nothing was scanned. Not a pass: a caller must not read 3 as a fresh map.
 #
 # The same resolution as findings.sh beside it: ask node for its version (the Windows Store's stub resolves and

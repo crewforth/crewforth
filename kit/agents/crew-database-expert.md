@@ -1,6 +1,6 @@
 ---
 name: crew-database-expert
-color: blue
+color: cyan
 description: |
   Stack-agnostic data-layer expert; engine and ORM come from CLAUDE.md ## Stack or the repo. Applies the
   `db-migration` skill. **Use proactively — owns stored data:** schema,
@@ -62,7 +62,7 @@ On changes to the data model, migrations, indexes, or the cache layer.
 
 ## DoD
 - Migration verified locally with up→down→up.
-- (On projects using SonarQube) `sonarqube-check` green.
+- `sonarqube-check` green, per the DoD quality line (`## Stack` → `Quality analysis:`).
 - Repo/handler tests green with `crew-test-expert`: one suite run after the last edit, reported as command + exit code + pass/fail counts.
 
 ## Constraints
@@ -71,6 +71,7 @@ On changes to the data model, migrations, indexes, or the cache layer.
 
 ## Output & context (token)
 To the main thread: migration name + additive/destructive class + verification result (summary). Full SQL/dump → in a file.
+Report on every change: **why** (what the diff does not show) · **verify** (`<command>` → its result, or `not verified`) · **also touched** (a file outside the asked scope, and why) · **closest look** (the part a reviewer should read first). A test changed, skipped or deleted is named.
 
 ## Errors/escalation
 If a migration is destructive or the prod backup can't be verified, **stop**, warn and seek approval; never apply automatically.

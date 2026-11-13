@@ -1,9 +1,8 @@
 ---
 name: crew-code-review
 description: |
-  Code review discipline: review only what changed, rank each finding by severity and category, and
-  fact-check it first. crew-review-agent applies it.
-  Use when reviewing a change set, and when acting on a review someone else wrote.
+  Use when asked to review a change, a PR, or code just written before a push, and when acting on review
+  comments someone else left.
 ---
 
 # Code Review
@@ -35,6 +34,8 @@ no hook runs the pre-pass or reads `review.json`.
 ## 1. Scope
 - **Review the lines this change adds or edits.** Deleted code is context for understanding them, not a target.
 - Code that is correct, or that the change did not touch, gets no comment.
+- **Nothing staged and no range given: ask which change to review.** Never fall back to `HEAD~1`; that reviews a
+  commit nobody named.
 - **An empty result is a result.** Do not invent findings to show the review happened.
 - **Be sure before you write.** A finding you are not sure of is not a finding yet: read the surrounding code until
   you are. A false alarm costs more than a small miss — it spends the attention the next real problem needs.
@@ -62,6 +63,7 @@ Every finding carries one severity and one category.
 | `high` | a core function stops working, or works wrongly | **yes** |
 | `medium` | performance, maintainability, an unhandled edge case | no |
 | `low` | readability and style | no |
+| `info` | a note for the reader (the pre-pass marks an added TODO with it) | no, and not counted |
 
 Category: `bug` · `security` · `performance` · `maintainability` · `test` · `style` · `docs`.
 
@@ -90,6 +92,11 @@ requirement into an any-of one; or relaxes the rule the code is there to enforce
 uniqueness or referential constraint, an exception list holding exactly the failing case. Ask not "does it pass
 now" but **"does the system still do what this check was protecting"**. Retiring a genuinely obsolete check is
 legitimate: say so in the diff and name what covers it now.
+
+**A silenced checker** is the same failure written as a cast or a comment: `as any`, `as unknown as T`, a
+`@ts-ignore` or a lint-disable on a changed line. The pre-pass flags the casts (`prepass-silenced-checker`); ask what
+type error the cast hides. **A replaced pattern left half-migrated** — the new way added beside the old one, with
+callers still on the old — is a finding too: name the call sites that did not move.
 
 ## 8. Two-stage verdict (fact-check before you report)
 Finding a problem and confirming it are two acts. A first-pass "this looks wrong" is a **candidate**, not a verdict.
@@ -129,6 +136,19 @@ finding, and the deleted test is restored rather than a new one written.
 For hard-to-reverse calls (architecture, public API, security boundary), run several independent adversarial
 lenses then synthesize. Full method: **`references/panel-mode.md`**.
 
+## Simplify passes (when `/simplify` is shadowed or absent)
+Behaviour does not change, nothing is deleted that you cannot explain, and the pass stays inside the diff:
+**`references/simplify.md`**.
+
+## Excuses that end a review early
+
+| Excuse | Reality |
+|---|---|
+| "The tests pass." | Tests cover what the author thought of; the review is for what they did not. |
+| "It is a small diff." | Small diffs change auth checks, defaults and error paths. Read every line. |
+| "CI would have caught it." | Name the check that would have; if you cannot, it would not. |
+| "I already flagged something in this file." | One finding does not clear the rest of the file. |
+
 ## When you and the author disagree
 Settle it with the code's behaviour and a check that can be run. If that does not settle it, take it to the user
 rather than blocking in silence.
@@ -146,7 +166,17 @@ never a silent drop:
 | **dropped** | disproved by the code | say so; a candidate that vanishes unexplained reads as an oversight |
 
 A blocker (`critical` / `high`) may only be `fixed now` or `tracked`. "Accepted" needs the user's decision — an
-agent does not grant it to itself. Close the review by stating the counts per severity and per disposition; an
+agent does not grant it to itself. Once the user grants it and it is recorded, it is not a deferral (`CLAUDE.md`,
+"No deferral"). Record it in the finding's `disposition` field when you write `.crewforth/review.json`.
+
+**A finding already disposed of is not raised again.** Before writing, read the previous `.crewforth/review.json` if
+there is one. A finding whose `id` matches one marked `tracked`, `accepted` or `dropped` there is carried over with
+that disposition and its reason, not raised as new — unless this diff touches the code it cites. Matching works only
+if you reuse the previous `id` for the same finding, so do. Re-anchor a carried finding's evidence to where those
+lines are now (the validator refuses a stale anchor); if they are gone, judge it again. A blocker is never carried
+over: a `critical`/`high` one is judged again on every diff.
+
+Close the review by stating the counts per severity and per disposition; an
 unreported finding is indistinguishable from one that was never made, which is exactly the state a review exists
 to leave behind.
 

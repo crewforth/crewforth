@@ -36,11 +36,12 @@
 # nothing works" report from Windows users, and it is not a Claude Code bug: Crewforth was spending the budget.
 #
 # Everything below is therefore one awk invocation over the component files, with the normalisation and the
-# matching done inside awk. Total external processes: FIVE — cat, sed, sed, head, awk. (The count said four
-# until it was traced with `bash -x` on Windows; the `cat` on the next line reads stdin and had been read
-# past.) Measured end to end here: 5 spawns, ~328 ms per prompt idle. eval/smoke-test.sh §7y pins the shape.
+# matching done inside awk. Total external processes: FOUR — sed, sed, head, awk; stdin is read with the `read`
+# builtin (it was a `cat`, the fifth). eval/smoke-test.sh §7y pins the shape. With no awk or sed on PATH there is
+# nothing to match with, so the hook says nothing and exits 0 rather than printing "command not found" into a session.
 set -uo pipefail
-IN="$(cat)"
+command -v awk >/dev/null 2>&1 && command -v sed >/dev/null 2>&1 && command -v head >/dev/null 2>&1 || exit 0
+IN=""; IFS= read -r -d '' IN || true
 case "$IN" in *'"hook_event_name"'*UserPromptSubmit*) ;; *) exit 0 ;; esac
 
 # Two editions, two layouts: a full install puts the components under .claude/, the plugin ships them beside the
@@ -150,7 +151,26 @@ function readonly(   w, n, f, l) {
       w[l] !~ /^(oku|okur|okuyun|okuyabilir|anlat|anlatir|anlatin|acikla|aciklar|aciklayin|ozetle|ozetler|ozetleyin)$/) return 0
   return !hasw("and|then|ve|sonra|(fix|add|updat|writ|wrote|chang|implement|creat|remov|delet|refactor|build|buil|mak|renam|edit|migrat|mov|deploy|ship|instal|upgrad|review|audit|check|test|debug|investigat|optimi[sz]|improv|translat|draft|generat|setup|set|harden|resolv|run|merg|publish|configur|propos|analy[sz])[a-z]?[a-z]?[a-z]?[a-z]?|why|bug|bugs|crash[a-z]*|fail[a-z]*|error[a-z]*|broken|duzelt[a-z]*|ekle[a-z]*|guncelle[a-z]*|yaz[a-z]*|degistir[a-z]*|olustur[a-z]*|sil[a-z]*|kaldir[a-z]*|yap[a-z]*|kur[a-z]*|tasi[a-z]*|incele[a-z]*|denetle[a-z]*|cevir[a-z]*|duzenle[a-z]*|iyilestir[a-z]*|yayinla[a-z]*|cikar[a-z]*|hizlandir[a-z]*|uygula[a-z]*|coz[a-z]*|gelistir[a-z]*|sadelestir[a-z]*|analiz[a-z]*|neden|hata[a-z]*|cokuyor|bozuk[a-z]*")
 }
-BEGIN { np = " " norm(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; nameA=""; nameS=""; if (readonly()) exit }
+# What the user QUOTES or turns DOWN is not the request. A pasted error, a command in backticks or a quoted label can
+# carry a trigger word ("the log says `run a security audit` failed"), and "do not review this, just push" names
+# the reviewer it declines. So before scoring: fenced blocks, backtick spans and double-quoted spans (escaped in the
+# payload as \") become a space, and a clause that opens with a negator (do not, dont, never, not, without, no need
+# to; not "do not forget/skip/miss/ignore", which asks for the thing) or closes with a Turkish one (degil, yapma,
+# etme, gerek yok) is dropped. Clauses end at . , ; ! ? or a newline. Still one awk, no process.
+function asked(raw,   n, c, i, out, x) {
+  gsub(/```[^`]*```/, " ", raw); gsub(/`[^`]*`/, " ", raw); gsub(/\\"[^"]*\\"/, " ", raw)
+  n = split(raw, c, /[.,;!?]|\\n/); out = ""
+  for (i = 1; i <= n; i++) {
+    x = norm(c[i]); if (x == "") continue
+    if (x ~ /^(don t|dont|do not|never|not|without|no need to)( |$)/ && x !~ /^(don t|dont|do not|never) (forget|skip|miss|ignore)( |$)/) continue
+    if (x ~ /(^| )(degil|yapma|etme|gerek yok)$/) continue
+    out = out " " x
+  }
+  return out
+}
+BEGIN { np = asked(ENVIRON["CREW_PROMPT"]) " "; bestA=0; bestS=0; bestX=0; nameA=""; nameS=""; nameX=""
+  ALSO["dependency-audit"] = 1
+  if (readonly()) exit }
 seen[FILENAME] { next }                                    # one Trigger-phrases line per component, the first
 {
   if (tolower($0) !~ /trigger phrases:/) next
@@ -187,18 +207,25 @@ seen[FILENAME] { next }                                    # one Trigger-phrases
   # keeps its own best and the preference is applied at the END, among candidates that clear the floor.
   if (kind == "agent") { if (score > bestA) { bestA=score; nameA=name } }
   else                 { if (score > bestS) { bestS=score; nameS=name } }
+  # A RIDE-ALONG skill is named BESIDE the agent instead of losing to it. Its trigger is an event inside the work
+  # of another domain: "add axios to the web app" is a request for crew-frontend-expert, and adding the package
+  # is what dependency-audit judges. Under agent-outranks-skill it was never named (one project measured 21
+  # lockfile commits against 0 audits), so it gets its own slot, scored the same way, and no process.
+  # NO APOSTROPHE anywhere in this program: it sits inside a single-quoted shell string, and one closes it.
+  if (kind == "skill" && name in ALSO && score >= 6 && score > bestX) { bestX=score; nameX=name }
 }
 # Silence is the default. No match, or a match too weak to be sure, means the main thread decides as before.
 # The agent is preferred only when it is credible on its own: a weak agent match no longer buries a strong skill.
 END {
-  if      (bestA >= 6) print "agent\t" nameA
-  else if (bestS >= 6) print "skill\t" nameS
+  if      (bestA >= 6) print "agent\t" nameA "\t" nameX
+  else if (bestS >= 6) print "skill\t" nameS "\t"
 }
 ' "${FILES[@]}" 2>/dev/null)"
 
 [ -n "$RES" ] || exit 0
 BESTKIND="${RES%%	*}"; BEST="${RES#*	}"
 [ -n "$BEST" ] && [ "$BEST" != "$RES" ] || exit 0
+ALSO="${BEST#*	}"; [ "$ALSO" = "$BEST" ] && ALSO=""; BEST="${BEST%%	*}"
 
 # The wording is an INSTRUCTION, not a suggestion, and that distinction is the whole experiment. The first
 # version hedged — "unless it is a one-line edit", "if it is genuinely not that agent's work, say so" — which
@@ -210,5 +237,7 @@ if [ "$BESTKIND" = skill ]; then
   MSG="Use the \`$BEST\` skill for this task."
 else
   MSG="Use the $BEST subagent for this task."
+  # Not "Use the …": that sentence names THE owner, and every reader of this hook's answer parses it as such.
+  [ -n "$ALSO" ] && MSG="$MSG Also apply the \`$ALSO\` skill: the commit gate (§4.7) asks for its record."
 fi
 printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$MSG"

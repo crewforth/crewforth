@@ -16,6 +16,7 @@ import { renderMarkdown } from './md.js';
 import {
   toolBlock, resultsIn, isDelegation, summaryOf, outputOf, delegationCard, reminderOf, headerOf, refusals,
 } from './convo.js';
+import { t, tParts } from './i18n.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -148,7 +149,7 @@ class Pane {
     this.remindEl = el('div', 'chat-remind');
     this.remindEl.hidden = true;
     this.remindText = el('span', 'chat-remind-text');
-    const review = el('button', 'chat-review', 'Review');
+    const review = el('button', 'chat-review', t('Review'));
     review.type = 'button';
     review.addEventListener('click', () => this.hooks.onReview?.(this));
     this.remindEl.append(el('span', 'dot'), this.remindText, review);
@@ -157,12 +158,12 @@ class Pane {
     this.formEl = el('form', 'chat-form');
     this.inputEl = el('textarea', 'chat-input');
     this.inputEl.rows = 3;
-    this.inputEl.placeholder = 'Message this session';
-    this.inputEl.setAttribute('aria-label', 'Message this session');
+    this.inputEl.placeholder = t('Message this session');
+    this.inputEl.setAttribute('aria-label', t('Message this session'));
     const formFoot = el('div', 'chat-form-foot');
-    const send = el('button', 'btn sm primary chat-send', 'Send');
+    const send = el('button', 'btn sm primary chat-send', t('Send'));
     send.type = 'submit';
-    formFoot.append(el('span', 'sub', 'Enter to send · Shift+Enter for a new line'), el('span', 'row-fill'), send);
+    formFoot.append(el('span', 'sub', t('Enter to send · Shift+Enter for a new line')), el('span', 'row-fill'), send);
     this.formEl.append(this.inputEl, formFoot);
 
     this.roEl = el('div', 'chat-ro');
@@ -205,15 +206,15 @@ class Pane {
       conv = await fetch(this.api(`/api/session/${encodeURIComponent(from)}/conversation`), { cache: 'no-store' })
         .then((r) => r.json());
     } catch (e) {
-      this.note(`History not read: ${e.message}`, 'bad');
+      this.note(t('History not read: {reason}', { reason: e.message }), 'bad');
       return;
     }
-    if (conv?.transcriptsHidden) { this.note('Transcripts are hidden on this link', 'muted'); return; }
-    if (conv?.measured === false) { this.note(`History not measured — ${conv.reason}`, 'bad'); return; }
+    if (conv?.transcriptsHidden) { this.note(t('Transcripts are hidden on this link'), 'muted'); return; }
+    if (conv?.measured === false) { this.note(t('History not measured — {reason}', { reason: conv.reason }), 'bad'); return; }
 
     const frag = document.createDocumentFragment();
     if (conv.truncated) {
-      frag.append(el('div', 'chat-note', `${conv.total - conv.messages.length} earlier message(s) not shown`));
+      frag.append(el('div', 'chat-note', t('{n} earlier message(s) not shown', { n: conv.total - conv.messages.length })));
     }
     for (const m of conv.messages ?? []) frag.append(this.renderMessage(m, { quick: false }));
     if (!this.readOnly) {
@@ -223,8 +224,8 @@ class Pane {
       // is the one thing it is not; a real continuation that calls itself a
       // fork undersells it.
       frag.append(el('div', 'chat-seam', this.session?.forked
-        ? `— forked from ${from.slice(0, 8)} · a separate session; the original does not see this —`
-        : `— continuing ${from.slice(0, 8)} · same session, same transcript —`));
+        ? t('— forked from {id} · a separate session; the original does not see this —', { id: from.slice(0, 8) })
+        : t('— continuing {id} · same session, same transcript —', { id: from.slice(0, 8) })));
     }
     this.logEl.prepend(frag);
     this.logEl.scrollTop = this.logEl.scrollHeight;
@@ -328,7 +329,7 @@ class Pane {
       return wrap;
     }
 
-    wrap.append(el('div', 'msg-role', 'Session'));
+    wrap.append(el('div', 'msg-role', t('Session')));
     const body = el('div', 'msg-body');
     for (const b of msg.blocks) {
       if (b.kind === 'text') {
@@ -355,7 +356,7 @@ class Pane {
           b.addEventListener('click', () => { row.remove(); this.sendText(o); });
           row.append(b);
         }
-        row.append(el('span', 'sub quick-hint', 'Clicking an option sends it as your reply.'));
+        row.append(el('span', 'sub quick-hint', t('Clicking an option sends it as your reply.')));
         wrap.append(row);
       }
     }
@@ -377,7 +378,7 @@ class Pane {
     row.addEventListener('click', () => {
       const text = outputOf(block);
       // A call that has not come back has nothing to open, and says which it is rather than opening an empty box.
-      out.textContent = text ?? (this.readOnly ? 'Output not read from the transcript.' : 'Not returned yet.');
+      out.textContent = text ?? (this.readOnly ? t('Output not read from the transcript.') : t('Not returned yet.'));
       out.hidden = !out.hidden;
       row.setAttribute('aria-expanded', String(!out.hidden));
     });
@@ -446,7 +447,7 @@ class Pane {
     if (tile) parts.push(tile);
     parts.push(text);
     // The model: what it ran on, or what the call asks for while the agent has not been seen yet.
-    const mword = card.model.ran || card.model.asked;
+    const mword = card.model.label;
     if (mword) {
       const badge = el('span', 'deleg-model', `${mword}${card.model.differs ? ' \u2260' : ''}`);
       badge.title = card.model.title;
@@ -463,7 +464,7 @@ class Pane {
     }
     node.replaceChildren(...parts);
     node.disabled = !card.agentId;
-    node.title = card.agentId ? 'Show this agent on the graph' : 'This agent is not on the graph being shown';
+    node.title = card.agentId ? t('Show this agent on the graph') : t('This agent is not on the graph being shown');
   }
 
   /** The graph moved: the cards say what their agents are doing now. */
@@ -487,7 +488,7 @@ class Pane {
     if (!this.streaming) { node?.remove(); return; }
     if (!node) {
       node = el('div', 'msg msg-assistant msg-streaming');
-      node.append(el('div', 'msg-role', 'Session'));
+      node.append(el('div', 'msg-role', t('Session')));
       node.append(el('div', 'msg-body'));
       this.logEl.append(node);
     }
@@ -496,7 +497,7 @@ class Pane {
       body.textContent = this.streaming.text;
       body.classList.add('msg-text');
     } else {
-      body.replaceChildren(el('span', 'thinking', 'thinking…'));
+      body.replaceChildren(el('span', 'thinking', t('thinking…')));
     }
     this.scroll();
   }
@@ -512,24 +513,24 @@ class Pane {
     const parts = [badge];
     for (const p of h.parts) {
       // The mode is a control: a click offers the modes a session can be in. Everything else in the strip is said.
-      if (h.mode && p === `mode: ${h.mode}` && this.hooks.onMode && s?.state !== 'exited' && s?.state !== 'failed') {
+      if (h.mode && p === t('mode: {mode}', { mode: h.mode }) && this.hooks.onMode && s?.state !== 'exited' && s?.state !== 'failed') {
         const b = el('button', 'sub pane-mode', p);
         b.type = 'button';
-        b.title = 'Change the mode this session is in';
+        b.title = t('Change the mode this session is in');
         b.setAttribute('aria-haspopup', 'menu');
         b.addEventListener('click', (e) => { e.stopPropagation(); this.hooks.onMode(this, b, h.mode); });
         parts.push(b);
       } else parts.push(el('span', 'sub', p));
     }
     if (h.ungated) {
-      const warn = el('span', 'pill pane-ungated', 'No approval gate');
-      warn.title = 'This session was started without the approval gate: its tool calls do not wait for you.';
+      const warn = el('span', 'pill pane-ungated', t('No approval gate'));
+      warn.title = t('This session was started without the approval gate: its tool calls do not wait for you.');
       parts.push(warn);
     }
     parts.push(el('span', 'row-fill'));
     if (!this.readOnly && s?.costUsd) {
       const cost = el('span', 'sub pane-cost', `$${s.costUsd.toFixed(4)}`);
-      cost.title = 'What this session has cost, as the CLI reported it';
+      cost.title = t('What this session has cost, as the CLI reported it');
       parts.push(cost);
     }
     // Stopping ends the process. It is offered for as long as there is one.
@@ -537,7 +538,7 @@ class Pane {
       const stop = el('button', 'btn sm chat-stop');
       stop.type = 'button';
       stop.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5"/></svg>';
-      stop.append(el('span', null, 'Stop'));
+      stop.append(el('span', null, t('Stop')));
       stop.addEventListener('click', () => this.stop());
       parts.push(stop);
     }
@@ -553,36 +554,41 @@ class Pane {
    */
   paintReadOnly() {
     const lead = el('p', 'chat-ro-lead');
-    lead.append(el('strong', null, 'This session was not started here.'),
-      ' Studio can read it but cannot write to it or answer its approvals.');
+    lead.append(el('strong', null, t('This session was not started here.')),
+      ` ${t('Studio can read it but cannot write to it or answer its approvals.')}`);
 
-    const cont = el('button', 'btn sm primary', 'Continue here');
+    const cont = el('button', 'btn sm primary', t('Continue here'));
     cont.type = 'button';
     cont.addEventListener('click', () => this.hooks.onContinue?.(this, cont));
     const contRow = el('div', 'chat-ro-row');
+    // Shown only once the server says the session is held elsewhere: then the way to continue it ITSELF, not a copy,
+    // is to end the process that holds it first. Two presses, the first saying what ending does.
+    const endCont = el('button', 'btn sm', t('End it there, continue here'));
+    endCont.type = 'button';
+    endCont.hidden = true;
+    endCont.addEventListener('click', (e) => { e.stopPropagation(); this.hooks.onEndAndContinue?.(this, endCont); });
     // Said before the press, from the server's own check (the one Continue here acts on): the same session, or a copy.
     // Until the server answers, and if it cannot: the sentence true of both outcomes.
-    const FALLBACK = 'Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: '
-      + 'the original does not see this, and messages here never reach your terminal.';
+    const FALLBACK = t('Continues it in Studio. If it is still open somewhere else, Studio starts a copy instead: the original does not see this, and messages here never reach your terminal.');
     const contText = el('span', 'sub', FALLBACK);
-    contRow.append(cont, contText);
+    contRow.append(cont, endCont, contText);
 
-    const term = el('button', 'btn sm', 'Open in terminal');
+    const term = el('button', 'btn sm', t('Open in terminal'));
     term.type = 'button';
     term.addEventListener('click', (e) => { e.stopPropagation(); this.hooks.onTerminal?.(this, term); });
     const line = el('code', 'chat-ro-cmd');
     const termText = el('span', 'sub');
-    termText.append('Shows the command first, then opens a terminal: ', line);
+    termText.append(...tParts('Shows the command first, then opens a terminal: {command}', { command: line }));
     const termRow = el('div', 'chat-ro-row');
     termRow.append(term, termText);
 
     // Back to the desktop app: the command, to copy and run where the app is.
     const deskLine = el('code', 'chat-ro-cmd');
-    const deskCopy = el('button', 'btn sm', 'Copy');
+    const deskCopy = el('button', 'btn sm', t('Copy'));
     deskCopy.type = 'button';
     deskCopy.addEventListener('click', () => { if (deskLine.dataset.cmd) navigator.clipboard?.writeText(deskLine.dataset.cmd).then(() => { deskCopy.textContent = 'Copied'; }, () => {}); });
     const deskText = el('span', 'sub');
-    deskText.append('Open it in the desktop app again: ', deskLine);
+    deskText.append(...tParts('Open it in the desktop app again: {command}', { command: deskLine }));
     const deskRow = el('div', 'chat-ro-row');
     deskRow.append(deskCopy, deskText);
 
@@ -592,18 +598,19 @@ class Pane {
     fetch(this.api(`/api/session/${encodeURIComponent(this.id)}/terminal`), { cache: 'no-store' })
       .then((r) => r.json())
       .then((r) => {
-        line.textContent = r?.plan?.line ?? 'not measured — no working directory or session id recorded';
+        line.textContent = r?.plan?.line ?? t('not measured — no working directory or session id recorded');
         // On Windows the command is a PowerShell line (no one line works in cmd and PowerShell 5.1 both): say so.
-        deskLine.textContent = r?.desktop?.line ?? 'not measured — no working directory or session id recorded';
+        deskLine.textContent = r?.desktop?.line ?? t('not measured — no working directory or session id recorded');
         if (r?.desktop?.line) deskLine.dataset.cmd = r.desktop.line; else deskCopy.disabled = true;
-        if (r?.desktop?.shell === 'PowerShell') deskText.append(' (in PowerShell)');
+        if (r?.desktop?.shell === 'PowerShell') deskText.append(` ${t('(in PowerShell)')}`);
         contText.textContent = r?.continueAs === 'same'
-          ? 'Continues this same session in Studio: its id and history stay, and the desktop app or a terminal that opens it later sees what you add here. Nothing else has it open now.'
+          ? t('Continues this same session in Studio: its id and history stay, and the desktop app or a terminal that opens it later sees what you add here. Nothing else has it open now.')
           : r?.continueAs === 'copy'
-            ? 'It is open somewhere else right now, so Studio starts a copy: the original does not see this, and messages here never reach your terminal or the desktop app.'
+            ? t('It is open somewhere else right now, so Studio starts a copy: the original does not see this, and messages here never reach your terminal or the desktop app. To keep the same session, end it there first.')
             : FALLBACK;
+        endCont.hidden = r?.continueAs !== 'copy';
       })
-      .catch((e) => { line.textContent = `not read — ${e.message}`; deskLine.textContent = `not read — ${e.message}`; deskCopy.disabled = true; });
+      .catch((e) => { line.textContent = t('not read — {reason}', { reason: e.message }); deskLine.textContent = t('not read — {reason}', { reason: e.message }); deskCopy.disabled = true; });
   }
 
   paintState() {
@@ -654,7 +661,7 @@ class Pane {
       body: JSON.stringify({ text }),
     }).then((r) => r.json()).catch((e) => ({ ok: false, reason: e.message }));
 
-    if (!res.ok) { this.clearPending(); this.note(`Not sent: ${res.reason}`, 'bad'); }
+    if (!res.ok) { this.clearPending(); this.note(t('Not sent: {reason}', { reason: res.reason }), 'bad'); }
     else { this.session = res.session; this.paintState(); this.onChange(this); }
     return res;
   }
@@ -811,11 +818,11 @@ export class Chat {
       tab.append(el('span', 'tab-name', String(name).slice(0, 28)));
       if (p.permissions?.length) tab.append(el('span', 'tab-badge warn', String(p.permissions.length)));
       else if (p.unread) tab.append(el('span', 'tab-badge', String(p.unread)));
-      tab.title = `${name}\n${id}\n${p.readOnly ? 'read only' : `${p.session?.state ?? ''} · ${p.session?.permissionMode ?? ''}`}`;
+      tab.title = `${name}\n${id}\n${p.readOnly ? t('read only') : `${p.session?.state ?? ''} · ${p.session?.permissionMode ?? ''}`}`;
       tab.addEventListener('click', () => this.activate(id));
 
       const x = el('span', 'tab-x', '×');
-      x.title = 'Close this tab — the session keeps running';
+      x.title = t('Close this tab — the session keeps running');
       x.addEventListener('click', (e) => { e.stopPropagation(); this.close(id); });
       tab.append(x);
       frag.append(tab);

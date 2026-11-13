@@ -1,8 +1,8 @@
 ---
 name: api-design
 description: |
-  API contract design: resource naming, error model, versioning, pagination, backward compatibility, OpenAPI.
-  A predictable interface that evolves without breaking consumers.
+  Use when an API contract is designed or changed: a new endpoint or resource, how its errors and pages
+  are returned, a field to add or remove, or a version to cut without breaking a consumer.
 ---
 
 # API Design
@@ -20,7 +20,8 @@ public API is a commitment; a breaking change is expensive. Stack-agnostic (REST
 - [ ] A clear **versioning** strategy (URL `/v1` or header); a breaking change means a new version
 - [ ] **Pagination/filtering/sorting** defined and consistent on large collections
 - [ ] **Backward compatibility**: adding a field is additive; removing a field or changing its meaning is breaking → version
-- [ ] **Idempotency** (for POST/payment-like cases) supported via a key when needed
+- [ ] **Idempotency** (for POST/payment-like cases) supported via a key when needed: the key, its atomic claim and
+  the answers to a replay are in **`references/idempotency.md`**
 - [ ] The contract is documented in **OpenAPI**; example request/response present (coordinate with `docs-writer`)
 
 ## How
@@ -41,6 +42,10 @@ public API is a commitment; a breaking change is expensive. Stack-agnostic (REST
 | Add an optional field/endpoint | Remove / rename a field |
 | A new optional parameter | Add a required parameter |
 | A new enum value (if the consumer is tolerant) | Change a type/meaning, change a status code |
+
+**Observable behaviour is the contract,** not only the documented fields: someone depends on the error text, the
+order of a list, the default page size and how long a call takes. Changing one of those is breaking for them; say
+it in the changelog like a field change.
 
 ## Invariant rules
 1. **A public API is a commitment** — a breaking change is not made silently; version + announcement.

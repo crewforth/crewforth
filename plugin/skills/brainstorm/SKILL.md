@@ -1,8 +1,8 @@
 ---
 name: brainstorm
 description: |
-  Divergent discovery BEFORE planning: turn a fuzzy ask into 2–4 scoped options + named unknowns, pick a
-  direction, hand to spec-planning. Bounded; converges to explicit choices, never guesses.
+  Use when the ask is still fuzzy and no direction is chosen yet: "not sure what we want", several ways to go,
+  or a scope to settle before any plan is written.
 ---
 
 # Brainstorm — diverge before you converge
@@ -27,6 +27,8 @@ option into tasks). If scope is already clear, skip this and go straight to [[sp
 4. **Converge — ask, don't guess.** Present the directions as **explicit numbered options** and let the user
    choose (CLAUDE.md discipline: a decision point = multiple choice, never a prose either/or). Record the
    chosen direction + the rejected ones with the one-line reason they lost.
+   How to put a question, what is worth asking and what to do when no answer comes:
+   `references/asking.md`; `/crew-interview` runs the whole round of questions as a command.
 5. **Hand off.** The chosen direction + resolved constraints flow into `spec-planning`; a lasting
    architectural choice made here is recorded with [[adr]].
 

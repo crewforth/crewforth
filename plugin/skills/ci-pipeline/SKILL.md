@@ -1,7 +1,8 @@
 ---
 name: ci-pipeline
 description: |
-  CI pipeline discipline: lint→build→test→quality→security, fail-fast, deterministic build, secret handling, PR gates.
+  Use when a CI pipeline or workflow is written or changed, when a build or check fails in CI but not
+  locally, and when a PR gate, a build cache or a secret in CI is set up.
 ---
 
 # CI Pipeline
@@ -19,9 +20,19 @@ Trigger phrases: "ci", "pipeline", "github actions", "jenkins", "build pipeline"
 
 ## Principles
 - **Deterministic:** dependencies pinned, cache keyed correctly; no "it worked on my machine".
-- **Secret management:** CI secret store; NO plaintext secrets in the repo/logs (overlaps with trace scan).
+- **Actions and the token:** pin every third-party action to a full commit SHA with its version in a comment (a tag
+  moves when its owner moves it); `permissions: contents: read` at the top, raised per job only where a step writes;
+  `persist-credentials: false` on checkout unless a later step pushes; never put `${{ github.event.* }}` or a matrix
+  value inside `run:` — pass it through `env:` and quote it.
+- **Secret management:** CI secret store; NO plaintext secrets in the repo/logs (overlaps with trace scan). Log
+  masking is a filter on exact strings: an encoded, split or transformed value prints in clear, so a secret never
+  reaches a step that echoes its environment. Prefer short-lived OIDC credentials over stored keys and ephemeral
+  runners over reused ones; a cache restored into a job is input, so key it on what produced it and never on a
+  value a fork controls.
 - **PR gate:** quality gate + tests must pass; a red build is not merged.
 - **Branch protection:** direct push to main is disabled; PR + review required.
+- **An agent job in CI** (one that fixes, updates or triages with nobody watching): pinned, few tools, an isolated
+  copy, an allowlist for what comes back: **`references/agent-job.md`**.
 
 ## When a stage fails
 1. **Fetch the failing job's log first** — `gh run view --log-failed`, `glab ci trace`, `jenkins-cli console <job>`,

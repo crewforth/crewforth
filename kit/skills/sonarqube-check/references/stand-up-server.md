@@ -20,6 +20,7 @@ docker run -d --name sonarqube -p 9000:9000 sonarqube:community    # first boot 
 
 Either way: http://localhost:9000 · first login `admin`/`admin` · set a new password · then My Account → Security →
 generate a token. **That token is local and yours** — it is not a company credential and nothing is sent anywhere.
+Export it as `SONAR_TOKEN` in your shell; the commands in the skill read it from there.
 
 Persist the container (`-v sonarqube_data:/opt/sonarqube/data`) so history survives, and put the key/exclusions in
 `sonar-project.properties` so every later run is identical.

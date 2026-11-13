@@ -3,7 +3,8 @@
 // The same shapes come from two places: the server's reading of a transcript (history, and sessions Studio only
 // watches) and the live stream of a session started here. Both go through these functions, so a tool row reads
 // the same whichever way it arrived.
-import { roleName, modelOf } from './names.js';
+import { roleName, modelOf, effortOf } from './names.js';
+import { t, numLocale } from './i18n.js';
 
 // How much of a tool's output the page keeps for a live result: the same tail the server keeps for history.
 const RESULT_TAIL = 4096;
@@ -22,6 +23,7 @@ export function toolBlock(c) {
     subagentType: typeof i.subagent_type === 'string' ? i.subagent_type : null,
     // The model a delegation asks for; null when the call names none.
     model: typeof i.model === 'string' ? i.model : null,
+    effort: effortOf(i.effort),
     result: null,
   };
 }
@@ -60,7 +62,7 @@ export function summaryOf(block) {
   if (!r) return { state: 'pending', text: null };
   const lines = r.text.split('\n').map((l) => l.trim()).filter(Boolean);
   const last = lines.length ? lines[lines.length - 1] : null;
-  const text = last == null ? 'no output' : (last.length > SUMMARY_MAX ? `${last.slice(0, SUMMARY_MAX - 1)}…` : last);
+  const text = last == null ? t('no output') : (last.length > SUMMARY_MAX ? `${last.slice(0, SUMMARY_MAX - 1)}…` : last);
   return { state: r.error ? 'error' : 'ok', text };
 }
 
@@ -68,8 +70,8 @@ export function summaryOf(block) {
 export function outputOf(block) {
   const r = block?.result;
   if (!r) return null;
-  if (!r.text) return '(no output)';
-  return r.truncated ? `… ${(r.length - r.text.length).toLocaleString('en-US')} earlier characters not shown\n${r.text}` : r.text;
+  if (!r.text) return t('(no output)');
+  return r.truncated ? `${t('… {n} earlier characters not shown', { n: (r.length - r.text.length).toLocaleString(numLocale()) })}\n${r.text}` : r.text;
 }
 
 /**
@@ -85,7 +87,7 @@ export function delegationCard(block, nodes) {
     agentId: node?.id ?? null,
     status: node?.status ?? null,
     // What it ran on once the graph knows the agent; before that, what the call asked for.
-    model: modelOf({ model: node?.model ?? null, modelAsked: block.model ?? node?.modelAsked ?? null }),
+    model: modelOf({ model: node?.model ?? null, modelAsked: block.model ?? node?.modelAsked ?? null, effort: node?.effort ?? block.effort ?? null }),
   };
 }
 
@@ -112,11 +114,11 @@ export function refusals(denials, wasAllowed, resultOf = () => null) {
     // Who refused is in the result's own words. Another PreToolUse hook that blocked the call is reported by
     // the harness as a hook error; anything else is the harness's own check. With no result on screen the line
     // says only what is known: it was allowed here and did not run.
-    const by = reason == null ? 'it did not run'
-      : /^PreToolUse:\S* hook error/.test(reason) ? 'another gate blocked it' : 'Claude Code refused it';
+    const by = reason == null ? t('it did not run')
+      : /^PreToolUse:\S* hook error/.test(reason) ? t('another gate blocked it') : t('Claude Code refused it');
     out.push({
       id: d.tool_use_id,
-      text: `Allowed here, but ${by}: ${d.tool_name ?? 'tool'}${what ? ` · ${String(what).slice(0, 120)}` : ''}`
+      text: `${t('Allowed here, but {by}: {tool}', { by, tool: d.tool_name ?? t('tool') })}${what ? ` · ${String(what).slice(0, 120)}` : ''}`
         + (reason ? ` — ${reason.slice(0, 200)}` : ''),
     });
   }
@@ -127,29 +129,33 @@ export function refusals(denials, wasAllowed, resultOf = () => null) {
 export function reminderOf(waiting) {
   const list = waiting ?? [];
   if (!list.length) return null;
-  const who = list[0].agentType ? roleName(list[0].agentType) : 'This session';
+  const who = list[0].agentType ? roleName(list[0].agentType) : t('This session');
   const more = list.length - 1;
-  return `${who} is waiting for approval${more > 0 ? `, and ${more} more ${more === 1 ? 'request is' : 'requests are'}` : ''}`;
+  if (more <= 0) return t('{who} is waiting for approval', { who });
+  return more === 1 ? t('{who} is waiting for approval, and 1 more request is', { who })
+    : t('{who} is waiting for approval, and {n} more requests are', { who, n: more });
 }
 
 // The modes a session started here can be put in: the three it can be started in, and no other.
 export const SESSION_MODES = [
-  { mode: 'plan', label: 'plan', title: 'Explore and plan; nothing is edited until a plan is approved.' },
-  { mode: 'acceptEdits', label: 'acceptEdits', title: 'File edits in the project are accepted; every call is still shown in the dock first.' },
-  { mode: 'default', label: 'default', title: 'Each call is asked about in the dock.' },
+  { mode: 'plan', label: 'plan', title: t('Explore and plan; nothing is edited until a plan is approved.') },
+  { mode: 'acceptEdits', label: 'acceptEdits', title: t('File edits in the project are accepted; every call is still shown in the dock first.') },
+  { mode: 'default', label: 'default', title: t('Each call is asked about in the dock.') },
 ];
 
 /** The strip above a conversation: what kind of session this is, in the order the design has it. */
 export function headerOf(session, { readOnly = false, contextTokens = null } = {}) {
-  if (readOnly) return { badge: 'Read only', tone: 'none', parts: [] };
+  if (readOnly) return { badge: t('Read only'), tone: 'none', parts: [] };
   const parts = [];
-  if (session?.permissionMode) parts.push(`mode: ${session.permissionMode}`);
+  if (session?.permissionMode) parts.push(t('mode: {mode}', { mode: session.permissionMode }));
   const facts = [];
-  if (typeof session?.turns === 'number') facts.push(`${session.turns} ${session.turns === 1 ? 'turn' : 'turns'}`);
-  if (contextTokens != null) facts.push(`${fmtK(contextTokens)} ctx`);
+  if (typeof session?.turns === 'number') facts.push(session.turns === 1 ? t('{n} turn', { n: 1 }) : t('{n} turns', { n: session.turns }));
+  if (contextTokens != null) facts.push(t('{n} ctx', { n: fmtK(contextTokens) }));
   if (facts.length) parts.push(facts.join(' · '));
+  const changed = changesLine(session?.changes);
+  if (changed) parts.push(changed);
   return {
-    badge: 'Started here',
+    badge: t('Started here'),
     tone: 'good',
     parts,
     // The mode on its own as well: in the strip it is a control, and the rest of `parts` is not.
@@ -157,6 +163,18 @@ export function headerOf(session, { readOnly = false, contextTokens = null } = {
     // A session started here without the gate is running unguarded, and that is said in the strip itself.
     ungated: session ? session.gated === false : false,
   };
+}
+
+/**
+ * What a session started here has changed since it started, as the server read it from git: null when it was not
+ * measured or nothing changed, so a strip never shows a 0 nobody counted.
+ */
+export function changesLine(c) {
+  if (!c?.measured || (!c.files && !c.untracked)) return null;
+  const bits = [];
+  if (c.files) bits.push(c.files === 1 ? t('{n} file changed (+{added} −{removed})', { n: 1, added: c.added, removed: c.removed }) : t('{n} files changed (+{added} −{removed})', { n: c.files, added: c.added, removed: c.removed }));
+  if (c.untracked) bits.push(t('{n} new untracked', { n: c.untracked }));
+  return bits.join(' · ');
 }
 
 function fmtK(t) {

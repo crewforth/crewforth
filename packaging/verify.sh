@@ -142,6 +142,8 @@ step_findings(){
   node packaging/findings-test/selfcheck.mjs || return 1
   node packaging/review-prepass-test/selfcheck.mjs || return 1
   node packaging/review-bench/selfcheck.mjs || return 1
+  # The labelled sets (routing, review bench) may not get more predictable by one surface feature: packaging/case-shortcuts.mjs.
+  node packaging/case-shortcuts.mjs || return 1
   local d
   for d in findings review-prepass review-bench; do
     diff -r "kit/eval/lib/$d" "plugin/eval/lib/$d" >/dev/null 2>&1 || {
@@ -178,6 +180,20 @@ step_skilleval(){
 # The only step that needs a tool the repo does not carry. CI installs the CLI; a developer machine
 # usually already has it, and a machine without it must say SKIPPED rather than quietly pass.
 step_manifests(){
+  # The repository's own workflows first: no tool needed, so it runs where the CLI is absent too.
+  bash packaging/workflow-check.sh || return 1
+  # The whole plugin edition is regenerated into a scratch folder and compared with plugin/ as it stands — every
+  # file, tracked or not. Before this ran here, only release.yml compared the whole edition, so a skill changed
+  # without a rebuild was green on every local run and stopped the release after the tag.
+  local pd; pd="$(mktemp -d)" || return 1
+  CREW_PLUGIN_OUT="$pd/plugin" bash packaging/build-plugin.sh >/dev/null 2>"$pd/err" || { cat "$pd/err"; rm -rf "$pd"; return 1; }
+  [ -f "$pd/plugin/.claude-plugin/plugin.json" ] || { echo "FIXTURE: build-plugin.sh wrote no manifest into $pd/plugin"; rm -rf "$pd"; return 1; }
+  if ! diff -r "$pd/plugin" plugin >/dev/null 2>&1; then
+    echo "plugin/ is out of sync with kit/ — run packaging/build-plugin.sh and commit the result"
+    diff -rq "$pd/plugin" plugin 2>&1 | sed "s#$pd/plugin#(regenerated)#" | head -10; rm -rf "$pd"; return 1
+  fi
+  echo "plugin edition: $(find "$pd/plugin" -type f | wc -l | tr -d ' ') files regenerated, identical to plugin/"
+  rm -rf "$pd"
   command -v claude >/dev/null 2>&1 || { echo "SKIP: the claude CLI is not on PATH"; return 3; }
   claude plugin validate plugin --strict || return 1
   claude plugin validate .claude-plugin/marketplace.json --strict || return 1

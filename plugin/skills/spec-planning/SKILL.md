@@ -1,9 +1,8 @@
 ---
 name: spec-planning
 description: |
-  Spec-first planning: task breakdown, measurable acceptance criteria, dependency order, risk priority.
-  crew-planner applies it; the plan goes to docs/PLAN.md.
-  Use when the scope is unclear or the work spans more than one change.
+  Use when work needs a plan before code: the user asks how to split it into tasks or what the acceptance
+  criteria are, or the scope spans more than one change.
 ---
 
 # Spec-First Planning
@@ -18,25 +17,57 @@ Before writing code: what will be done, how it counts as "done", and in what ord
 2. **Split into vertical slices:** the smallest end-to-end working pieces (not horizontal layers). Each slice delivers value on its own.
 3. **A contract for every task:** input · output · **measurable acceptance criterion** (testable) · estimated risk.
 4. **Dependency graph:** which task waits on what; no cycles. **Bring the riskiest/most-unknown to the front** (fail-fast).
-5. **Uncertainties:** assumption list + open questions; do not fill ambiguous spots with a guess, ask with explicit options.
+5. **Uncertainties:** assumption list + open questions; do not fill ambiguous spots with a guess, ask with explicit options
+   (how to ask, and what an unanswered question becomes: `brainstorm/references/asking.md`).
 
 ## Output (docs/PLAN.md)
+**Before writing:** a `docs/PLAN.md` that still has unchecked tasks for other work is not overwritten. Stop and ask
+whether to replace it, add this plan to it, or write this one beside it.
 ```
 # <Feature> — Plan
+commit: <HEAD when the plan was written>
+status: active
 ## Acceptance criteria
-- [ ] AC-1: <measurable outcome>
-- [ ] AC-2: <measurable outcome>
+- [ ] AC-1: <measurable outcome> — proven by: <the one test level: unit · integration · e2e · a named manual check>
+- [ ] AC-2: <measurable outcome> — proven by: <…>
+## Constraints
+- <a value, limit or name copied word for word from the request or spec>
 ## Tasks (order)
-1. <task> — satisfies: AC-1 — dependency: <none/#n> — risk: <low/medium/high>
+Progress: tick a task [x] when its check passes, mark the one in work [~]; status: paused above when this work stops.
+### Phase 1 — <name>                                              (phases only when the work has stages)
+1. [ ] <task> — satisfies: AC-1 — size: <S/M/L> — dependency: <none/#n> — risk: <low/medium/high>
+   Interfaces: consumes <name: type> · produces <name: type>      (only when a later task uses its output)
+   Current code: <a few lines, verbatim, at the place it changes>  (optional)
+2. [ ] …
+— checkpoint: build and tests green, the criteria so far re-read —  (after every 2-3 tasks)
+### Phase 2 — <name>
+3. [ ] …
+## Not covered by tests
+- <an input or case no test reaches> → task <n>                    (five at most)
 ## Assumptions / Open questions
 - ...
 ```
+- **Every task carries a box, and the box is the record.** `[ ]` open, `[x]` done (its check passed, not "written"),
+  `[~]` the one in work. Tick it in the same step that finishes the task; the `Progress:` line keeps that rule in the
+  plan, where whoever works it reads it. `/crew-todo` draws the boxes under the status line.
+- **A change to the plan is a change to the file.** A task added, split or dropped after the plan was written goes into
+  `docs/PLAN.md` in the same step: the panel and Studio read only the file. `/crew-todo` also brings it up to date.
+- **The `status:` line says whether this plan is the work in progress.** When the user stops, parks or replaces the
+  work, set it to `paused` (`dropped` when it will not come back, `done` when it is finished) in that same step; set it
+  back to `active` when the work on it resumes. A paused plan gives the panel no count and no tasks, so the work that
+  replaced it is not shown as this plan's next task. `/crew-todo pause` and `/crew-todo resume` set the same line.
+- **No timeline and no estimate in time.** A size (S/M/L) says how much, never when.
+- **No code beyond signatures.** A plan names functions and types; the bodies are the tasks' work. The only code a
+  plan quotes is the current code a task changes, word for word.
+- **Drift stops the work.** When a task's `Current code` no longer matches the file, or its files changed after the
+  plan's `commit:`, the task stops and reports what moved. It does not improvise a new version of the plan.
 
 **Every criterion carries a stable id, and every task names the ids it satisfies.** The id is what makes the plan
 checkable later: "AC-2 is only partly built" can be said, argued about and tracked; "the second checkbox" cannot,
 and renumbering a list silently re-points every reference to it. Never reuse or renumber an id — a dropped
 criterion keeps its id with a strike-through and a one-line reason. A criterion no task satisfies, and a task that
-satisfies no criterion, are both findings before a line of code is written.
+satisfies no criterion, are both findings before a line of code is written: the task is cut, or raised as an open
+question.
 
 ## Mark what you do not know — do not fill it in
 Where a requirement admits more than one reading, write the marker **`[NEEDS CLARIFICATION: <the question>]`** at

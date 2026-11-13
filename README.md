@@ -6,7 +6,7 @@
   <img src="assets/logo.svg" alt="Crewforth" width="420">
 </picture>
 
-![Version](https://img.shields.io/badge/version-3.4.0-6D28D9?style=flat-square)
+![Version](https://img.shields.io/badge/version-3.5.0-6D28D9?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-5c6472?style=flat-square)
 [![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-24292f?style=flat-square&logo=github)](https://github.com/Crewforth/crewforth)
 
@@ -15,7 +15,7 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain,<br>
-40 skills that hold the method, 14 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 18 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -57,9 +57,9 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 | Ship | `/crew-ship` | `crew-review-agent` records a clean review; `crew-commit-agent` proposes the commit and waits for you |
 | Hand off | `/crew-handoff` | `handoff` writes the state down for the next session |
 
-A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost. Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
+A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost; `/crew-todo` opens the plan's to-do panel under it (phases and tasks, done ticked, the task in work marked). Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
 
-**14 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`.
+**18 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
 
 ## The agents
 
@@ -86,14 +86,14 @@ A status line under the prompt shows the gate's last word, an approval that stil
 
 | Rule | Enforced by |
 |:--|:--|
-| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is a command you type: `/crew-approve`, which approves the commit or push that was just refused (or spell it out: `/crew-approve commit`, `push`, `commit+push`). In `auto` you can also answer one fixed question with a click. Where a `PermissionRequest` hook may be wired, which can answer a prompt before you do, the question and the gate's own prompt close and `/crew-approve` is the way, in every mode. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
+| Commit and push need your approval, in every permission mode; in `auto` and `dontAsk` it is a command you type: `/crew-approve`, which approves the commit or push that was just refused (or spell it out: `/crew-approve commit`, `push`, `commit+push`). In `auto` you can also answer one fixed question with a click. Where a `PermissionRequest` hook may be wired, which can answer a prompt before you do, the question and the gate's own prompt close and `/crew-approve` is the way, in every mode; Warp's notification hook, which cannot answer one, leaves them open. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
 | A commit needs a clean review of that exact diff. The review starts from a deterministic pre-pass (secrets, debug calls, shellcheck, a lock file without its manifest), every finding cites the lines it is about, and `crew-refuter` tries to refute the ones that block | `guard-bash.sh`, `review-prepass` and the record `crew-review-agent` writes |
 | Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused, with one line saying what they would have touched: the changes and commits discarded, the files removed, the remote commits overwritten | `guard-bash.sh` |
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |
 | No API key, token or private key reaches a commit | `pre-commit` secret scan |
 | A gate file cannot be edited or deleted, nor the git settings that point at the hooks (`core.hooksPath`, `crewforth.hookschain`) changed, to switch the gate off | `guard-write.sh`, `guard-bash.sh` |
-| A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, features, fixes, refactors and work nothing can verify on `sonnet` or above, `haiku` for text, test runs and the commit message. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
-| An agent's work is verified when it stops: red once, the agent fixes it; red again, the task is repeated one model up and the same model is refused; red there too, you are asked | `agent-outcome.sh` and `guard-agent-model.sh` |
+| A `crew-*` agent is called with a task card (files, kind of change, verify command) and a model that fits its risk: critical work (auth, payments, migrations, security…) on `opus`, features, fixes, refactors and work nothing can verify on `sonnet` or above, `haiku` for text, test runs and the commit message (the docs agent on `sonnet`). The call names an effort too, `medium` by default. Explore runs on `haiku`. A model forced onto every subagent (`CLAUDE_CODE_SUBAGENT_MODEL_FORCE`) is judged in place of the call's. An agent not on `opus` cannot write to a critical path. `CREW_MODEL_ROUTING=off` turns this off | `guard-agent-model.sh`, `guard-write.sh` |
+| An agent's work is verified when it stops: red once, the agent fixes it; red again, the task is repeated once on the same model at effort `high` (when it ran below), then once one model up, and a lower model is refused; red there too, you are asked | `agent-outcome.sh` and `guard-agent-model.sh` |
 
 Every hook and rule: [crewforth.com/gates](https://crewforth.com/gates). Gates stop accidents, not determined attempts; for a hard boundary, use a devcontainer or a VM.
 
@@ -119,7 +119,7 @@ Studio is a local panel that draws a delegation as it happens, in three views: a
 /plugin install crewforth@crewforth
 ```
 
-When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. The three files Crewforth owns under `.claude/` (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) are refreshed on every update; a copy you edited is kept in `.claude/.legacy-backup/` first, and named. On Windows, use Git Bash; the gates run only when Claude Code finds it. When it does not, the tools that write or run commands are stopped, and the message and `/crew-doctor` name the path to set. An organisation can carry its settings (critical paths, model floors, verify commands, language) to every project with `--preset strict`, `--preset solo` or a JSON file of its own: [crewforth.com/extending](https://crewforth.com/extending). Every option: [crewforth.com/install](https://crewforth.com/install).
+When a new version is published, Claude asks once, at the start of a session, whether to update now, later or never for that version; it never updates on its own. `/crew-update` runs the update and reports what changed, and `./CLAUDE.md` is never touched. What an older version installed and Crewforth no longer ships is moved to `.claude/.legacy-backup/` if it is unchanged, with a one-line restore; anything you edited stays where it is and is named. The three files Crewforth owns under `.claude/` (`DISCIPLINE.md`, `AGENT_TEMPLATE.md`, `README.md`) are refreshed on every update; a copy you edited is kept in `.claude/.legacy-backup/` first, and named. On Windows, use Git Bash; the gates run only when Claude Code finds it. When it does not, the tools that write or run commands are stopped, and the message and `/crew-doctor` name the path to set. An organisation can carry its settings (critical paths, model floors, verify commands, language) to every project with `--preset strict`, `--preset solo` or a JSON file of its own: [crewforth.com/extending](https://crewforth.com/extending). A tool that starts each session in its own git worktree, such as claude-squad, needs `.claude/` copied into that worktree first, or the session there runs none of the Claude Code hooks; `/crew-doctor` names the worktrees that lack it. Every option: [crewforth.com/install](https://crewforth.com/install).
 
 ## Telemetry
 

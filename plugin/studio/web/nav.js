@@ -8,19 +8,21 @@
 // status nobody recognises keeps its own word and gets no colour; a branch that could not be read leaves the line
 // without one; a project that cannot be told to update by a command gets a hint instead of a command.
 
+import { t } from './i18n.js';
+
 /* ------------------------------------------------------------- status --- */
 
 // The words the design uses, and the token each is drawn in. `tone` names a status-* token; null is the hollow
 // ring of something that is over.
 const AGENT_STATUS = {
-  running: { word: 'running', tone: 'busy' },
-  starting: { word: 'starting', tone: 'busy' },
-  done: { word: 'done', tone: 'good' },
-  failed: { word: 'failed', tone: 'fail' },
-  killed: { word: 'killed', tone: 'fail' },
-  stopped: { word: 'stopped', tone: 'fail' },
-  stale: { word: 'stale', tone: 'idle' },
-  ended: { word: 'ended', tone: null },
+  running: { word: t('running'), tone: 'busy' },
+  starting: { word: t('starting'), tone: 'busy' },
+  done: { word: t('done'), tone: 'good' },
+  failed: { word: t('failed'), tone: 'fail' },
+  killed: { word: t('killed'), tone: 'fail' },
+  stopped: { word: t('stopped'), tone: 'fail' },
+  stale: { word: t('stale'), tone: 'idle' },
+  ended: { word: t('ended'), tone: null },
 };
 const CHIP_ORDER = ['running', 'starting', 'stale', 'done', 'failed', 'killed', 'stopped', 'ended'];
 
@@ -29,7 +31,7 @@ export function agentStatus(status) {
   const known = AGENT_STATUS[status];
   return known
     ? { word: known.word, tone: known.tone, known: true }
-    : { word: String(status ?? 'unknown'), tone: null, known: false };
+    : { word: String(status ?? t('unknown')), tone: null, known: false };
 }
 
 /**
@@ -55,10 +57,59 @@ export function summaryChips(byStatus) {
 // A session, as the machine reports it. `claude agents` knows three states; a session it does not list is not
 // running anywhere on this machine.
 const SESSION_STATUS = {
-  busy: { word: 'Running', tone: 'busy' },
-  waiting: { word: 'Needs you', tone: 'waiting' },
-  idle: { word: 'Idle', tone: 'idle' },
+  busy: { word: t('Running'), tone: 'busy' },
+  waiting: { word: t('Needs you'), tone: 'waiting' },
+  idle: { word: t('Idle'), tone: 'idle' },
 };
+
+// A session that says it is working or waiting, and has written nothing for this long, is drawn as quiet: still
+// open, no longer counted as live work or as needing the viewer. Measured on this machine: sessions doing work wrote
+// within a minute; the one listed as "waiting · permission prompt" for a window that was gone had been silent for
+// 1124 minutes. A tool call can run ten minutes without a line (the Bash tool's longest timeout), so an hour is six
+// times that and still far from the case it exists for.
+export const QUIET_AFTER_MS = 60 * 60 * 1000;
+
+/** "45m", "18h", "3d" — a quiet stretch, coarse on purpose. */
+export function span(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+/**
+ * One fleet row's status, read against `now` (the server's clock: the row's activity clock is that machine's).
+ * A row with no activity clock, or no clock to read it against, keeps what the machine said: not read is not quiet.
+ */
+export function rowStatus(row, now = null) {
+  const known = SESSION_STATUS[row.status];
+  if (!known) return { key: String(row.status), word: String(row.status), tone: null, known: false };
+  const quietFor = typeof now === 'number' && typeof row.activityAt === 'number' ? now - row.activityAt : null;
+  if ((row.status === 'busy' || row.status === 'waiting') && quietFor !== null && quietFor > QUIET_AFTER_MS) {
+    return {
+      key: 'quiet', word: t('Quiet for {span}', { span: span(quietFor) }), tone: 'idle', known: true,
+      was: row.status, quietFor, waitingFor: row.waitingFor ?? null,
+    };
+  }
+  // The session's own word can be finer than the CLI's: "shell" arrives as busy, and it is a command running in
+  // the session, not the model at work.
+  if (row.status === 'busy' && row.rawStatus === 'shell') {
+    return { key: 'busy', word: t('Shell command running'), tone: 'busy', known: true, waitingFor: null };
+  }
+  return { key: row.status, word: known.word, tone: known.tone, known: true, waitingFor: row.waitingFor ?? null };
+}
+
+/**
+ * The session card's word, once the graph has said what shell commands the session has running (`shells`, a count
+ * that is 0 unless the session is live). The machine calls a session that ended its turn with a command still
+ * running in the background "idle", and one inside a long foreground command plain "busy"; both are a command
+ * running. Waiting on someone, and a state that was not read, are left as they are: the first outranks it, and
+ * the second is not measured.
+ */
+export function withShell(status, shells) {
+  if (!shells || !status || (status.key !== 'idle' && status.key !== 'busy')) return status;
+  return { ...status, key: 'busy', word: t('Shell command running'), tone: 'busy', known: true, waitingFor: null };
+}
 
 /**
  * @param fleet the /api/fleet answer, or null before the first one
@@ -67,10 +118,8 @@ const SESSION_STATUS = {
 export function sessionStatus(sessionId, fleet) {
   if (!fleet || fleet.measured === false) return { key: 'unmeasured', word: null, tone: null, known: false };
   const row = (fleet.sessions ?? []).find((s) => s.sessionId === sessionId && s.local !== false);
-  if (!row) return { key: 'ended', word: 'Ended', tone: null, known: true };
-  const known = SESSION_STATUS[row.status];
-  if (!known) return { key: String(row.status), word: String(row.status), tone: null, known: false };
-  return { key: row.status, word: known.word, tone: known.tone, known: true, waitingFor: row.waitingFor ?? null };
+  if (!row) return { key: 'ended', word: t('Ended'), tone: null, known: true };
+  return rowStatus(row, fleet.now ?? null);
 }
 
 /**
@@ -95,9 +144,9 @@ export function sessionName(sn, labels) {
 export function sessionSub(sn, status) {
   const parts = [];
   if (sn.branch) parts.push(sn.branch);
-  if (status?.key === 'waiting' && status.waitingFor) parts.push(`Needs you · ${status.waitingFor}`);
+  if (status?.key === 'waiting' && status.waitingFor) parts.push(`${t('Needs you')} · ${status.waitingFor}`);
   else if (status?.word) parts.push(status.word);
-  if (sn.agentCount > 0) parts.push(`${sn.agentCount} ${sn.agentCount === 1 ? 'agent' : 'agents'}`);
+  if (sn.agentCount > 0) parts.push(sn.agentCount === 1 ? t('{n} agent', { n: 1 }) : t('{n} agents', { n: sn.agentCount }));
   return parts.join(' · ');
 }
 
@@ -105,20 +154,20 @@ export function sessionSub(sn, status) {
 export function ago(thenMs, nowMs) {
   if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) return '';
   const s = Math.max(0, Math.round((nowMs - thenMs) / 1000));
-  if (s < 60) return 'now';
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
+  if (s < 60) return t('now');
+  if (s < 3600) return t('{n}m', { n: Math.floor(s / 60) });
+  if (s < 86400) return t('{n}h', { n: Math.floor(s / 3600) });
+  return t('{n}d', { n: Math.floor(s / 86400) });
 }
 
 /** "seen just now", "seen 3 min ago", "seen 2 h ago" — for a fact recorded earlier, not read now. */
 export function seenAgo(thenMs, nowMs) {
-  if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) return 'seen at an unrecorded time';
+  if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) return t('seen at an unrecorded time');
   const s = Math.max(0, Math.round((nowMs - thenMs) / 1000));
-  if (s < 60) return 'seen just now';
-  if (s < 3600) return `seen ${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `seen ${Math.floor(s / 3600)} h ago`;
-  return `seen ${Math.floor(s / 86400)} d ago`;
+  if (s < 60) return t('seen just now');
+  if (s < 3600) return t('seen {n} min ago', { n: Math.floor(s / 60) });
+  if (s < 86400) return t('seen {n} h ago', { n: Math.floor(s / 3600) });
+  return t('seen {n} d ago', { n: Math.floor(s / 86400) });
 }
 
 /* ------------------------------------------------------------- search --- */
@@ -161,29 +210,28 @@ export function highlight(text, query) {
 export function badgeFor(kit) {
   if (!kit || !kit.installed) {
     return {
-      text: 'no Crewforth',
+      text: t('no Crewforth'),
       tone: 'none',
       copy: null,
-      title: 'No Crewforth files in this project. A plugin install leaves none, so this cannot tell the two '
-        + 'apart; to update one, run /crew-update in the project.',
+      title: t('No Crewforth files in this project. A plugin install leaves none, so this cannot tell the two apart; to update one, run /crew-update in the project.'),
     };
   }
   const command = typeof kit.updateCommand === 'string' && kit.updateCommand ? kit.updateCommand : null;
-  const how = command ? `click to copy: ${command}` : 'run /crew-update in this project';
+  const how = command ? t('click to copy: {command}', { command }) : t('run /crew-update in this project');
   if (kit.compared === false) {
     return {
       text: `${kit.version} ?`,
       tone: 'unknown',
       copy: null,
-      title: `Crewforth ${kit.version} — not compared: ${kit.reason ?? 'no reason given'}`,
+      title: t('Crewforth {version} — not compared: {reason}', { version: kit.version, reason: kit.reason ?? t('no reason given') }),
     };
   }
   if (kit.outdated) {
     return {
-      text: `${kit.version} · update`,
+      text: `${kit.version} · ${t('update')}`,
       tone: 'old',
       copy: command,
-      title: `Crewforth ${kit.version} is behind ${kit.latest} — ${how}`,
+      title: t('Crewforth {version} is behind {latest} — {how}', { version: kit.version, latest: kit.latest, how }),
     };
   }
   if (kit.ahead) {
@@ -191,10 +239,10 @@ export function badgeFor(kit) {
       text: kit.version,
       tone: 'ahead',
       copy: null,
-      title: `Crewforth ${kit.version} is ahead of the published ${kit.latest}`,
+      title: t('Crewforth {version} is ahead of the published {latest}', { version: kit.version, latest: kit.latest }),
     };
   }
-  return { text: kit.version, tone: 'current', copy: null, title: `Crewforth ${kit.version} — current` };
+  return { text: kit.version, tone: 'current', copy: null, title: t('Crewforth {version} — current', { version: kit.version }) };
 }
 
 /* --------------------------------------------------------------- live --- */
@@ -202,10 +250,45 @@ export function badgeFor(kit) {
 /** The Live tab: sessions that are working or waiting on someone, the waiting ones first. */
 export function liveSessions(fleet) {
   if (!fleet || fleet.measured === false) return [];
-  const rank = { waiting: 0, busy: 1 };
+  const now = fleet.now ?? null;
   return (fleet.sessions ?? [])
-    .filter((s) => s.status in rank)
-    .sort((a, b) => rank[a.status] - rank[b.status] || (b.startedAt ?? 0) - (a.startedAt ?? 0));
+    .filter((s) => s.status in LIVE_RANK)
+    .map((s) => ({ s, k: rowStatus(s, now).key }))
+    .sort((a, b) => LIVE_RANK[a.k] - LIVE_RANK[b.k] || (b.s.startedAt ?? 0) - (a.s.startedAt ?? 0))
+    .map(({ s }) => s);
+}
+const LIVE_RANK = { waiting: 0, busy: 1, quiet: 2 };
+
+/** How many of the live rows are live work: the badge's number. A quiet one is listed, not counted. */
+export function liveCount(fleet) {
+  const now = fleet?.now ?? null;
+  return liveSessions(fleet).filter((s) => rowStatus(s, now).key !== 'quiet').length;
+}
+
+/** Where a live session belongs: its project, with a worktree folded into the repository that holds it. */
+export function projectOfCwd(cwd) {
+  if (typeof cwd !== 'string' || !cwd) return '';
+  const root = cwd.replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/, '');
+  const parts = root.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || root;
+}
+
+/**
+ * The Live tab, one group per project. Groups keep the order of the rows they hold, so the project with a session
+ * waiting on the viewer comes first; another machine's sessions never share a group with this machine's.
+ * @param placeOf  row -> the project's name (the panel knows the projects; a bare cwd falls back to projectOfCwd)
+ */
+export function liveGroups(fleet, placeOf = (s) => projectOfCwd(s.cwd)) {
+  const now = fleet?.now ?? null;
+  const groups = new Map();
+  for (const s of liveSessions(fleet)) {
+    const origin = s.local === false ? (s.origin ?? '') : null;
+    const label = placeOf(s) || t('unknown');
+    const key = `${origin ?? ''}\u0000${label}`;
+    if (!groups.has(key)) groups.set(key, { key, label, origin, rows: [] });
+    groups.get(key).rows.push({ row: s, status: rowStatus(s, now) });
+  }
+  return [...groups.values()];
 }
 
 /**

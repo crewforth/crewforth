@@ -18,12 +18,13 @@ if (sub === '--help' || sub === '-h' || sub === 'help') {
   console.log(`Crewforth
 
 Usage:
-  npx crewforth [init] [--private|--shared] [--yes] [--preset <name|file.json>]
+  npx crewforth [init] [--private|--shared] [--ignore-local] [--yes] [--preset <name|file.json>]
       Set up Crewforth in a fresh project (start.sh wizard). Every install ships everything and
       is stack-agnostic: the stack is recorded per project in CLAUDE.md ## Stack.
       (--dotnet was removed in 3.0; it is still accepted, warns, and installs the same setup.)
-  npx crewforth adopt [--preset <name|file.json>]
+  npx crewforth adopt [--preset <name|file.json>] [--ignore-local]
       Hand Crewforth over onto an existing project (adopt.sh).
+      --ignore-local writes the ignore lines to .git/info/exclude, leaving the tracked .gitignore alone.
       --preset applies an organisation preset (default, strict, solo, or your own JSON file).
   npx crewforth@latest update
       Refresh a project that already has Crewforth. Alias of 'adopt': it reads .claude/kit.conf,
@@ -35,6 +36,10 @@ Usage:
   npx crewforth add <name...> | add --list
       Copy one agent or skill (and the skills an agent uses) into ./.claude — not the full install.
       --list shows the catalogue; --force replaces a file that differs; --no-deps adds the agent alone.
+
+  npx crewforth remove [--apply]
+      Take a file install back out: Crewforth's hook entries, git hook path and files (moved to
+      .claude/.crewforth-removed-<time>/, not deleted). A dry run unless --apply. CLAUDE.md is never touched.
 
   npx crewforth --version
       Print the Crewforth version and exit.
@@ -87,8 +92,8 @@ function catalogue(pkgDir) {
   const isCommand = (d) => /\n {2}kind: command\r?\n/.test(fs.readFileSync(path.join(skillsDir, d, 'SKILL.md'), 'utf8').split(/\r?\n---\r?\n/)[0] + '\n');   // CRLF too
   const commands = all.filter(isCommand);
   const skills = all.filter((d) => !commands.includes(d));
-  // `metadata: experimental: true` installs and answers when named, but is not listed or counted until it is done.
-  const experimental = all.filter((d) => /\n {2}experimental: true\r?\n/.test(fs.readFileSync(path.join(skillsDir, d, 'SKILL.md'), 'utf8').split(/\r?\n---\r?\n/)[0] + '\n'));
+  // `metadata: experimental: "true"` installs and answers when named, but is not listed or counted until it is done.
+  const experimental = all.filter((d) => /\n {2}experimental: "?true"?\r?\n/.test(fs.readFileSync(path.join(skillsDir, d, 'SKILL.md'), 'utf8').split(/\r?\n---\r?\n/)[0] + '\n'));
   return { root, agents, skills, commands, experimental };
 }
 
@@ -373,6 +378,132 @@ function addCommand(pkgDir, args, opts = {}) {
 }
 // ============================== /add ================================
 
+// ================================ remove ================================
+// `remove` takes a file install (start.sh / adopt.sh) back out of a project. A DRY RUN unless --apply: it prints
+// what it would do and changes nothing. With --apply:
+//   settings.json   every hook entry whose command or args name .claude/hooks/ goes (the merge treats exactly those
+//                   as Crewforth's), and so does the status line when it is Crewforth's. The blanket "Bash" allow
+//                   goes too: it is safe only while guard-bash.sh judges every command, and that hook is leaving.
+//                   Every other key, permission and hook of the project stays. Not valid JSON: refused, untouched.
+//   git             core.hooksPath is unset only when it points at .claude/hooks; when it points at the shim, it is
+//                   set back to the chain the shim ran (husky, a hooks folder), or unset for .git/hooks.
+//   files           what the install manifest and the payload name (Crewforth's agents and skills, hooks/, eval/,
+//                   studio/, git-shim/ and its own records) MOVES to .claude/.crewforth-removed-<time>/, never deleted.
+//                   A skill or agent of the project's own, not in the manifest, stays where it is.
+//   never touched   ./CLAUDE.md (its @.claude/DISCIPLINE.md line is named for the user to delete), .gitignore.
+// A second run finds nothing and says so. A plugin install is removed with /plugin uninstall instead.
+const OWN_FLAT = ['DISCIPLINE.md', 'AGENT_TEMPLATE.md', 'README.md', 'VERSION', 'kit.conf', 'kit-manifest.txt', 'crewforth-added.json'];
+const OWN_DIRS = ['hooks', 'eval', 'studio', 'git-shim', 'state', '.state'];
+function removePlan(projectRoot) {
+  const cl = path.join(projectRoot, '.claude');
+  const plan = { settings: null, settingsWhy: [], git: null, move: [], notes: [] };
+  // settings.json
+  const sp = path.join(cl, 'settings.json');
+  if (fs.existsSync(sp)) {
+    let doc = null;
+    try { doc = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch (_) { plan.notes.push('.claude/settings.json is not valid JSON: left as it is; remove its .claude/hooks/ entries by hand'); }
+    if (doc && typeof doc === 'object' && !Array.isArray(doc)) {
+      const ours = (h) => h && typeof h === 'object' && [h.command, ...(Array.isArray(h.args) ? h.args : [])].some((x) => typeof x === 'string' && /\.claude[\\/]hooks[\\/]/.test(x));
+      let n = 0;
+      if (doc.hooks && typeof doc.hooks === 'object') {
+        for (const ev of Object.keys(doc.hooks)) {
+          const list = Array.isArray(doc.hooks[ev]) ? doc.hooks[ev] : [];
+          const kept = [];
+          for (const e of list) {
+            const hs = e && Array.isArray(e.hooks) ? e.hooks : [];
+            const left = hs.filter((h) => !ours(h)); n += hs.length - left.length;
+            if (left.length) kept.push({ ...e, hooks: left }); else if (!hs.length) kept.push(e);
+          }
+          if (kept.length) doc.hooks[ev] = kept; else delete doc.hooks[ev];
+        }
+        if (!Object.keys(doc.hooks).length) delete doc.hooks;
+      }
+      if (n) plan.settingsWhy.push(`${n} hook command(s) that run .claude/hooks/`);
+      if (doc.statusLine && typeof doc.statusLine.command === 'string' && /\.claude[\\/]eval[\\/]lib[\\/]statusline\.sh/.test(doc.statusLine.command)) {
+        delete doc.statusLine; plan.settingsWhy.push("Crewforth's status line");
+      }
+      const allow = doc.permissions && Array.isArray(doc.permissions.allow) ? doc.permissions.allow : null;
+      if (allow && allow.includes('Bash') && n) {
+        doc.permissions.allow = allow.filter((x) => x !== 'Bash');
+        plan.settingsWhy.push('the blanket "Bash" allow (safe only while guard-bash.sh judges every command)');
+      }
+      if (n && doc.skillListingBudgetFraction === 0.04) { delete doc.skillListingBudgetFraction; plan.settingsWhy.push('the skill listing budget Crewforth set (0.04)'); }
+      if (plan.settingsWhy.length) plan.settings = doc;
+    }
+  }
+  // git
+  const gitEnv = { ...process.env }; delete gitEnv.GIT_DIR; delete gitEnv.GIT_WORK_TREE;
+  const git = (args) => spawnSync('git', args, { cwd: projectRoot, env: gitEnv, encoding: 'utf8' });
+  const hp = git(['config', '--get', 'core.hooksPath']);
+  const cur = hp.status === 0 ? String(hp.stdout).trim().replace(/\\/g, '/').replace(/\/+$/, '') : '';
+  if (/(^|\/)\.claude\/hooks$/.test(cur)) plan.git = { from: cur, to: null };
+  else if (/(^|\/)\.claude\/git-shim$/.test(cur)) {
+    let to = null;
+    const chain = git(['config', '--get', 'crewforth.hookschain']);
+    if (chain.status === 0 && String(chain.stdout).trim()) to = String(chain.stdout).trim();
+    else {
+      try { const m = /^P="\$ROOT\/(.+)\/\$H"$/m.exec(fs.readFileSync(path.join(cl, 'git-shim', 'pre-commit'), 'utf8')); if (m) to = m[1]; } catch (_) { /* no shim file */ }
+    }
+    if (to === '.git/hooks') to = null;
+    plan.git = { from: cur, to };
+  }
+  // files
+  const manifest = path.join(cl, 'kit-manifest.txt');
+  let named = [];
+  try { named = fs.readFileSync(manifest, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => /^(agents|skills)\/[A-Za-z0-9._-]+$/.test(l)); } catch (_) { /* none */ }
+  for (const rel of [...named, ...OWN_DIRS, ...OWN_FLAT]) {
+    const p = path.join(cl, ...rel.split('/'));
+    try { fs.lstatSync(p); plan.move.push(rel); } catch (_) { /* absent */ }
+  }
+  let crewLeft = false; try { crewLeft = fs.readdirSync(path.join(cl, 'agents')).some((f) => /^crew-.*\.md$/.test(f)); } catch (_) { /* none */ }
+  if (!named.length && crewLeft) plan.notes.push('no .claude/kit-manifest.txt: Crewforth agents and skills cannot be told from the project\'s own, so they stay; move them by hand');
+  try { if (/^@\.claude\/DISCIPLINE\.md\s*$/m.test(fs.readFileSync(path.join(projectRoot, 'CLAUDE.md'), 'utf8'))) plan.notes.push('CLAUDE.md is not touched: delete its @.claude/DISCIPLINE.md line yourself'); } catch (_) { /* none */ }
+  plan.git && (plan.gitRun = git);
+  return plan;
+}
+function removeCommand(projectRoot, args, log = console.log) {
+  const unknown = args.filter((a) => a !== '--apply');
+  if (unknown.length) { log(`remove: unknown argument ${unknown[0]}\nUsage: npx crewforth remove [--apply]`); return 2; }
+  const apply = args.includes('--apply');
+  if (!fs.existsSync(path.join(projectRoot, '.claude'))) { log('remove: no .claude/ here — nothing to remove. A plugin install is removed with /plugin uninstall.'); return 0; }
+  const plan = removePlan(projectRoot);
+  if (!plan.settings && !plan.git && !plan.move.length) {
+    log('remove: nothing of Crewforth is left here (no hook entries, no git hook path, no files).');
+    for (const n of plan.notes) log(`  · ${n}`);
+    return 0;
+  }
+  log(apply ? 'remove: taking Crewforth out of this project' : 'remove: DRY RUN — nothing is changed; run with --apply to do this');
+  if (plan.settings) log(`  settings.json: drop ${plan.settingsWhy.join(', ')}; everything else stays`);
+  if (plan.git) log(`  git: core.hooksPath ${plan.git.from} -> ${plan.git.to ? plan.git.to : '(unset)'}`);
+  const dest = `.claude/.crewforth-removed-${new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '')}`;
+  if (plan.move.length) {
+    const nA = plan.move.filter((x) => x.startsWith('agents/')).length; const nS = plan.move.filter((x) => x.startsWith('skills/')).length;
+    const rest = plan.move.filter((x) => !/^(agents|skills)\//.test(x));
+    log(`  move to ${dest}/: ${[nA && `${nA} agent(s)`, nS && `${nS} skill(s)`, ...rest].filter(Boolean).join(', ')}`);
+  }
+  for (const n of plan.notes) log(`  · ${n}`);
+  if (!apply) return 0;
+  if (plan.settings) {
+    const sp = path.join(projectRoot, '.claude', 'settings.json');
+    fs.writeFileSync(sp, JSON.stringify(plan.settings, null, 2) + '\n');   // through the file: a link stays a link
+  }
+  if (plan.git) {
+    const r = plan.git.to ? plan.gitRun(['config', 'core.hooksPath', plan.git.to]) : plan.gitRun(['config', '--unset-all', 'core.hooksPath']);
+    if (r.status !== 0 && plan.git.to) { log(`remove: git config failed: ${String(r.stderr).trim()}`); return 1; }
+    plan.gitRun(['config', '--unset-all', 'crewforth.hookschain']);
+  }
+  if (plan.move.length) {
+    const d = path.join(projectRoot, ...dest.split('/'));
+    for (const rel of plan.move) {
+      const to = path.join(d, ...rel.split('/'));
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.renameSync(path.join(projectRoot, '.claude', ...rel.split('/')), to);
+    }
+  }
+  log(`remove: done.${plan.move.length ? ` The files are in ${dest}/; delete that folder when you no longer want them.` : ''}`);
+  return 0;
+}
+
 // ---- studio and add: pure Node, handled BEFORE the bash probe below, so neither needs Git Bash on Windows. ----
 
 // `studio`: run the panel straight from the package — no stage, no copy. It only READS its own directory (web/,
@@ -399,6 +530,12 @@ if (sub === 'studio') {
     process.exit(1);
   });
   return;
+}
+
+if (sub === 'remove') {
+  let code;
+  try { code = removeCommand(process.cwd(), argv.slice(1)); } catch (e) { console.error(`crewforth remove: ${e.message}`); code = 1; }
+  process.exit(code);
 }
 
 if (sub === 'add') {

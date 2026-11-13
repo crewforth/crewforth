@@ -10,12 +10,22 @@
 // 1. Arrival appends. Every node gets a sequence number the first time it is seen, and a column is stacked in
 //    that order. A new agent therefore lands at the end of its column and nothing that was already drawn changes
 //    place. What does move things is a container growing (a run that gains a member is taller) and the viewer
-//    asking for a different picture (folding, grouping, density).
+//    asking for a different picture (folding, grouping, density). One exception, by request: among what the
+//    session spawned, Claude Code's own agents (general-purpose, Explore, …) stand below Crewforth's, so a crew
+//    agent that arrives after one of them goes above it and moves it down by one card.
 // 2. Nothing here reads the zoom. Positions are a function of the nodes and the viewer's choices, never of the
 //    view, so zooming cannot move a card.
 // 3. Colour is not decided here at all. A box carries its status; the stylesheet turns status into colour.
+//
+// TWO SIDES
+//
+// In a window with room (`opts.sides`) the session stands in the middle: the agents that build — backend, frontend,
+// database, test, devops, performance — grow to its left, mirrored, and everything else grows to its right. One
+// column of a dozen agents beside an empty half of the pane is then two columns of six. A side is decided by an
+// agent's type, never by how many are on either side, so an agent that arrives does not move one already drawn.
 
 import { typeOf, roleName, shownType } from './names.js';
+import { t } from './i18n.js';
 
 /* ------------------------------------------------------------- measures --- */
 
@@ -79,6 +89,21 @@ export const STATE = {
 export const stateOf = (status) => STATE[status] ?? 'unknown';
 
 const SESSION = 'session';
+
+/** The agents that build the product. Under `sides` they stand to the left of the session; the rest to its right. */
+export const BUILDERS = new Set([
+  'crew-backend-expert', 'crew-frontend-expert', 'crew-database-expert',
+  'crew-test-expert', 'crew-devops-expert', 'crew-performance-expert',
+]);
+
+/** -1 for the left of the session, 1 for its right. A workflow run, an unknown type and every other agent: right. */
+export const sideOf = (type) => (BUILDERS.has(type) ? -1 : 1);
+
+/**
+ * Whether a type is one of Crewforth's own agents, when the caller has no better word for it: its `crew-` prefix.
+ * The canvas passes its own (`opts.kit`), read from the agents Crewforth ships, so the order agrees with the mark.
+ */
+export const isKitType = (type) => typeof type === 'string' && type.startsWith('crew-');
 
 /* --------------------------------------------------------------- groups --- */
 
@@ -214,7 +239,7 @@ function itemsOf(nodes, { group, density, seq, stack, aside }) {
       if (n.kind === 'workflow' && group !== 'none') {
         const members = kids.get(n.id) ?? [];
         const g = groupItem(n.id, 'run', members, anchor, via, depth, seq, {
-          label: n.workflowId ?? 'workflow run', node: n,
+          label: n.workflowId ?? t('workflow run'), node: n,
         });
         g.seq = seq.get(n.id) ?? g.seq;
         items.push(g);
@@ -277,7 +302,7 @@ export function tallestFor(paneHeight) {
 }
 
 /** A session's card: one line taller for commands running in the background, one for refused agent calls. */
-export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ? SIZE.session.line : 0)
+export const sessionHeight = (n) => SIZE.session.h + ((n?.backgroundNow?.length || n?.shellNow?.length) ? SIZE.session.line : 0)
   + (n?.refusedCalls?.length ? SIZE.session.line : 0);
 
 /* ----------------------------------------------------------------- plan --- */
@@ -295,6 +320,10 @@ export const sessionHeight = (n) => SIZE.session.h + (n?.backgroundNow?.length ?
  *                       the reference window's when it is not given
  * @param opts.aside     true when an open type group puts its agents in the next column instead of growing
  *                       downward; a narrow window leaves it off
+ * @param opts.sides     true to put the agents that build to the left of the session and the rest to its right
+ *                       (see TWO SIDES above); a narrow window leaves it off and the tree reads left to right
+ * @param opts.kit       (type) => true for Crewforth's own agents; `isKitType` when not given. What the session
+ *                       spawned that is not Crewforth's is stacked below what is (see rule 1)
  * @returns { items, edges, width, height, drawn, density, sessionY }
  */
 export function plan(nodes, opts = {}) {
@@ -333,6 +362,26 @@ export function plan(nodes, opts = {}) {
   };
 
   const G = SIZE.group;
+  const sides = Boolean(opts.sides);
+  const kit = typeof opts.kit === 'function' ? opts.kit : isKitType;
+
+  /** 1 for a Claude Code agent (or a group of them) the session spawned: it goes below the rest of its column. */
+  const lowOf = (it) => {
+    if (it.parent?.kind !== 'session') return 0;
+    if (it.kind === 'agent') return kit(typeOf(it.node)) ? 0 : 1;
+    if (it.kind === 'group' && it.type === 'type') return kit(it.real) ? 0 : 1;
+    return 0;
+  };
+
+  /** The side an item grows on: 0 for the session, and what the top of its branch is for everything under it. */
+  const sideOfItem = (it) => {
+    if (!sides || it.kind === 'session') return 0;
+    let top = it;
+    for (let guard = 0; top.parent && top.parent.kind !== 'session' && guard < 64; guard += 1) top = top.parent;
+    if (top.kind === 'agent') return sideOf(typeOf(top.node));
+    if (top.kind === 'group' && top.type === 'type') return sideOf(top.real);
+    return 1;
+  };
 
   /** Size and place everything drawn, at one density. Returns the box the picture needs. */
   const lay = (drawnItems, compact) => {
@@ -372,13 +421,18 @@ export function plan(nodes, opts = {}) {
       }));
     }
 
-    // Columns: one per depth, as wide as the widest thing in it.
-    const depths = [...new Set(drawnItems.map((it) => it.depth))].sort((a, b) => a - b);
+    // Columns: one per depth, as wide as the widest thing in it. Under `sides` a column is a depth on one side,
+    // keyed by the depth with the side's sign, so the left side's columns come first, outermost first.
+    for (const it of drawnItems) { it.side = sideOfItem(it); it.col = it.side < 0 ? -it.depth : it.depth; }
+    const cols = [...new Set(drawnItems.map((it) => it.col))].sort((a, b) => a - b);
     const colX = new Map();
+    const colW = new Map();
     let x = SIZE.padX;
-    for (const d of depths) {
-      colX.set(d, x);
-      x += Math.max(...drawnItems.filter((it) => it.depth === d).map((it) => it.w)) + SIZE.colGap;
+    for (const k of cols) {
+      const w = Math.max(...drawnItems.filter((it) => it.col === k).map((it) => it.w));
+      colX.set(k, x);
+      colW.set(k, w);
+      x += w + SIZE.colGap;
     }
     const width = x - SIZE.colGap + SIZE.padX;
 
@@ -392,12 +446,15 @@ export function plan(nodes, opts = {}) {
       return Math.max(SIZE.padY, cy - it.h / 2);
     };
     let height = 0;
-    for (const d of depths) {
-      if (d === 0) continue;
-      const col = drawnItems.filter((it) => it.depth === d).sort((a, b) => a.seq - b.seq || String(a.id).localeCompare(String(b.id)));
+    // Nearest the session first, so a parent has its place before its children ask for it.
+    for (const k of cols.slice().sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)) {
+      if (k === 0) continue;
+      const col = drawnItems.filter((it) => it.col === k)
+        .sort((a, b) => lowOf(a) - lowOf(b) || a.seq - b.seq || String(a.id).localeCompare(String(b.id)));
       let cursor = SIZE.padY;
       for (const it of col) {
-        it.x = colX.get(d);
+        // On the left a column's boxes line up on their right edge, the one their wire comes into.
+        it.x = it.side < 0 ? colX.get(k) + colW.get(k) - it.w : colX.get(k);
         it.y = Math.max(cursor, anchorY(it));
         cursor = it.y + it.h + SIZE.rowGap;
       }
@@ -449,15 +506,17 @@ export function plan(nodes, opts = {}) {
     if (p) { it.x = p.x; it.y = p.y; it.pinned = true; }
   }
 
-  // Wires: out of the right edge of what spawned a thing, into its left edge.
+  // Wires: out of the right edge of what spawned a thing, into its left edge. On the left side, mirrored: out of
+  // the left edge, into the right one, and `dir` says so to whoever draws the curve.
   const edges = [];
   for (const it of drawnItems) {
     const p = it.parent;
     if (!p) continue;
     const cell = cellOf(it);
+    const left = it.side < 0;
     const from = cell
-      ? { x: p.x + cell.x + cell.w, y: p.y + cell.y + cell.h / 2 }
-      : { x: p.x + p.w, y: p.y + p.h / 2 };
+      ? { x: p.x + cell.x + (left ? 0 : cell.w), y: p.y + cell.y + cell.h / 2 }
+      : { x: p.x + (left ? 0 : p.w), y: p.y + p.h / 2 };
     const status = it.kind === 'group' ? it.status : (it.node.status ?? 'unknown');
     // A group's wire says whether the group is still working. What went wrong inside it is said by its bar, its
     // count and the member itself; a red wire into twelve agents because one failed would say the wrong thing
@@ -468,7 +527,8 @@ export function plan(nodes, opts = {}) {
       source: it.via ?? p.id,
       target: it.id,
       from,
-      to: { x: it.x, y: it.y + it.h / 2 },
+      to: { x: it.x + (left ? it.w : 0), y: it.y + it.h / 2 },
+      dir: left ? -1 : 1,
       status,
       state,
     });
@@ -476,14 +536,14 @@ export function plan(nodes, opts = {}) {
 
   return {
     items: drawnItems, edges, width: Math.max(width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
-    drawn, density, group, stacked, aside: Boolean(aside), sessionY: sessionY ?? null,
+    drawn, density, group, stacked, aside: Boolean(aside), sides, sessionY: sessionY ?? null,
   };
 }
 
 /* ---------------------------------------------------------------- order --- */
 
 // What the wire from an agent to a later wave is called, and what it is: a reading of the order of events.
-export const INFERRED_NOTE = 'Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.';
+export const INFERRED_NOTE = t('Inferred from the order of events: this wave was called after that agent reported. It is not a call from one agent to another; the session calls every agent.');
 
 /**
  * The same agents by when the session called them.
@@ -568,8 +628,8 @@ function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
       waves[i].members.forEach((m, k) => wire(at.get(r.id), at.get(m.id), {
         kind: 'inferred', state: 'inferred',
         // Said once for a reporter, on the wire to the wave's first agent; the others carry it on hover.
-        label: k === 0 ? `after ${shownType(r)} reported` : null,
-        title: `after ${shownType(r)} reported\n${INFERRED_NOTE}`,
+        label: k === 0 ? t('after {type} reported', { type: shownType(r) }) : null,
+        title: `${t('after {type} reported', { type: shownType(r) })}\n${INFERRED_NOTE}`,
       }));
     }
     for (const m of waves[i].members) at.get(m.id).after = reporters.map((r) => shownType(r));
@@ -577,7 +637,7 @@ function planOrder(nodes, asked, opts, tallest = AUTO.tallest) {
 
   return {
     items, edges, width: Math.max(box.width, SIZE.padX * 2), height: Math.max(height, SIZE.padY * 2),
-    drawn: agents.length, density: compact ? 'compact' : 'comfortable', group: 'order', stacked: false, aside: false,
+    drawn: agents.length, density: compact ? 'compact' : 'comfortable', group: 'order', stacked: false, aside: false, sides: false,
     waves: waves.length, sessionY,
   };
 }
@@ -618,32 +678,57 @@ export function fitZoom(width, height, paneW, paneH) {
  * An agent started in the background can sit inside one tool call for twenty minutes and write nothing. The
  * server, reading files, calls that `stale` or `ended`; it cannot tell it from an agent whose session was closed
  * under it. The machine can: while the session is running, an agent whose transcript stops in the middle of a
- * turn is working. So is a command sent to the background that no notice has ended.
+ * turn is working. So is a command sent to the background that no notice has ended, and so is an agent — any
+ * agent, started in the background or not — with a shell command running: a long build or test run writes
+ * nothing until it ends.
+ *
+ * The shell commands themselves are drawn only while the session is live (`shellNow` on an agent, `shellNow` and
+ * `backgroundNow` on the session): in a session that is over nothing is running, whatever the transcript says.
  *
  * @param graph  the server's { nodes, stats }
  * @param live   true when the machine reports the session as running; anything else changes nothing
- * @returns the graph to draw: the same object when nothing in it needed saying differently
+ * @returns the graph to draw; the server's own objects are never changed
  */
 export function settle(graph, live) {
   const nodes = graph?.nodes ?? [];
-  const quiet = (n) => n.kind === 'agent' && n.background && n.midTurn && (n.status === 'stale' || n.status === 'ended');
-  const session = nodes.find((n) => n.kind === 'session');
-  const commands = live === true ? (session?.backgroundCommands ?? []) : [];
-  if (live !== true || !nodes.some(quiet)) {
-    if (!session || (session.backgroundNow ?? []).length === commands.length) {
-      return session ? { ...graph, nodes: nodes.map((n) => (n === session ? { ...n, backgroundNow: commands } : n)) } : graph;
-    }
-  }
-  const byStatus = { ...(graph.stats?.byStatus ?? {}) };
+  const on = live === true;
+  const quiet = (n) => n.kind === 'agent' && (n.status === 'stale' || n.status === 'ended')
+    && ((n.background && n.midTurn) || (n.shells?.length ?? 0) > 0);
+  let byStatus = null;
   const out = nodes.map((n) => {
-    if (n === session) return { ...n, backgroundNow: commands };
-    if (live !== true || !quiet(n)) return n;
-    byStatus[n.status] -= 1;
-    if (!byStatus[n.status]) delete byStatus[n.status];
-    byStatus.running = (byStatus.running ?? 0) + 1;
-    return { ...n, status: 'running', quiet: true };
+    if (n.kind === 'session') {
+      return { ...n, backgroundNow: on ? (n.backgroundCommands ?? []) : [], shellNow: on ? (n.shellCommands ?? []) : [] };
+    }
+    if (n.kind !== 'agent') return n;
+    let status = n.status;
+    let extra = null;
+    if (on && quiet(n)) {
+      byStatus ??= { ...(graph.stats?.byStatus ?? {}) };
+      byStatus[status] -= 1;
+      if (!byStatus[status]) delete byStatus[status];
+      byStatus.running = (byStatus.running ?? 0) + 1;
+      status = 'running';
+      extra = { status, quiet: true };
+    }
+    // A finished agent can leave a command behind in the background; the card says how the agent went, not that.
+    const shellNow = on && (status === 'running' || status === 'starting') ? (n.shells ?? []) : [];
+    if (!extra && !shellNow.length && !n.shellNow) return n;
+    return { ...n, ...extra, shellNow };
   });
-  return { ...graph, nodes: out, stats: graph.stats ? { ...graph.stats, byStatus } : graph.stats };
+  return { ...graph, nodes: out, stats: byStatus && graph.stats ? { ...graph.stats, byStatus } : graph.stats };
+}
+
+/** The word an agent's card says while a shell command runs in it, and the command, whole, for its tooltip. */
+export function shellLine(cmds) {
+  const list = cmds ?? [];
+  if (!list.length) return null;
+  const first = list.find((c) => !c.background) ?? list[0];
+  const text = `$ ${first.detail ?? first.toolName ?? 'shell'}`;
+  const more = list.length - 1;
+  return {
+    text: more > 0 ? `${text} (+${more})` : text,
+    title: list.map((c) => `${c.background ? t('In the background: {tool}', { tool: c.toolName ?? 'Bash' }) : (c.toolName ?? 'Bash')}${c.detail ? ` · ${c.detail}` : ''}`).join('\n'),
+  };
 }
 
 /* ------------------------------------------------------------ attention --- */
@@ -659,14 +744,14 @@ export function attention(nodes, waiting = new Set()) {
   const needs = agents.filter((n) => waiting.has(n.id)).sort((a, b) => when(b) - when(a));
   const failed = agents.filter((n) => !waiting.has(n.id) && stateOf(n.status) === 'failed').sort((a, b) => when(b) - when(a));
   return [
-    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: 'waiting for you' })),
+    ...needs.map((n) => ({ id: n.id, tone: 'waiting', name: shownType(n), real: typeOf(n), says: t('waiting for you') })),
     ...failed.map((n) => ({
       id: n.id,
       tone: 'fail',
       name: shownType(n),
       real: typeOf(n),
-      says: [n.status, n.errors ? `${n.errors} ${n.errors === 1 ? 'error' : 'errors'}` : null,
-        n.workflow ? `in ${n.workflow}` : null].filter(Boolean).join(' · '),
+      says: [({ failed: t('failed'), killed: t('killed'), stopped: t('stopped') })[n.status] ?? n.status, n.errors ? (n.errors === 1 ? t('{n} error', { n: 1 }) : t('{n} errors', { n: n.errors })) : null,
+        n.workflow ? t('in {name}', { name: n.workflow }) : null].filter(Boolean).join(' · '),
     })),
   ];
 }
