@@ -634,7 +634,8 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || return 0
   case "$ui" in '{'*'}') ;; *) return 0 ;; esac
   _am_log "note: $name (not a crew agent) asked for $m, run on $to; add 'above: <why>' to its task to keep a model above it"
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s (a line above: <why> in its task keeps a model above it)","updatedInput":%s}}\n' "$name" "$m" "$to" "$ui"
+  _am_json "Crewforth ran $name on $to, not the $m the call asked for. When you tell the user which model ran this agent, say $to. A line 'above: <why>' in its task keeps a model above it."
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s (a line above: <why> in its task keeps a model above it)","updatedInput":%s,"additionalContext":"%s"}}\n' "$name" "$m" "$to" "$ui" "$_AMJ"
 }
 _am_rec_get(){  # $1 = a record file, $2 = key -> _AMV (lines are key=value)
   local l; _AMV=""
@@ -1199,6 +1200,13 @@ fi
 # The call, on the floor: the same input with `model` replaced, and allowed; and the verify notice, when there is one.
 # The verify notice rides along as additionalContext: with no permissionDecision it changes nothing about the call
 # (measured on Claude Code 2.1.322: the text reaches the model; a twin hook that prints nothing gets NONE back).
+# THE DOWNGRADE IS TOLD TO THE MODEL, not only written in permissionDecisionReason. That field never reached the model
+# on an allowed call (field: 24 downgrades in the gate log, 0 in the transcript; the model told the user "sonnet"
+# while the agent ran on haiku). additionalContext does reach it (measured above), so the note rides there too.
+if [ -n "$lowered" ]; then
+  _dn="Crewforth ran $st on $m, not the $lowered the call asked for: $m is the floor of its card. When you tell the user which model ran this agent, say $m. To keep $lowered, add 'above: <why>' to the card."
+  if [ -n "$vnote" ]; then vnote="$_dn $vnote"; else vnote="$_dn"; fi
+fi
 _AMJ=""; [ -n "$vnote" ] && _am_json "$vnote"
 if [ -n "$lowered" ]; then
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui" "${_AMJ:+,\"additionalContext\":\"$_AMJ\"}"

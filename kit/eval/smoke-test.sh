@@ -11059,6 +11059,9 @@ _u="$(printf '%s' "$_o" | awk -v op=get -v path=hookSpecificOutput.updatedInput 
 case "$_u" in *'"model":"sonnet"'*'"run_in_background":true'*'"isolation":"worktree"'*|*'"run_in_background":true'*'"isolation":"worktree"'*) ;; *) _v2b="$_v2b [the rewrite lost a field: ${_u:0:120}]" ;; esac
 case "$_u" in *'"model":"sonnet"'*) ;; *) _v2b="$_v2b [the rewrite is not to the floor: ${_u:0:120}]" ;; esac
 { grep -q '^tier=sonnet$' "$_r" && grep -q '^lowered=opus$' "$_r"; } 2>/dev/null || _v2b="$_v2b [record: $(tr '\n' ' ' < "$_r" 2>/dev/null | cut -c1-80)]"
+# The downgrade is TOLD to the model (additionalContext), not only written in permissionDecisionReason: that field
+# never reached the model on an allowed call (field: 24 downgrades in the gate log, 0 in the transcript).
+case "$_o" in *'"additionalContext":"Crewforth ran crew-review-agent on sonnet, not the opus'*'say sonnet'*) ;; *) _v2b="$_v2b [the downgrade was not told to the model: ${_o:0:120}]" ;; esac
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2call crew-review-agent opus 'src/ui/a.ts' audit 'none\nabove: the audit covers the whole session layer'
 { [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ] && grep -q '^tier=opus$' "$(_v2last)"; } 2>/dev/null || _v2b="$_v2b [above: did not keep opus: rc=$_v2rc $(head -c 60 "$_v2/out")]"
@@ -11088,7 +11091,7 @@ for _vn in 'npm test|' 'none|' 'run the unit tests and check the output|not a te
   else case "$_vo" in '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"'*"will not be run when the agent finishes"*"$_vw"*) ;; *) _vnb="$_vnb ['${_vn%%|*}' was not told it will not run: ${_vo:0:80}]" ;; esac; fi
 done
 _v2call crew-frontend-expert opus 'src/ui/a.ts' feature 'the build passes'
-case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"permissionDecision":"allow"'*'"updatedInput":'*'"model": "sonnet"'*'},"additionalContext":"Crewforth: this card'*) ;; *) _vnb="$_vnb [a lowered call with a sentence for verify did not carry both: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac
+case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"permissionDecision":"allow"'*'"updatedInput":'*'"model": "sonnet"'*'},"additionalContext":"Crewforth ran crew-frontend-expert on sonnet'*'Crewforth: this card'*) ;; *) _vnb="$_vnb [a lowered call with a sentence for verify did not carry both: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac
 [ -z "$_vnb" ] && pass "a card whose verify command the hook will not run is told so when the agent is called, with the reason it will give at the end, and the call goes on: a sentence and a chain are told, a runner and none are not, and a lowered call carries the notice beside its new model (5 calls)" \
   || fail "verify notice at the call:$_vnb"
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
