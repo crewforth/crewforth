@@ -9988,7 +9988,7 @@ fi
 # ---- commit+push: the push is for the commit the approved diff became -----------------------------------------
 _pa_new; _pabad=""
 _pa_say auto 'approve: commit+push' >/dev/null
-_pa_run auto 'git push origin feat/x'; [ "$_par" = 2 ] || _pabad="$_pabad push-before-the-commit:rc=$_par"
+_pa_run auto 'git push origin feat/x'; { [ "$_par" = 2 ] && grep -q 'the commit this push was to carry was not made' "$_PA/err"; } || _pabad="$_pabad push-before-the-commit(must say the commit was not made):rc=$_par"
 _pa_run auto 'git commit -m x'; [ "$_par" = 0 ] || _pabad="$_pabad commit:rc=$_par"
 ( cd "$_paw" && git commit -qm approved ) >/dev/null 2>&1
 _pa_run auto 'git push origin feat/x'; [ "$_par" = 0 ] || _pabad="$_pabad push-after-the-commit:rc=$_par"
