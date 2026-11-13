@@ -1923,6 +1923,23 @@ _gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate pa
           done
           [ "$scr" = 1 ] && return 0
           _GTW="'git config' with a value writes the configuration"; return 1 ;;
+        restore)                      # the INDEX only: --staged without --worktree changes no file a hook reads
+          # (field: `git restore --staged .claude` was refused as tamper, so a kit update could not be left out of a
+          # feature commit). git accepts an option by any unambiguous prefix (`--work` is --worktree, measured in
+          # review), so the options are a WHITELIST compared with `[ = ]`, which nocasematch never folds: --staged,
+          # -S, -q, --quiet and `--`. Any other word that begins with `-` (a --source, a prefix, a cluster) is refused.
+          scr=0
+          for w in ${W[@]+"${W[@]:a+1}"}; do
+            if [ "$w" = --staged ] || [ "$w" = -S ]; then scr=1
+            elif [ "$w" = -q ] || [ "$w" = --quiet ] || [ "$w" = -- ]; then :
+            else case "$w" in -*) _GTW="'git restore $w': only --staged, -S, -q, --quiet and -- are read here"; return 1 ;; esac; fi
+          done
+          [ "$scr" = 1 ] || { _GTW="'git restore' without --staged writes the working files"; return 1; } ;;
+        reset)                        # with paths: the INDEX only. The same whitelist: -q, --quiet, `--`, and words
+          for w in ${W[@]+"${W[@]:a+1}"}; do
+            if [ "$w" = -q ] || [ "$w" = --quiet ] || [ "$w" = -- ]; then :
+            else case "$w" in -*) _GTW="'git reset $w': only -q, --quiet and -- are read here (a mode, even shortened, moves HEAD or rewrites working files)"; return 1 ;; esac; fi
+          done ;;
         *) _GTW="'git ${sub:-…}' is not one of the git commands that only read or stage"; return 1 ;;
       esac
       for w in ${W[@]+"${W[@]:a}"}; do case "$w" in --ou*|--ext*) _GTW="'git $sub $w' writes a file or runs a program"; return 1 ;; esac; done
