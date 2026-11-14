@@ -69,12 +69,14 @@ above the confidence line; its stop hook writes or drops it by this recipe (run 
 mkdir -p .claude
 D=$(git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)
 H=$(git rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)
-printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .claude/review-pass.json
+T=$(git write-tree 2>/dev/null)
+printf '{"diff_oid":"%s","head":"%s","tree":"%s","ts":"%s"}\n' "$D" "$H" "$T" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .claude/review-pass.json
 ```
 
-The file IS the claim that this diff was reviewed, so: never write it for a diff you did not read, and never
-after a blocker you only reported. A different diff, or the same diff on a different `HEAD`, needs a new review —
-nothing to delete, the mismatch is what blocks.
+The file IS the claim this diff was reviewed: never write it for a diff you did not read, or after a blocker you
+only reported. Another diff, or this one on another `HEAD`, needs a new review; the mismatch blocks.
+**Incremental:** if the record's `head` is still `HEAD`, read only `git diff <its tree> "$(git write-tree)"`; else
+the whole staged diff. Removed lines too: what did they guard? The record covers the whole diff.
 
 ## Constraints
 - Does NOT change code. The relevant specialist applies the fix.
