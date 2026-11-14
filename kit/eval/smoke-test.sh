@@ -13283,6 +13283,12 @@ GLW='2 2 @@ git log --output=.claude/hooks/guard-bash.sh -1
 2 2 @@ chmod 000 .claude/hooks/guard-bash.sh
 2 2 @@ git checkout HEAD~5 -- .claude/hooks/guard-bash.sh
 2 2 @@ git restore -s HEAD~5 .claude/hooks/guard-bash.sh
+2 2 @@ git restore .claude/hooks/guard-bash.sh
+2 2 @@ git restore --staged --worktree .claude/hooks/guard-bash.sh
+2 2 @@ git restore -SW .claude/hooks/guard-bash.sh
+2 2 @@ git reset --hard -- .claude/hooks/guard-bash.sh
+2 2 @@ git restore --staged --work .claude/hooks/guard-bash.sh
+2 2 @@ git reset --ha HEAD -- .claude/hooks/guard-bash.sh
 2 2 @@ git rm -q .claude/hooks/guard-bash.sh
 2 2 @@ git mv .claude/hooks/guard-bash.sh /tmp/x
 2 2 @@ git update-index --assume-unchanged .claude/hooks/guard-bash.sh
@@ -13447,6 +13453,9 @@ GPW='0 0 @@ cat .claude/hooks/guard-bash.sh
 0 0 @@ chmod 755 .claude/hooks/pre-commit
 0 0 @@ git config --file .git/config core.hooksPath
 0 0 @@ git config --file .git/config --list
+0 0 @@ git restore --staged .claude/hooks/guard-bash.sh
+0 0 @@ git restore -S .claude/settings.json
+0 0 @@ git reset -q .claude/settings.json
 0 0 @@ .claude/git-shim/git status'
 _cf_table "$GPW"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
 GPH='0 0 @@ cd .claude/hooks && ls
@@ -13535,8 +13544,8 @@ _cf_table '2 2 @@ Remove-Item .claude/hooks/guard-bash.sh
 0 0 @@ Get-Content C:\\Users\\ed\\p\\.claude\\hooks\\x
 0 0 @@ bash C:\\Users\\node\\p\\.claude\\hooks\\board.sh status
 2 2 @@ node C:\\Users\\ed\\p\\.claude\\hooks\\x.js' PowerShell
-if [ "$_cfgrn $_cfgpn $_cfn" != "160 86 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 160, 86 and 8"
-elif [ -z "$_cfgb$_cfbad" ]; then pass "a command that names a gate file is a reader, a runner of a hook script or a reading git command, or it is refused: 160 calls refused (a write by option or by a program the old verb list did not know: curl -o, wget -O, sort -o, git --output, tar -C, unzip -d, unlink, shred, touch, patch, an editor, find -delete, git checkout / restore of the file; the path hidden behind a glob, a variable, a loop, a cd, the parent directory, quoting, a substitution, xargs; bash -c, eval, source; a changed PATH, an alias, a function; an interpreter fed a here-document), 86 pass or reach the commit prompt (grep -n rm, cat, head, less, diff, git log / diff / show / add, bash <hook script>, a commit message or a note that names one, a folder called ed or node), 8 calls from inside .claude, .claude/hooks, .git and .git/hooks answer to the list as a whole and from any other folder do not, 8 PowerShell calls keep the verb rule (254 rows)"
+if [ "$_cfgrn $_cfgpn $_cfn" != "166 89 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 166, 89 and 8"
+elif [ -z "$_cfgb$_cfbad" ]; then pass "a command that names a gate file is a reader, a runner of a hook script or a reading git command, or it is refused: 166 calls refused (a write by option or by a program the old verb list did not know: curl -o, wget -O, sort -o, git --output, tar -C, unzip -d, unlink, shred, touch, patch, an editor, find -delete, git checkout / restore of the file; the path hidden behind a glob, a variable, a loop, a cd, the parent directory, quoting, a substitution, xargs; bash -c, eval, source; a changed PATH, an alias, a function; an interpreter fed a here-document), 89 pass or reach the commit prompt (grep -n rm, cat, head, less, diff, git log / diff / show / add, git restore --staged / reset of a path (the index only), bash <hook script>, a commit message or a note that names one, a folder called ed or node), 8 calls from inside .claude, .claude/hooks, .git and .git/hooks answer to the list as a whole and from any other folder do not, 8 PowerShell calls keep the verb rule (254 rows)"
 else fail "the gate-file list:$_cfgb$_cfbad"; fi
 # ---- awk that only reads is a reader; a glob under .claude/state that cannot reach a record is not one -----------
 # Field report, 3.5.0-rc.2: two read-only calls were refused. `G=$(git rev-parse --absolute-git-dir); awk … $G/…`
