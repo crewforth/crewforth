@@ -1984,6 +1984,37 @@ _GT_MEAN='(^|[;&|[:space:](])(alias|function|hash|enable|builtin|source|eval|exe
 _GT_BIND='(^|[;&|[:space:](])(xargs|parallel|read|mapfile|readarray)([[:space:]]|$)'
 # A shell with no script reads its commands from the pipe in front of it: `… | sh`.
 _GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
+_gt_hd_prog(){  # the call -> 1 with _GTW when a here-document whose body names a gate path goes to a command that is
+               # not a text sink (cat, tee, git commit -F -). Line by line, builtins only; read only when the call names one.
+  local l t pre w seg rest m0 dl body="" re='<<(-?)[[:space:]]*(["'"'"']?)([A-Za-z_][A-Za-z0-9_.-]*)'
+  local -a DQ=() CQ=()
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ "${#DQ[@]}" -gt 0 ]; then
+      t="${l%$'\r'}"; t="${t#"${t%%[!	]*}"}"          # <<- lets the delimiter line start with tabs: bash ends it there
+      if [ "$t" = "${DQ[0]}" ]; then
+        if _gt_named "$body"; then
+          if [ "${CQ[0]}" = cat ] || [ "${CQ[0]}" = tee ] || [ "${CQ[0]}" = git-commit ]; then :; else
+            _GTW="a here-document that names a gate file is fed to '${CQ[0]}', which can act on what it names"; return 1
+          fi
+        fi
+        body=""; DQ=(${DQ[@]+"${DQ[@]:1}"}); CQ=(${CQ[@]+"${CQ[@]:1}"})
+      else body="$body$l"$'\n'; fi
+      continue
+    fi
+    rest="$l"
+    while [[ $rest =~ $re ]]; do
+      m0="${BASH_REMATCH[0]}"; dl="${BASH_REMATCH[3]}"      # kept now: the regex below overwrites BASH_REMATCH
+      pre="${rest%%"$m0"*}"
+      case "${rest:${#pre}:3}" in '<<<') rest="${rest:${#pre}+3}"; continue ;; esac   # a here-string has no body
+      seg="${pre##*[;&|(]}"; seg="${seg#"${seg%%[![:space:]]*}"}"
+      w="${seg%%[[:space:]]*}"; w="${w//[\"\'\\]/}"; w="${w##*/}"
+      [[ $seg =~ ^git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit([[:space:]]|$) ]] && w=git-commit
+      DQ[${#DQ[@]}]="$dl"; CQ[${#CQ[@]}]="${w:-(none)}"
+      rest="${rest:${#pre}+${#m0}}"
+    done
+  done <<< "$CMD"
+  return 0
+}
 _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is refused; 0 otherwise
   local cwd="" taint=0 indir=0 ixs=0 from=0 named=0 globby=0 any=0 here=0 seg w x t f u i j sp=$'\002'
   local -a SEG=() SEGF=() W=()     # set, not only declared: bash 4.4 and later call a declared, empty array unbound under `set -u`
@@ -2000,6 +2031,12 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
     if [[ "$CMD_UQ" =~ $_GT_GLOB1 ]] || [[ "$CMD_UQ" =~ $_GT_GLOB2 ]] || [[ "$CMD_UQ" =~ $_GT_GLOB3 ]]; then globby=1; fi ;;
   esac
   [ "$named$taint$globby" != 000 ] || return 0
+  # A HERE-DOCUMENT THAT NAMES A GATE FILE IS TEXT ONLY FOR A TEXT SINK. Its body is not one of the call's commands,
+  # so the reader below never sees it; when another command of the call names a gate path, nothing looked at the body
+  # at all. Measured in review on the released hook (rc 0, the file deleted in a scratch repo): `sh <<'E'` and
+  # `/bin/sh <<'E'` holding `rm .claude/hooks/…`, and a Python here-document calling os.remove on a gate file beside a
+  # `grep -v .claude`. A body that names a gate path may go to cat, tee or `git commit -F -`; to anything else, no.
+  case "$CMD" in *'<<'*) if [ "$named" = 1 ]; then _gt_hd_prog || return 1; fi ;; esac
   # The simple commands of the call, as _c47_read reads it (quotes paired, a here-document's body gone, every
   # separator the same), each word without its quoting.
   _c47_read "$CMD"; _gsub "$_C47_T" ' ; ' $'\n'
