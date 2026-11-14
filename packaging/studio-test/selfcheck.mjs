@@ -1574,6 +1574,42 @@ check('prose without a notice yields nothing', none.size === 0);
   check('the card is listed as its three lines, as they were written; what Crewforth recorded as the kind of change stands over the card\'s word',
     mp.cardLines(card, null).map((l) => `${l.label}=${l.text}`).join('|') === 'files=src/a.js, src/b.js|change=logic|verify=npm test -- a'
     && mp.cardLines({ files: null, change: 'tidy', verify: null }, { change: 'logic' })[0].text === 'logic' && mp.cardLines(null, null).length === 0);
+  {
+    // A card's skills: read in both card forms, as the gate reads them; the agent's use of them, by the two signs the
+    // stop hook holds it to; a session's and a project's totals.
+    const { skillOfUse } = await import(`../../kit/studio/server/lib/graph.js?sk=${Date.now()}`);
+    const c1 = mp.cardOf('files: a.ts\nchange: feature\nverify: npm test · skills: api-design, `crewforth:observability`\n\nDo it.');
+    const c2 = mp.cardOf('files: a.ts · change: feature · verify: npm test · skills: a11y\nDo it.');
+    check('a card\'s skills: are read off the card in both forms, a plugin prefix dropped, and kept out of the verify line',
+      c1.skills.join() === 'api-design,observability' && c1.verify === 'npm test' && c2.skills.join() === 'a11y'
+      && mp.cardOf('files: a\nchange: text\nverify: none').skills.length === 0
+      && mp.cardLines(c1, null).at(-1).text === 'api-design, observability', JSON.stringify([c1, c2]));
+    const uses = [{ name: 'Skill', input: { skill: 'crewforth:api-design' } }, { name: 'Read', input: { file_path: 'C:\\p\\.claude\\skills\\a11y\\SKILL.md' } },
+      { name: 'Read', input: { file_path: '/p/notes.md' } }, { name: 'Skill', input: {} }].map(skillOfUse);
+    check('a Skill call and a read of a skill\'s SKILL.md are the two uses of a skill; nothing else is',
+      JSON.stringify(uses) === JSON.stringify([{ how: 'called', name: 'api-design' }, { how: 'read', name: 'a11y' }, null, null]), JSON.stringify(uses));
+    const rows = mp.skillRows(c1, { called: { 'api-design': 2, iterate: 1 }, read: {} }, { skillsAsked: ['api-design', 'observability'], skillsMissed: ['observability'] });
+    check('an agent\'s skills: the card\'s first, then the ones it used on its own; a card skill it did not use is missed',
+      rows.map((r) => `${r.name}:${r.asked ? 'A' : '-'}${r.missed ? 'M' : '-'}:${mp.skillWords(r)}`).join('|')
+        === 'api-design:A-:called 2 times|observability:AM:not used|iterate:--:called once', rows.map((r) => r.name).join());
+    const sess = mp.sessionSkills([{ kind: 'agent', id: 'x', skills: { called: { a: 1 }, read: { b: 2 } } }, { kind: 'agent', id: 'y', skills: { called: { a: 2 }, read: {} } }, { kind: 'session', skills: { called: { z: 9 }, read: {} } }]);
+    check('a session\'s skills are summed over its agents, with how many agents used each',
+      sess.map((u) => `${u.name}:${u.called}/${u.read}/${u.agents}`).join() === 'a:3/0/2,b:0/2/1', JSON.stringify(sess));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-'));
+    fs.writeFileSync(path.join(tmp, 'g1'), 'verify=pass\nskills=api-design a11y\nskills_missed=a11y\n');
+    fs.writeFileSync(path.join(tmp, 'g2'), 'verify=pass\nskills=api-design\nskills_missed=-\n');
+    fs.writeFileSync(path.join(tmp, 'g3'), 'verify=fail\n');
+    const by = { g1: { agentId: 'g1' } };
+    const pj = mo.skillsOf(tmp, by);
+    const summary = mp.skillSummary(pj);
+    check('a project\'s card skills are read from the stop hook\'s result files: agents given skills, agents that missed one, per skill',
+      pj.agents === 2 && pj.missedAgents === 1 && pj.byName['api-design'].asked === 2 && pj.byName.a11y.missed === 1
+      && by.g1.skillsMissed.join() === 'a11y' && summary.lines.join('|') === 'api-design: asked 2, always used|a11y: asked 1, not used 1'
+      && mp.skillSummary(mo.skillsOf(path.join(tmp, 'none'), {})) === null, JSON.stringify(pj));
+    fs.rmSync(tmp, { recursive: true, force: true });
+    check('a verify that is red on a test-writing card is said as such, not as a failure',
+      mp.workSteps({ verify: 'red', fixes: 0, model: 'sonnet', before: [] }).steps[0].text.includes('red, as a test-writing card asks'));
+  }
   const steps = (id) => mp.workSteps(m.byAgent[id]);
   const said = (id) => steps(id).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
   check('how the work went is said as steps: what it ran on, what its verify command said as a tag, and a fix inside the agent',
