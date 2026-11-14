@@ -293,6 +293,13 @@ cp adopt.sh "$P/"; cp -R kit "$P/"; cp VERSION "$P/"
 printf -- '---\nname: backend-expert\ndescription: legacy\n---\n' > "$P/.claude/agents/backend-expert.md"
 ( cd "$P" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
 run_adopt "$P" --yes
+# The install's own proofs (PROOF-1/2) drive the real gates; they write no line to the gate log, where they read as a
+# refusal of the user's work (field: one BLOCK §4.6 line per install and update).
+case "$ADOPT_OUT" in *'PROOF-2: guard-bash BLOCKED'*) ;; *) echo "FAIL [adopt/proof]: PROOF-2 did not run, so the gate-log check below proves nothing"; exit 1 ;; esac
+for _gl in "$P/.claude/gate-log.tsv" "$P/.git/crewforth-gate-log.tsv"; do
+  [ -s "$_gl" ] && { echo "FAIL [adopt/proof]: the install's own proof wrote to the gate log: $(head -2 "$_gl" | tr '\t\n' '  ')"; exit 1; }
+done
+echo "[adopt/proof] the install's proofs ran and wrote nothing to the gate log"
 grep -qx 'stack=generic' "$P/.claude/kit.conf"          || die "a .NET brownfield adopt did not record stack=generic" adopt-brownfield "$P"
 [ ! -e "$P/.claude/skills/cqrs-aop-module" ]             || die "the removed .NET pattern skill was installed" adopt-brownfield "$P"
 [ ! -f "$P/.claude/agents/backend-expert.md" ]          || die "overlapping project agent was not taken over" adopt-brownfield "$P"
