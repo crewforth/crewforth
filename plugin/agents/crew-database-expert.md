@@ -6,7 +6,7 @@ description: |
   `db-migration` skill. **Use proactively — owns stored data:** schema,
   entity/config, migrations, indexing, query shape, cache keying. Any request about it is yours whatever its
   size or wording.
-tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell
+tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell, Skill
 metadata:
   stage: produce
   skills: [backend-architecture, confidence-check, db-migration, sonarqube-check]

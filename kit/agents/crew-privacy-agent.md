@@ -6,7 +6,7 @@ description: |
   data, legal basis/consent, data minimisation, retention, transparency, data-subject rights, or cross-border
   transfer are touched. Findings + fixes via
   `privacy-compliance`; writes no code.
-tools: Read, Grep, Glob, WebFetch
+tools: Read, Grep, Glob, WebFetch, Skill
 # No `model` field — see crew-security-expert. The caller names it per call, never below the model that
 # wrote what is audited; the gate refuses this agent below `sonnet`.
 metadata:

@@ -7,7 +7,7 @@ description: |
   jobs. Also production incident response and blameless postmortems. A hand-rolled deploy straight to a server is
   the FALLBACK for a project with no pipeline — and it is DESTRUCTIVE and OUTWARD-FACING, no unapproved release
   to prod (§4.4).
-tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell
+tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell, Skill
 metadata:
   stage: produce
   skills: [adr, ci-pipeline, dependency-audit, dependency-upgrade, deploy, docs-writer, incident-runbook, observability, performance, release, trace-scan]
