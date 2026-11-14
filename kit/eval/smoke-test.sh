@@ -11154,7 +11154,7 @@ grep -q '^verify=none$' "$(_v2last)" 2>/dev/null || _v2b="$_v2b [none. followed 
 # agent ends (_am_verify_plan), and the call goes on: a sentence and a chain are told, a runner and none are not, and on
 # a lowered call the notice rides in the same answer as the new model.
 _vnb=""
-for _vn in 'npm test|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes'; do
+for _vn in 'test -d src|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes'; do
   _v2call crew-review-agent sonnet 'src/ui/a.ts' audit "${_vn%%|*}"; _vw="${_vn#*|}"; _vo="$(cat "$_v2/out" 2>/dev/null)"
   if [ "$_v2rc" != 0 ]; then _vnb="$_vnb ['${_vn%%|*}' refused the call: rc=$_v2rc]"
   elif [ -z "$_vw" ]; then [ -z "$_vo" ] || _vnb="$_vnb ['${_vn%%|*}' was told it will not run: ${_vo:0:80}]"
@@ -11162,6 +11162,12 @@ for _vn in 'npm test|' 'none|' 'run the unit tests and check the output|not a te
 done
 _v2call crew-frontend-expert opus 'src/ui/a.ts' feature 'the build passes'
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"permissionDecision":"allow"'*'"updatedInput":'*'"model": "sonnet"'*'},"additionalContext":"Crewforth ran crew-frontend-expert on sonnet'*'Crewforth: this card'*) ;; *) _vnb="$_vnb [a lowered call with a sentence for verify did not carry both: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac
+# A verify that runs the whole suite is told, never refused (3.2): an agent's verify is the tests of what it changed.
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'npm test'
+case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"additionalContext":"'*'runs the whole test suite (npm test)'*'stops a verify after 120 s'*) ;; *) _vnb="$_vnb [a whole-suite verify was not told: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'cd src && npm test'
+case "$(cat "$_v2/out" 2>/dev/null)" in *'runs the whole test suite'*) ;; *) _vnb="$_vnb [a whole suite after a cd was not told: $(head -c 100 "$_v2/out")]" ;; esac
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
 [ -z "$_vnb" ] && pass "a card whose verify command the hook will not run is told so when the agent is called, with the reason it will give at the end, and the call goes on: a sentence and a chain are told, a runner and none are not, and a lowered call carries the notice beside its new model (5 calls)" \
   || fail "verify notice at the call:$_vnb"
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
@@ -11414,7 +11420,7 @@ _v2call crew-backend-expert sonnet 'src/ui/tz.ts' feature none; _v2start tz1; _V
 _tzg="$(awk -F'\t' '$2 == "tz1" { print substr($1, 1, 13) }' "$_v2p/.claude/state/model-outcomes.tsv")"; _tzn="$(date -u +%Y-%m-%dT%H)"; _tzp="$(date -u -v-1H +%Y-%m-%dT%H 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H 2>/dev/null)"
 { [ -n "$_tzg" ] && { [ "$_tzg" = "$_tzn" ] || [ "$_tzg" = "$_tzp" ]; }; } || _v2b="$_v2b [the time is not UTC: wrote $_tzg, UTC is $_tzn]"
 IFS= read -r _h < "$_v2p/.claude/state/model-outcomes.tsv"
-[ "$_h" = "ts"$'\t'"agent_id"$'\t'"agent"$'\t'"change"$'\t'"risk"$'\t'"card"$'\t'"model"$'\t'"verify"$'\t'"fixes"$'\t'"escalated_from"$'\t'"ran_on"$'\t'"confidence"$'\t'"risk_why" ] || _v2b="$_v2b [header: $_h]"
+[ "$_h" = "ts"$'\t'"agent_id"$'\t'"agent"$'\t'"change"$'\t'"risk"$'\t'"card"$'\t'"model"$'\t'"verify"$'\t'"fixes"$'\t'"escalated_from"$'\t'"ran_on"$'\t'"confidence"$'\t'"risk_why"$'\t'"verify_s"$'\t'"why_not" ] || _v2b="$_v2b [header: $_h]"
 [ -z "$_v2b" ] && pass "verify then escalate: red once keeps the agent running with the failing command; green after it is a pass with one fix; red twice ends the agent as a fail, recorded once; the session is told to repeat one model up; the same card is refused on the same model and allowed one up; red there too is the user's question and a third run is refused; a changed card is a new task; confidence: low is told the same way; a background launch and an agent with no record are left alone; the record's twelve columns are the ones published, and its time is UTC under a zone fourteen hours ahead" \
                || fail "verify-then-escalate:$_v2b"
 
@@ -11759,6 +11765,8 @@ printf '540\t./mark.sh\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/ran.mark"; _v2plant
 _t0=$SECONDS; _o="$(_v2stop sk-fresh)"; _t1=$((SECONDS - _t0))
 [ "$(_v2res sk-fresh)" = timeout ] || _v2b="$_v2b [fresh: result $(_v2res sk-fresh), want timeout]"
 [ -f "$_v2p/ran.mark" ] && _v2b="$_v2b a-command-stopped-today-was-run-again"
+_skl="$(awk -F'\t' '$2 == "sk-fresh" { print $14 "|" $15 }' "$_v2p/.claude/state/model-outcomes.tsv")"; case "$_skl" in '-|not run: it did not finish in 540s'*) ;; *) _v2b="$_v2b [the line does not say why it was not run (why_not), or gives it a duration: $_skl]" ;; esac
+grep -q 'LIM="${CREW_VERIFY_TIMEOUT:-120}"' "$HOOKS/agent-outcome.sh" || _v2b="$_v2b [the verify limit is not 120 s by default]"
 [ -z "$_o" ] || _v2b="$_v2b [fresh: the agent was kept running]"
 case "$(_v2post sk-fresh)" in *'was stopped: not run: it did not finish in 540s when it last ran here, within the last 7 days'*'for 7 days the hook does not run it again'*) ;; *) _v2b="$_v2b [fresh: the session was not told it was not run: $(_v2post sk-fresh | head -c 120)]" ;; esac
 grep -qE "$(printf '^540\t\./mark\.sh\t')$_now\$" "$_vs" || _v2b="$_v2b [a skip rewrote the remembered line: $(tr '\t' '|' < "$_vs")]"
@@ -12145,7 +12153,7 @@ _v2call crew-backend-expert sonnet 'src/ui/m3.ts' feature none; _v2start no1; _v
 [ "$(_v2ran no1)" = "-" ] || _v2b="$_v2b [no model named: $(_v2ran no1)]"
 _v2call crew-backend-expert sonnet 'src/ui/m4.ts' feature none; _v2start od1; _v2stop od1 >/dev/null; _v2postm od1 completed ',"resolvedModel":"a b\tc"'
 [ "$(_v2ran od1)" = "-" ] || _v2b="$_v2b [a model that is not a name was written: $(_v2ran od1)]"
-[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 13' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
+[ "$(_v2ran fg1)/$(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv")/$(awk -F'\t' 'NF != 15' "$_v2p/.claude/state/model-outcomes.tsv" | wc -l | tr -d ' ')" = "claude-sonnet-5-5/5/0" ] || _v2b="$_v2b [the other lines changed: $(_v2ran fg1), $(awk 'END { print NR }' "$_v2p/.claude/state/model-outcomes.tsv") lines]"
 [ -d "$_v2p/.claude/state/.outcomes.lock" ] && _v2b="$_v2b the-lock-was-left-behind"
 [ -z "$_v2b" ] && pass "ran_on is the model the answer to the Agent call names: written into the agent's line when the answer follows the stop (a foreground call), there already when it came at the launch (a background call), '-' when the answer names none or names something that is not a model; a decoy of the field inside the task's text is not read, the other lines and the twelve columns stay as they were, and no lock is left behind" \
                || fail "ran_on:$_v2b"
