@@ -10397,6 +10397,45 @@ done
 if [ "$_pabn" != 20 ]; then fail "FIXTURE: the background-session table ran $_pabn cases, not 20"
 elif [ -z "$_pabb" ]; then pass "a background session, by Claude Code's own record of it: the approval question is asked and its answer recorded and honoured; no record, another kind, a dead process, no job folder, a disputed job folder and a record gone before the answer refuse; the typed approval stays closed and its route flag cannot come from the environment; attach, the agent view, respawn and the messaging socket are refused to a command (20 cases)"
 else fail "the approval question in a background session:$_pabb"; fi
+# ---- a pull request merged into main or master is approved like a push (N21); into any other base it is free ------
+# Field (3.5.0): `gh pr merge` went through no gate and merged into main (one project once, another twice). The base
+# is asked of gh (a stub here); none read counts as main. In default it is one click; in auto it is refused and
+# written down, and the typed /crew-approve merge or the merge question's Merge records THAT pull request and base.
+_gmb="$_PA/gmbin"; mkdir -p "$_gmb"; printf '#!/bin/sh\necho "$GM_BASE"\n' > "$_gmb/gh"; chmod +x "$_gmb/gh"
+_gmx=""; _pa_new; : > "$_pa_rec"; _gmpend="$_paw/.claude/state/crew-approval-pending"
+_gmrun(){ HOME="$_PA/home" CLAUDE_CONFIG_DIR="$_PA/ccd" PATH="$_gmb:$PATH" _pa_run "$@"; }
+GM_BASE=main _gmrun default 'gh pr merge 42 --merge'
+case "$_par|$_pao" in 0\|*'"permissionDecision":"ask"'*'merge pull request 42 into main'*) ;; *) _gmx="$_gmx [default, main: not one click: rc=$_par ${_pao:0:80}]" ;; esac
+GM_BASE=next _gmrun auto 'gh pr merge 44 --squash'
+[ "$_par|$_pao" = "0|" ] || _gmx="$_gmx [auto, next: not free: rc=$_par ${_pao:0:80} $(head -c 80 "$_PA/err")]"
+GM_BASE= _gmrun default 'gh pr merge 45'
+case "$_pao" in *'"permissionDecision":"ask"'*'unknown base (read as main)'*) ;; *) _gmx="$_gmx [no base read: not asked as main]" ;; esac
+GM_BASE=main _gmrun default 'echo gh pr merge 42'
+[ "$_par|$_pao" = "0|" ] || _gmx="$_gmx [the words in an echo were gated]"
+# auto: refused and written down; the typed approval records that pull request; the same merge passes, another does not
+GM_BASE=main _gmrun auto 'gh pr merge 42 --merge'
+{ [ "$_par" = 2 ] && grep -q '^op=merge$' "$_gmpend" && grep -q '^pr=42$' "$_gmpend" && grep -q '^base=main$' "$_gmpend"; } || _gmx="$_gmx [auto, main: not refused and written down: rc=$_par $(head -c 80 "$_PA/err")]"
+_pa_say auto '/crew-approve merge' >/dev/null
+{ [ "$(_pa_op)" = merge ] && grep -q '^pr=42$' "$_pa_rec" && grep -q '^base=main$' "$_pa_rec"; } || _gmx="$_gmx [the typed approval did not record the merge: $(tr '\n' ' ' < "$_pa_rec" 2>/dev/null)]"
+GM_BASE=main _gmrun auto 'gh pr merge 42 --merge'
+case "$_par|$_pao" in 0\|*'"permissionDecision":"allow"'*) ;; *) _gmx="$_gmx [the approved merge was not let through: rc=$_par]" ;; esac
+GM_BASE=main _gmrun auto 'gh pr merge 43 --merge'
+[ "$_par" = 2 ] || _gmx="$_gmx [another pull request passed on the approval of 42]"
+GM_BASE=main _gmrun auto 'gh pr merge 42 --merge' Bash other-session
+[ "$_par" = 2 ] || _gmx="$_gmx [another session passed on the approval]"
+# the merge question: asked only with a refused merge waiting, and its Merge records it
+: > "$_pa_rec"; GM_BASE=master _gmrun auto 'gh pr merge 7'
+_gmq="$(bash -c '. "$1"; _crew_q_json merge; printf "%s" "$_CREW_QJ"' _ "$HOOKS/prompt-approval.sh")"
+_gmt="$(bash -c '. "$1"; printf "%s" "$_CREW_Q_TEXT_M"' _ "$HOOKS/prompt-approval.sh")"
+_paq_pre auto "$_gmq" '' tgm1
+[ "$_par" = 0 ] || _gmx="$_gmx [the merge question was not asked: rc=$_par $(head -c 100 "$_PA/qerr")]"
+printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"auto","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s],"answers":{"%s":"Merge"}},"tool_response":{"questions":[%s],"answers":{"%s":"Merge"}},"tool_use_id":"tgm1"}' "$_patr" "$_paw" "$_gmq" "$_gmt" "$_gmq" "$_gmt" > "$_PA/q.json"
+( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_PA/q.json" >/dev/null 2>&1 )
+{ [ "$(_pa_op)" = merge ] && grep -q '^pr=7$' "$_pa_rec" && grep -q '^base=master$' "$_pa_rec"; } || _gmx="$_gmx [the merge question's Merge did not record it: $(tr '\n' ' ' < "$_pa_rec" 2>/dev/null)]"
+: > "$_gmpend"; _paq_pre auto "$_gmq" '' tgm2
+[ "$_par" = 2 ] || _gmx="$_gmx [the merge question was asked with no merge waiting]"
+[ -z "$_gmx" ] && pass "gh pr merge into main or master (or a base gh does not name) is one click in default, refused and written down in auto, and approved by the typed /crew-approve merge or the merge question's Merge for that pull request and base only (not another pull request, not another session); into next it is free; the words in an echo are not gated" \
+               || fail "gh pr merge approval:$_gmx"
 # An approval holds as long as what it is about is unchanged, not for 30 minutes (field: a question asked at night was
 # refused in the morning). The question and the refused command write down the staged tree and HEAD; the answer or
 # the bare /crew-approve is recorded however late, and refused when either changed. With nothing staged the question

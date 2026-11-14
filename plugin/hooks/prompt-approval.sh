@@ -417,7 +417,7 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
   shopt -s nocasematch
   case "$_k" in
     @crew-approve|approve|onay)
-      case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; esac ;;
+      case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; merge) OP=merge ;; esac ;;
   esac
   shopt -u nocasematch
   # The second command is read as it is written, lower case, with exactly three words after it.
@@ -439,9 +439,14 @@ _CREW_Q_O_C='{"label":"Commit only","description":"Commit exactly what is staged
 _CREW_Q_O_CP='{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."}'
 _CREW_Q_O_P='{"label":"Push only","description":"Push this branch as it is now. No new commit."}'
 _CREW_Q_O_N='{"label":"No","description":"Neither commit nor push."}'
+# The merge question (N21): asked only when guard-bash.sh refused a `gh pr merge` into main or master and wrote it down.
+_CREW_Q_TEXT_M='Crewforth approval: may Claude merge this pull request into its base branch?'
+_CREW_Q_O_M='{"label":"Merge","description":"Merge the pull request that was just refused into its base branch."}'
+_CREW_Q_O_MN='{"label":"No","description":"Do not merge."}'
 _crew_q_json(){  # $1 = the variant (full | commit | push) -> _CREW_QJ: the question with the options that variant offers
   local o
   case "$1" in
+    merge)  _CREW_QJ='{"question":"'"$_CREW_Q_TEXT_M"'","header":"Approval","options":['"$_CREW_Q_O_M,$_CREW_Q_O_MN"'],"multiSelect":false}'; return 0 ;;
     commit) o="$_CREW_Q_O_C,$_CREW_Q_O_N" ;;
     push)   o="$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
     *)      o="$_CREW_Q_O_C,$_CREW_Q_O_CP,$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
@@ -452,6 +457,19 @@ _crew_q_json full; _CREW_Q_JSON="$_CREW_QJ"
 # WHICH QUESTION THE STATE ASKS FOR (3.1): an answer the state cannot honour is not offered. Something staged and a
 # remote: all four. Staged, no remote: commit only. Nothing staged, a remote and a HEAD: push only (field: 35 commit
 # answers in three projects were for a commit already made, refused after the click). Neither: none, not asked.
+_crew_q_merge_pending(){  # $1 = session id -> 0 and _QMP (pr), _QMB (base) when guard-bash.sh refused a merge in it within 30 minutes
+  local f="${CLAUDE_PROJECT_DIR:-${CWD:-.}}" l s="" o="" t="" n
+  f="${f//\\//}"; f="${f%/}/.claude/state/crew-approval-pending"; _QMP=""; _QMB=""
+  [ -f "$f" ] || return 1
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in sid=*) s="${l#sid=}" ;; op=*) o="${l#op=}" ;; ts=*) t="${l#ts=}" ;; pr=*) _QMP="${l#pr=}" ;; base=*) _QMB="${l#base=}" ;; esac
+  done < "$f"
+  [ "$o" = merge ] && [ -n "$1" ] && [ "$s" = "$1" ] || return 1
+  case "$_QMP$_QMB" in *[!A-Za-z0-9._/:#-]*) return 1 ;; esac
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v n '%(%s)T' -1; else n="$(date +%s)"; fi
+  case "$t$n" in *[!0-9]*|'') return 1 ;; esac
+  [ $((n - t)) -ge 0 ] && [ $((n - t)) -le 1800 ]
+}
 _crew_q_variant(){  # $1 = cwd -> _QV (full | commit | push | none), _QVT (staged tree), _QVE (HEAD's tree), _QVH (HEAD or NONE), _QVB (branch or -)
   local d="${1:-.}" r
   _QV=none
@@ -481,7 +499,7 @@ _crew_q_is(){  # $1 = a payload, $2 = the question asked (default _CREW_Q_JSON) 
 }
 _crew_q_op(){  # $1 = the label the user chose -> OP: commit | commit+push | push | no, or "" for anything else
   case "$1" in
-    'Commit only') OP=commit ;; 'Commit + push') OP=commit+push ;; 'Push only') OP=push ;; 'No') OP=no ;; *) OP="" ;;
+    'Commit only') OP=commit ;; 'Commit + push') OP=commit+push ;; 'Push only') OP=push ;; 'Merge') OP=merge ;; 'No') OP=no ;; *) OP="" ;;
   esac
 }
 
@@ -712,6 +730,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   _json_keycount "$INPUT" questions; [ "$_KC" = 1 ] || qno "the call carries more than one list of questions."
   # The question that fits what is staged and where it can go: asked exactly, or not at all.
   _crew_q_variant "$CWD"
+  _crew_q_merge_pending "$SID" && _QV=merge
   case "$_QV" in
     none) qno "nothing is staged and there is nowhere to push (or nothing to push), so there is nothing to approve. To commit, stage the change with git add, show the commit message, then ask again." nohint ;;
   esac
@@ -737,7 +756,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   case "$_qb" in *[!A-Za-z0-9._/+@-]*) qno "the branch name could not be written down." ;; esac
   case "$_qh" in NONE) ;; *[!0-9a-f]*|'') qno "git could not name HEAD here." ;; esac
   case "$_qt" in *[!0-9a-f]*|'') qno "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
-  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\nvariant=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" "$_QV" > "$ASKED"; } 2>/dev/null \
+  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\nvariant=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" "$_QV" > "$ASKED" && { [ "$_QV" != merge ] || printf 'pr=%s\nbase=%s\n' "$_QMP" "$_QMB" >> "$ASKED"; }; } 2>/dev/null \
     || qno "the state folder could not be written, so the answer could not be bound to this question."
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
     "Crewforth §4.4: only the person in front of this session answers the approval question."
@@ -840,8 +859,17 @@ _pa_record(){
   else TS="$(date +%s)"; fi
   case "$TS" in ''|*[!0-9]*) no "the clock could not be read." ;; esac
 
+  if [ "$OP" = merge ]; then
+    # A merge is bound to the pull request and the base guard-bash.sh refused, as it wrote them down.
+    [ -n "${MERGE_PR:-}" ] || { _crew_q_merge_pending "$SID" && { MERGE_PR="$_QMP"; MERGE_BASE="$_QMB"; }; } \
+      || no "no merge into a protected branch was refused in this session in the last 30 minutes, so there is no merge to approve. Have it tried first."
+    case "${MERGE_PR:-}${MERGE_BASE:-}" in ''|*[!A-Za-z0-9._/:#-]*) no "the pull request that was refused could not be read." ;; esac
+    { printf 'v=1\nop=merge\npr=%s\nbase=%s\nsid=%s\nts=%s\n' "$MERGE_PR" "$MERGE_BASE" "$SID" "$TS" > "$REC"; } 2>/dev/null \
+      || no "the record could not be written in the git directory."
+  else
   { printf 'v=1\nop=%s\ntree=%s\nhead=%s\nbranch=%s\nremote=%s\nurl=%s\nsid=%s\nts=%s\n' "$OP" "$TREE" "$HEAD_NOW" "$BR" "$RM" "$URL" "$SID" "$TS" > "$REC"; } 2>/dev/null \
     || no "the record could not be written in the git directory."
+  fi
   # What was waiting has been approved: it is not approved a second time. Only here, after every proof and the record
   # itself: a bare command that recorded nothing (a headless session, a first message) leaves it for the user.
   [ "$BARE" = 1 ] && { : > "$_bp"; } 2>/dev/null
@@ -855,6 +883,8 @@ _pa_record(){
   case "$_u" in *://*@*) _ua="${_u#*://}"; case "${_ua%%/*}" in *@*) _u="${_u%%://*}://${_ua#*@}" ;; esac ;; esac
   case "$_u" in *[\"\\]*|*[![:print:]]*) _u="an address this line cannot print; check it with: git remote get-url --push $RM" ;; esac
   case "$OP" in
+    merge)       WHAT="merge of pull request ${MERGE_PR/#-/of the branch} into ${MERGE_BASE/#-/its base}"
+                 HOW="Run the same gh pr merge command again, alone in its call." ;;
     commit)      WHAT="commit of what is staged now (tree $_d) on HEAD $_h"
                  HOW="Run git commit -m with the message, alone in its call: no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained. Single-quote the message, or read it from a here-document with a quoted delimiter. The review record of §4.6 is still required." ;;
     push)        WHAT="push of $BR at $_h to $RM"
@@ -878,7 +908,7 @@ _pa_question(){
   [ -n "$SID" ] && [ -n "$_QTU" ] || no "the answer carries no session or tool id."
   if [ -f "$ASKED" ]; then
     while IFS= read -r _al || [ -n "$_al" ]; do
-      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; variant=*) _av="${_al#variant=}" ;; esac
+      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; variant=*) _av="${_al#variant=}" ;; pr=*) MERGE_PR="${_al#pr=}" ;; base=*) MERGE_BASE="${_al#base=}" ;; esac
     done < "$ASKED"
   fi
   { [ "$_as" = "$SID" ] && [ "$_au" = "$_QTU" ]; } || no "Crewforth did not ask this question (guard-question.sh, its PreToolUse half, is not wired or did not pass it), so the answer cannot be shown to have come from the user."
@@ -889,14 +919,15 @@ _pa_question(){
   # compares them. One written before that (no tree, no head) keeps the old 30 minutes.
   if [ -n "$_aq" ] && [ -n "$_ah" ] && [ -n "$_ab" ]; then ASK_TREE="$_aq"; ASK_HEAD="$_ah"; ASK_BRANCH="$_ab"
   else [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."; fi
-  case "$_av" in full|commit|push) ;; *) _av=full ;; esac   # a question asked before the variants were written down
+  case "$_av" in full|commit|push|merge) ;; *) _av=full ;; esac   # a question asked before the variants were written down
   _crew_q_json "$_av"
   _crew_q_is "$INPUT" "$_CREW_QJ" || no "the question answered is not the one that was asked."
   [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
   _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
-  _json_keycount "$INPUT" "$_CREW_Q_TEXT"; _an=$_KC
+  _qtx="$_CREW_Q_TEXT"; [ "$_av" = merge ] && _qtx="$_CREW_Q_TEXT_M"
+  _json_keycount "$INPUT" "$_qtx"; _an=$_KC
   case "$_an" in 1|2) ;; *) no "the answer could not be read." ;; esac
-  _json_slice "$INPUT" "$_CREW_Q_TEXT" >/dev/null
+  _json_slice "$INPUT" "$_qtx" >/dev/null
   _crew_q_op "$_JS"
   case "$OP" in
     '') OP="a commit or a push"; no "the answer was none of the ones the question offers." ;;
@@ -904,7 +935,7 @@ _pa_question(){
         say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
   esac
   # Only an answer the question offered: the label is checked against the variant that was asked.
-  case "$_av:$OP" in full:*|commit:commit|push:push) ;; *) no "the answer was not one this question offered." ;; esac
+  case "$_av:$OP" in full:commit|full:commit+push|full:push|commit:commit|push:push|merge:merge) ;; *) no "the answer was not one this question offered." ;; esac
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || no "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ; _PA_BGQ=1 ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
@@ -1107,7 +1138,8 @@ if [ "$OP" = pending ]; then
   fi
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _bn '%(%s)T' -1; else _bn="$(date +%s)"; fi
   OP="a commit or a push"
-  case "$_bo" in commit|push|commit+push) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
+  if [ "$_bo" = merge ]; then _crew_q_merge_pending "$_bsid" || no "the merge waiting for approval was refused in another session, or more than 30 minutes ago. Have it tried here first."; MERGE_PR="$_QMP"; MERGE_BASE="$_QMB"; ASK_HEAD=""; ASK_TREE=""; ASK_BRANCH=""; fi
+  case "$_bo" in commit|push|commit+push|merge) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
   { [ -n "$_bsid" ] && [ "$_bs" = "$_bsid" ]; } || no "what is waiting for approval was refused in another session, not this one. Nothing is approved; have it tried here first."
   case "$_bt$_bn" in *[!0-9]*|'') no "the time of what is waiting could not be read." ;; esac
   [ $((_bn - _bt)) -ge 0 ] || no "the time of what is waiting is in the future."

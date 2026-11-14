@@ -82,3 +82,7 @@ the audit record does not match the staged lockfiles	denetim kaydı staged lockf
 the audit record matches the staged lockfiles	denetim kaydı staged lockfile'larla eşleşiyor
 the lockfile list could not be loaded	lockfile listesi yüklenemedi
 a push in a repository with no remote	uzak deposu olmayan depoda push
+the user's approval covers this merge	kullanıcının onayı bu merge'ü kapsıyor
+a pull request merged into a protected branch	korunan dala merge edilen pull request
+a pull request merged into a protected branch, with no approval	onay olmadan korunan dala merge edilen pull request
+a pull request merged into a base that is not protected	korunmayan bir tabana merge edilen pull request

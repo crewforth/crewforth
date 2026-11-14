@@ -3757,6 +3757,95 @@ Approve only if you want that commit made. Approving lets Claude run the command
     exit 2
   fi
 fi
+# §4.4 — A PULL REQUEST MERGED INTO A PROTECTED BRANCH (N21). `gh pr merge` went through no gate, and in the field it
+# merged into main (one project once, another twice). Into `main` or `master`, or a base this hook cannot read, it
+# is approved like a push: one click where a prompt reaches a person, the approval question (or a typed
+# /crew-approve merge) in auto. Into any other base (`next`, a feature branch) it is free. The base is asked of gh
+# itself, only on this command: `gh pr view <pr> --json baseRefName`.
+_GM_RE='(^|[;&|(]|&&|\|\|)[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ $'\n'"${CMD_SEEN//$'\n'/;}" =~ $_GM_RE ]]; then
+  # The pull request it names: the first word after `merge` that is not an option or an option's value.
+  _gm_rest="${CMD_SEEN#*gh*pr*merge}"; _gm_rest="${_gm_rest%%[;&|$'\n']*}"; _gm_sel=""; _gm_skip=0
+  set -f
+  for _gm_w in $_gm_rest; do
+    if [ "$_gm_skip" = 1 ]; then _gm_skip=0; continue; fi
+    case "$_gm_w" in
+      -b|--body|-t|--subject|-F|--body-file|-A|--author-email|--match-head-commit) _gm_skip=1 ;;
+      -*) ;;
+      *) _gm_sel="$_gm_w"; break ;;
+    esac
+  done
+  set +f
+  case "$_gm_sel" in *[!A-Za-z0-9._/:#-]*) _gm_sel="?" ;; esac
+  _gm_base=""
+  if command -v gh >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+      _gm_base="$(cd "${_CWD:-.}" 2>/dev/null && timeout 15 gh pr view ${_gm_sel:+"$_gm_sel"} --json baseRefName -q .baseRefName 2>/dev/null)"
+    else
+      _gm_base="$(cd "${_CWD:-.}" 2>/dev/null && gh pr view ${_gm_sel:+"$_gm_sel"} --json baseRefName -q .baseRefName 2>/dev/null)"
+    fi
+  fi
+  case "$_gm_base" in *[!A-Za-z0-9._/-]*) _gm_base="" ;; esac
+  case "$_gm_base" in
+    main|master|'') _gm_into="${_gm_base:-an unknown base (read as main)}"
+      [ "${CLAUDE_GIT_OK:-}" = 1 ] && allow_preauthorised
+      # The user's approval on record: a merge of THIS pull request into THIS base, in this session, within 30 minutes.
+      _gm_ok=1; _crew_appr_path "${_CWD:-.}"
+      if [ -n "$_AP" ] && [ -s "$_AP" ]; then
+        _gm_op=""; _gm_pr=""; _gm_b=""; _gm_sid=""; _gm_ts=""
+        while IFS='=' read -r _gm_k _gm_v || [ -n "$_gm_k" ]; do
+          _gm_v="${_gm_v%$'\r'}"
+          case "$_gm_k" in op) _gm_op="$_gm_v" ;; pr) _gm_pr="$_gm_v" ;; base) _gm_b="$_gm_v" ;; sid) _gm_sid="$_gm_v" ;; ts) _gm_ts="$_gm_v" ;; esac
+        done < "$_AP"
+        _json_slice "$INPUT" session_id >/dev/null
+        if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _gm_now '%(%s)T' -1; else _gm_now="$(date +%s)"; fi
+        case "$_gm_ts$_gm_now" in *[!0-9]*|'') ;; *)
+          if [ "$_gm_op" = merge ] && [ -n "$_gm_sid" ] && [ "$_gm_sid" = "$_JS" ] && [ "$_gm_pr" = "${_gm_sel:--}" ] && [ "$_gm_b" = "${_gm_base:--}" ] \
+             && [ $((_gm_now - _gm_ts)) -ge 0 ] && [ $((_gm_now - _gm_ts)) -le 1800 ]; then _gm_ok=0; fi ;;
+        esac
+      fi
+      if [ "$_gm_ok" = 0 ]; then
+        gatelog ALLOW 4.4 "the user's approval covers this merge"
+        printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"%s"}}\n' \
+          "$(json_escape "§4.4: the user approved merging this pull request into $_gm_into")"
+        exit 0
+      fi
+      case "$PERM_MODE" in
+        default|acceptEdits)
+          if ! _gb_prh; then
+            gatelog ASK 4.4 "a pull request merged into a protected branch"
+            printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
+              "$(json_escape "§4.4 merge approval gate. Claude wants to merge pull request ${_gm_sel:-of this branch} into $_gm_into:
+
+$CMD
+
+Approve only if you want this merged into $_gm_into now.")"
+            exit 0
+          fi ;;
+      esac
+      # No prompt reaches a person: what is waiting is written down for the question or the typed approval.
+      gatelog BLOCK 4.4 "a pull request merged into a protected branch, with no approval"
+      _gm_pd="${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"; _gm_pd="${_gm_pd//\\//}"; _gm_pd="${_gm_pd%/}/.claude/state"
+      _json_slice "$INPUT" session_id >/dev/null; _gm_psid="$_JS"
+      case "$_gm_psid" in ''|*[!A-Za-z0-9._-]*) _gm_psid="" ;; esac
+      if [ -n "$_gm_psid" ] && mkdir -p "$_gm_pd" 2>/dev/null; then
+        if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _gm_pn '%(%s)T' -1; else _gm_pn="$(date +%s)"; fi
+        printf 'sid=%s\nop=merge\nts=%s\npr=%s\nbase=%s\n' "$_gm_psid" "$_gm_pn" "${_gm_sel:--}" "${_gm_base:--}" > "$_gm_pd/crew-approval-pending" 2>/dev/null
+      fi
+      echo "GUARD (§4.4): merging pull request ${_gm_sel:-of this branch} into $_gm_into needs the user's approval, and in '${PERM_MODE:-unknown}' no prompt reaches a person." >&2
+      _gm_prh=1; _gb_prh && _gm_prh=0      # also loads prompt-approval.sh, where the question is defined
+      if [ "$PERM_MODE" = auto ] && [ "$_gm_prh" = 1 ] && declare -F _crew_q_json >/dev/null 2>&1 && _q_wired; then
+        _crew_q_json merge
+        echo "$_CREW_Q_ASK" >&2
+        echo "{\"questions\":[$_CREW_QJ]}" >&2
+        echo "Their answer is recorded by Crewforth itself; then run the same merge command again." >&2
+      else
+        echo "Ask the user, in their language, for the approval: the user can type /crew-approve merge as their whole message; then run the same command again. Or they merge it themselves on GitHub." >&2
+      fi
+      exit 2 ;;
+    *) gatelog ALLOW 4.4 "a pull request merged into a base that is not protected" ;;
+  esac
+fi
 if git_has "$CMD_SEEN" 'commit|push'; then
   # §4.4 — A PUSH WITH NOWHERE TO GO IS NOT ASKED ABOUT. In a repository with no remote, `git push` can only fail
   # (`fatal: No configured push destination`), and asking the user to approve it first cost them a click for an
