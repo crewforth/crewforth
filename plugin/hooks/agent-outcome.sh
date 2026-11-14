@@ -197,6 +197,29 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
   return 0
 }
 
+# THE REVIEW-PASS RECORD (§4.6), written here when crew-review-agent ends its report with `review: clean`, by the
+# recipe in its own file (# CREW-REVIEW-PASS; smoke pins the three). Field (3.5.0): the auto-mode classifier refused
+# the agent's own write of it, and the commit was left to the user's hand. `review: blocked` removes a record that
+# matches the staged diff, so a diff cleared before and blocked now is not committed on the old record.
+_ao_review_pass(){  # $1 = clean | blocked
+  local cwd top D H rp
+  _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null; cwd="${_JU//\\//}"
+  [ -n "$cwd" ] && [ -d "$cwd" ] || cwd="$_AMP"
+  top="$(git -C "$cwd" -c core.fsmonitor= rev-parse --show-toplevel 2>/dev/null)" || return 0
+  [ -n "$top" ] && [ -d "$top" ] || return 0
+  D="$(git -C "$top" -c core.fsmonitor= diff --cached --no-ext-diff --no-textconv 2>/dev/null | git hash-object --stdin 2>/dev/null)" || return 0
+  case "$D" in ''|*[!0-9a-f]*) return 0 ;; esac
+  H="$(git -C "$top" -c core.fsmonitor= rev-parse --verify --quiet HEAD 2>/dev/null)" || H=NONE; [ -n "$H" ] || H=NONE
+  rp="$top/.claude/review-pass.json"
+  if [ "$1" = clean ]; then
+    mkdir -p "$top/.claude" 2>/dev/null && printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$rp" 2>/dev/null
+    _am_log "review-pass written for the staged diff"
+  elif [ -f "$rp" ] && grep -q "\"diff_oid\":\"$D\"" "$rp" 2>/dev/null; then
+    rm -f "$rp" 2>/dev/null; _am_log "review-pass removed: the review of this diff is blocked"
+  fi
+  return 0
+}
+
 # ---- the list of critical paths (SessionStart, or `--scan` from the installers) ----------------------------------
 _ao_scan(){
   local out="$_AMS/crew-critical-paths.auto" stamp="$_AMS/crew-critical-paths.stamp" list sum old="" f rest seg pre n=0
@@ -496,6 +519,7 @@ case "$EV" in
     _json_unescape "$LAST" >/dev/null; LAST="$_JU"
     while :; do case "$LAST" in *[$' \t\n\r']) LAST="${LAST%?}" ;; *) break ;; esac; done
     ESCL=0; case $'\n'"$LAST" in *$'\n'"escalate:"*) ESCL=1 ;; esac      # a write to a critical path was refused
+    REVV=""; case $'\n'"${LAST//$'\r'/}"$'\n' in *$'\n'"review: clean"$'\n'*) REVV=clean ;; *$'\n'"review: blocked"$'\n'*) REVV=blocked ;; esac
     LAST="${LAST##*$'\n'}"
     case "$LAST" in "confidence: high") CONF=high ;; "confidence: low") CONF=low ;; *) CONF=- ;; esac
     # The model the agent ran on. Claude Code names it in the answer to the Agent call (resolvedModel), which the
@@ -518,6 +542,7 @@ case "$EV" in
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" "$RW" >> "$TSV" 2>/dev/null
     _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
+    [ "$AG" = crew-review-agent ] && [ -n "$REVV" ] && _ao_review_pass "$REVV"
     # A BACKGROUND agent's outcome has no PostToolUse to be told in (its call came back at launch): what the session
     # would have been told waits for the main thread's Stop (--stop above).
     if [ -f "$_AMD/bg/$AID" ]; then
