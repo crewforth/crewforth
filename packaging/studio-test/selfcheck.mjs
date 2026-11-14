@@ -1427,12 +1427,12 @@ check('prose without a notice yields nothing', none.size === 0);
   check('a class with no verified call has no rate, and is not written as zero',
     docs.firstTryRate === null && mp.classRow(docs).firstTry === '\u2014' && mp.classRow(docs).rate === null && /No call of this class got a verdict/.test(mp.classRow(docs).firstTryOf));
   check('a line the hooks could not have written is dropped and its reason kept: a verdict, a model, a count, a risk, a change, a time',
-    m.droppedWhy['verify is not one of the five'] === 1 && m.droppedWhy['model is not a tier'] === 1 && m.droppedWhy['fixes is not a count'] === 2
+    m.droppedWhy['verify is not one of the six'] === 1 && m.droppedWhy['model is not a tier'] === 1 && m.droppedWhy['fixes is not a count'] === 2
     && m.droppedWhy['risk is not critical or normal'] === 1 && m.droppedWhy['change is not one of the eleven'] === 1
     && m.droppedWhy['escalated_from is not a tier'] === 1 && m.droppedWhy['ts is not a UTC time'] === 2 && m.droppedWhy['fewer than twelve columns'] === 1
     && be.runs === 7 && /10 lines not read \(/.test(mp.totalsLine(m)), JSON.stringify(m.droppedWhy));
   check('the words a row may carry are the hooks\' own: five verdicts, eleven kinds of change, two risks',
-    mo.VERIFY.join() === 'pass,fail,none,blocked,timeout' && mo.RISKS.join() === 'critical,normal' && mo.CHANGES.length === 11
+    mo.VERIFY.join() === 'pass,fail,none,blocked,timeout,red' && mo.RISKS.join() === 'critical,normal' && mo.CHANGES.length === 11
     && mo.CHANGES.every((c) => new RegExp(`[ |]${c}[ |>]`).test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''))
     && /_AM_CHANGES=' text feature fix-known fix-unknown refactor migration security architecture test-run test-write audit '/.test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''),
     'compared with the list in hooks/guard-agent-model.sh');

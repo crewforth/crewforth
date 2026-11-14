@@ -34,7 +34,7 @@ export const LATER_COLUMNS = ['risk_why'];
 const VERIFIED = new Set(['pass', 'fail']);
 // What the hooks write, and nothing else is a row. The words are hooks/guard-agent-model.sh's and
 // hooks/agent-outcome.sh's; a word they do not use is a line this file cannot read, not a new kind of work.
-export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout'];
+export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout', 'red'];
 export const CHANGES = ['text', 'feature', 'fix-known', 'fix-unknown', 'refactor', 'migration', 'security', 'architecture', 'test-run', 'test-write', 'audit'];
 export const RISKS = ['critical', 'normal'];
 const TIERS = ['haiku', 'sonnet', 'opus', 'fable'];
@@ -65,7 +65,7 @@ function rowProblem(f) {
   if (!CHANGES.includes(f[3])) return 'change is not one of the eleven';
   if (!RISKS.includes(f[4])) return 'risk is not critical or normal';
   if (f[6] !== '-' && !TIERS.includes(f[6])) return 'model is not a tier';
-  if (!VERIFY.includes(f[7])) return 'verify is not one of the five';
+  if (!VERIFY.includes(f[7])) return 'verify is not one of the six';
   if (!/^\d{1,4}$/.test(f[8])) return 'fixes is not a count';
   if (f[9] !== '-' && !TIERS.includes(f[9])) return 'escalated_from is not a tier';
   return null;
