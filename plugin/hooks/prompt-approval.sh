@@ -34,7 +34,7 @@
 #
 # THE SAME APPROVAL BY A CLICK (3.2.0). In `auto` the user can also answer ONE fixed question, asked with
 # AskUserQuestion: "Commit only" / "Commit + push" / "Push only" / "No". Two hooks on that tool share what is below:
-#   PreToolUse   guard-question.sh (_crew_q_pre): the question must be the fixed one (_CREW_Q_JSON), carry no
+#   PreToolUse   guard-question.sh (_crew_q_pre): the question must be the one the state asks (_crew_q_variant), carry no
 #                answers, and be asked in `auto`; then it answers `ask`. A hook's `ask` beats another PreToolUse
 #                hook's `allow` that comes with filled-in answers, from every source and in every mode (measured:
 #                34 runs on Claude Code 2.1.294, and in the terminal by hand), so the question reaches the user.
@@ -435,14 +435,44 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
 # What the user is asked is never the model's wording: PreToolUse refuses any other, so the person always reads the
 # same four answers and what each one does. guard-bash.sh prints it from here for the model to ask.
 _CREW_Q_TEXT='Crewforth approval: may Claude commit what is staged now, push this branch, or both?'
-_CREW_Q_JSON='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":[{"label":"Commit only","description":"Commit exactly what is staged now. No push."},{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."},{"label":"Push only","description":"Push this branch as it is now. No new commit."},{"label":"No","description":"Neither commit nor push."}],"multiSelect":false}'
+_CREW_Q_O_C='{"label":"Commit only","description":"Commit exactly what is staged now. No push."}'
+_CREW_Q_O_CP='{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."}'
+_CREW_Q_O_P='{"label":"Push only","description":"Push this branch as it is now. No new commit."}'
+_CREW_Q_O_N='{"label":"No","description":"Neither commit nor push."}'
+_crew_q_json(){  # $1 = the variant (full | commit | push) -> _CREW_QJ: the question with the options that variant offers
+  local o
+  case "$1" in
+    commit) o="$_CREW_Q_O_C,$_CREW_Q_O_N" ;;
+    push)   o="$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
+    *)      o="$_CREW_Q_O_C,$_CREW_Q_O_CP,$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
+  esac
+  _CREW_QJ='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":['"$o"'],"multiSelect":false}'
+}
+_crew_q_json full; _CREW_Q_JSON="$_CREW_QJ"
+# WHICH QUESTION THE STATE ASKS FOR (3.1): an answer the state cannot honour is not offered. Something staged and a
+# remote: all four. Staged, no remote: commit only. Nothing staged, a remote and a HEAD: push only (field: 35 commit
+# answers in three projects were for a commit already made, refused after the click). Neither: none, not asked.
+_crew_q_variant(){  # $1 = cwd -> _QV (full | commit | push | none), _QVT (staged tree), _QVE (HEAD's tree), _QVH (HEAD or NONE), _QVB (branch or -)
+  local d="${1:-.}" r
+  _QV=none
+  _QVH="$(git -C "$d" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
+  _QVB="$(git -C "$d" symbolic-ref --short -q HEAD 2>/dev/null)" || _QVB=""; [ -n "$_QVB" ] || _QVB=-
+  _QVT="$(git -C "$d" -c core.fsmonitor= write-tree 2>/dev/null)"
+  if [ "$_QVH" = NONE ]; then _QVE=4b825dc642cb6eb9a060e54bf8d69288fbee4904; else _QVE="$(git -C "$d" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
+  r="$(git -C "$d" -c core.fsmonitor= remote 2>/dev/null)"
+  if [ -n "$_QVT" ] && [ "$_QVT" != "$_QVE" ]; then
+    if [ -n "$r" ]; then _QV=full; else _QV=commit; fi
+  elif [ -n "$r" ] && [ "$_QVH" != NONE ]; then _QV=push
+  fi
+  return 0
+}
 # THE ANSWERED QUESTION, IN ANY KEY ORDER. Claude Code hands PostToolUse the question back either as it was asked or
 # re-serialised with its keys sorted (`header,options[description,label],question`, sometimes without multiSelect):
 # 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused, on a byte match (real sessions,
 # 2.1.299 and 2.1.302, 2026-10-18). So the answer side checks every "key":"text" pair of the fixed question, wherever
 # it sits; the exact match stays on PreToolUse, and the tool id binds the answer to the call that passed it.
-_crew_q_is(){  # $1 = a payload -> 0 when it carries every "key":"text" pair of _CREW_Q_JSON
-  local rest="$_CREW_Q_JSON" re='("[A-Za-z]+":"[^"]*")' p
+_crew_q_is(){  # $1 = a payload, $2 = the question asked (default _CREW_Q_JSON) -> 0 when it carries every "key":"text" pair of it
+  local rest="${2:-$_CREW_Q_JSON}" re='("[A-Za-z]+":"[^"]*")' p
   while [[ $rest =~ $re ]]; do
     p="${BASH_REMATCH[1]}"
     case "$1" in *"$p"*) ;; *) return 1 ;; esac
@@ -680,8 +710,14 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # carries some is not the plain question this hook asks.
   _json_keycount "$INPUT" answers; [ "$_KC" = 0 ] || qno "the call carries answers; ask it with none."
   _json_keycount "$INPUT" questions; [ "$_KC" = 1 ] || qno "the call carries more than one list of questions."
-  case "$INPUT" in *'"questions":['"$_CREW_Q_JSON"']'*) ;;
-    *) qno "it is not the fixed question. Ask exactly this AskUserQuestion input, nothing added or changed: {\"questions\":[$_CREW_Q_JSON]}" ;;
+  # The question that fits what is staged and where it can go: asked exactly, or not at all.
+  _crew_q_variant "$CWD"
+  case "$_QV" in
+    none) qno "nothing is staged and there is nowhere to push (or nothing to push), so there is nothing to approve. To commit, stage the change with git add, show the commit message, then ask again." nohint ;;
+  esac
+  _crew_q_json "$_QV"
+  case "$INPUT" in *'"questions":['"$_CREW_QJ"']'*) ;;
+    *) qno "it is not the question this state asks. Ask exactly this AskUserQuestion input, nothing added or changed: {\"questions\":[$_CREW_QJ]}" ;;
   esac
   case "$PM" in
     auto) ;;
@@ -697,18 +733,11 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # WHAT THE QUESTION IS ABOUT, written down when it is asked: the tree the index writes and HEAD. The answer is
   # recorded only if both are still the same, however long the user took (a question asked at night is answered in
   # the morning); a change in between is a different thing from what the user was shown, so it is asked again.
-  local _qh _qt _qe _qb
-  _qh="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
-  _qb="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)" || _qb=""; [ -n "$_qb" ] || _qb=-
+  local _qh="$_QVH" _qt="$_QVT" _qb="$_QVB"
   case "$_qb" in *[!A-Za-z0-9._/+@-]*) qno "the branch name could not be written down." ;; esac
   case "$_qh" in NONE) ;; *[!0-9a-f]*|'') qno "git could not name HEAD here." ;; esac
-  _qt="$(git -C "$CWD" -c core.fsmonitor= write-tree 2>/dev/null)"
   case "$_qt" in *[!0-9a-f]*|'') qno "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
-  if [ "$_qh" = NONE ]; then _qe=4b825dc642cb6eb9a060e54bf8d69288fbee4904; else _qe="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
-  # NOTHING STAGED: every commit answer would be refused after the user gave it (field: 35 times in three projects,
-  # most of them "Commit + push" for a commit already made). So the question is not asked; a push alone is typed.
-  [ "$_qt" = "$_qe" ] && qno "nothing is staged, so there is no commit to approve. If the commit is already made and only the push is wanted, ask with no question: the user can type /crew-approve push as their whole message; to commit, stage the change with git add, show the commit message, then ask again." nohint
-  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" > "$ASKED"; } 2>/dev/null \
+  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\nvariant=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" "$_QV" > "$ASKED"; } 2>/dev/null \
     || qno "the state folder could not be written, so the answer could not be bound to this question."
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
     "Crewforth §4.4: only the person in front of this session answers the approval question."
@@ -842,14 +871,14 @@ _pa_record(){
 # ---- THE APPROVAL QUESTION (PreToolUse and PostToolUse of AskUserQuestion) -----------------------------------
 # Only the fixed question is this hook's business: any other question gets no decision from it, here or later.
 _pa_question(){
-  local _as="" _at="" _au="" _al _an _aq="" _ah="" _ab=""
+  local _as="" _at="" _au="" _al _an _aq="" _ah="" _ab="" _av=""
   _crew_q_ctx
   # PostToolUse: the user has answered. Recorded only if THIS call was asked by the half above.
   SRC="answer to the approval question"; SRC_BY="by answering the approval question"; OP="a commit or a push"
   [ -n "$SID" ] && [ -n "$_QTU" ] || no "the answer carries no session or tool id."
   if [ -f "$ASKED" ]; then
     while IFS= read -r _al || [ -n "$_al" ]; do
-      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; esac
+      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; variant=*) _av="${_al#variant=}" ;; esac
     done < "$ASKED"
   fi
   { [ "$_as" = "$SID" ] && [ "$_au" = "$_QTU" ]; } || no "Crewforth did not ask this question (guard-question.sh, its PreToolUse half, is not wired or did not pass it), so the answer cannot be shown to have come from the user."
@@ -860,7 +889,9 @@ _pa_question(){
   # compares them. One written before that (no tree, no head) keeps the old 30 minutes.
   if [ -n "$_aq" ] && [ -n "$_ah" ] && [ -n "$_ab" ]; then ASK_TREE="$_aq"; ASK_HEAD="$_ah"; ASK_BRANCH="$_ab"
   else [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."; fi
-  _crew_q_is "$INPUT" || no "the question answered is not the fixed one."
+  case "$_av" in full|commit|push) ;; *) _av=full ;; esac   # a question asked before the variants were written down
+  _crew_q_json "$_av"
+  _crew_q_is "$INPUT" "$_CREW_QJ" || no "the question answered is not the one that was asked."
   [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
   _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
   _json_keycount "$INPUT" "$_CREW_Q_TEXT"; _an=$_KC
@@ -868,10 +899,12 @@ _pa_question(){
   _json_slice "$INPUT" "$_CREW_Q_TEXT" >/dev/null
   _crew_q_op "$_JS"
   case "$OP" in
-    '') OP="a commit or a push"; no "the answer was none of the four the question offers." ;;
+    '') OP="a commit or a push"; no "the answer was none of the ones the question offers." ;;
     no) [ -n "$REC" ] && { : > "$REC"; } 2>/dev/null
         say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
   esac
+  # Only an answer the question offered: the label is checked against the variant that was asked.
+  case "$_av:$OP" in full:*|commit:commit|push:push) ;; *) no "the answer was not one this question offered." ;; esac
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || no "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ; _PA_BGQ=1 ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
@@ -895,7 +928,8 @@ _pa_stop(){
   _crew_q_open auto || exit 0
   _al=""; [ -f "$TRIED" ] && { IFS= read -r _al < "$TRIED"; } 2>/dev/null
   [ "$_al" = "sid=$SID" ] && exit 0
-  _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
+  _crew_q_variant "${_JU:-.}"; [ "$_QV" = none ] && exit 0; _crew_q_json "$_QV"
+  _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_QJ]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
   _ao="${_ao//\\/\\\\}"; _ao="${_ao//\"/\\\"}"     # fixed ASCII text on one line: a backslash and a quote are all it holds
   printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$_ao"
   exit 0

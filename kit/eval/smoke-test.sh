@@ -10404,7 +10404,13 @@ else fail "the approval question in a background session:$_pabb"; fi
 _pqa="$_paw/.claude/state/crew-approval-asked"; _pqb=""
 _pq_age(){ sed "s/^ts=.*/ts=$(( $(date +%s) - $2 ))/" "$1" > "$1.t" && mv "$1.t" "$1"; }
 _pa_new; ( cd "$_paw" && git reset -q ) >/dev/null 2>&1; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq0
-{ [ "$_par" = 2 ] && grep -q 'nothing is staged' "$_PA/qerr" && grep -q 'can type /crew-approve push' "$_PA/qerr"; } || _pqb="$_pqb [nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+# Nothing staged, a remote and a HEAD: the four-answer question is refused and the push-only one is named and asked (3.1).
+{ [ "$_par" = 2 ] && grep -q 'not the question this state asks' "$_PA/qerr" && grep -q '"label":"Push only"' "$_PA/qerr" && ! grep -q '"label":"Commit only"' "$_PA/qerr"; } || _pqb="$_pqb [nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_paq_push="$(bash -c '. "$1"; _crew_q_json push; printf "%s" "$_CREW_QJ"' _ "$HOOKS/prompt-approval.sh")"
+_paq_pre auto "$_paq_push" '' tq0p; { [ "$_par" = 0 ] && grep -q '^variant=push$' "$_pqa"; } || _pqb="$_pqb [nothing staged: the push-only question was not asked: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_paq_post auto 'Commit only' tq0p "$_paq_push"; [ "$(_paq_rec)" = commit ] && _pqb="$_pqb [an answer the push-only question did not offer was recorded]"
+: > "$_pa_rec"; _paq_pre auto "$_paq_push" '' tq0q; _paq_post auto 'Push only' tq0q "$_paq_push"
+[ "$(_paq_rec)" = push ] || _pqb="$_pqb [the push-only question's Push only was not recorded: $(_paq_rec) ${_pao:0:100}]"
 _pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq1
 { grep -q '^tree=[0-9a-f]' "$_pqa" && grep -q '^head=[0-9a-f]' "$_pqa"; } || _pqb="$_pqb [the question wrote no tree/head]"
 _pq_age "$_pqa" 7200; _paq_post auto 'Commit only' tq1; [ "$(_paq_rec)" = commit ] || _pqb="$_pqb [a 2-hour-old question, nothing changed: $(_paq_rec) ${_pao:0:100}]"
@@ -10448,6 +10454,8 @@ else fail "the commit agent or /crew-ship asks for /crew-approve before the one-
 # both halves of the question wired and no PermissionRequest hook, it adds the fixed question (_CREW_Q_JSON, read from
 # prompt-approval.sh) to the session's context; in any other mode, for any other agent, or with such a hook, nothing.
 _aq="$(mktemp -d)"; _aq="$(cd -P "$_aq" && pwd)"; mkdir -p "$_aq/p/.claude/state" "$_aq/ccd" "$_aq/home"
+# a project with something staged and a remote: the state the four-answer question is for
+( cd "$_aq/p" && git init -q && git remote add origin https://example.invalid/r.git && echo a > a.txt && git add a.txt ) >/dev/null 2>&1
 printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_aq/p/.claude/settings.json"
 _aq_run(){ printf '{"hook_event_name":"PostToolUse","tool_name":"Agent","permission_mode":"%s","session_id":"s","tool_use_id":"toolu_aq1","cwd":"%s","tool_input":{"subagent_type":"%s","description":"d","prompt":"p"},"tool_response":{"status":"async_launched","agentId":"aq123abc"}}' "$1" "$_aq/p" "$2" > "$_aq/pl.json"
   ( cd "$_aq/p" && env -u CREW_MODEL_ROUTING CLAUDE_PROJECT_DIR="$_aq/p" CLAUDE_CONFIG_DIR="$_aq/ccd" HOME="$_aq/home" CREW_GATE_LOG=/dev/null bash "$HOOKS/agent-outcome.sh" < "$_aq/pl.json" 2>/dev/null ); }
@@ -10467,6 +10475,7 @@ rm -rf "$_aq"
 # prompt-approval.sh on Stop: the reply names /crew-approve, auto, the question open, not asked since the user's last
 # message -> the session is told once to ask the click. Every other case is a twin that differs in one thing.
 _sq="$(mktemp -d)"; _sq="$(cd -P "$_sq" && pwd)"; mkdir -p "$_sq/p/.claude/state" "$_sq/ccd" "$_sq/home"
+( cd "$_sq/p" && git init -q && git remote add origin https://example.invalid/r.git && echo a > a.txt && git add a.txt ) >/dev/null 2>&1
 printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_sq/p/.claude/settings.json"
 _SQ_ENV="CLAUDE_PROJECT_DIR=$_sq/p CLAUDE_CONFIG_DIR=$_sq/ccd HOME=$_sq/home CREW_GATE_LOG=/dev/null"
 # $1 = mode, $2 = the reply, $3 = stop_hook_active, $4 = session id

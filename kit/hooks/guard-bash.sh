@@ -3084,10 +3084,13 @@ _gate_written(){
   # and the session picked the typed one 7 times in 9 (a real `auto` session on rc.3, 2026-10-18): the user was told
   # to type a command for what one click does. The typed way is now the fallback, said as one.
   _QOFF=0
-  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "$_GB_HERE/guard-question.sh" ]; then
+  # The question that fits the state (prompt-approval.sh _crew_q_variant): none, when nothing it offers could be honoured.
+  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "$_GB_HERE/guard-question.sh" ] \
+     && _crew_q_variant "${_CWD:-.}" && [ "$_QV" != none ]; then
     _QOFF=1
+    _crew_q_json "$_QV"
     echo "$_CREW_Q_ASK" >&2
-    echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
+    echo "{\"questions\":[$_CREW_QJ]}" >&2
     echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. Ask it this way only: do not also give the user a command to type." >&2
   fi
   if [ "$_QOFF" = 1 ]; then
