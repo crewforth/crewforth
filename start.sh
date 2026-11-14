@@ -606,7 +606,7 @@ count_showcase() {   # $1 = a skills directory -> N_SKL N_CMD
     [ -f "$f" ] || continue; k=0; e=0; d=0
     while IFS= read -r l || [ -n "$l" ]; do
       l="${l%$'\r'}"
-      case "$l" in ---) d=$((d+1)); [ "$d" -ge 2 ] && break ;; "  kind: command") k=1 ;; "  experimental: true"|"  experimental: \"true\"") e=1 ;; esac
+      case "$l" in ---) d=$((d+1)); [ "$d" -ge 2 ] && break ;; "  kind: command") k=1 ;; "  experimental: true"|"  experimental: \"true\""|"  internal: true"|"  internal: \"true\"") e=1 ;; esac
     done < "$f"
     [ "$e" = 1 ] && continue
     if [ "$k" = 1 ]; then N_CMD=$((N_CMD+1)); else N_SKL=$((N_SKL+1)); fi

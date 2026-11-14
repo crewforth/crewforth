@@ -15,7 +15,7 @@
 **Crewforth, Claude Code için mühendislik ekibinizdir.**
 
 Claude Code'a subagent'lar, skill'ler, komutlar ve hook'lar ekler: her biri bir alanın sahibi olan 14 uzman ajan,<br>
-yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 18 komut ve önemli kuralları uygulayan hook'lar.
+yöntemi taşıyan 40 skill, `/crew-…` ile başlattığınız 17 komut ve önemli kuralları uygulayan hook'lar.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -59,7 +59,7 @@ Hiçbir şey yazılmadan önce bir özeti onaylarsınız; `add` tam kurulum yapm
 
 Toplam Komut satırının altındaki durum satırı kapının son sözünü, hâlâ geçerli bir onayı, çalışan ajanları, ölçülmüş bağlam doluluğunu ve oturumun maliyetini gösterir. `/crew-todo` altında planın yapılacaklar panelini açar: fazlar ve işler, bitenler tikli, sürdüğün iş işaretli. Bir sıkıştırmadan önce bir hook işin durumunu yazar (dal, commit'lenmemiş dosyalar, son ret, bulgular) ve aynı oturum sıkıştırmadan sonra onu geri alır.
 
-**18 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-approve`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
+**17 komut**, her biri kendi `/crew-…` adıyla başlatılır: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
 
 ## Ajanlar
 
@@ -86,7 +86,7 @@ Toplam Komut satırının altındaki durum satırı kapının son sözünü, hâ
 
 | Kural | Neyle uygulanır |
 |:--|:--|
-| Commit ve push her izin modunda onayınızı ister; `auto` ve `dontAsk` modunda onay sizin yazdığınız bir komuttur: `/crew-approve`, az önce reddedilen commit ya da push'u onaylar (ya da açıkça yazın: `/crew-approve commit`, `push`, `commit+push`). `auto` modunda sabit bir soruyu tek tıkla cevaplayarak da onay verebilirsiniz. Bir istemi sizden önce cevaplayabilen bir `PermissionRequest` hook'u bağlı olabilirse soru da kapının kendi istemi de kapanır ve her modda yol `/crew-approve` olur; Warp'ın istem cevaplayamayan bildirim hook'u onları açık bırakır. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
+| Commit, push ve `main`'e merge her izin modunda onayınızı ister: kapının istemine tek tık, `auto` modunda ise yalnız şu an olabilecekleri sunan bir soruya tek tık (commit, push, ikisi ya da merge). Uzak deposu olmayan depoda push sorulmaz, sebebiyle reddedilir. Bir istemi sizden önce cevaplayabilen bir `PermissionRequest` hook'u bağlı olabilirse soru da kapının kendi istemi de kapanır ve kapı yerine yazacağınız bir komutu söyler; Warp'ın istem cevaplayamayan bildirim hook'u onları açık bırakır. Kapı onay yolunun kapalı olduğunu söylerse (kayıt hook'u bağlı değil; örneğin eski bir Crewforth taşıyan worktree) Shift+Tab'a basın ya da kendi terminalinizden commit edin | `guard-bash.sh` ve `prompt-approval.sh` |
 | Bir commit, tam olarak kendi diff'i için temiz bir inceleme ister. İnceleme deterministik bir ön geçişle başlar (sırlar, debug çağrıları, shellcheck, manifest'i olmadan değişen lock dosyası), her bulgu ilgili satırları gösterir ve `crew-refuter` engelleyen bulguları çürütmeyi dener | `guard-bash.sh`, `review-prepass` ve `crew-review-agent`'ın yazdığı kayıt |
 | Yıkıcı komutlar (`reset --hard`, force push, `rm -rf`, `--no-verify`) reddedilir ve tek satırda neye dokunacakları söylenir: atılacak değişiklikler ve commit'ler, silinecek dosyalar, ezilecek uzak commit'ler | `guard-bash.sh` |
 | Bir `crew-*` ajanı bir iş kartıyla (dosyalar, değişiklik türü, verify komutu) ve kartın riskine uyan modelle çağrılır: kritik iş (auth, ödeme, migration, güvenlik…) `opus`'ta, özellik, düzeltme, refactor ve hiçbir komutun doğrulayamadığı iş en az `sonnet`'te, `haiku` metin, test koşusu ve commit mesajında (docs ajanı `sonnet`'te). Çağrı bir effort da belirtir, varsayılanı `medium`. Explore `haiku`'da koşar. Tüm alt ajanlara zorlanan bir model (`CLAUDE_CODE_SUBAGENT_MODEL_FORCE`) çağrınınkinin yerine değerlendirilir. Kart `skills:` ekleyebilir: ajan adı geçen her skill'i durmadan önce çağırmak zorundadır, çağırmazsa bir kez geri gönderilir. `opus`'ta olmayan ajan kritik yola yazamaz. `CREW_MODEL_ROUTING=off` bunu kapatır | `guard-agent-model.sh`, `guard-write.sh` |

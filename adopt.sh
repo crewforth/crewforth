@@ -1287,7 +1287,7 @@ for kd in "$SRC"/skills/*/; do
   [ -f "$kd/SKILL.md" ] || continue; kn="${kd%/}"; kn="${kn##*/}"; _k=0; _e=0; _d=0
   while IFS= read -r _l || [ -n "$_l" ]; do
     _l="${_l%$'\r'}"
-    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true"|"  experimental: \"true\"") _e=1 ;; esac
+    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true"|"  experimental: \"true\""|"  internal: true"|"  internal: \"true\"") _e=1 ;; esac
   done < "$kd/SKILL.md"
   [ "$_e" = 1 ] && continue
   _got=1

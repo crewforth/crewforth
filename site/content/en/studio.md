@@ -128,7 +128,7 @@ A tool call in a session Studio started waits in a dock along the bottom of the 
 Allow is an answer to Claude Code. It does not go around anything:
 
 - In the Accept edits and Default modes, Allow hands Claude Code an explicit allow. In Plan it says nothing, and Claude Code's own plan rules decide.
-- A Crewforth gate or a `deny` rule in the project's settings still refuses a call you allowed (measured on Windows, in a real session). The conversation then carries a line saying the call was allowed here and who refused it. A click in Studio never stands in for an approval Crewforth asks you to type: `/crew-approve` is still yours to send.
+- A Crewforth gate or a `deny` rule in the project's settings still refuses a call you allowed (measured on Windows, in a real session). The conversation then carries a line saying the call was allowed here and who refused it. A click in Studio never stands in for an approval Crewforth asks you for: that answer is still yours to give in the session.
 - Studio's hook runs beside the project's other hooks, not after them, so the dock can ask about a call that another gate refuses anyway. That is a known limit.
 - Two calls are not put to you, because there is nothing in them to judge: a lookup of a tool's definition, and, in plan mode only, the write of Claude Code's own plan file in its plans directory. The dock stays silent for them, which is not an approval: Claude Code decides them as it would with no panel. The plan itself still comes to the dock.
 

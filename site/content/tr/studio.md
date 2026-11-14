@@ -128,7 +128,7 @@ Studio'nun başlattığı bir oturumdaki araç çağrısı, ekranda hangi oturum
 Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 
 - Accept edits ve Default kiplerinde Allow, Claude Code'a açık bir izin veriyor. Plan kipinde hiçbir şey söylemiyor; kararı Claude Code'un kendi plan kuralları veriyor.
-- Bir Crewforth kapısı ya da projenin ayarlarındaki bir `deny` kuralı, siz izin verseniz de çağrıyı reddediyor (Windows'ta, gerçek oturumda ölçüldü). Konuşmada o zaman çağrıya burada izin verildiğini ve kimin reddettiğini söyleyen bir satır çıkıyor. Studio'daki bir tık, Crewforth'un sizden yazmanızı istediği bir onayın yerine hiçbir zaman geçmiyor: `/crew-approve` göndermek yine sizde.
+- Bir Crewforth kapısı ya da projenin ayarlarındaki bir `deny` kuralı, siz izin verseniz de çağrıyı reddediyor (Windows'ta, gerçek oturumda ölçüldü). Konuşmada o zaman çağrıya burada izin verildiğini ve kimin reddettiğini söyleyen bir satır çıkıyor. Studio'daki bir tık, Crewforth'un sizden istediği bir onayın yerine hiçbir zaman geçmiyor: o cevabı oturumda vermek yine sizde.
 - Studio'nun hook'u projenin diğer hook'larından sonra değil, onlarla yan yana koşuyor. O yüzden dock, başka bir kapının zaten reddedeceği bir çağrıyı da sorabiliyor. Bu bilinen bir sınır.
 - İki çağrı size sorulmuyor, çünkü içlerinde yargılanacak bir şey yok: bir aracın tanımına bakılması ve, yalnız plan kipinde, Claude Code'un kendi plan dosyasının plans dizinine yazılması. Dock bunlarda sessiz kalıyor; bu bir onay değil: kararı Claude Code, panel yokmuş gibi veriyor. Planın kendisi yine dock'a geliyor.
 

@@ -65,7 +65,7 @@ export function skillsAndCommands(root) {
     const f = path.join(dir, d, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     const raw = read(f);
-    if (/^\s+experimental:\s*"?true"?\s*$/m.test(raw.split('\n---')[0])) continue;
+    if (/^\s+(experimental|internal):\s*"?true"?\s*$/m.test(raw.split('\n---')[0])) continue;
     const fm = frontmatter(f);
     const item = { name: fm.name || d, summary: firstSentence(fm.description) };
     if (/^\s+kind:\s*command\s*$/m.test(raw.split('\n---')[0])) {
