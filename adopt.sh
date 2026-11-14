@@ -1862,15 +1862,16 @@ printf 'Co-Authored%s: Test <x@y.z>\n' '-By' > .kit-proof.txt   # not contiguous
 # hunting a gate that is fine. (The allowlist is already handled above by moving it aside.)
 if ! git add -f .kit-proof.txt >/dev/null 2>&1 || [ -z "$(git diff --cached --name-only -- .kit-proof.txt 2>/dev/null)" ]; then
   say '~  PROOF-1: skipped — could not stage the probe file (nothing was measured)'
-elif bash "$HP/pre-commit" >/tmp/kitproof.$$ 2>&1; then
+elif CREW_GATE_LOG=/dev/null bash "$HP/pre-commit" >/tmp/kitproof.$$ 2>&1; then
   warnm 'PROOF-1 FAILED: the trace scan LET THROUGH the AI trace'; PROOF_OK=0
 elif grep -qiE 'TRACE-SCANNER|Commit stopped|forbidden' /tmp/kitproof.$$; then
   say 'OK · PROOF-1: staged AI trace BLOCKED by the trace scan'
 else say '~  PROOF-1: hook blocked (%s)' "$(head -1 /tmp/kitproof.$$ 2>/dev/null)"; fi
 git reset -q .kit-proof.txt 2>/dev/null; rm -f .kit-proof.txt /tmp/kitproof.$$
 [ -f .trace-allowlist.txt.proofbak ] && mv .trace-allowlist.txt.proofbak .trace-allowlist.txt 2>/dev/null
-# 2) guard-bash git-approval gate: keyless 'git commit' -> block
-if printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | bash .claude/hooks/guard-bash.sh >/dev/null 2>&1; then
+# 2) guard-bash git-approval gate: keyless 'git commit' -> block. CREW_GATE_LOG=/dev/null, as doctor's probes: the
+# install's own proof is not a refusal of the user's work, and it read as one in the gate log.
+if printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | CREW_GATE_LOG=/dev/null bash .claude/hooks/guard-bash.sh >/dev/null 2>&1; then
   warnm 'PROOF-2 FAILED: guard-bash LET THROUGH the keyless commit'; PROOF_OK=0
 else say "OK · PROOF-2: guard-bash BLOCKED the keyless 'git commit' (holds in auto/bypass too)"; fi
 # 3) can the kit agents + discipline be loaded
