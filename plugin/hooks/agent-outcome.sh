@@ -158,27 +158,29 @@ _ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never endi
 # What the session is told about a finished agent, from its result file: _AOT, or 1 when there is nothing to tell (a
 # pass with no low confidence). One text, said in PostToolUse for a foreground call and at Stop for a background one.
 _ao_tellmsg(){  # $1 = the result file -> _AOT
-  local R="$1" RES CONF TI ESC VCMD EF WN UP ESCL MSG TAILM D="${CREW_VERIFY_SLOW_DAYS:-7}"
+  local R="$1" RES CONF TI ESC VCMD EF WN UP ESCL MSG TAILM SKM FX SKT D="${CREW_VERIFY_SLOW_DAYS:-7}"
   case "$D" in ''|*[!0-9]*) D=7 ;; esac
   _am_rec_get "$R" verify; RES="$_AMV"; _am_rec_get "$R" confidence; CONF="$_AMV"; _am_rec_get "$R" tier; TI="$_AMV"
   _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"; _am_rec_get "$R" effort; EF="$_AMV"
-  case "$RES" in fail|blocked|timeout) ;; *) [ "$CONF" = low ] || return 1 ;; esac
+  _am_rec_get "$R" skills_missed; SKM="$_AMV"; case "$SKM" in -) SKM="" ;; esac
+  _am_rec_get "$R" fixes; FX="$_AMV"
+  SKT=""; [ -n "$SKM" ] && SKT=" It did not apply the skills its card named ($SKM)$( [ -f "${R%/results/*}/tries/${R##*/}.skills" ] && echo ', even when sent back once' || echo ': it ran in the background and was not sent back'); check the work against them with the Skill tool before building on it."
+  case "$RES" in fail|blocked|timeout) ;; *) if [ "$CONF" != low ]; then [ -n "$SKT" ] || return 1; _AOT="Crewforth:${SKT}"; return 0; fi ;; esac
   if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
     # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
     _am_rec_get "$R" whynot; WN="$_AMV"
     if [ "$RES" = timeout ]; then
       # Not "run it yourself": the command that ran out of time is, in the field, the whole suite, and the session
       # running it again cost one more suite-length wait for the same answer.
-      _AOT="Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here: the next card that carries it is told, and for $D days the hook does not run it again. Do not repeat the task on another model for this."
+      _AOT="Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here: the next card that carries it is told, and for $D days the hook does not run it again. Do not repeat the task on another model for this.$SKT"
     else
-      _AOT="Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this."
+      _AOT="Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this.$SKT"
     fi
     return 0
   fi
   _am_rank "$TI"; _am_name $((_AMR+1)); UP="$_AMN"
   _am_rec_get "$R" escalate; ESCL="$_AMV"
-  _am_rec_get "$R" fixes
-  if [ "$RES" = fail ] && [ "$_AMV" = 0 ]; then MSG="verify failed ($VCMD); the agent ran in the background and was not sent back to fix it."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
+  if [ "$RES" = fail ] && [ "$FX" = 0 ]; then MSG="verify failed ($VCMD); the agent ran in the background and was not sent back to fix it."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
   elif [ "$RES" = fail ]; then MSG="verify failed after one in-agent fix ($VCMD)."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
   else MSG="the agent closed its report with confidence: low."; TAILM="What the agent left is in the tree; read its report for what it could not do."; fi
   # A write refused on a critical path is not helped by one model up: that file takes opus.
@@ -191,7 +193,7 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
   elif [ "$RES" = fail ] && [ "$ESCL" != 1 ] && [ "$ESC" = - ] && { [ "$EF" = low ] || [ "$EF" = medium ]; }; then MSG="$MSG It ran at effort $EF. Re-run this task once on $TI at effort high: the same card, the same agent, model $TI, effort high.${UP:+ If that also fails, once with $UP at effort medium; then ask the user.}"
   elif [ -z "$UP" ]; then MSG="$MSG It ran on $TI and there is no model above it to repeat on: ask the user what to do (AskUserQuestion)."
   else MSG="$MSG Re-run this task once with $UP: the same card, the same agent, model $UP, effort medium. If that also fails, ask the user."; fi
-  _AOT="Crewforth: $MSG $TAILM"
+  _AOT="Crewforth: $MSG $TAILM$SKT"
   return 0
 }
 
@@ -394,6 +396,24 @@ case "$EV" in
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
     SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
     RES=none; WHYNOT=""; VSTEP=""
+    # THE CARD'S SKILLS: each one the agent called with the Skill tool, or read (its SKILL.md), in its own transcript.
+    # Measured (field, 2026-11-13): 14 of 4,326 crew agent runs read their own skill, the Skill tool 0. Not judged
+    # without a transcript. A foreground agent that missed one is sent back once, before its verify is run; a
+    # background agent is not (a block after a handback was lost in 4 of 8 field stops): the miss is recorded and told.
+    _am_rec_get "$REC" skills; SKW="$_AMV"; SKMISS=""
+    case "$SKW" in ''|-) SKW="" ;; esac
+    if [ -n "$SKW" ] && [ -f "$ATP" ]; then
+      for _sk in $SKW; do
+        case "$_sk" in *[!a-z0-9-]*) continue ;; esac
+        grep -qE "\"skill\":\"(crewforth:)?$_sk\"|\"file_path\":\"[^\"]*skills/$_sk/SKILL\.md\"" "$ATP" 2>/dev/null || SKMISS="${SKMISS:+$SKMISS }$_sk"
+      done
+    fi
+    if [ -n "$SKMISS" ] && [ ! -f "$_AMD/bg/$AID" ] && [ "$SHA" = 0 ] && [ ! -f "$_AMD/tries/$AID.skills" ] \
+       && { printf '1\n' > "$_AMD/tries/$AID.skills"; } 2>/dev/null; then
+      _ao_json "Your task card names skills you have not applied: $SKMISS. Call each with the Skill tool, check your work against it and fix what it finds, then finish. This is asked once."
+      printf '{"decision":"block","reason":"%s"}\n' "$_AOJ"
+      exit 0
+    fi
     if [ -n "$VCMD" ] && [ "$VCMD" != none ]; then
       _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
       # Steps joined by ` && `, each judged alone, with `cd <folder>` steps run as a move inside the project
@@ -461,7 +481,7 @@ case "$EV" in
         # session's notice were all lost. Recorded now as failed; the session is told at its Stop and repeats the
         # task by the same ladder as a foreground one.
         RES=fail
-      elif [ "$TRIES" = 0 ] && [ "$SHA" = 0 ] && { printf '1\n' > "$_AMD/tries/$AID"; } 2>/dev/null; then
+      elif [ "$TRIES" = 0 ] && { [ "$SHA" = 0 ] || [ -f "$_AMD/tries/$AID.skills" ]; } && { printf '1\n' > "$_AMD/tries/$AID"; } 2>/dev/null; then
         # Asked ONCE, and only where that can be counted: Claude Code says when a stop hook has already kept this
         # agent running (stop_hook_active), and the counter has to be on disk before the answer goes out. Either
         # one missing, the agent is not kept: a stop hook that blocks without counting blocks for ever.
@@ -489,6 +509,7 @@ case "$EV" in
     [ "$RES" = fail ] && printf '%s %s\n' "$ASK" "$EFF" >> "$_AMD/fails/$CID" 2>/dev/null
     printf 'verify=%s\nfixes=%s\nconfidence=%s\ntier=%s\neffort=%s\nesc=%s\nescalate=%s\nwhynot=%s\ncmd=%s\n' "$RES" "$TRIES" "$CONF" "$ASK" "$EFF" "$ESC" "$ESCL" "$WHYNOT" "$VCMD" > "$_AMD/results/$AID" 2>/dev/null
     [ -n "$VSTEP" ] && printf 'step=%s\n' "$VSTEP" >> "$_AMD/results/$AID" 2>/dev/null
+    [ -n "$SKW" ] && printf 'skills=%s\nskills_missed=%s\n' "$SKW" "${SKMISS:--}" >> "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
     [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why\n' > "$TSV" 2>/dev/null
