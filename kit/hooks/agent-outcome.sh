@@ -202,7 +202,7 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
 # the agent's own write of it, and the commit was left to the user's hand. `review: blocked` removes a record that
 # matches the staged diff, so a diff cleared before and blocked now is not committed on the old record.
 _ao_review_pass(){  # $1 = clean | blocked
-  local cwd top D H rp
+  local cwd top D H T rp
   _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null; cwd="${_JU//\\//}"
   [ -n "$cwd" ] && [ -d "$cwd" ] || cwd="$_AMP"
   top="$(git -C "$cwd" -c core.fsmonitor= rev-parse --show-toplevel 2>/dev/null)" || return 0
@@ -212,7 +212,9 @@ _ao_review_pass(){  # $1 = clean | blocked
   H="$(git -C "$top" -c core.fsmonitor= rev-parse --verify --quiet HEAD 2>/dev/null)" || H=NONE; [ -n "$H" ] || H=NONE
   rp="$top/.claude/review-pass.json"
   if [ "$1" = clean ]; then
-    mkdir -p "$top/.claude" 2>/dev/null && printf '{"diff_oid":"%s","head":"%s","ts":"%s"}\n' "$D" "$H" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$rp" 2>/dev/null
+    # tree: the staged tree this review cleared, so the next review reads only what changed since (3.3)
+    T="$(git -C "$top" -c core.fsmonitor= write-tree 2>/dev/null)" || T=""
+    mkdir -p "$top/.claude" 2>/dev/null && printf '{"diff_oid":"%s","head":"%s","tree":"%s","ts":"%s"}\n' "$D" "$H" "$T" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$rp" 2>/dev/null
     _am_log "review-pass written for the staged diff"
   elif [ -f "$rp" ] && grep -q "\"diff_oid\":\"$D\"" "$rp" 2>/dev/null; then
     rm -f "$rp" 2>/dev/null; _am_log "review-pass removed: the review of this diff is blocked"

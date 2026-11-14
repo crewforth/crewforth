@@ -2926,7 +2926,7 @@ BUDGET_DISC=17196    # Discipline rules: 17161 → 17196 (+35, the measured size
                      # and the wrong one winning silently. The only rule in this file that is about the OTHER
                      # rules, so it cannot live in the README the way the compaction note does. Plus the Audit
                      # row naming crew-performance-expert — an agent nothing routes to is an idle component.)
-BUDGET_AGENT_BODIES=78681 # 78562 → 78681 (+119), the measured sum: crew-planner says what a card's `skills:` is (the same decision as BUDGET_AGENTS). every crew agent's body, after its frontmatter, summed: a subagent pays its own body in full on
+BUDGET_AGENT_BODIES=78883 # 78681 → 78883 (+202), the measured sum: crew-review-agent records the staged tree and reads only the change since its last review (3.3). every crew agent's body, after its frontmatter, summed: a subagent pays its own body in full on
                           # every call, so it is a per-delegation cost the description budget does not see. The measured sum
                           # (14 agents, 2026-11-11); raise it on a decision, never to make room.
 BUDGET_AGENTS=5827   # 5746 → 5827 (+81), the measured sum: every crew agent's tools gain `Skill`, so a card's `skills:` can be called (the user's decision, 2026-11-13: in the field 14 of 4,326 agent runs read their own skill and none could call one). 3.2.0: 5596 → 5746 (+150), the measured sum: crew-docs-agent is a 14th agent (195 B, its description cut to one line first; the other 13 sum to 5551). Raised on the user's decision, not to make room. 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
@@ -3599,6 +3599,36 @@ gj default 'git commit -m x' | r46 >/dev/null 2>&1; [ "$?" = 2 ] \
 e46="$(gj default 'git commit -m x' | r46 2>&1 >/dev/null)"
 case "$e46" in *"reviewed diff"*|*"staged   diff"*) pass "§4.6: the block prints the reviewed and the staged id" ;;
   *) fail "§4.6: the block does not print what it compared ($e46)" ;; esac
+# 5b. INCREMENTAL REVIEW (3.3). The record names the staged TREE it cleared; when the diff moved on the same HEAD, the
+#     refusal prints the change since that review — removed lines included (K3) — so the next review reads that and
+#     not the whole diff again. The tree is never an acceptance fact: a record whose tree IS the staged tree but whose
+#     diff id is stale still blocks, and on another HEAD the whole diff is asked for.
+_I46="$(mktemp -d)"; _i46b=""
+( cd "$_I46" && git init -q . && git config user.email t@example.com && git config user.name t \
+  && printf 'keep\nguard\n' > a.txt && git add a.txt && git commit -qm init && echo reviewed >> a.txt && git add a.txt \
+  && mkdir -p .claude && printf '{"diff_oid":"%s","head":"%s","tree":"%s","ts":"t"}\n' "$(git diff --cached | git hash-object --stdin)" \
+     "$(git rev-parse --verify --quiet HEAD)" "$(git write-tree)" > .claude/review-pass.json \
+  && printf 'keep\nreviewed\nlater\n' > a.txt && git add a.txt ) >/dev/null 2>&1
+_i46t="$(sed -n 's/.*"tree":"\([0-9a-f]*\)".*/\1/p' "$_I46/.claude/review-pass.json")"
+[ -n "$_i46t" ] || _i46b="$_i46b FIXTURE:no-tree"
+_i46e="$(gj default 'git commit -m x' | ( cd "$_I46" && bash "$HOOKS/guard-bash.sh" ) 2>&1 >/dev/null; echo "rc=$?")"
+case "$_i46e" in *"rc=2") ;; *) _i46b="$_i46b [a moved diff was not refused: ${_i46e: -40}]" ;; esac
+case "$_i46e" in *"git diff $_i46t "*) ;; *) _i46b="$_i46b [the refusal does not print the change since the review]" ;; esac
+_i46d="$( cd "$_I46" && git diff "$_i46t" "$(git write-tree)" )"
+case "$_i46d" in *"-guard"*"+later"*|*"+later"*"-guard"*) ;; *) _i46b="$_i46b [the printed change lacks the removed or the added line]" ;; esac
+case "$_i46d" in *"+reviewed"*) _i46b="$_i46b [the printed change repeats the reviewed line]" ;; esac
+# the tree matches, the diff id is stale: still refused
+( cd "$_I46" && printf '{"diff_oid":"0123456789abcdef0123456789abcdef01234567","head":"%s","tree":"%s","ts":"t"}\n' \
+  "$(git rev-parse --verify --quiet HEAD)" "$(git write-tree)" > .claude/review-pass.json ) >/dev/null 2>&1
+gj default 'git commit -m x' | ( cd "$_I46" && bash "$HOOKS/guard-bash.sh" ) >/dev/null 2>&1; [ "$?" = 2 ] || _i46b="$_i46b [a matching tree let a stale diff through]"
+# another HEAD: the whole diff, no delta
+( cd "$_I46" && printf '{"diff_oid":"0123456789abcdef0123456789abcdef01234567","head":"%s","tree":"%s","ts":"t"}\n' \
+  "0000000000000000000000000000000000000000" "$_i46t" > .claude/review-pass.json ) >/dev/null 2>&1
+_i46e="$(gj default 'git commit -m x' | ( cd "$_I46" && bash "$HOOKS/guard-bash.sh" ) 2>&1 >/dev/null)"
+case "$_i46e" in *"git diff $_i46t"*) _i46b="$_i46b [a delta was offered across another HEAD]" ;; *"diff as it stands"*) ;; *) _i46b="$_i46b [no re-review asked on another HEAD]" ;; esac
+rm -rf "$_I46"
+[ -z "$_i46b" ] && pass "§4.6 incremental: a diff moved on the same HEAD is refused with the change since the review (removed lines in it, the reviewed line not); a matching tree never passes a stale diff; across another HEAD the whole diff is asked for" \
+                || fail "§4.6 incremental review:$_i46b"
 # 6. A COMMIT THAT TAKES ITS CONTENT FROM THE WORKING TREE. This is the gate's fail-open, not a nicety, so the
 #    premise is MEASURED here rather than asserted: git is made to commit a path while an unreviewed line sits
 #    unstaged in it, and the committed blob is then read back. If git ever stops doing this the case says so.
@@ -11914,6 +11944,8 @@ _rpwant="$(_rpget "$_rpf")"; rm -f "$_rpf"
 [ -n "$_rpwant" ] || _v2b="$_v2b FIXTURE:the-recipe-wrote-nothing"
 _v2plantr rv1 crew-review-agent; _v2stopr rv1 'review: clean\nconfidence: high' "$_v2p/sub-does-not-exist"
 [ "$(_rpget "$_rpf")" = "$_rpwant" ] || _v2b="$_v2b [clean: the hook wrote '$(_rpget "$_rpf")', the recipe '$_rpwant']"
+_rptree="$(sed -n 's/.*"tree":"\([0-9a-f]*\)".*/\1/p' "$_rpf" 2>/dev/null)"
+[ -n "$_rptree" ] && [ "$_rptree" = "$( cd "$_v2p" && git write-tree 2>/dev/null )" ] || _v2b="$_v2b [clean: the record does not name the staged tree: '$_rptree']"
 _cmt="$(printf '{"session_id":"s","cwd":"%s","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' "$_v2p" | ( cd "$_v2p" && CREW_GATE_LOG="$_v2/gl" env -u CLAUDE_GIT_OK bash "$HOOKS/guard-bash.sh" 2>"$_v2/rperr" ); echo "rc=$?")"
 grep -q 'review-pass matches the staged diff' "$_v2/gl" 2>/dev/null || _v2b="$_v2b [the commit gate did not accept the hook's record: ${_cmt:0:60} $(head -c 100 "$_v2/rperr")]"
 # from a sub-folder: the record is at the top of the work tree

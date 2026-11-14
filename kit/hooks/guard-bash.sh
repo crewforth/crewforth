@@ -4165,8 +4165,18 @@ if git_has "$CMD_SEEN" 'commit|push'; then
       echo "  staged   diff : ${HAVE_D:-<none>}" >&2
       echo "  reviewed HEAD : ${WANT_H:-<missing>}" >&2
       echo "  current  HEAD : ${HAVE_H}" >&2
-      echo "Re-run @agent-crew-review-agent on the diff as it stands; the record it writes is the one that" >&2
-      echo "matches. To skip it deliberately, run the commit yourself in your terminal." >&2
+      # INCREMENTAL (3.3): on the same HEAD, the record's tree is what was cleared, so the review needs only the change
+      # since — removed lines included. Printed, never run: a process here costs the refusal path. The tree is NOT an
+      # acceptance fact: what lets a commit through is still the whole staged diff, re-recorded by a clean review.
+      _r="${RPJ#*\"tree\":\"}"; WANT_T=""; [ "$_r" != "$RPJ" ] && WANT_T="${_r%%\"*}"
+      case "$WANT_T" in ''|*[!0-9a-f]*) WANT_T="" ;; esac
+      if [ -n "$WANT_T" ] && [ "$WANT_H" = "$HAVE_H" ]; then
+        echo "Since that review only this changed, removed lines included: git diff $WANT_T \"\$(git write-tree)\"" >&2
+        echo "Have @agent-crew-review-agent review that change; its clean verdict records the whole staged diff." >&2
+      else
+        echo "Re-run @agent-crew-review-agent on the diff as it stands; the record it writes is the one that matches." >&2
+      fi
+      echo "To skip it deliberately, run the commit yourself in your terminal." >&2
       exit 2
     fi
     gatelog ALLOW 4.6 "review-pass matches the staged diff"
