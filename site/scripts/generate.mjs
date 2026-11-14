@@ -186,7 +186,8 @@ export function generate(root = ROOT, site = SITE) {
       const h1 = text.match(/^# (.+)\n/);
       if (!h1) fail(`site/content/${loc}/${slug}.md has no H1 to take the title from`);
       text = text.slice(h1[0].length);
-      text = text.replaceAll('{{FILL_WARN}}', String(fill.warn)).replaceAll('{{FILL_ALERT}}', String(fill.alert));
+      const tierList = (pct) => `${fill.tiers.slice(0, -1).map(pct).join(', ')} ${loc === 'tr' ? 've' : 'and'} ${pct(fill.tiers.at(-1))}`;
+      text = text.replaceAll('{{FILL_TIERS}}', tierList(loc === 'tr' ? (n) => `%${n}` : (n) => `${n}%`));
       for (const [k, v] of Object.entries(costFacts(loc, cost))) text = text.replaceAll(`{{${k}}}`, v);
       const counts = { AGENT_COUNT: ag.length, SKILL_COUNT: skills.length, COMMAND_COUNT: commands.length };
       for (const [k, v] of Object.entries(counts)) text = text.replaceAll(`{{${k}}}`, String(v));
@@ -264,7 +265,7 @@ export function generate(root = ROOT, site = SITE) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const r = generate();
-    console.log(`site: generated v${r.version} · ${CONTENT.length + 5} pages × ${LOCALES.length} languages · ${r.agents} agents · ${r.skills} skills · ${r.commands} commands · ${r.rules} rules · fill ${r.fill.warn}/${r.fill.alert} · always-on ${r.cost.total} B (discipline ${r.cost.discipline}, agents ${r.cost.agents}, skills ${r.cost.skills})`);
+    console.log(`site: generated v${r.version} · ${CONTENT.length + 5} pages × ${LOCALES.length} languages · ${r.agents} agents · ${r.skills} skills · ${r.commands} commands · ${r.rules} rules · fill ${r.fill.tiers.join('/')} · always-on ${r.cost.total} B (discipline ${r.cost.discipline}, agents ${r.cost.agents}, skills ${r.cost.skills})`);
   } catch (e) {
     if (e instanceof BuildError) { console.error(`site: ${e.message}`); process.exit(1); }
     throw e;

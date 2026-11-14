@@ -151,8 +151,8 @@ measure" every turn is noise that reads as a fault.
 - `<50%` continue · `50–75%` medium (hand off at the next phase boundary) · `>75%` handoff+clear · `>90%` hand off NOW
 - Topic changed fundamentally, whatever the fill → new session
 
-Thresholds apply to the main session (a subagent has its own window). The `Stop` hook warns the user once at 75% and
-once at 90%; it never blocks, forces a turn, or runs `/clear`. Non-1M window: `CONTEXT_WINDOW=…`.
+Thresholds apply to the main session (a subagent has its own window). At 25/50/75/95% the `Stop` hook sends
+you back once: apply `handoff`, then tell the user to type `/clear`. Non-1M window: `CONTEXT_WINDOW=…`.
 
 This file is read **once, when the session starts**. If the hook reports `Crewforth updated X → Y mid-session`, the
 rules in your context are old: stop relying on them and ask the user to run `/clear` (or quit and relaunch).

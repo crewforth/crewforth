@@ -102,7 +102,7 @@ function selftest(allowed) {
   must(handCount("all 12 agents and 40 skills · 12 ajanın ve 40 skill'in · 10 commands").length === 5, 'a typed count not caught');
   must(handCount('{{AGENT_COUNT}} agents, {{SKILL_COUNT}} skills, the four UI skills, 12 hooks, v2 commands').length === 0, 'a generated count or another number flagged');
   must(numbers('bare 7/10 and 93% of runs', allowed).length === 2, 'unbacked numbers not caught');
-  must(numbers('warns at %75 and 90%', allowed).length === 0, 'generated thresholds flagged');
+  must(numbers('hands off at %25 and 95%', allowed).length === 0, 'generated thresholds flagged');
   must(thirdParty('<script src="https://evil.example/x.js"></script><link rel="stylesheet" href="https://fonts.googleapis.com/css">', '@import url("https://fonts.x.com/a.css");').length === 3, 'third party not caught');
   must(thirdParty('<script src="/_astro/a.js"></script><a href="https://github.com/x">', '').length === 0, 'first-party flagged');
   must(overviewSound('<video class="cf-hero" controls muted playsinline></video>').length === 2 && overviewSound('<p>no video</p>').length === 1
@@ -116,7 +116,7 @@ function main() {
   if (!fs.existsSync(DIST)) { console.error('site check: no dist/ — run `npm run build` first'); process.exit(1); }
   const evals = read(path.join(ROOT, 'evals/README.md'));
   const fill = fillThresholds(ROOT);
-  const generated = new Set([fill.warn, fill.alert].flatMap((n) => [`${n}%`, `%${n}`]));
+  const generated = new Set(fill.tiers.flatMap((n) => [`${n}%`, `%${n}`]));
   const allowed = (n) => generated.has(n) || evals.includes(n);
   selftest(allowed);
 
