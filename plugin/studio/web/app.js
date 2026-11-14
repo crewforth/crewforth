@@ -27,7 +27,7 @@ import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { Models } from './models.js';
 import { MapView } from './map.js';
-import { cardOf, cardLines, workSteps, outsideRouting } from './models-plan.js';
+import { cardOf, cardLines, workSteps, outsideRouting, skillRows, sessionSkills, skillWords } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
@@ -983,6 +983,19 @@ function metaRows(n) {
   return dl;
 }
 
+/** Skill rows as a definition list: the name, with `asked` and `missed` tags, and how it was used. */
+function skillList(rows) {
+  const dl = node('dl', 'icard iskills');
+  for (const r of rows) {
+    const dt = node('dt', null, r.name);
+    if (r.asked) { const a = node('span', 'mv-tag', t('asked')); a.dataset.kind = 'asked'; dt.append(' ', a); }
+    if (r.missed) { const m = node('span', 'mv-tag', t('missed')); m.dataset.tone = 'fail'; dt.append(' ', m); }
+    const dd = node('dd', null, typeof r.text === 'string' ? r.text : skillWords(r));
+    dl.append(dt, dd);
+  }
+  return dl;
+}
+
 /** A titled block of the inspector. */
 function isection(title, ...children) {
   const s = node('section', 'isec');
@@ -1136,6 +1149,9 @@ function paintAgentOverview(body, n, detail) {
       const sec = isection(t('Model and verify'), ...(work.steps.length ? [ol] : []), ...(work.note ? [node('p', 'istep-note', work.note)] : []));
       body.append(sec);
     }
+    // The skills its card asked for and the ones it used: called with the Skill tool, or its SKILL.md read.
+    const sk = skillRows(cardOf(detail?.prompt ?? null), n.skills, row);
+    body.append(isection(t('Skills'), sk.length ? skillList(sk) : node('p', 'istep-note', t('No skill asked for, called or read.'))));
   }
 
   // What it ran on and what its call asked for, and what the model gate or a low-confidence report did to it.
@@ -1219,6 +1235,15 @@ function paintSessionOverview(body, n) {
     body.append(banner);
   }
   body.append(metaRows(n));
+
+  // The skills the session's agents used, over all of them: calls, reads and how many agents.
+  const used = sessionSkills(lastNodes);
+  if (used.length) {
+    body.append(isection(t('Skills used by its agents'), skillList(used.map((u) => ({
+      name: u.name,
+      text: `${skillWords(u)} \u00b7 ${u.agents === 1 ? t('1 agent') : t('{n} agents', { n: u.agents })}`,
+    })))));
+  }
 
   // Commands the session sent to the background and that are still going. They are not agents and have no card.
   const running = backgroundLines(n, serverNow());

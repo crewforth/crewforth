@@ -352,6 +352,9 @@ function parseRecord(dir, cwd) {
   const ruleFloors = parseRuleFloors(readBounded(RULES(cwd))?.text ?? '');
   const byAgent = {};
   for (const r of parsed.rows) byAgent[r.agentId] = r;           // a resumed agent's latest line is the one that stands
+  // The skills a card named and the ones the agent did not use, from the stop hook's result file of each agent
+  // (hooks/agent-outcome.sh writes `skills=` and `skills_missed=` there, beside this line).
+  const skills = skillsOf(path.join(dir, 'crew-model', 'results'), byAgent);
   // A card that failed is given again one model up, to another agent: the calls of one card, oldest first, are
   // the trail the inspector shows under the newest of them.
   const byCard = new Map();
@@ -376,8 +379,41 @@ function parseRecord(dir, cwd) {
     above: aboveTableOf(parsed.rows, ruleFloors, floors),
     loosened,
     byAgent,
+    skills,
     all: parsed.rows,
   };
+}
+
+const SKILL_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const RESULTS_MAX = 5000;
+/**
+ * The card skills of the project's agents: each agent with a line gets `skillsAsked` and `skillsMissed` (names),
+ * and the project gets one summary: how many agents were given skills, how many missed one, and per skill how often
+ * it was asked for and missed. A result file with no `skills=` line is an agent whose card named none.
+ */
+export function skillsOf(resultsDir, byAgent) {
+  const out = { agents: 0, missedAgents: 0, byName: {} };
+  let names = [];
+  try { names = fs.readdirSync(resultsDir); } catch { return out; }
+  for (const id of names.slice(0, RESULTS_MAX)) {
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
+    let text = '';
+    try { text = fs.readFileSync(path.join(resultsDir, id), 'utf8').slice(0, 4096); } catch { continue; }
+    const get = (k) => (text.match(new RegExp(`^${k}=(.*)$`, 'm'))?.[1] ?? '').trim();
+    const asked = get('skills').split(/\s+/).filter((n) => SKILL_NAME.test(n));
+    if (!asked.length) continue;
+    const missed = get('skills_missed').split(/\s+/).filter((n) => SKILL_NAME.test(n) && asked.includes(n));
+    out.agents += 1;
+    if (missed.length) out.missedAgents += 1;
+    for (const n of asked) {
+      const b = (out.byName[n] ??= { asked: 0, missed: 0 });
+      b.asked += 1;
+      if (missed.includes(n)) b.missed += 1;
+    }
+    const row = byAgent[id];
+    if (row) { row.skillsAsked = asked; row.skillsMissed = missed; }
+  }
+  return out;
 }
 
 /**

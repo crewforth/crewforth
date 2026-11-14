@@ -5,7 +5,7 @@
 // Under the table: the holds the record could let go of. They are shown, not acted on: the one button copies
 // Crewforth's command for it and lowers nothing. Then the normal work that ran above the table's model: said, with
 // the record's evidence where there is some, and not acted on either.
-import { classRow, suggestionText, aboveText, emptyNote, totalsLine, costLine, SOURCE, LOWER_RULE, ABOVE_HEAD, ABOVE_RULE } from './models-plan.js';
+import { classRow, suggestionText, aboveText, emptyNote, totalsLine, costLine, skillSummary, SOURCE, LOWER_RULE, ABOVE_HEAD, ABOVE_RULE } from './models-plan.js';
 import { t } from './i18n.js';
 
 function mk(tag, cls, text) {
@@ -130,6 +130,14 @@ export class Models {
         if (at.costs) box.append(mk('p', 'sub', at.costs));
       }
       box.append(mk('p', 'sub', ABOVE_RULE));
+      pane.append(box);
+    }
+    // The skills crew cards named in this project, and how often the agent did not use one (hooks/agent-outcome.sh).
+    const sk = skillSummary(d.skills);
+    if (sk) {
+      const box = mk('section', 'mv-above mv-skills');
+      box.append(mk('h3', 'mv-suggest-h', sk.head), mk('p', 'mv-suggest-text', sk.says));
+      for (const l of sk.lines) box.append(mk('p', 'sub', l));
       pane.append(box);
     }
     for (const note of raisedNotes) {

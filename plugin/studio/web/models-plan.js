@@ -19,15 +19,70 @@ const pct = (r) => `${Math.round(r * 100)}%`;
 export function cardOf(prompt) {
   if (typeof prompt !== 'string') return null;
   const card = {};
+  let skills = null;
   for (const line of prompt.split('\n').slice(0, 12)) {
     const m = line.match(/^\s*(files|change|verify)\s*:\s*(.*)$/i);
-    if (m && card[m[1].toLowerCase()] === undefined) card[m[1].toLowerCase()] = m[2].trim();
+    if (m && card[m[1].toLowerCase()] === undefined) card[m[1].toLowerCase()] = m[2].replace(/\s*·?\s*skills\s*:.*$/i, '').trim();
+    if (skills === null) skills = skillsOfLine(line);
   }
-  return Object.keys(card).length ? { files: card.files ?? null, change: card.change ?? null, verify: card.verify ?? null } : null;
+  if (!Object.keys(card).length) return null;
+  return { files: card.files ?? null, change: card.change ?? null, verify: card.verify ?? null, skills: skills ?? [] };
+}
+
+/** The names a card's `skills:` gives, read as hooks/guard-agent-model.sh reads them; null when the line has none. */
+export function skillsOfLine(line) {
+  const m = typeof line === 'string' ? line.match(/skills\s*:(.*)$/i) : null;
+  if (!m) return null;
+  const v = m[1].split(' · ')[0].split(')')[0];
+  const names = v.replace(/[`,]/g, ' ').split(/\s+/).map((n) => n.replace(/^crewforth:/, '').replace(/[.;|]+$/, '')).filter(Boolean);
+  return [...new Set(names.filter((n) => /^[a-z0-9][a-z0-9-]*$/.test(n)))];
+}
+
+/**
+ * The skills of one agent, one row each: the ones its card asked for first, then the ones it used on its own.
+ * `used` is the node's `skills` ({ called, read } counts, server/lib/graph.js); `row` its record line, whose
+ * `skillsMissed` is what the stop hook found missing.
+ */
+export function skillRows(card, used, row) {
+  const called = used?.called ?? {};
+  const read = used?.read ?? {};
+  const asked = [...new Set([...(card?.skills ?? []), ...(row?.skillsAsked ?? [])])];
+  const names = [...asked, ...Object.keys({ ...called, ...read }).filter((n) => !asked.includes(n)).sort()];
+  return names.map((name) => {
+    const c = called[name] ?? 0;
+    const r = read[name] ?? 0;
+    const isAsked = asked.includes(name);
+    return { name, asked: isAsked, called: c, read: r, missed: isAsked && (row?.skillsMissed?.includes(name) || (row && !c && !r)) };
+  });
+}
+
+/** One session's skill use, over its agents: per skill, the calls, the reads and how many agents used it. */
+export function sessionSkills(nodes) {
+  const by = {};
+  for (const n of nodes ?? []) {
+    if (n?.kind !== 'agent' || !n.skills) continue;
+    for (const how of ['called', 'read']) {
+      for (const [name, k] of Object.entries(n.skills[how] ?? {})) {
+        const b = (by[name] ??= { name, called: 0, read: 0, agents: new Set() });
+        b[how] += k;
+        b.agents.add(n.id);
+      }
+    }
+  }
+  return Object.values(by).map((b) => ({ ...b, agents: b.agents.size })).sort((a, b) => (b.called + b.read) - (a.called + a.read) || a.name.localeCompare(b.name));
+}
+
+/** A skill row in words: asked or not, and how it was used. */
+export function skillWords(r) {
+  const bits = [];
+  if (r.called) bits.push(r.called === 1 ? t('called once') : t('called {n} times', { n: r.called }));
+  if (r.read) bits.push(r.read === 1 ? t('read once') : t('read {n} times', { n: r.read }));
+  if (!bits.length) bits.push(t('not used'));
+  return bits.join(' \u00b7 ');
 }
 
 const VERIFY_TONE = { pass: 'pass', fail: 'fail' };
-const VERIFY_SAYS = { none: t('no verify command'), blocked: t('verify not run: the command was not allowed'), timeout: t('verify not finished: the command ran out of time') };
+const VERIFY_SAYS = { red: t('red, as a test-writing card asks'), none: t('no verify command'), blocked: t('verify not run: the command was not allowed'), timeout: t('verify not finished: the command ran out of time') };
 
 /** The card as the inspector lists it: the three lines, each kept as it was written. */
 export function cardLines(card, row) {
@@ -35,6 +90,7 @@ export function cardLines(card, row) {
   if (card?.files) out.push({ label: 'files', text: card.files });
   if (card?.change || row?.change) out.push({ label: 'change', text: row?.change ?? card.change });
   if (card?.verify) out.push({ label: 'verify', text: card.verify });
+  if (card?.skills?.length) out.push({ label: 'skills', text: card.skills.join(', ') });
   return out;
 }
 
@@ -224,3 +280,18 @@ export const totalsLine = (data) => [
   data.dropped ? `${data.dropped === 1 ? t('1 line not read') : t('{n} lines not read', { n: data.dropped })} (${Object.entries(data.droppedWhy ?? {}).map(([why, n]) => `${n}: ${why}`).join('; ') || t('no reason kept')})` : null,
   data.truncated ? t('only the end of a long record was read') : null,
 ].filter(Boolean).join(' · ');
+
+/** The project's card skills in words, for the Models view; null when no card named one. */
+export function skillSummary(sk) {
+  if (!sk?.agents) return null;
+  const says = sk.missedAgents
+    ? t('{n} crew agents were given skills on their card; {m} of them did not use one.', { n: sk.agents, m: sk.missedAgents })
+    : t('{n} crew agents were given skills on their card, and each used them.', { n: sk.agents });
+  const lines = Object.entries(sk.byName ?? {})
+    .sort((a, b) => b[1].asked - a[1].asked || a[0].localeCompare(b[0]))
+    .slice(0, 12)
+    .map(([name, b]) => (b.missed
+      ? t('{name}: asked {n}, not used {m}', { name, n: b.asked, m: b.missed })
+      : t('{name}: asked {n}, always used', { name, n: b.asked })));
+  return { head: t('Skills on task cards'), says, lines };
+}

@@ -94,6 +94,23 @@ export function modelRank(model) {
 const HANDBACK = 'SubagentHandback';
 
 /**
+ * Which skill a tool call used, and how: `called` for the Skill tool (a plugin's `name:` prefix dropped, so the
+ * Crewforth's skills read the same in both editions), `read` for a Read of a skill's SKILL.md. Anything else is null.
+ * The same two signs hooks/agent-outcome.sh holds a card's `skills:` to.
+ */
+export function skillOfUse(c) {
+  if (c?.name === 'Skill' && typeof c.input?.skill === 'string') {
+    const name = c.input.skill.split(':').pop().trim();
+    return name ? { how: 'called', name } : null;
+  }
+  if (c?.name === 'Read' && typeof c.input?.file_path === 'string') {
+    const m = c.input.file_path.match(/[\\/]skills[\\/]([^\\/]+)[\\/]SKILL\.md$/);
+    return m ? { how: 'read', name: m[1] } : null;
+  }
+  return null;
+}
+
+/**
  * What an agent reported, from its own transcript, and where that was read from.
  *
  *   `closing`  — text the agent wrote after its last handback: its own last word, and it wins;
@@ -370,6 +387,7 @@ async function scanAgent(file, usage = null, agentId = null) {
   usage?.add(records, agentId ?? 'agents:unnamed');
   const stats = {
     tools: {}, toolCount: 0, lastTool: null, errors: 0,
+    skills: { called: {}, read: {} }, // skillOfUse: a Skill call by name, and a read of a skill's SKILL.md
     model: null,      // the model its own transcript names: what it actually ran on
     lastText: null,   // the end of its report, for the line a report closes with
     tokens: null, startedAt: null, endedAt: null, turns: 0,
@@ -400,6 +418,8 @@ async function scanAgent(file, usage = null, agentId = null) {
           stats.tools[n] = (stats.tools[n] ?? 0) + 1;
           stats.toolCount += 1;
           stats.lastTool = n;
+          const sk = skillOfUse(c);
+          if (sk) stats.skills[sk.how][sk.name] = (stats.skills[sk.how][sk.name] ?? 0) + 1;
           if (c.id) stats.owns.push(c.id);
         }
       }
@@ -598,6 +618,7 @@ export async function buildGraph(session, { staleMs = STALE_MS } = {}) {
       tools: a.stats?.tools ?? {},
       toolCount: a.stats?.toolCount ?? 0,
       lastTool: a.stats?.lastTool ?? null,
+      skills: a.stats?.skills ?? { called: {}, read: {} },
       errors: a.stats?.errors ?? 0,
       turns: a.stats?.turns ?? 0,
       tokens: a.stats?.tokens ?? null,
