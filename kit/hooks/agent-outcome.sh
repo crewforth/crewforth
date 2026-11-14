@@ -594,8 +594,10 @@ case "$EV" in
       _json_slice "$INPUT" permission_mode >/dev/null; _AOPM="$_JS"
       if [ "$_AOPM" = auto ]; then
         declare -F _crew_q_open >/dev/null 2>&1 || . "$_ao_here/prompt-approval.sh"
-        if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto; then
-          _ao_json "Crewforth: when you show the user the commit message this agent proposes, ask with one click before anything else. $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so); then run the commit it names. If that question is refused, the user can type /crew-approve instead, as the refusal says."
+        _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null
+        if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto && _crew_q_variant "${_JU:-.}" && [ "$_QV" != none ]; then
+          _crew_q_json "$_QV"
+          _ao_json "Crewforth: when you show the user the commit message this agent proposes, ask with one click before anything else. $_CREW_Q_ASK {\"questions\":[$_CREW_QJ]} Their answer is recorded by Crewforth itself (the line it adds says so); then run the commit it names. If that question is refused, the user can type /crew-approve instead, as the refusal says."
           printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
           exit 0
         fi

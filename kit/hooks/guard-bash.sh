@@ -2660,6 +2660,32 @@ case "$CMD" in *"<<"*) case "$CMD" in *[Cc][Oo][Mm][Mm][Ii][Tt]*|*[Pp][Uu][Ss][H
 CMD="$CMD_REAL"; CMD_UQ="$CMD_UQ_REAL"
 
 # --- §4.4 commit/push approval gate ---
+# DOES THIS REPOSITORY HAVE NO REMOTE? Read with builtins from the repository's own config (the common one, for a
+# linked worktree): the push path is at its process ceiling. 0 only when that config was read and names no remote
+# and includes no other file; anything else (no repository found, an include, a file that cannot be read) is 1, and
+# the push goes to the question as before.
+_gb_no_remote(){
+  local d="${_CWD:-$PWD}" g="" l t
+  d="${d//\\//}"; d="${d%/}"
+  while :; do
+    if [ -f "$d/.git/HEAD" ]; then g="$d/.git"; break; fi
+    if [ -f "$d/.git" ]; then
+      l=""; IFS= read -r l < "$d/.git" || true; l="${l%$'\r'}"
+      case "$l" in "gitdir: "*) g="${l#gitdir: }"; g="${g//\\//}"; case "$g" in /*|[A-Za-z]:*) ;; *) g="$d/$g" ;; esac ;; *) return 1 ;; esac
+      break
+    fi
+    case "$d" in */*) d="${d%/*}" ;; *) return 1 ;; esac
+  done
+  if [ -f "$g/commondir" ]; then
+    l=""; IFS= read -r l < "$g/commondir" || true; l="${l%$'\r'}"
+    case "$l" in /*|[A-Za-z]:*) g="$l" ;; ?*) g="$g/$l" ;; esac
+  fi
+  [ -f "$g/config" ] || return 1
+  t=""; IFS= read -r -d '' t < "$g/config" || true
+  [ -n "$t" ] || return 1
+  case "$t" in *'[remote '*|*'[include'*|*'[Include'*|*'[remote"'*) return 1 ;; esac
+  return 0
+}
 # Escape a shell string into a JSON string body. A raw control character inside a JSON string is a parse
 # error, and the reason text is attacker-adjacent (it is the model's own command line), so:
 #   - delete every control char except tab and newline (this also removes CR, which a CRLF here-doc leaks);
@@ -3058,10 +3084,13 @@ _gate_written(){
   # and the session picked the typed one 7 times in 9 (a real `auto` session on rc.3, 2026-10-18): the user was told
   # to type a command for what one click does. The typed way is now the fallback, said as one.
   _QOFF=0
-  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "$_GB_HERE/guard-question.sh" ]; then
+  # The question that fits the state (prompt-approval.sh _crew_q_variant): none, when nothing it offers could be honoured.
+  if [ "$PERM_MODE" = auto ] && [ "$_PRF" = 0 ] && _q_wired && declare -F _crew_q_pre >/dev/null 2>&1 && [ -f "$_GB_HERE/guard-question.sh" ] \
+     && _crew_q_variant "${_CWD:-.}" && [ "$_QV" != none ]; then
     _QOFF=1
+    _crew_q_json "$_QV"
     echo "$_CREW_Q_ASK" >&2
-    echo "{\"questions\":[$_CREW_Q_JSON]}" >&2
+    echo "{\"questions\":[$_CREW_QJ]}" >&2
     echo "Their answer is recorded by Crewforth itself (the line it adds says so); then run the command it names. Ask it this way only: do not also give the user a command to type." >&2
   fi
   if [ "$_QOFF" = 1 ]; then
@@ -3729,6 +3758,20 @@ Approve only if you want that commit made. Approving lets Claude run the command
   fi
 fi
 if git_has "$CMD_SEEN" 'commit|push'; then
+  # §4.4 — A PUSH WITH NOWHERE TO GO IS NOT ASKED ABOUT. In a repository with no remote, `git push` can only fail
+  # (`fatal: No configured push destination`), and asking the user to approve it first cost them a click for an
+  # error (measured, Faz 0.1). Refused without a question, with the reason, unless the command names where to push
+  # (a URL or a path), which needs no remote. No process: the push path is at its cost ceiling.
+  if git_has "$CMD_SEEN" 'push'; then
+    case "$CMD_SEEN" in *://*|*git@*|*' /'*|*' ./'*|*' ../'*) ;; *)
+      if _gb_no_remote; then
+        gatelog BLOCK 4.4 "a push in a repository with no remote"
+        echo "GUARD (§4.4): this repository has no remote, so 'git push' has nowhere to go. No approval is asked for it." >&2
+        echo "Leave the work committed locally, or tell the user a remote is needed first (git remote add origin <url>); the push is theirs to set up." >&2
+        exit 2
+      fi ;;
+    esac
+  fi
   # §4.6 — A COMMIT NEEDS A CLEAN REVIEW OF THIS DIFF.
   # crew-review-agent records what it cleared in .claude/review-pass.json; this reads it back and compares two
   # EXACT facts: the sha256 of the staged diff, and the HEAD it was reviewed against. There is deliberately NO

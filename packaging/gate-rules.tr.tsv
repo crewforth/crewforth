@@ -81,3 +81,4 @@ a staged lockfile with no audit record	denetim kaydı olmayan staged lockfile
 the audit record does not match the staged lockfiles	denetim kaydı staged lockfile'larla eşleşmiyor
 the audit record matches the staged lockfiles	denetim kaydı staged lockfile'larla eşleşiyor
 the lockfile list could not be loaded	lockfile listesi yüklenemedi
+a push in a repository with no remote	uzak deposu olmayan depoda push

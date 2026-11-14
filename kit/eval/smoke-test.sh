@@ -3549,7 +3549,7 @@ sec "== 4f) §4.6 review gate — a commit cannot land on a diff nothing reviewe
 # makes this testable at all is that both halves answer with FACTS: git's object id of the staged diff, and the
 # HEAD it was reviewed against. Nothing here asserts a timestamp, because the gate does not read one.
 R46="$(mktemp -d)"
-( cd "$R46" && git init -q . && git config user.email t@example.com && git config user.name t \
+( cd "$R46" && git init -q . && git remote add origin https://example.invalid/r.git && git config user.email t@example.com && git config user.name t \
   && echo one > a.txt && git add a.txt && git commit -qm init && echo two >> a.txt && git add a.txt )
 mkdir -p "$R46/sub"      # `(cd sub && git commit …)` below: the directory the call names has to be there, as in a real one
 r46(){ ( cd "$R46" && bash "$HOOKS/guard-bash.sh" ); }
@@ -4623,7 +4623,7 @@ _gcost(){  # $1 = script, $2 = payload file, $3 = scratch, $4 = an argument for 
 # and macOS's temp directory is one (/var -> private/var) — the ordinary repository the table speaks for has none.
 _GCT="$(mktemp -d)"; _GCT="$(cd -P "$_GCT" && pwd)"; _gcp="$_GCT/proj"; mkdir -p "$_gcp/.claude"
 cp -R "$HOOKS" "$_gcp/.claude/hooks"; mkdir -p "$_gcp/.claude/eval"; cp -R "$ROOT/eval/lib" "$_gcp/.claude/eval/lib"
-( cd "$_gcp" && git init -q && git config user.email t@t.t && git config user.name t && echo a > a.txt && git add a.txt \
+( cd "$_gcp" && git init -q && git remote add origin https://example.invalid/r.git && git config user.email t@t.t && git config user.name t && echo a > a.txt && git add a.txt \
   && git -c core.hooksPath=/dev/null commit -qm base && echo b >> a.txt && git add a.txt ) >/dev/null 2>&1
 # The last calibration line puts a CUT multi-byte character into the trace (three of an emoji's four bytes): that is
 # what a scanner's trace carries, and a counter that stops on it printed nothing on the macOS runner.
@@ -10404,7 +10404,13 @@ else fail "the approval question in a background session:$_pabb"; fi
 _pqa="$_paw/.claude/state/crew-approval-asked"; _pqb=""
 _pq_age(){ sed "s/^ts=.*/ts=$(( $(date +%s) - $2 ))/" "$1" > "$1.t" && mv "$1.t" "$1"; }
 _pa_new; ( cd "$_paw" && git reset -q ) >/dev/null 2>&1; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq0
-{ [ "$_par" = 2 ] && grep -q 'nothing is staged' "$_PA/qerr" && grep -q 'can type /crew-approve push' "$_PA/qerr"; } || _pqb="$_pqb [nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+# Nothing staged, a remote and a HEAD: the four-answer question is refused and the push-only one is named and asked (3.1).
+{ [ "$_par" = 2 ] && grep -q 'not the question this state asks' "$_PA/qerr" && grep -q '"label":"Push only"' "$_PA/qerr" && ! grep -q '"label":"Commit only"' "$_PA/qerr"; } || _pqb="$_pqb [nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_paq_push="$(bash -c '. "$1"; _crew_q_json push; printf "%s" "$_CREW_QJ"' _ "$HOOKS/prompt-approval.sh")"
+_paq_pre auto "$_paq_push" '' tq0p; { [ "$_par" = 0 ] && grep -q '^variant=push$' "$_pqa"; } || _pqb="$_pqb [nothing staged: the push-only question was not asked: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_paq_post auto 'Commit only' tq0p "$_paq_push"; [ "$(_paq_rec)" = commit ] && _pqb="$_pqb [an answer the push-only question did not offer was recorded]"
+: > "$_pa_rec"; _paq_pre auto "$_paq_push" '' tq0q; _paq_post auto 'Push only' tq0q "$_paq_push"
+[ "$(_paq_rec)" = push ] || _pqb="$_pqb [the push-only question's Push only was not recorded: $(_paq_rec) ${_pao:0:100}]"
 _pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tq1
 { grep -q '^tree=[0-9a-f]' "$_pqa" && grep -q '^head=[0-9a-f]' "$_pqa"; } || _pqb="$_pqb [the question wrote no tree/head]"
 _pq_age "$_pqa" 7200; _paq_post auto 'Commit only' tq1; [ "$(_paq_rec)" = commit ] || _pqb="$_pqb [a 2-hour-old question, nothing changed: $(_paq_rec) ${_pao:0:100}]"
@@ -10448,6 +10454,8 @@ else fail "the commit agent or /crew-ship asks for /crew-approve before the one-
 # both halves of the question wired and no PermissionRequest hook, it adds the fixed question (_CREW_Q_JSON, read from
 # prompt-approval.sh) to the session's context; in any other mode, for any other agent, or with such a hook, nothing.
 _aq="$(mktemp -d)"; _aq="$(cd -P "$_aq" && pwd)"; mkdir -p "$_aq/p/.claude/state" "$_aq/ccd" "$_aq/home"
+# a project with something staged and a remote: the state the four-answer question is for
+( cd "$_aq/p" && git init -q && git remote add origin https://example.invalid/r.git && echo a > a.txt && git add a.txt ) >/dev/null 2>&1
 printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_aq/p/.claude/settings.json"
 _aq_run(){ printf '{"hook_event_name":"PostToolUse","tool_name":"Agent","permission_mode":"%s","session_id":"s","tool_use_id":"toolu_aq1","cwd":"%s","tool_input":{"subagent_type":"%s","description":"d","prompt":"p"},"tool_response":{"status":"async_launched","agentId":"aq123abc"}}' "$1" "$_aq/p" "$2" > "$_aq/pl.json"
   ( cd "$_aq/p" && env -u CREW_MODEL_ROUTING CLAUDE_PROJECT_DIR="$_aq/p" CLAUDE_CONFIG_DIR="$_aq/ccd" HOME="$_aq/home" CREW_GATE_LOG=/dev/null bash "$HOOKS/agent-outcome.sh" < "$_aq/pl.json" 2>/dev/null ); }
@@ -10467,6 +10475,7 @@ rm -rf "$_aq"
 # prompt-approval.sh on Stop: the reply names /crew-approve, auto, the question open, not asked since the user's last
 # message -> the session is told once to ask the click. Every other case is a twin that differs in one thing.
 _sq="$(mktemp -d)"; _sq="$(cd -P "$_sq" && pwd)"; mkdir -p "$_sq/p/.claude/state" "$_sq/ccd" "$_sq/home"
+( cd "$_sq/p" && git init -q && git remote add origin https://example.invalid/r.git && echo a > a.txt && git add a.txt ) >/dev/null 2>&1
 printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}' > "$_sq/p/.claude/settings.json"
 _SQ_ENV="CLAUDE_PROJECT_DIR=$_sq/p CLAUDE_CONFIG_DIR=$_sq/ccd HOME=$_sq/home CREW_GATE_LOG=/dev/null"
 # $1 = mode, $2 = the reply, $3 = stop_hook_active, $4 = session id
@@ -12441,7 +12450,7 @@ _CF="$(mktemp -d)"; _CF="$(cd -P "$_CF" && pwd)"; _cfw="$_CF/w"; _cfo="$_CF/o"; 
 _cf_new(){ rm -rf "$_CF/w" "$_CF/o"
   ( git init -q "$_cfo" && cd "$_cfo" && git config user.email t@example.com && git config user.name t && echo o > o.txt && git add o.txt \
     && git -c core.hooksPath=/dev/null commit -qm init && echo o2 >> o.txt && git add o.txt
-    git init -q "$_cfw" && cd "$_cfw" && git config user.email t@example.com && git config user.name t && mkdir -p sub .claude \
+    git init -q "$_cfw" && cd "$_cfw" && git remote add origin https://example.invalid/r.git && git config user.email t@example.com && git config user.name t && mkdir -p sub .claude \
     && echo one > a.txt && echo b1 > b.txt && git add a.txt b.txt && git -c core.hooksPath=/dev/null commit -qm init \
     && echo two >> a.txt && git add a.txt && echo unreviewed >> b.txt ) >/dev/null 2>&1
   _cf_review; }
@@ -13263,6 +13272,28 @@ CQO
   else fail "the gate's reading of a quoted argument against bash's own:$_cfbad"; fi
 fi
 
+# ---- a push in a repository with no remote is refused with its reason, not asked about ------------------------------
+# Faz 0.1, measured: in a project with no remote `git push` raised the §4.4 question and then failed with "No configured
+# push destination". Refused now, before any question, and only there: a repository with a remote, and a push that
+# names a URL or a path, are asked about as before.
+_nrd="$(mktemp -d)"; mkdir -p "$_nrd/none" "$_nrd/one"
+( cd "$_nrd/none" && git init -q ) >/dev/null 2>&1; ( cd "$_nrd/one" && git init -q && git remote add origin https://example.invalid/r.git ) >/dev/null 2>&1
+_nrr(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" "$2" "$3" \
+  | ( cd "$1" && CREW_GATE_LOG=/dev/null env -u CLAUDE_GIT_OK bash "$HOOKS/guard-bash.sh" 2>"$_nrd/err" ); echo "rc=$?"; }
+_nrb=""
+for _m in default auto; do for _c in 'git push' 'git push origin main' 'git add a && git commit -m x && git push'; do
+  _o="$(_nrr "$_nrd/none" $_m "$_c")"
+  case "$_o|$(cat "$_nrd/err")" in *rc=2\|*'has no remote'*'No approval is asked'*) ;; *) _nrb="$_nrb [no remote, $_m, $_c: ${_o:0:60}]" ;; esac
+done; done
+case "$(_nrr "$_nrd/one" default 'git push origin main')" in *'"permissionDecision":"ask"'*rc=0) ;; *) _nrb="$_nrb [a repository with a remote was not asked]" ;; esac
+case "$(_nrr "$_nrd/none" default 'git push https://example.invalid/r.git main')" in *'"permissionDecision":"ask"'*rc=0) ;; *) _nrb="$_nrb [a push to a URL was not asked]" ;; esac
+case "$(_nrr "$_nrd/none" default 'git status')" in rc=0) ;; *) _nrb="$_nrb [git status refused]" ;; esac
+# a linked worktree reads its repository's config (commondir): the remote of the main checkout counts
+( cd "$_nrd/one" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i && git worktree add -q "$_nrd/onew" ) >/dev/null 2>&1
+case "$(_nrr "$_nrd/onew" default 'git push origin HEAD')" in *'"permissionDecision":"ask"'*rc=0) ;; *) _nrb="$_nrb [a linked worktree of a repository with a remote was refused]" ;; esac
+rm -rf "$_nrd"
+[ -z "$_nrb" ] && pass "a push in a repository with no remote is refused before any question, with its reason, in default and auto, alone or after a commit; a repository with a remote (its linked worktree too) and a push to a URL are asked about as before" \
+               || fail "a push with no remote:$_nrb"
 # ---- a command continued on the next line is read as the shell runs it: joined ------------------------------------
 # `rm -f \<newline>.claude/hooks/guard-bash.sh` is ONE command to the shell. The rules read it line by line and word
 # by word, so each half passed (measured on 3.0.3, rc 0: a gate file deleted, copied over, moved, edited in place,
