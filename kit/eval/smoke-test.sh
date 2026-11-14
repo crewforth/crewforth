@@ -1226,41 +1226,47 @@ rm -rf "$PMD"
 [ -x "$HOOKS/context-usage.sh" ] && pass "context-usage.sh +x"          || fail "context-usage.sh missing/not executable"
 [ -x "$HOOKS/session-guard.sh" ] && pass "session-guard.sh +x (Stop)"   || fail "session-guard.sh missing/not executable"
 
-sec "== 6b) Stop-hook gate: once per THRESHOLD · never blocks · systemMessage (not a hook error) =="
+sec "== 6b) Stop-hook gate: a handoff once per THRESHOLD (25/50/75/95) · exit 0 · systemMessage =="
 SGFX="$(mktemp)"
 SGPFX="smoketest-$$-${RANDOM:-0}"
 mkjson(){ printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"Stop","stop_hook_active":%s}' "$1" "$2" "$3"; }
 fill(){ printf '%s\n' "{\"type\":\"assistant\",\"isSidechain\":false,\"message\":{\"usage\":{\"input_tokens\":0,\"cache_read_input_tokens\":$1,\"cache_creation_input_tokens\":0}}}" > "$SGFX"; }
 sg(){ mkjson "$1" "$SGFX" "${2:-false}" | CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>/dev/null; }
-# (1) below the threshold: completely silent
-fill 600000
+# (1) below the first threshold: completely silent
+fill 200000
 o="$(sg "${SGPFX}-a")"; r=$?
-{ [ "$r" = 0 ] && [ -z "$o" ]; } && pass "stop-hook: <75% is silent (exit 0)" || fail "stop-hook spoke below 75% (rc=$r out=$o)"
-# (2) first crossing of 75%: exit 0 + a user-facing systemMessage. exit 2 would render as "Stop hook error".
-fill 772000
-o="$(sg "${SGPFX}-a")"; r=$?
-[ "$r" = 0 ] && pass "stop-hook: never blocks (exit 0)" || fail "stop-hook exit $r (must be 0 — a blocking exit shows as a hook error)"
-case "$o" in *'"systemMessage"'*'>75%'*) pass "stop-hook: 75% emits a user systemMessage" ;; *) fail "stop-hook did not emit the 75% systemMessage: $o" ;; esac
-# (3) same tier again (even at a higher fill): SILENT — no forced extra turn, no per-turn token burn
-fill 800000
-[ -z "$(sg "${SGPFX}-a")" ] && pass "stop-hook: same tier stays SILENT on later turns" || fail "stop-hook re-fired inside tier 75"
-# (4) crossing 90%: escalates exactly once
-fill 920000
-o="$(sg "${SGPFX}-a")"
-case "$o" in *'"systemMessage"'*CRITICAL*) pass "stop-hook: 90% escalates once (CRITICAL)" ;; *) fail "stop-hook did not escalate at 90%: $o" ;; esac
-fill 950000
-[ -z "$(sg "${SGPFX}-a")" ] && pass "stop-hook: silent again after the 90% alert" || fail "stop-hook re-fired inside tier 90"
-# (5) a jump straight past 90 must stamp the lower tier too, so a post-/compact dip cannot re-fire the 75 alert
-fill 930000; sg "${SGPFX}-d" >/dev/null
+{ [ "$r" = 0 ] && [ -z "$o" ]; } && pass "stop-hook: <25% is silent (exit 0)" || fail "stop-hook spoke below 25% (rc=$r out=$o)"
+# (2) each threshold, crossed for the first time: ONE handoff turn (decision block + the reason the session reads)
+#     and a user line; exit 0 always — exit 2 would render as "Stop hook error".
+_sgt=""
+for _f in 260000:25 520000:50 772000:75 960000:95; do
+  fill "${_f%%:*}"; o="$(sg "${SGPFX}-a")"; r=$?; _t="${_f#*:}"
+  case "$r|$o" in "0|"*'"decision":"block"'*'handoff skill'*'"systemMessage"'*"Handoff point ${_t}%"*'/clear'*) ;; *) _sgt="$_sgt [${_t}%: rc=$r ${o:0:120}]" ;; esac
+  fill "$(( ${_f%%:*} + 10000 ))"; o="$(sg "${SGPFX}-a" true)"; [ -z "$o" ] || _sgt="$_sgt [${_t}%: spoke again inside the tier: ${o:0:80}]"
+done
+[ -z "$_sgt" ] && pass "stop-hook: 25, 50, 75 and 95% each send the session back ONCE to apply the handoff skill and tell the user /clear is theirs (exit 0); the turn after is silent" \
+               || fail "stop-hook handoff thresholds:$_sgt"
+# (3) the thresholds are configurable (the strictness profile sets them); a malformed list falls back to the default
+fill 400000
+case "$(mkjson "${SGPFX}-cf" "$SGFX" false | CREW_HANDOFF_TIERS="30 60" CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>/dev/null)" in
+  *"Handoff point 30%"*) case "$(mkjson "${SGPFX}-cf2" "$SGFX" false | CREW_HANDOFF_TIERS='x;y' CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>/dev/null)" in
+      *"Handoff point 25%"*) pass "stop-hook: CREW_HANDOFF_TIERS sets the thresholds (30 60 -> 30% at 40); a malformed list falls back to 25/50/75/95" ;;
+      *) fail "stop-hook: a malformed CREW_HANDOFF_TIERS did not fall back to the default" ;; esac ;;
+  *) fail "stop-hook: CREW_HANDOFF_TIERS was not read" ;; esac
+# (5) a jump straight past 95 must stamp the lower tiers too, so a post-/compact dip cannot re-fire 75
+fill 960000; sg "${SGPFX}-d" >/dev/null
 fill 760000
-[ -z "$(sg "${SGPFX}-d")" ] && pass "stop-hook: dipping back under 90% does not re-fire the 75% alert" || fail "stop-hook re-fired the 75% alert after a dip"
+[ -z "$(sg "${SGPFX}-d")" ] && pass "stop-hook: dipping back under 95% does not re-fire the 75% handoff" || fail "stop-hook re-fired the 75% handoff after a dip"
 # (6) emitted payload is valid JSON carrying systemMessage
 # EVERY jq SELECTION BELOW IS PROBED BY RUNNING. This file tests the payload for that rule — its own
 # tier-B sandbox is built out of a jq that resolves and exits 49 — and broke it in ten places. Measured
 # with a stub jq: 51 errors instead of 21, four of them accusing shipped files of defects they do not
 # have, and zero skips, so nothing said a check had stopped running.
 if [ -n "$JSONQ" ]; then
-  fill 800000; sg "${SGPFX}-e" | json_get systemMessage >/dev/null 2>&1 && pass "stop-hook: stdout is valid JSON with .systemMessage (oracle: $JSONQ)" || fail "stop-hook stdout is not valid systemMessage JSON"
+  fill 800000; _sge="$(sg "${SGPFX}-e")"
+  printf '%s' "$_sge" | json_get systemMessage >/dev/null 2>&1 && [ "$(printf '%s' "$_sge" | json_get decision 2>/dev/null)" = '"block"' ] \
+    && printf '%s' "$_sge" | json_get reason >/dev/null 2>&1 \
+    && pass "stop-hook: stdout is valid JSON with .systemMessage, .decision block and .reason (oracle: $JSONQ)" || fail "stop-hook stdout is not valid handoff JSON: $_sge"
 
   # --- the fast path -------------------------------------------------------------------------------------
   # Every assertion above exercises the SLOW path, where this hook measures for itself. It now prefers the
@@ -1275,7 +1281,7 @@ if [ -n "$JSONQ" ]; then
   printf '80.0 800000 1000000 handoff+clear\n' > "$SGC"
   FASTOUT="$(sg "${SGPFX}-fast")"                       # same fill, published reading
   case "$FASTOUT" in
-    *'"systemMessage"'*'>75%'*) pass "stop-hook fast path: a published reading produces the same 75% verdict" ;;
+    *'"systemMessage"'*'Handoff point 75%'*) pass "stop-hook fast path: a published reading produces the same 75% verdict" ;;
     *) fail "stop-hook fast path reached a different verdict from the measured one: $FASTOUT" ;;
   esac
   [ -n "$SLOWOUT" ] && [ -n "$FASTOUT" ] \
@@ -1302,7 +1308,7 @@ o="$(mkjson "${SGPFX}-f" "/no/such.jsonl" false | bash "$HOOKS/session-guard.sh"
 # (8) stop_hook_active: another hook blocked this turn. This one never blocks, so it still warns — once.
 fill 920000
 _sga="$(sg "${SGPFX}-g" true)"; _sgb="$(sg "${SGPFX}-g" true)"
-case "$_sga" in *'"systemMessage"'*'>90%'*) [ -z "$_sgb" ] && pass "stop-hook: stop_hook_active (another hook blocked) still warns, once" || fail "stop-hook re-fired under stop_hook_active: $_sgb" ;;
+case "$_sga" in *'"systemMessage"'*'Handoff point 75%'*) [ -z "$_sgb" ] && pass "stop-hook: stop_hook_active (another hook blocked) still warns, once" || fail "stop-hook re-fired under stop_hook_active: $_sgb" ;;
   *) fail "stop-hook went silent under stop_hook_active — another plugin's blocking Stop hook suppresses the fill warning: '$_sga'" ;; esac
 # fillc: the same usage record, followed by N compaction boundaries of a given trigger.
 fillc(){ fill "$1"; i=0; while [ "$i" -lt "${3:-0}" ]; do
@@ -1314,13 +1320,26 @@ fillc(){ fill "$1"; i=0; while [ "$i" -lt "${3:-0}" ]; do
 fillc 920000 "" 0; sg "${SGPFX}-h" >/dev/null            # generation 0: warned at 90, both tiers stamped
 fillc 930000 manual 1                                     # a compaction happened -> generation 1
 o="$(sg "${SGPFX}-h")"
-case "$o" in *CRITICAL*) pass "stop-hook: a compaction re-arms the thresholds (warns again next generation)" ;; *) fail "stop-hook stayed silent after a compaction — the gate is disarmed for the rest of the session: $o" ;; esac
+case "$o" in *'Handoff point 75%'*) pass "stop-hook: a compaction re-arms the thresholds (warns again next generation)" ;; *) fail "stop-hook stayed silent after a compaction — the gate is disarmed for the rest of the session: $o" ;; esac
 # (10) an AUTO compaction is announced once per generation at ANY fill: the loss already happened, and the
 #      reading right after it is low precisely because the context was thrown away.
 fillc 100000 auto 1
 o="$(sg "${SGPFX}-i")"
 case "$o" in *'"systemMessage"'*Auto-compaction*) pass "stop-hook: an auto-compaction is reported even at a low fill" ;; *) fail "stop-hook did not report an auto-compaction: $o" ;; esac
 [ -z "$(sg "${SGPFX}-i")" ] && pass "stop-hook: the auto-compaction notice fires once, not per turn" || fail "stop-hook repeated the auto-compaction notice"
+# (10b) AN IDLE COMPACTION (N28). Claude Code records it as trigger auto, then a line of its own ("Compacted while
+#      idle, before the prompt cache expired"). Field: the hook called it a loss "nobody chose" — its idleCompaction
+#      setting chose it. Said as what it is; an auto compaction after it is again an auto one, counted without it.
+_sgidle='{"type":"system","subtype":"informational","content":"Compacted while idle, before the prompt cache expired · turn off with \\"idleCompaction\\": false in settings.json"}'
+fillc 100000 auto 1; printf '%s\n' "$_sgidle" >> "$SGFX"
+o="$(sg "${SGPFX}-id")"
+case "$o" in *'nobody chose'*|*Auto-compaction*) fail "stop-hook called an idle compaction an unchosen loss (N28): $o" ;;
+  *'while it was idle'*'900k → 9k'*'idleCompaction'*) pass "stop-hook: an idle compaction is called that, with its numbers and the setting that turns it off (N28)" ;;
+  *) fail "stop-hook did not report an idle compaction: $o" ;; esac
+if [ -n "$JSONQ" ]; then printf '%s' "$o" | json_get systemMessage >/dev/null 2>&1 || fail "stop-hook's idle-compaction line is not valid JSON: $o"; fi
+printf '%s\n' '{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":700000,"postTokens":8000}}' >> "$SGFX"
+case "$(sg "${SGPFX}-id")" in *'Auto-compaction has fired 1 time(s)'*'700k → 8k'*) pass "stop-hook: an auto compaction after an idle one is an auto one again, counted without the idle one" ;;
+  *) fail "stop-hook: an auto compaction after an idle one was not reported as auto, or counted the idle one" ;; esac
 # (11) a MANUAL compaction is a deliberate act — never announced as an unchosen loss. What it kept is said once,
 #      from the record's own preTokens/postTokens; a record without them says nothing.
 fillc 100000 manual 1
@@ -1344,8 +1363,8 @@ case "$o" in *Auto-compaction*) fail "stop-hook re-announced an earlier auto com
   *'Compaction 2 (manual): 200k → 15k tokens.'*) pass "stop-hook: a manual /compact after an auto one is reported as manual, with its own numbers, at once" ;;
   *) fail "stop-hook did not report a manual /compact that followed an auto one: $o" ;; esac
 fillc 930000 manual 1
-case "$(sg "${SGPFX}-j4")" in *'Compaction 1 (manual)'*CRITICAL*) pass "stop-hook: the manual-compaction line and a fill alert share one systemMessage" ;;
-  *) fail "stop-hook: a manual-compaction line pre-empted the >90% alert, or was dropped" ;; esac
+case "$(sg "${SGPFX}-j4")" in *'Compaction 1 (manual)'*'Handoff point 75%'*) pass "stop-hook: the manual-compaction line and a fill alert share one systemMessage" ;;
+  *) fail "stop-hook: a manual-compaction line pre-empted the 75% handoff, or was dropped" ;; esac
 # (12) THE HOOK RUNS CLEAN — nothing on stderr. Every case above pipes stderr to /dev/null, which is what
 #      let a shipped defect live: `grep -c` with zero matches prints "0" AND exits 1, so a trailing
 #      `|| echo 0` appended a second line and `$(( 0\n0 + 0 ))` failed. Found by reading a real session
@@ -1368,14 +1387,14 @@ sgerr="$(mkjson "${SGPFX}-l" "$SGFX" false | CONTEXT_WINDOW=1000000 bash "$HOOKS
 #      `\n`, as the payload does.
 mkjsonm(){ printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"%s"}' "$1" "$SGFX" "$2"; }
 sgm(){ mkjsonm "$1" "$2" | CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>/dev/null; }
-fill 303000
+fill 203000
 o="$(sgm "${SGPFX}-m1" 'Stopped.\n\n🔋 Oturum %85 → yüksek doluluk · Öneri: yeni oturum')"
-case "$o" in *'"systemMessage"'*'says %85'*'%30.3'*) pass "stop-hook: a 🔋 figure far from the measurement is reported with the measured one" ;;
-  *) fail "stop-hook let a guessed 🔋 figure (85 against a measured 30.3) through: $o" ;; esac
-[ -z "$(sgm "${SGPFX}-m2" 'Done.\n\n🔋 Oturum %30,3 → düşük doluluk · Öneri: devam')" ] \
+case "$o" in *'"systemMessage"'*'says %85'*'%20.3'*) pass "stop-hook: a 🔋 figure far from the measurement is reported with the measured one" ;;
+  *) fail "stop-hook let a guessed 🔋 figure (85 against a measured 20.3) through: $o" ;; esac
+[ -z "$(sgm "${SGPFX}-m2" 'Done.\n\n🔋 Oturum %20,3 → düşük doluluk · Öneri: devam')" ] \
   && pass "stop-hook: a 🔋 figure that matches the measurement is silent (a decimal comma included)" \
   || fail "stop-hook reported a 🔋 figure that matches the measurement"
-[ -z "$(sgm "${SGPFX}-m3" 'Done.\n\n🔋 Session %34 → low fill')" ] \
+[ -z "$(sgm "${SGPFX}-m3" 'Done.\n\n🔋 Session %24 → low fill')" ] \
   && pass "stop-hook: a figure within the tolerance is silent (an end-of-turn reading runs ahead of the copied one)" \
   || fail "stop-hook reported a figure inside the 5-point tolerance"
 [ -z "$(sgm "${SGPFX}-m4" 'The line reads: 🔋 Session %NN → level')$(sgm "${SGPFX}-m5" 'Done.')" ] \
@@ -1383,7 +1402,7 @@ case "$o" in *'"systemMessage"'*'says %85'*'%30.3'*) pass "stop-hook: a 🔋 fig
   || fail "stop-hook spoke about a reply with no 🔋 figure"
 fill 800000
 o="$(sgm "${SGPFX}-m6" 'Done.\n\n🔋 Session %40 → low fill')"
-case "$o" in *'says %40'*'>75%'*) pass "stop-hook: a wrong figure and a threshold alert share one systemMessage" ;;
+case "$o" in *'says %40'*'Handoff point 75%'*) pass "stop-hook: a wrong figure and a threshold alert share one systemMessage" ;;
   *) fail "stop-hook dropped one of the two messages, or printed two objects: $o" ;; esac
 if [ -n "$JSONQ" ]; then
   printf '%s' "$o" | json_get systemMessage >/dev/null 2>&1 && pass "stop-hook: the combined message is valid JSON (oracle: $JSONQ)" \

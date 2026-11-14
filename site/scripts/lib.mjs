@@ -76,12 +76,14 @@ export function skillsAndCommands(root) {
   return { skills, commands };
 }
 
-// Context-fill thresholds, read from the hook that enforces them: `[ "$INT" -ge 90 ] && TIER=90`.
+// Handoff thresholds, read from the hook that enforces them: `TIERS="${CREW_HANDOFF_TIERS:-25 50 75 95}"`.
 export function fillThresholds(root) {
   const src = read(path.join(root, 'kit/hooks/session-guard.sh'));
-  const t = [...src.matchAll(/\[\s*"\$INT"\s+-ge\s+(\d+)\s*\]\s*&&\s*TIER=\1/g)].map((m) => Number(m[1])).sort((a, b) => a - b);
-  if (t.length !== 2) fail(`session-guard.sh: expected two fill thresholds, read ${t.length} — the hook changed shape`);
-  return { warn: t[0], alert: t[1] };
+  const m = src.match(/^TIERS="\$\{CREW_HANDOFF_TIERS:-([0-9 ]+)\}"$/m);
+  if (!m) fail('session-guard.sh: no TIERS="${CREW_HANDOFF_TIERS:-…}" line — the hook changed shape');
+  const tiers = m[1].trim().split(/\s+/).map(Number);
+  if (tiers.length < 2 || tiers.some((t, i) => i && t <= tiers[i - 1])) fail(`session-guard.sh: handoff thresholds not ascending: ${m[1]}`);
+  return { tiers };
 }
 
 // The gate inventory, from gate-report.sh itself (the one place it is derived from the hooks), run against a scratch

@@ -29,7 +29,7 @@
 | `guard-commit-scan.sh` | Gerçek iz ve sır tarayıcılarını `PreToolUse` üzerinden koşturur; böylece `core.hooksPath` ayarlanamayan yerlerde de commit kapısı çalışır |
 | `guard-powershell.sh` | Model Crewforth'un kendi betiklerini PowerShell'de koşturmaya kalkınca onu Bash aracına geri gönderir; PowerShell'de `bash` WSL'inki olabilir ve betik düşer |
 | `context-usage.sh` | Transcript'ten gerçek token sayısını okur ve her tura enjekte eder |
-| `session-guard.sh` | Bağlam doluluğu %{{FILL_WARN}}'i ve %{{FILL_ALERT}}'ı geçtiğinde birer kez uyarır, turu asla kesmez |
+| `session-guard.sh` | Bağlam doluluğu {{FILL_TIERS}} eşiklerini geçince, her birinde bir kez, oturuma handoff yaptırır (`docs/SESSION_STATE.md`) ve `/clear` yazabileceğinizi söyler; bir sıkıştırmayı bildirir, boştayken yapılanı öyle adlandırır |
 | `precompact-snapshot.sh` | Sıkıştırmadan hemen önce işin durumunu dosyalardan ve kapılardan yazar: dal, commit'lenmemiş dosyalar, kapı kaydındaki son ret ve kayıttaki bulgular; en fazla ~2 KB, deponun git dizininde. Sıkıştırmayı asla engellemez |
 | `session-rehydrate.sh` | `/compact` veya `/clear` sonrasında devir notunu yeniden önünüze getirir; sıkıştırılan oturuma `precompact-snapshot.sh`'in onun için yazdığı durumu geri verir (yalnız aynı oturuma); oturuma projenin hangi dilde kurulduğunu söyler |
 | `skill-trust.sh` | Crewforth'un getirmediği ve sizin de kabul etmediğiniz her skill ya da ajanı adıyla bildirir |

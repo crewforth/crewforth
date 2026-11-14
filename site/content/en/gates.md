@@ -29,7 +29,7 @@ A rule that matters becomes a gate. Enforcement sits at the tool level — a hoo
 | `guard-commit-scan.sh` | Runs the real trace and secret scanners from `PreToolUse`, so the commit gate works where `core.hooksPath` cannot be set |
 | `guard-powershell.sh` | Sends Crewforth's own scripts back to the Bash tool when the model tries them in PowerShell, where `bash` can be WSL's and the script fails |
 | `context-usage.sh` | Reads the real token count from the transcript and injects it every turn |
-| `session-guard.sh` | Warns once at {{FILL_WARN}}% context fill and once at {{FILL_ALERT}}% — never blocks a turn |
+| `session-guard.sh` | At {{FILL_TIERS}} context fill, once each, has the session hand off (`docs/SESSION_STATE.md`) and tells you that you can type `/clear`; a compaction is reported, and one made while idle is called that |
 | `precompact-snapshot.sh` | Just before a compaction, writes down the state of the work from the files and the gates: the branch, the uncommitted files, the last refusal in the gate log and the findings on record, at most ~2 KB, inside the repository's git directory. It never blocks the compaction |
 | `session-rehydrate.sh` | Re-surfaces the handover after `/compact` or `/clear`, gives a compacted session back the state `precompact-snapshot.sh` wrote for it (the same session only), and tells a session which language the project was installed in |
 | `skill-trust.sh` | Names any skill or agent Crewforth never shipped and you never accepted |
