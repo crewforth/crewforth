@@ -19,7 +19,7 @@ is_cmd(){ case "$CMD_NAMES" in *" $1 "*) return 0 ;; esac; return 1; }
 NCMD=0; for _cf in $CMD_FILES; do NCMD=$((NCMD+1)); done
 # `metadata: experimental: "true"` installs and answers when typed, but no showcase counts or lists it (5W: the team
 # board is not finished). Everything below that counts what a reader is shown asks is_exp.
-EXP_NAMES=" "; for _ef in $(grep -lE '^  experimental: "?true' "$SKILLS"/*/SKILL.md 2>/dev/null); do _en="${_ef%/SKILL.md}"; EXP_NAMES="$EXP_NAMES${_en##*/} "; done
+EXP_NAMES=" "; for _ef in $(grep -lE '^  (experimental|internal): "?true' "$SKILLS"/*/SKILL.md 2>/dev/null); do _en="${_ef%/SKILL.md}"; EXP_NAMES="$EXP_NAMES${_en##*/} "; done
 is_exp(){ case "$EXP_NAMES" in *" $1 "*) return 0 ;; esac; return 1; }
 NCMD_SHOWN=0; for _cf in $CMD_FILES; do _cn="${_cf%/SKILL.md}"; is_exp "${_cn##*/}" || NCMD_SHOWN=$((NCMD_SHOWN+1)); done
 FAIL=0; PASSN=0; SKIPN=0; SKIP_HARD=0; SKIP_LIST=""

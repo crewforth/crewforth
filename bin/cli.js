@@ -93,7 +93,7 @@ function catalogue(pkgDir) {
   const commands = all.filter(isCommand);
   const skills = all.filter((d) => !commands.includes(d));
   // `metadata: experimental: "true"` installs and answers when named, but is not listed or counted until it is done.
-  const experimental = all.filter((d) => /\n {2}experimental: "?true"?\r?\n/.test(fs.readFileSync(path.join(skillsDir, d, 'SKILL.md'), 'utf8').split(/\r?\n---\r?\n/)[0] + '\n'));
+  const experimental = all.filter((d) => /\n {2}(experimental|internal): "?true"?\r?\n/.test(fs.readFileSync(path.join(skillsDir, d, 'SKILL.md'), 'utf8').split(/\r?\n---\r?\n/)[0] + '\n'));
   return { root, agents, skills, commands, experimental };
 }
 
