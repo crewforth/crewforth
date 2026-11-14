@@ -1248,6 +1248,35 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
     _am_log "note: a verify command that runs the whole suite"
   fi
 fi
+# ---- an auditor called again on the same work: a note, never a refusal (3.5) ----
+# Field: of 2,557 auditor calls in three projects, 36-40% of the repeat rounds re-audited the same work. The rule is
+# "after a small fix only the auditor that raised the finding re-runs; after a critical or high one, all do". The
+# ledger agent-outcome.sh writes at each crew agent's stop (`agent head severity`) answers it: this auditor ran before
+# in this session, raised nothing above low (`lo`), a producer ran since, no auditor since raised critical or high, and
+# HEAD did not move (a commit closes the work). All five, or nothing is said. Chosen as a NOTE (Barış, 2026-11-15): the
+# split was right in 4 of 5 hand-read pairs, which is not enough to refuse a call on.
+_am_rerun(){  # $1 = agent -> 0 when the call re-audits the same work
+  case "$1" in crew-review-agent|crew-security-expert|crew-performance-expert) ;; *) return 1 ;; esac
+  local sid f a h s last="" prod=0 hi=0 head
+  _json_slice "$INPUT" session_id >/dev/null; sid="$_JS"
+  case "$sid" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  f="$_AMD/rounds/$sid"; [ -f "$f" ] || return 1
+  while read -r a h s; do
+    if [ "$a" = "$1" ]; then last="$h $s"; prod=0; hi=0
+    else case "$a" in
+      crew-review-agent|crew-security-expert|crew-performance-expert|crew-refuter|crew-test-expert) [ "$s" = hi ] && hi=1 ;;
+      *) prod=1 ;;
+    esac; fi
+  done < "$f"
+  [ -n "$last" ] && [ "$prod" = 1 ] && [ "$hi" = 0 ] && [ "${last#* }" = lo ] || return 1
+  head="$(git -C "$_AMP" -c core.fsmonitor= rev-parse --verify --quiet HEAD 2>/dev/null)" || head=NONE; [ -n "$head" ] || head=NONE
+  [ "${last%% *}" = "$head" ]
+}
+if _am_rerun "$st"; then
+  _rn="Crewforth: $st already audited this work in this session (the same HEAD) and raised nothing above low, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again; after a critical or high one, all do. If this is new work, go on."
+  if [ -n "$vnote" ]; then vnote="$vnote $_rn"; else vnote="$_rn"; fi
+  _am_log "note: $st called again on the same work after it raised nothing above low"
+fi
 # ---- effort: a note in the record, never a refusal ----
 # Two things the gate does not refuse. A call that names no effort cannot take the cheap first step after a failed
 # verify (the repeat at high on the same model, above), so it goes one model up; and past high the vendor's guidance is

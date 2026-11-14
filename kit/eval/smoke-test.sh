@@ -11963,6 +11963,27 @@ _v2plantr rv6 crew-backend-expert; _v2stopr rv6 'review: clean\nconfidence: high
 [ -e "$_rpf" ] && _v2b="$_v2b [a record without the line, or from another agent]"
 [ -z "$_v2b" ] && pass "crew-review-agent closing with review: clean has the stop hook write .claude/review-pass.json by its own recipe (the same diff and head), at the top of the work tree from a sub-folder, and the commit gate accepts it; review: blocked removes a record of that diff and no other; no line, or another agent, writes nothing" \
                || fail "the review-pass record by the stop hook:$_v2b"
+# THE AUDIT-ROUND NOTE (3.5). Each crew agent's stop adds `agent head severity` to the session's ledger; an auditor
+# called again on the same work — it raised nothing above low, a producer ran since, no auditor since raised critical
+# or high, HEAD did not move — is TOLD, never refused (Barış: a note). Each of the five conditions alone silences it.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/.claude/state/crew-model/rounds"; _rl="$_v2p/.claude/state/crew-model/rounds/s"
+_v2plantr ra1 crew-security-expert; _v2stopr ra1 'src/a.ts:3 · low · naming\nconfidence: high'
+_v2plantr ra2 crew-backend-expert; _v2stopr ra2 'Fixed it.\nconfidence: high'
+_v2plantr ra3 crew-review-agent; _v2stopr ra3 'src/a.ts:9 · high · bug: a null path\nreview: blocked\nconfidence: high'
+case "$(tr '\n' '|' < "$_rl" 2>/dev/null)" in 'crew-security-expert NONE lo|crew-backend-expert NONE lo|crew-review-agent NONE hi|') ;; *) _v2b="$_v2b [the stop hook's ledger: $(tr '\n' '|' < "$_rl" 2>/dev/null)]" ;; esac
+_rnote='already audited this work'
+_rcase(){ printf "$2" > "$_rl"; _v2call "$1" sonnet 'src/ui/a.ts' audit none; _ro="$(cat "$_v2/out" 2>/dev/null)"
+  [ "$_v2rc" = 0 ] || { _v2b="$_v2b [$4: the call was refused rc=$_v2rc]"; return; }
+  case "$3|$_ro" in yes\|*'"additionalContext":"'*"$_rnote"*'all do'*) ;; no\|*"$_rnote"*) _v2b="$_v2b [$4: told]" ;; no\|*) ;; *) _v2b="$_v2b [$4: not told: ${_ro:0:80}]" ;; esac; }
+_rcase crew-review-agent 'crew-review-agent NONE lo\ncrew-backend-expert NONE lo\n' yes 'the same work'
+_rcase crew-review-agent 'crew-review-agent NONE hi\ncrew-backend-expert NONE lo\n' no 'it raised a high'
+_rcase crew-review-agent 'crew-backend-expert NONE lo\ncrew-review-agent NONE lo\n' no 'no producer since'
+_rcase crew-review-agent 'crew-review-agent NONE lo\ncrew-backend-expert NONE lo\ncrew-security-expert NONE hi\n' no 'another auditor raised a high since'
+_rcase crew-review-agent 'crew-review-agent 0123456789abcdef0123456789abcdef01234567 lo\ncrew-backend-expert NONE lo\n' no 'HEAD moved'
+_rcase crew-frontend-expert 'crew-frontend-expert NONE lo\ncrew-backend-expert NONE lo\n' no 'not an auditor'
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+[ -z "$_v2b" ] && pass "an auditor called again on the same work (it raised nothing above low, a fix ran since, no critical or high since, HEAD unmoved) is told the re-run rule and the call goes on; each condition alone silences it; the stop hook writes agent, head and severity to the ledger" \
+               || fail "the audit-round note:$_v2b"
 # The one fix is asked ONCE, and only where that can be counted.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"
 _v2plant h1 'test -f never'
