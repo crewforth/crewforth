@@ -484,13 +484,14 @@ _am_card_line(){  # $1 = the first line of the task -> 0 and CARD_* set (uncheck
   case "$r" in *change:*verify:*) ;; *) return 1 ;; esac
   f="${r%%change:*}"; r="${r#*change:}"; c="${r%%verify:*}"; v="${r#*verify:}"
   case "$v" in *above:*) a="${v#*above:}"; v="${v%%above:*}" ;; esac
+  v="${v%%skills:*}"; a="${a%%skills:*}"   # `skills:` is read by _am_card_skills, from the whole card
   _am_trim "$f"; CARD_FILES="$_AMT"; _am_trim "$c"; CARD_CHANGE="$_AMT"; _am_trim "$v"; CARD_VERIFY="$_AMT"
   [ -n "$a" ] && { _am_trim "$a"; CARD_ABOVE="${_AMT:0:200}"; }
   return 0
 }
 _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (CARD_ABOVE); 1 and CARD_WHY
   local s="$1" l k v n=0 ln=0 seen="" one=0
-  CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""
+  CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""; CARD_SKILLS=""
   s="${s//$'\r'/}"
   # One line first: the first line that is not empty, read by its labels; the three-line reading otherwise.
   l="$s"; while :; do case "$l" in [$' \t\n']*) l="${l:1}" ;; *) break ;; esac; done; l="${l%%$'\n'*}"
@@ -510,6 +511,7 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     # `above:` may stand anywhere among the three (2 of 19 line refusals, 2026-10-19: between change: and verify:).
     case "$k" in
       above)  [ -n "$CARD_ABOVE" ] || CARD_ABOVE="${v:0:200}"; continue ;;
+      skills) continue ;;   # read by _am_card_skills
       files)  CARD_FILES="$v" ;;
       change) CARD_CHANGE="$v" ;;
       verify) CARD_VERIFY="$v" ;;
@@ -520,6 +522,10 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     seen="$seen $k "
   done
   [ "$n" = 3 ] || { CARD_WHY="the task does not begin with the three lines files:, change:, verify:"; return 1; }
+  # `skills:` written on a field's own line (`verify: npm test · skills: api-design`) is not part of that field.
+  case "$CARD_VERIFY" in *skills:*) _am_trim "${CARD_VERIFY%%skills:*}"; CARD_VERIFY="$_AMT" ;; esac
+  case "$CARD_CHANGE" in *skills:*) _am_trim "${CARD_CHANGE%%skills:*}"; CARD_CHANGE="$_AMT" ;; esac
+  case "$CARD_FILES" in *skills:*) _am_trim "${CARD_FILES%%skills:*}"; CARD_FILES="$_AMT" ;; esac
   [ -n "$CARD_FILES" ] || { CARD_WHY="files: is empty (name the files or globs, or the folder)"; return 1; }
   # A note in parentheses after the kind is the session's own comment, as `none (…)` is for verify: `architecture
   # (planning only)` is architecture (4 of the cards refused on this machine, 2026-10-18). Only a kind on the list, and
@@ -554,6 +560,32 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
       esac
     done
   fi
+  _am_card_skills "$1"
+  return 0
+}
+# `skills:` (optional): the skills the agent is to apply, by name, read from the card's first lines in either form
+# (`… · verify: npm test · skills: api-design, observability` or a line of its own). Its value runs to the end of its
+# line, a ` · `, or a closing parenthesis. Names only: lower case, digits, hyphens; a plugin's `crewforth:` prefix is
+# dropped. Measured (field, 2026-11-13): 14 of 4,326 crew agent runs read their own skill and none called the Skill
+# tool, so the card names them and the agent's stop is held to it (hooks/agent-outcome.sh).
+_am_card_skills(){  # $1 = the task text -> CARD_SKILLS ("a b c", or empty); CARD_SKILLS_BAD (the first bad name)
+  local cl="$1" i=0 lr v n out="" unglob=0
+  CARD_SKILLS=""; CARD_SKILLS_BAD=""
+  cl="${cl//$'\r'/}"
+  while [ "$i" -lt 8 ] && [ -n "$cl" ]; do
+    lr="${cl%%$'\n'*}"; if [ "$lr" = "$cl" ]; then cl=""; else cl="${cl#*$'\n'}"; fi; i=$((i+1))
+    case "$lr" in *skills:*)
+      v="${lr#*skills:}"; v="${v%%' · '*}"; v="${v%%')'*}"; v="${v//,/ }"; v="${v//\`/ }"
+      case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+      for n in $v; do
+        n="${n#crewforth:}"; _am_trim "$n"; n="$_AMT"; [ -n "$n" ] || continue
+        case "$n" in *[!a-z0-9-]*|-*) CARD_SKILLS_BAD="$n"; break ;; esac
+        case " $out " in *" $n "*) ;; *) out="${out:+$out }$n" ;; esac
+      done
+      [ "$unglob" = 1 ] && set +f
+      [ -n "$CARD_SKILLS_BAD" ] || CARD_SKILLS="$out"; return 0 ;;
+    esac
+  done
   return 0
 }
 _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
@@ -1061,6 +1093,21 @@ if ! _am_card "$prompt"; then
   _am_log "no card"; exit 2
 fi
 _am_state; _am_risk; _am_digest
+# ---- the card's skills: each a skill that is installed, so the agent's stop can be held to it ----
+if [ -n "$CARD_SKILLS_BAD" ] || [ -n "$CARD_SKILLS" ]; then
+  _sk_list=""; [ -f "$_AM_HERE/../agents/$st.md" ] && _sk_list="$(grep -m1 '^  skills:' "$_AM_HERE/../agents/$st.md" 2>/dev/null)"
+  _sk_list="${_sk_list#*skills: }"
+  _sk_miss="$CARD_SKILLS_BAD"
+  if [ -z "$_sk_miss" ]; then
+    for _sk in $CARD_SKILLS; do
+      [ -f "$_AM_HERE/../skills/$_sk/SKILL.md" ] || [ -f "$_AMP/.claude/skills/$_sk/SKILL.md" ] || { _sk_miss="$_sk"; break; }
+    done
+  fi
+  if [ -n "$_sk_miss" ]; then
+    echo "GUARD (agent model): the card's skills: names '${_sk_miss:0:60}', which is not an installed skill, so the agent could not be held to it. Name installed skills by their folder name${_sk_list:+ (those listed for $st: $_sk_list)}, or leave the skills: line out." >&2
+    _am_log "a card skill that is not installed"; exit 2
+  fi
+fi
 # ---- the floor of THIS card: the highest of what applies, and the reason that set it ----
 if [ "$CARD_VERIFY" = none ] && [ "$CARD_CHANGE" != text ] && [ "$st" != crew-commit-agent ] && [ "$floor" -lt 2 ]; then floor=2; why="no verify command, so nothing checks the work but a reader"; fi
 _am_change_floor "$CARD_CHANGE" "$st"
@@ -1195,7 +1242,7 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
   # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
-  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\nskills=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" "${CARD_SKILLS:--}" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
 # The call, on the floor: the same input with `model` replaced, and allowed; and the verify notice, when there is one.
 # The verify notice rides along as additionalContext: with no permissionDecision it changes nothing about the call

@@ -5,7 +5,7 @@ description: |
   Code review specialist. Use immediately after writing or modifying a nontrivial diff: reviews what changed
   against the four principles (simplicity, surgical change, readability, altitude).
   Findings via `crew-code-review`; writes no code.
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, Bash, PowerShell, Skill
 metadata:
   stage: close
   skills: [crew-code-review, docs-writer]

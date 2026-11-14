@@ -4,7 +4,7 @@ color: blue
 description: |
   Use immediately after the DoD is clean, before any git commit: proposes the Conventional Commits message
   from the staged diff (`commit-message`). Commits only with user approval.
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, Bash, PowerShell, Skill
 model: haiku
 metadata:
   stage: close

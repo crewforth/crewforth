@@ -6,7 +6,7 @@ description: |
   CLAUDE.md ## Stack and the repo, never assumed. **Use proactively — owns server behaviour:** endpoints,
   services/handlers, validation, business rules, error contracts, integrations. Any request about it is yours
   whatever its size or wording.
-tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell
+tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell, Skill
 metadata:
   stage: produce
   skills: [api-design, backend-architecture, confidence-check, dependency-audit, i18n-integrity, observability, performance, sonarqube-check]

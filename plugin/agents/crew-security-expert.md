@@ -5,7 +5,7 @@ description: |
   Security review expert. Use proactively whenever auth/authz, anonymous/token flows, secret leakage, injection,
   weak crypto, IDOR, rate limits, or tamper surface are touched. Findings + fixes via `security-scan` (plus
   `sonarqube-check`); writes no code.
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, Bash, PowerShell, Skill
 # No `model` field: the caller names it per call, and hooks/guard-agent-model.sh refuses this agent below
 # `opus`. A pin could only make the audit WEAKER than the code it reviews — this said `sonnet` for 156
 # commits, so an Opus session had its experts on Opus and the gate that clears them on Sonnet.

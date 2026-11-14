@@ -4,7 +4,7 @@ color: cyan
 description: |
   Planning specialist. Use proactively before implementing a feature whose scope or acceptance criteria are
   unclear: task breakdown + acceptance criteria + dependency order, via the `spec-planning` skill. Plans; does not write code.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Skill
 metadata:
   stage: understand
   skills: [adr, backend-architecture, brainstorm, spec-planning]
@@ -73,6 +73,7 @@ architecture · test-run · test-write · audit) and `verify:` (the command that
 command wherever one exists: work with `verify: none` cannot go to the cheapest model and is checked by a reader only.
 Copy the commands from `CLAUDE.md` `## Verify` (and the module's `tests` on the Crew Map) instead of guessing one.
 `verify:` stays a command: a UI change only a person can judge adds a `look:` line after the card, for the reviewer.
+`skills:` names the skills the work must follow (the agent's `metadata: skills:` or the project's); it must call each.
 The plan carries the `commit:` it was written at; a card may quote the current code it changes, and a task whose
 quote no longer matches the file stops and reports instead of improvising.
 
