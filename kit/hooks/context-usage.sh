@@ -278,7 +278,7 @@ fi
 # >=75%: a short nudge for the model. The USER already gets the full, once-per-threshold warning from the
 # Stop hook (session-guard.sh), so repeating the whole sentence here every turn would be pure duplication.
 if [ "$PCTI" -ge 75 ]; then
-  echo "⚠️ >75% — hand off (handoff skill) then /clear; not automatic."
+  echo "⚠️ >75% — hand off (handoff skill); /clear is the user's to type."
 fi
 
 # --- Stale-discipline gate ---------------------------------------------------------------------------

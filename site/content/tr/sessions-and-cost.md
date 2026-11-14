@@ -1,6 +1,6 @@
 # Oturum ve maliyet
 
-Oturumun ne kadar dolduğu **ölçülür, tahmin edilmez**: her turda okunan gerçek token sayısı, `/context`'in verdiği değerin aynısı. **%{{FILL_WARN}}**'te bir uyarı, **%{{FILL_ALERT}}**'da bir tane daha; ikisi de turunuzu kesmez.
+Oturumun ne kadar dolduğu **ölçülür, tahmin edilmez**: her turda okunan gerçek token sayısı, `/context`'in verdiği değerin aynısı. **{{FILL_TIERS}}** eşiklerinde oturum kendiliğinden bir kez handoff yapar: `docs/SESSION_STATE.md`'yi yazar ve oradan devam etmek için `/clear` yazabileceğinizi söyler. Her eşik yalnız o bir tura mal olur, her cevaba değil; `CREW_HANDOFF_TIERS` başka eşikler belirler.
 
 Sabit maliyet gizlenmiyor, yazıyor. Disiplin ile birlikte her ajan ve skill tarifi her oturuma yüklenir: `smoke-test.sh`'in ölçtüğü **{{ALWAYS_ON_BYTES}} bayt**. Aynı malzemenin 21.804 baytının 9.198 token ettiği gerçek bir `claude -p` turu oranı veriyor; bu oranla yaklaşık **{{ALWAYS_ON_TOKENS}} token**. Süitin kapı olarak tuttuğu sayı bayt rakamı. Eklediğiniz her skill, her oturuma **~100 token**'lık kalıcı bir vergi bindirir; bu yüzden bileşen başına bayt bütçesi bir kapı olarak uygulanır. Bütçeyi yükseltmek testte açık bir düzenleme ister.
 

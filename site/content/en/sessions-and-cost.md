@@ -1,6 +1,6 @@
 # Sessions and cost
 
-How full a session is gets **measured, not estimated** — the real token count, read every turn, the same figure `/context` reports. One warning at **{{FILL_WARN}}%**, one more at **{{FILL_ALERT}}%**, and neither interrupts your turn.
+How full a session is gets **measured, not estimated** — the real token count, read every turn, the same figure `/context` reports. At **{{FILL_TIERS}}** the session hands off once on its own: it writes `docs/SESSION_STATE.md` and tells you that you can type `/clear` to go on from it. Each threshold costs that one turn, never a turn per reply; `CREW_HANDOFF_TIERS` sets other thresholds.
 
 The standing cost is published, not hidden. The discipline plus every agent and skill description load into each session: **{{ALWAYS_ON_BYTES}} bytes**, measured by `smoke-test.sh`. A real `claude -p` turn in which 21,804 bytes of the same material cost 9,198 tokens gives the ratio; at that ratio this is about **{{ALWAYS_ON_TOKENS}} tokens**. The byte figure is what the suite gates. Each skill you add is a permanent **~100-token** tax on every session, so a byte budget per component is enforced as a gate. Raising it takes an explicit edit to the test.
 
