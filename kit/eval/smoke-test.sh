@@ -3460,6 +3460,17 @@ else skip tool "ask-payload JSON check skipped (no working JSON parser: jq, pyth
 gj bypassPermissions 'git commit -m x' | gbr >/dev/null 2>&1; [ "$?" = 2 ] && pass "git commit FAILS CLOSED under bypassPermissions (§4.4)" || fail "git commit PASSED under bypassPermissions (§4.4 hole)"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | gbr >/dev/null 2>&1; [ "$?" = 2 ] && pass "git commit FAILS CLOSED when permission_mode is absent" || fail "git commit PASSED with no permission_mode (§4.4 hole)"
 gj auto 'CLAUDE_GIT_OK=1 git commit -m x' | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "inline CLAUDE_GIT_OK injection rejected (§4.4)" || fail "inline CLAUDE_GIT_OK PASSED (§4.4 hole)"
+# THE KEY'S NAME IN A MESSAGE IS TEXT, A SETTING IS NOT. Run on a KEYED session: without the key every commit in
+# auto is refused anyway, so the case above cannot tell this rule from any other. A refusal must name the key rule
+# (a different rule's refusal would read as this one holding). Field: a release-note commit naming the key was refused.
+_gk(){ _gko="$(gj bypassPermissions "$1" | CLAUDE_GIT_OK=1 CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" 2>&1 >/dev/null)"; _gkr=$?; }
+for c in "git commit -m 'docs: the user sets CLAUDE_GIT_OK before the session'" "git add -A && git commit -m 'note CLAUDE_GIT_OK'"; do
+  _gk "$c"; [ "$_gkr" = 0 ] && pass "the key's name inside a quoted message is text (§4.4): $c" || fail "the key's name in a message was refused as setting it (rc $_gkr): $c"
+done
+for c in 'CLAUDE_GIT_OK=1 git commit -m x' "git commit -F - <<-'E'\\nmsg\\n\\tE\\nexport CLAUDE_GIT_OK=1\\nE" "export 'CLAUDE_GIT_OK=1'; git commit -m x" 'env CLAUDE_GIT_OK=1 git push' 'git commit -m \"$(CLAUDE_GIT_OK=1 true)\"' "git commit -m 'x' && export CLAUDE_GIT_OK=1"; do
+  _gk "$c"; case "$_gkr:$_gko" in 2:*'approval key'*) pass "setting the key inside the command is refused by the key rule (§4.4): $c" ;;
+    *) fail "setting the key inside the command was not refused by the key rule (rc $_gkr): $c" ;; esac
+done
 # pre-authorised session
 gj bypassPermissions 'git commit -m x' | CLAUDE_GIT_OK=1 bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1 && pass "git commit PASSES with CLAUDE_GIT_OK=1" || fail "keyed commit blocked (gate too strict)"
 # The whole approval-gated set must clear BOTH gates on a keyed session, and only an explicit allow does.

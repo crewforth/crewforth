@@ -3601,7 +3601,28 @@ if [ "$_c47_seen" = 1 ] || [ "$_c47_try" = 1 ] || [ "$_c47_sub" = 1 ] || [ "$_c4
 fi
 if git_has "$CMD_SEEN" 'add|commit|push|checkout|switch'; then
   # The key is granted by the user's environment, never by the command line the model composes.
-  if _grep "$CMD" -q 'CLAUDE_GIT_OK'; then
+  # ITS NAME IN A MESSAGE IS TEXT. A commit message that names the key (release notes, a doc fix) was refused as
+  # setting it (measured in the field: one refusal, the same intent passed once the body was reworded). The name
+  # is text only when every place it stands is a literal: single quotes, double quotes holding no `$`/backtick/
+  # backslash, or a here-document with a quoted delimiter; and when every command of the call is git itself, since
+  # `export 'CLAUDE_GIT_OK=1'`, `env …` or `bash -c '…'` turn a quoted word into a setting. Anything else stays refused.
+  _gk_text_only(){
+    # `<<-` ends its body at a tab-indented delimiter, which the reader does not see as the end (review: a line after
+    # it ran unread). Not read here: such a call keeps the strict rule.
+    case "$CMD" in *'<<-'*) return 1 ;; esac
+    case "$CMD" in *'<<'*) _ere s "$CMD" '<<-?[[:space:]]*[^[:space:]'"'"'"]' '<<' && return 1 ;; esac
+    _c47_read "$CMD"
+    case "$_C47_F" in *x*|*u*) return 1 ;; esac
+    case "$_C47_T" in *CLAUDE_GIT_OK*) return 1 ;; esac
+    local seg w
+    _gsub "$_C47_T" ' ; ' $'\n'
+    while IFS= read -r seg; do
+      seg="${seg#"${seg%%[![:space:]]*}"}"; [ -n "$seg" ] || continue
+      w="${seg%%[[:space:]]*}"; [ "$w" = git ] || return 1
+    done <<< "$_GS"
+    return 0
+  }
+  if _grep "$CMD" -q 'CLAUDE_GIT_OK' && ! _gk_text_only; then
     gatelog BLOCK 4.4 "approval key set inside the command"
     echo "GUARD (§4.4): the attempt to set the approval key (CLAUDE_GIT_OK) inside the command was rejected." >&2
     echo "The key is set only by the user, before the session starts." >&2
