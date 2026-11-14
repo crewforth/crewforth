@@ -61,8 +61,8 @@ Before a work package closes (pre-commit), on the changed diff.
 and a **disposition** for each finding (fixed / tracked / accepted / dropped). A blocker is never left merely reported.
 
 ## The review-pass record (§4.6)
-A clean verdict — no unresolved blocker — ends by recording WHICH diff you cleared, because `guard-bash.sh`
-refuses a commit without it (§4.6). Use exactly this recipe; the hook hashes the same bytes the same way:
+A commit needs a record of the diff cleared. End with `review: clean` (no blocker open) or `review: blocked`
+above the confidence line; its stop hook writes or drops it by this recipe (run it yourself if it did not):
 
 ```bash
 # CREW-REVIEW-PASS (kept identical in guard-bash.sh; smoke-test pins the pair)

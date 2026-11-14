@@ -11841,6 +11841,40 @@ _v2plants sk5 'test -f ok.txt' 'api-design'; [ -z "$(_v2stopx sk5 "$_v2/none.jso
 for _ag in "$ROOT"/agents/*.md; do _t="$(grep -m1 '^tools:' "$_ag")"; case "$_t, " in *' Skill, '*) ;; *) _v2b="$_v2b [${_ag##*/} has no Skill tool]" ;; esac; done
 [ -z "$_v2b" ] && pass "a card's skills: are read in both forms and recorded; a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript; every crew agent has the Skill tool" \
                || fail "the card's skills:$_v2b"
+# THE REVIEW-PASS RECORD IS WRITTEN BY THE STOP HOOK. Field (3.5.0): the auto-mode classifier refused
+# crew-review-agent's own write of .claude/review-pass.json and the commit was left to the user's hand. A report
+# closing with `review: clean` now has the hook write it, by the agent's own recipe (the same bytes, at the top of the
+# work tree), and the commit gate accepts it; `review: blocked` removes a record of the same diff and no other; no
+# other agent, and no report without the line, writes anything.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"; _rpf="$_v2p/.claude/review-pass.json"
+( cd "$_v2p" && git config user.email t@example.com && git config user.name t && echo one > r.txt && git add r.txt && git -c core.hooksPath=/dev/null commit -qm init && echo two >> r.txt && git add r.txt ) >/dev/null 2>&1
+_v2plantr(){ printf 'agent=%s\ntier=sonnet\nasked=sonnet\nchange=audit\nrisk=normal\ncard=c%s\nbg=false\nesc=-\nverify=none\n' "$2" "$1" > "$_v2p/.claude/state/crew-model/agents/$1"; }
+_v2stopr(){ # $1 agent, $2 report's closing lines, $3 cwd
+  printf '{"session_id":"s","cwd":"%s","permission_mode":"auto","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/none.jsonl","last_assistant_message":"Findings: none.\\n%s"}' "${3:-$_v2p}" "$1" "$_v2" "$2" | ( cd "$_v2p" && _v2e bash "$_V2O" >/dev/null 2>&1 ); }
+_rpget(){ sed -n 's/.*"diff_oid":"\([0-9a-f]*\)","head":"\([0-9a-fNOE]*\)".*/\1 \2/p' "$1" 2>/dev/null; }
+# the contract: what the agent's own recipe writes for this staged diff
+( cd "$_v2p" && awk '/# CREW-REVIEW-PASS/{f=1;next} f&&/^```/{exit} f' "$AGENTS/crew-review-agent.md" > "$_v2/rcp.sh" && bash "$_v2/rcp.sh" ) >/dev/null 2>&1
+_rpwant="$(_rpget "$_rpf")"; rm -f "$_rpf"
+[ -n "$_rpwant" ] || _v2b="$_v2b FIXTURE:the-recipe-wrote-nothing"
+_v2plantr rv1 crew-review-agent; _v2stopr rv1 'review: clean\nconfidence: high' "$_v2p/sub-does-not-exist"
+[ "$(_rpget "$_rpf")" = "$_rpwant" ] || _v2b="$_v2b [clean: the hook wrote '$(_rpget "$_rpf")', the recipe '$_rpwant']"
+_cmt="$(printf '{"session_id":"s","cwd":"%s","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' "$_v2p" | ( cd "$_v2p" && CREW_GATE_LOG="$_v2/gl" env -u CLAUDE_GIT_OK bash "$HOOKS/guard-bash.sh" 2>"$_v2/rperr" ); echo "rc=$?")"
+grep -q 'review-pass matches the staged diff' "$_v2/gl" 2>/dev/null || _v2b="$_v2b [the commit gate did not accept the hook's record: ${_cmt:0:60} $(head -c 100 "$_v2/rperr")]"
+# from a sub-folder: the record is at the top of the work tree
+rm -f "$_rpf"; mkdir -p "$_v2p/src/ui"; _v2plantr rv2 crew-review-agent; _v2stopr rv2 'review: clean\nconfidence: high' "$_v2p/src/ui"
+[ "$(_rpget "$_rpf")" = "$_rpwant" ] && [ ! -e "$_v2p/src/ui/.claude" ] || _v2b="$_v2b [from a sub-folder the record was not at the top]"
+# blocked: removes a record of this diff; a record of another diff stays
+_v2plantr rv3 crew-review-agent; _v2stopr rv3 'review: blocked\nconfidence: high'
+[ -e "$_rpf" ] && _v2b="$_v2b [blocked left the record of the same diff]"
+printf '{"diff_oid":"0123456789abcdef0123456789abcdef01234567","head":"NONE","ts":"x"}\n' > "$_rpf"
+_v2plantr rv4 crew-review-agent; _v2stopr rv4 'review: blocked\nconfidence: high'
+[ -e "$_rpf" ] || _v2b="$_v2b [blocked removed a record of another diff]"
+# no line, or another agent: nothing written
+rm -f "$_rpf"; _v2plantr rv5 crew-review-agent; _v2stopr rv5 'confidence: high'
+_v2plantr rv6 crew-backend-expert; _v2stopr rv6 'review: clean\nconfidence: high'
+[ -e "$_rpf" ] && _v2b="$_v2b [a record without the line, or from another agent]"
+[ -z "$_v2b" ] && pass "crew-review-agent closing with review: clean has the stop hook write .claude/review-pass.json by its own recipe (the same diff and head), at the top of the work tree from a sub-folder, and the commit gate accepts it; review: blocked removes a record of that diff and no other; no line, or another agent, writes nothing" \
+               || fail "the review-pass record by the stop hook:$_v2b"
 # The one fix is asked ONCE, and only where that can be counted.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"
 _v2plant h1 'test -f never'
