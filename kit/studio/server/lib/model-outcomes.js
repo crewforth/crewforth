@@ -30,7 +30,7 @@ import path from 'node:path';
 
 export const COLUMNS = ['ts', 'agent_id', 'agent', 'change', 'risk', 'card', 'model', 'verify', 'fixes', 'escalated_from', 'ran_on', 'confidence'];
 // Added at the end later, so a line written before them is still whole without them.
-export const LATER_COLUMNS = ['risk_why'];
+export const LATER_COLUMNS = ['risk_why', 'verify_s', 'why_not'];
 const VERIFIED = new Set(['pass', 'fail']);
 // What the hooks write, and nothing else is a row. The words are hooks/guard-agent-model.sh's and
 // hooks/agent-outcome.sh's; a word they do not use is a line this file cannot read, not a new kind of work.

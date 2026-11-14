@@ -1786,9 +1786,10 @@ check('prose without a notice yields nothing', none.size === 0);
       && ['f1', 'f2', 'f3', 'f4'].every((id) => m3.byAgent[id].riskWhy === null && mp.workSteps(m3.byAgent[id]).riskWhy === null),
       String(m3.byAgent.f5?.riskWhy));
     const made = spawnSync('bash', [path.join(fx, 'make-model-outcomes.sh'), REPO, fs.mkdtempSync(path.join(os.tmpdir(), 'crew-hookrun-'))], { encoding: 'utf8', timeout: 60000 });
-    const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').slice(1).join('\t')).join('\n');
+    // Every column but the clock's two: the time (column 1) and how long the verify ran (verify_s, column 14).
+    const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').filter((_, i) => i !== 0 && i !== 13).join('\t')).join('\n');
     if (made.status === 3 || made.error) skip('the hook, run now, writes the lines that are kept as the fixture', 'tool', `bash or git is not available to run it (${(made.stderr || made.error?.message || '').trim().slice(0, 80)})`);
-    else check('the hook, run now, writes the lines that are kept as the fixture, every column but the time',
+    else check('the hook, run now, writes the lines that are kept as the fixture, every column but the time and the verify\'s seconds',
       made.status === 0 && noTime(made.stdout) === noTime(kept) && noTime(kept).split('\n').length === 6,
       made.status === 0 ? 'six lines, the same' : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
     fs.rmSync(d3, { recursive: true, force: true });

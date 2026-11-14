@@ -20,7 +20,7 @@
 #                          not a command a hook may run (it chains other than by &&, a step is allowed by no rule,
 #                          or the shell gate would refuse or ask; the user is told once with the message that allows it)
 #                                                   -> blocked: not run, nothing concluded.
-#                          not finished in CREW_VERIFY_TIMEOUT seconds (540)
+#                          not finished in CREW_VERIFY_TIMEOUT seconds (120; at most 560)
 #                                                   -> timeout: stopped, nothing concluded, the command remembered as
 #                                                      slow; for CREW_VERIFY_SLOW_DAYS (7) it is not run again, and
 #                                                      the agent's line says timeout with why "not run" (the hook did
@@ -418,7 +418,7 @@ case "$EV" in
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
     SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
-    RES=none; WHYNOT=""; VSTEP=""
+    RES=none; WHYNOT=""; VSTEP=""; VSEC=-
     # THE CARD'S SKILLS: each one the agent called with the Skill tool, or read (its SKILL.md), in its own transcript.
     # Measured (field, 2026-11-13): 14 of 4,326 crew agent runs read their own skill, the Skill tool 0. Not judged
     # without a transcript. A foreground agent that missed one is sent back once, before its verify is run; a
@@ -458,7 +458,9 @@ case "$EV" in
         # A time limit of its own, below the hook's: a hook killed at its timeout records nothing, and a verify
         # that hangs must not read as a pass or as a fail.
         # The limit stays under the hook's own 600 s whatever is asked for.
-        LIM="${CREW_VERIFY_TIMEOUT:-540}"; case "$LIM" in ''|*[!0-9]*) LIM=540 ;; esac; [ "$LIM" -le 560 ] || LIM=560
+        # 120 s by default (3.2): an agent's verify is the tests of what it changed; the whole suite, which ran 494-1005 s
+        # in the field and held every agent for the full 540 s it had, is for the end of the work and for CI.
+        LIM="${CREW_VERIFY_TIMEOUT:-120}"; case "$LIM" in ''|*[!0-9]*) LIM=120 ;; esac; [ "$LIM" -le 560 ] || LIM=560
         VF="$_AMD/tries/$AID.out"
         # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
         # server a test left behind. `setsid` where there is one (CREW_VERIFY_NO_SETSID=1 skips it); otherwise job
@@ -490,6 +492,7 @@ case "$EV" in
         if [ "$VRC" = timeout ]; then wait "$VPID" 2>/dev/null; RES=timeout; WHYNOT="it did not finish in ${LIM}s"; VRC=0
           _am_slow_put "$VCMD" "$LIM"   # the next card that carries it is told (guard-agent-model.sh)
         else wait "$VPID" 2>/dev/null; VRC=$?; [ "$VRC" = 0 ] && _am_slow_put "$VCMD" ""; fi
+        VSEC="$WAITED"
         VOUT="$(tail -n 15 "$VF" 2>/dev/null)"; rm -f "$VF" 2>/dev/null
       fi
       if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
@@ -536,10 +539,13 @@ case "$EV" in
     [ -n "$SKW" ] && printf 'skills=%s\nskills_missed=%s\n' "$SKW" "${SKMISS:--}" >> "$_AMD/results/$AID" 2>/dev/null
     case "$REC" in "$_AMD/pending/"*) rm -f "$REC" 2>/dev/null ;; *) : > "$REC.used" 2>/dev/null ;; esac
     TSV="$_AMS/model-outcomes.tsv"
-    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why\n' > "$TSV" 2>/dev/null
+    [ -s "$TSV" ] || printf 'ts\tagent_id\tagent\tchange\trisk\tcard\tmodel\tverify\tfixes\tescalated_from\tran_on\tconfidence\trisk_why\tverify_s\twhy_not\n' > "$TSV" 2>/dev/null
+    # The two columns at the end (3.2): how long the verify ran, in whole seconds ("-" when it did not run), and why it
+    # was not run or not finished ("-" otherwise). A line written before them is still whole without them.
+    WN1="${WHYNOT:--}"; WN1="${WN1//$'\t'/ }"; WN1="${WN1//$'\n'/ }"; WN1="${WN1//$'\r'/ }"
     _ao_now
     _ao_lock
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" "$RW" >> "$TSV" 2>/dev/null
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_AON" "$AID" "$AG" "$CH" "$RK" "$CID" "$ASK" "$RES" "$TRIES" "$ESC" "$RAN" "$CONF" "$RW" "$VSEC" "${WN1:0:200}" >> "$TSV" 2>/dev/null
     _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
     [ "$AG" = crew-review-agent ] && [ -n "$REVV" ] && _ao_review_pass "$REVV"

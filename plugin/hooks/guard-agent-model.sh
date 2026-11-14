@@ -855,6 +855,25 @@ _am_slow_put(){  # $1 = verify command, $2 = the seconds it was given ("" = it p
   mkdir -p "$_AMS" 2>/dev/null || return 0
   { printf '%s' "$keep" > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"; } 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
   return 0; }
+# A VERIFY THAT RUNS THE WHOLE SUITE (3.2): the last step, `cd` steps aside, is a test runner with no path, file or
+# filter after it (flags only): `npm test`, `pytest -q`, `go test ./...`, `dotnet test`. In the field every verify that
+# ran out of time was one (494-1005 s). Said to the card's writer, never refused: an agent's verify is the tests of what
+# it changed; the whole suite runs once at the end of the work and in CI.
+_am_whole_suite(){  # $1 = verify command -> 0 when it runs a whole suite; _AMWS = that step
+  local st="$1" w rest base="" n=0
+  st="${st##* && }"; case "$st" in cd\ *) return 1 ;; esac
+  _AMWS="$st"
+  set -f
+  for w in $st; do
+    case "$w" in -*) continue ;; esac
+    n=$((n+1)); base="$base${base:+ }$w"
+  done
+  set +f
+  case "$base" in
+    'npm test'|'npm run test'|'pnpm test'|'pnpm run test'|'yarn test'|'bun test'|pytest|?*' pytest'|'go test ./...'|'cargo test'|'dotnet test'|'mvn test'|'gradle test'|'./gradlew test'|'flutter test'|'npx vitest run'|'npx vitest'|'npx jest'|'deno test'|'mix test'|'bundle exec rspec'|rspec|'php artisan test'|'vendor/bin/phpunit') return 0 ;;
+  esac
+  return 1
+}
 _am_slow_line(){  # $1 = a line of verify-slow -> _AMSLC (the command), _AMSLT (the epoch it was stopped, "" unknown)
   local r="${1#*$'\t'}"; _AMSLC="${r%%$'\t'*}"; _AMSLT=""
   [ "$_AMSLC" = "$r" ] || { _AMSLT="${r#*$'\t'}"; case "$_AMSLT" in ''|*[!0-9]*) _AMSLT="" ;; esac; }; }
@@ -1224,6 +1243,9 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
     vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
+  elif _am_whole_suite "$CARD_VERIFY"; then
+    vnote="Crewforth: this card's verify command runs the whole test suite ($_AMWS). An agent's verify is the tests of what it changed: name them in the card's verify: line (the test file or package this change touches, e.g. pytest <its test file>, npm test -- <its test file>, go test ./<its package>/...). The whole suite runs once at the end of the work, and in CI. The hook stops a verify after 120 s."
+    _am_log "note: a verify command that runs the whole suite"
   fi
 fi
 # ---- effort: a note in the record, never a refusal ----
