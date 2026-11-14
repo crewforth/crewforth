@@ -11758,6 +11758,32 @@ _v2new; _v2call crew-backend-expert opus 'src/payments/p.ts' feature true; _v2st
 case "$(_v2launch la9 async_launched)" in *'is run by Crewforth when the agent ends'*) ;; *) _v2b="$_v2b [the launch still says run it yourself]" ;; esac
 [ -z "$_v2b" ] && pass "a background agent's verify outcome (not run, stopped, failed, low confidence) is told at the main thread's Stop as decision: block, once, in valid JSON, only to its own session, several in one answer; a foreground agent, a pass and no notice tell nothing; the launch of critical work says the outcome comes when the agent ends" \
                || fail "a background agent's outcome:$_v2b"
+# A BACKGROUND agent whose verify fails is NOT kept running: field (three projects, 8 such stops), an agent that ended
+# with a handback took no turn after the block in 4 of them, and its result, its line and the session's notice were
+# lost. It is recorded as failed at once and the session is told at Stop. And a test-write card's red is what it
+# asked for: recorded as red, not kept, not told, not counted against the model, in the foreground and background.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"; printf 'verify test -f ok.txt\n' > "$_v2p/.claude/crew-model-rules"
+_v2plantc(){ printf 'agent=crew-test-expert\ntier=sonnet\nasked=sonnet\nchange=%s\nrisk=normal\ncard=c%s\nbg=false\nesc=-\nverify=test -f ok.txt\n' "$2" "$1" > "$_v2p/.claude/state/crew-model/agents/$1"; }
+_v2fix(){ awk -F'\t' -v a="$1" '$2 == a { print $9 }' "$_v2p/.claude/state/model-outcomes.tsv" 2>/dev/null; }
+_v2plantc bg5 feature; _v2launch bg5 async_launched >/dev/null; _o="$(_v2stop bg5)"
+[ -z "$_o" ] || _v2b="$_v2b [a background agent was kept running: ${_o:0:80}]"
+[ "$(_v2res bg5)|$(_v2fix bg5)" = "fail|0" ] || _v2b="$_v2b [background red: $(_v2res bg5)|$(_v2fix bg5), want fail|0]"
+[ -e "$_v2p/.claude/state/crew-model/bg/bg5" ] && _v2b="$_v2b [the background mark was left]"
+_o="$(_v2stopev s)"
+case "$_o" in *'(bg5) that has finished: verify failed (test -f ok.txt); the agent ran in the background and was not sent back to fix it.'*'Re-run this task'*'rc=0') ;; *) _v2b="$_v2b [the session was not told the background fail: ${_o:0:160}]" ;; esac
+_v2plantc fg5 feature; _o="$(_v2stop fg5)"
+case "$_o" in *'"decision":"block"'*'Fix the work so that the command passes'*) ;; *) _v2b="$_v2b [a foreground red was not kept once: ${_o:0:80}]" ;; esac
+for _tw in tw1 tw2; do _v2plantc $_tw test-write; done
+_v2launch tw2 async_launched >/dev/null
+for _tw in tw1 tw2; do _o="$(_v2stop $_tw)"
+  [ -z "$_o" ] || _v2b="$_v2b [$_tw: a test-write red was kept running]"
+  [ "$(_v2res $_tw)" = red ] || _v2b="$_v2b [$_tw: $(_v2res $_tw), want red]"
+  [ -z "$(_v2post $_tw)" ] || _v2b="$_v2b [$_tw: the session was told about an expected red]"
+done
+[ "$(_v2stopev s)" = rc=0 ] || _v2b="$_v2b [a test-write red was told at Stop]"
+[ -f "$_v2p/.claude/state/crew-model/fails/ctw1" ] && _v2b="$_v2b [a test-write red was counted as a fail]"
+[ -z "$_v2b" ] && pass "a background agent whose verify fails is not kept running (the field lost 4 of 8 such stops after a handback): it is recorded as fail with no fix, its mark is cleared, and the session is told at Stop that it was not sent back, with the repeat; a foreground red is still kept once; a test-write card's red is red, in the foreground and the background: not kept, not told, not counted" \
+               || fail "a background red / a test-write red:$_v2b"
 # The one fix is asked ONCE, and only where that can be counted.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"
 _v2plant h1 'test -f never'

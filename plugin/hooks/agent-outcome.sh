@@ -15,6 +15,8 @@
 #                                                      the end of its output as its next instruction.
 #                          red, the second time     -> the agent ends; the result is fail, and the card is marked so
 #                                                      the gate refuses it on the same or a lower model.
+#                          red, a background agent  -> fail at once, never kept running: the session is told at its Stop.
+#                          red, change: test-write  -> red: tests written to fail first; not kept, not told, not counted.
 #                          not a command a hook may run (it chains other than by &&, a step is allowed by no rule,
 #                          or the shell gate would refuse or ask; the user is told once with the message that allows it)
 #                                                   -> blocked: not run, nothing concluded.
@@ -175,7 +177,9 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
   fi
   _am_rank "$TI"; _am_name $((_AMR+1)); UP="$_AMN"
   _am_rec_get "$R" escalate; ESCL="$_AMV"
-  if [ "$RES" = fail ]; then MSG="verify failed after one in-agent fix ($VCMD)."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
+  _am_rec_get "$R" fixes
+  if [ "$RES" = fail ] && [ "$_AMV" = 0 ]; then MSG="verify failed ($VCMD); the agent ran in the background and was not sent back to fix it."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
+  elif [ "$RES" = fail ]; then MSG="verify failed after one in-agent fix ($VCMD)."; TAILM="The work the agent left is in the tree and has NOT passed its verify command."
   else MSG="the agent closed its report with confidence: low."; TAILM="What the agent left is in the tree; read its report for what it could not do."; fi
   # A write refused on a critical path is not helped by one model up: that file takes opus.
   if [ "$ESCL" = 1 ] && [ "$TI" != opus ] && [ "$TI" != fable ]; then UP=opus; MSG="$MSG It was refused a write to a critical path, which only an agent on opus may make; name that file in the card."; fi
@@ -447,6 +451,16 @@ case "$EV" in
       fi
       if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
       elif [ "$VRC" = 0 ]; then RES=pass
+      elif [ "$CH" = test-write ]; then
+        # Tests written to fail first: red is what the card asked for, not a failure of the work. Recorded as red,
+        # never sent back, never escalated, never counted against the model.
+        RES=red
+      elif [ -f "$_AMD/bg/$AID" ]; then
+        # A BACKGROUND agent is not sent back: measured in the field (8 such stops in three projects), an agent that
+        # ended with a handback took no turn after the block in 4 of them, and its result, its outcome line and the
+        # session's notice were all lost. Recorded now as failed; the session is told at its Stop and repeats the
+        # task by the same ladder as a foreground one.
+        RES=fail
       elif [ "$TRIES" = 0 ] && [ "$SHA" = 0 ] && { printf '1\n' > "$_AMD/tries/$AID"; } 2>/dev/null; then
         # Asked ONCE, and only where that can be counted: Claude Code says when a stop hook has already kept this
         # agent running (stop_hook_active), and the counter has to be on disk before the answer goes out. Either
