@@ -5,6 +5,83 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased] — 3.6.0
+
+### Security
+
+- **A pull request merged into `main` is approved like a push.** `gh pr merge` went through no gate and merged into
+  `main` in real projects. Its base is read from GitHub: `main`, `master` or no answer needs approval (a one-click
+  question where one can be asked, otherwise the typed `/crew-approve merge`); a merge into any other branch stays free.
+- **A here-document can no longer reach a gate file through the program it feeds.** `python3 -`, `node -` or `sh`
+  fed a here-document could remove or rewrite a gate file that only the body named. Refused now unless the consumer is
+  `cat`, `tee` or `git commit -F -`.
+- **A Windows path is refused behind a wrapper and inside a container.** `env`, `command` or `nice` in front of
+  `rm -rf C:\Users\…` hid the target from the rule, and Git Bash deleted the folder. Every wrapper the rule knows
+  (`sudo`, `env`, `command`, `nice`, `nohup`, `time`, `exec`, `doas`, `ionice`, `stdbuf`, `timeout`) is looked through.
+
+### Added
+
+- **A strictness profile: `light`, `standard`, `strict`.** Chosen at install (`start.sh` asks, `--profile` in
+  scripts) or with `/crew-profile`, the user's own command; a session can tighten it, never loosen it. `standard` is
+  the behaviour so far. `light` asks no question for a commit, or for a push of one of the repository's own branches
+  that is not `main`, `master`, the remote's default or the `Base branch:` in CLAUDE.md, once every gate is clean; tags
+  are still asked, plan and bypassPermissions modes are unaffected, and the turn-end check is off. An unattended
+  install stays `standard`. `strict` refuses a verify that runs the whole suite, an audit of the same work again,
+  and a model above the card's floor without a reason.
+- **The session stops for a handoff at 25, 50, 75 and 95 % fill.** Once per threshold the turn is held so the session
+  writes a handoff and tells the user they can `/clear`. `light` starts at 50 %; `CREW_HANDOFF_TIERS` sets them.
+- **Incremental review.** When the staged change moved after a clean review on the same commit, the refusal shows only
+  the change since that review, removed lines included, and the reviewer reads only that. What lets the commit through
+  is unchanged.
+- **A task card can name the skills its agent must call** (`skills:`). The names must be installed skills; at the
+  agent's stop each one must have been called or read, and an agent in the foreground that skipped one is sent back
+  once. Every crew agent can now call skills. Studio shows, per agent, the skills it was asked for and the ones it used.
+- **An auditor called again on the same work is told the re-run rule.** A review, security or performance agent called
+  again on the same commit, after it raised nothing above low and only a fix with no critical or high finding has run
+  since, gets a note, not a refusal.
+  Measured on three projects: 36–40 % of repeat audits were of the same work.
+- **An agent's verify is the tests of what changed.** A verify that runs the whole suite gets a note naming the
+  narrower form. The default limit drops from 540 s to 120 s (`CREW_VERIFY_TIMEOUT`, at most 560). The outcome record
+  gains the verify's seconds and why a verify did not run.
+- **A doc that names a file edited in the session is pointed out once, at the end of the turn.** CHANGELOG and docs
+  edited in the same session are skipped; `CREW_DOC_STALE=off` turns it off.
+- **Skill rules from a survey of 26 repositories:** planning (what a plan must settle before hand-over), brainstorm and
+  interview, ADRs, code review (what deleted lines guarded; what lies beyond the diff), debugging, API version
+  retirement, migrations, a `shortcut:` marker in backend work, security-scan limits and retest plan, the docs reader
+  test, a state page for frontend work, measured-only contrast in accessibility reports, a token-budget rule for the
+  same error three times, and "run it without the new text first" when writing a skill. Two trigger phrases shared by
+  two components were given to one.
+
+### Changed
+
+- **The approval question offers what the state allows.** Nothing staged asks about a push only; no remote asks about
+  a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
+- **`/crew-approve` is an internal fallback,** named by the gate where no question can be asked, and no longer listed.
+  With `/crew-profile` the command count is 18.
+- **An `rm` that runs inside a container is judged as one.** `docker|podman exec|run`, `docker compose` and
+  `kubectl exec` removing a relative path, or an absolute one two or more levels deep, inside the container
+  pass; `/`, `~`, `.`, `..`, a top-level folder, an expansion and any host `rm` in the same call stay refused.
+  `docker exec app rm -rf .`, free before, is refused now.
+- **Every agent description is one line.** The always-on agent list went from 5,827 to 4,019 bytes (about 760 tokens a
+  session); routing is unchanged.
+- **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with
+  it** (`git restore --staged`, `git reset <path>`). Both were refused in real use; every other form stays refused.
+- **A TypeScript project may verify with `tsc -b`.** Existing installs get the line on update.
+
+### Fixed
+
+- **An update no longer gitignores a `docs/` the project tracks.**
+- **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
+- **The mid-session update warning is said once,** and a compaction ends it.
+- **A lowered model is told to the model,** not only written to the gate log.
+- **A push after a refused commit says the commit was not made.**
+- **A background agent's failed verify is recorded and told at the end of the turn,** instead of being sent back to an
+  agent that had already handed back and was lost. A test-writing card's failing tests are recorded as `red`: not
+  sent back, not told, not counted against the model.
+- **A clean review unblocks the commit even when auto mode refuses the reviewer's own write:** the stop hook writes the
+  review record.
+- **The install's own gate proofs no longer write a refusal to the project's gate log.**
+
 ## [3.5.0] — 2026-11-13
 
 ### Security
