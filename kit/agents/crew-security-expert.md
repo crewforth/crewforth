@@ -1,10 +1,7 @@
 ---
 name: crew-security-expert
 color: red
-description: |
-  Security review expert. Use proactively whenever auth/authz, anonymous/token flows, secret leakage, injection,
-  weak crypto, IDOR, rate limits, or tamper surface are touched. Findings + fixes via `security-scan` (plus
-  `sonarqube-check`); writes no code.
+description: Use proactively when auth, tokens, secrets, injection, crypto, IDOR, rate limits or tamper surface are touched; findings and fixes, no code.
 tools: Read, Grep, Glob, Bash, PowerShell, Skill
 # No `model` field: the caller names it per call, and hooks/guard-agent-model.sh refuses this agent below
 # `opus`. A pin could only make the audit WEAKER than the code it reviews — this said `sonnet` for 156

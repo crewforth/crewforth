@@ -1,9 +1,7 @@
 ---
 name: crew-planner
 color: cyan
-description: |
-  Planning specialist. Use proactively before implementing a feature whose scope or acceptance criteria are
-  unclear: task breakdown + acceptance criteria + dependency order, via the `spec-planning` skill. Plans; does not write code.
+description: Use proactively before a feature whose scope or acceptance criteria are unclear; tasks, criteria and their order. Plans, writes no code.
 tools: Read, Grep, Glob, Skill
 metadata:
   stage: understand

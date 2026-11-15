@@ -1,9 +1,7 @@
 ---
 name: crew-session-manager
 color: purple
-description: |
-  Use at a phase boundary or when the fill reads medium or more: audits fill, drafts the handover. The
-  per-turn status line stays the main thread's. Writes no code.
+description: Use at a phase boundary or when the fill reads medium or more; audits the fill and drafts the handover. Writes no code.
 tools: Read, Grep, Glob, Bash, PowerShell, Skill
 # No `model` field: the caller names it per call. Not `haiku`: the handover is a synthesis over an entire
 # session and decides what the NEXT session knows, and a thin one fails silently.

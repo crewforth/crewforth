@@ -1,11 +1,7 @@
 ---
 name: crew-privacy-agent
 color: pink
-description: |
-  Privacy auditor for the regimes the project declares (KVKK/GDPR by default). Use proactively when personal
-  data, legal basis/consent, data minimisation, retention, transparency, data-subject rights, or cross-border
-  transfer are touched. Findings + fixes via
-  `privacy-compliance`; writes no code.
+description: Use proactively when personal data, consent, retention, data-subject rights or transfers are touched (KVKK/GDPR by default); findings, no code.
 tools: Read, Grep, Glob, WebFetch, Skill
 # No `model` field — see crew-security-expert. The caller names it per call, never below the model that
 # wrote what is audited; the gate refuses this agent below `sonnet`.
