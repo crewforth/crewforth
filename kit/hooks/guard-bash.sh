@@ -1553,7 +1553,7 @@ fi
 # the shell is Turing-complete, so this is defence-in-depth — guard-write.sh covers the Write/Edit tools (the
 # model's natural path to a file), and install-time read-only hook files would be the airtight layer.
 _GP='[/\\]+(\.[/\\]+)*'      # a path separator as the shell and the filesystem take it: `/`, `\`, doubled, with `/./` between
-GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|settings\.local\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'crew-env\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|info'"$_GP"'attributes([^A-Za-z0-9_.-]|$)|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$)|(^|[^A-Za-z0-9_.-])etc'"$_GP"'gitconfig([^A-Za-z0-9_.-]|$)|\$\(git[^)]*rev-parse[^)]*(--(git-dir|git-common-dir|absolute-git-dir)[^)]*\)["'"'"']?'"$_GP"'|--git-path[[:space:]]+["'"'"']?)(config|hooks|info'"$_GP"'attributes))'
+GATE='(\.(claude'"$_GP"'(hooks|git-shim|settings\.json|settings\.local\.json|DISCIPLINE\.md|eval'"$_GP"'lib'"$_GP"'(crew-env|profile)\.sh)|git'"$_GP"'hooks|git'"$_GP"'(config|info'"$_GP"'attributes([^A-Za-z0-9_.-]|$)|worktrees'"$_GP"'[^/\\[:space:]]+'"$_GP"'config|modules'"$_GP"'[^[:space:]]+'"$_GP"'config))|\.gitconfig([^A-Za-z0-9_.-]|$)|\.config'"$_GP"'git'"$_GP"'config([^A-Za-z0-9_.-]|$)|(^|[^A-Za-z0-9_.-])etc'"$_GP"'gitconfig([^A-Za-z0-9_.-]|$)|\$\(git[^)]*rev-parse[^)]*(--(git-dir|git-common-dir|absolute-git-dir)[^)]*\)["'"'"']?'"$_GP"'|--git-path[[:space:]]+["'"'"']?)(config|hooks|info'"$_GP"'attributes))'
 # .git/config (with a worktree's and a submodule's own) is on the list because core.hooksPath LIVES there: the rules
 # above stop `git config core.hooksPath …`, and a plain `printf '[core]\n\thooksPath = /dev/null\n' >> .git/config`
 # walked past them — after it a commit from the user's own terminal skips the trace and secret scans (measured, 3.1.0
@@ -1588,7 +1588,7 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     _PGE="${o//\//[/\\\\]}"; }
   _pr="${CLAUDE_PLUGIN_ROOT//\\//}"; _pr="${_pr%/}"
   case "$_pr" in [A-Za-z]:/*) _pr="${_pr:2}" ;; esac
-  _S='[/\\]+'; _Q="[\"']?"; _GF="(hooks|\\.claude-plugin|eval${_S}lib${_S}crew-env\\.sh)"; _END="([/\\\\\"'[:space:];&|)]|\$)"
+  _S='[/\\]+'; _Q="[\"']?"; _GF="(hooks|\\.claude-plugin|eval${_S}lib${_S}(crew-env|profile)\\.sh)"; _END="([/\\\\\"'[:space:];&|)]|\$)"
   case "$_pr" in
     */[Pp][Ll][Uu][Gg][Ii][Nn][Ss]/[Cc][Aa][Cc][Hh][Ee]/*/*/*)
       _pn="${_pr%/*}"; _pmk="${_pn%/*}"; _pmk="${_pmk##*/}"; _pn="${_pn##*/}"
@@ -1838,7 +1838,8 @@ _gt_named(){  # $1 = text -> 0 = it names a gate path, or the directory that hol
 }
 _gt_script(){  # $1 = a word -> 0 = a file under a hooks directory of the gate (a hook script to run)
   local r=1; shopt -s nocasematch
-  if [[ "$1" =~ \.claude[/\\]+hooks[/\\]+([^/\\[:space:]]+\.sh|pre-commit|commit-msg)$ ]] || [[ "$1" =~ \.claude[/\\]+git-shim[/\\]+git$ ]] || { [ -n "${_PGATE:-}" ] && [[ "$1" =~ $_PGATE ]]; }; then r=0; fi
+  # eval/lib/profile.sh is a gate file to WRITE (the gates source it) and a script to RUN: --show reads, --set only tightens.
+  if [[ "$1" =~ \.claude[/\\]+hooks[/\\]+([^/\\[:space:]]+\.sh|pre-commit|commit-msg)$ ]] || [[ "$1" =~ \.claude[/\\]+eval[/\\]+lib[/\\]+profile\.sh$ ]] || [[ "$1" =~ \.claude[/\\]+git-shim[/\\]+git$ ]] || { [ -n "${_PGATE:-}" ] && [[ "$1" =~ $_PGATE ]]; }; then r=0; fi
   shopt -u nocasematch; return "$r"
 }
 # An awk program that only reads: $1 = the program as the command receives it -> 0 = it cannot write or run anything.
@@ -4244,6 +4245,57 @@ if git_has "$CMD_SEEN" 'commit|push'; then
       fi
       gatelog ALLOW 4.7 "the audit record matches the staged lockfiles (${DA_V:-?})"
     fi
+  fi
+  # THE LIGHT PROFILE (4.1, DECISIONS 2026-11-15): once every gate above is clean, a commit is not asked about, nor a
+  # push to a branch that is not main, master, origin's default branch or the CLAUDE.md `Base branch:`. Everything
+  # before this point still holds (the destructive set, force push, the review and audit records, the scans run by
+  # git's own hooks); only the question goes. Read with builtins: the push path is at its process ceiling. A push this
+  # cannot read as `git push [-u|--set-upstream] [<remote> [<branch>|HEAD:<branch>]]`, written once, goes to the
+  # question as before. Never in bypassPermissions or plan, where nothing is let through.
+  _gb_light_ok(){
+    local r="" w t="" n=0 rest seg="" b="" ob="" l="" cgd="" og=0
+    case "$PERM_MODE" in default|acceptEdits|auto|dontAsk) ;; *) return 1 ;; esac
+    CREW_PROFILE=standard
+    [ -f "$_GB_HERE/../eval/lib/profile.sh" ] && . "$_GB_HERE/../eval/lib/profile.sh" && crew_profile "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}"
+    [ "$CREW_PROFILE" = light ] || return 1
+    git_has "$CMD_SEEN" 'push' || return 0
+    rest="$CMD_SEEN"
+    while :; do case "$rest" in *"git push"*) n=$((n+1)); rest="${rest#*git push}"; seg="$rest" ;; *) break ;; esac; done
+    [ "$n" = 1 ] || return 1
+    seg="${seg%%[;&|]*}"
+    _hb=""; if declare -F crew_git_dir >/dev/null 2>&1 && crew_git_dir "${_CWD:-.}" && [ -f "$_CREW_GD/HEAD" ]; then
+      IFS= read -r _hb < "$_CREW_GD/HEAD"; _hb="${_hb%$'\r'}"; case "$_hb" in "ref: refs/heads/"*) _hb="${_hb#ref: refs/heads/}" ;; *) _hb="" ;; esac
+    fi
+    case "$-" in *f*) og=1 ;; *) set -f ;; esac
+    for w in $seg; do
+      case "$w" in
+        -u|--set-upstream) ;;
+        -*) n=0 ;;
+        *) if [ -z "$r" ]; then r="$w"; elif [ -z "$t" ]; then t="$w"; else n=0; fi ;;
+      esac
+    done
+    [ "$og" = 1 ] || set +f
+    [ "$n" = 1 ] || return 1
+    case "$r" in ''|*[!A-Za-z0-9._-]*) [ -z "$r" ] || return 1 ;; esac
+    case "$t" in HEAD:*) t="${t#HEAD:}" ;; *:*) [ "${t%%:*}" = "${t#*:}" ] || return 1; t="${t#*:}" ;; HEAD|'') t="$_hb" ;; esac
+    case "$t" in ''|*[!A-Za-z0-9._/-]*|refs/*) return 1 ;; esac
+    case "$t" in main|master) return 1 ;; esac
+    # origin's default branch, as the last fetch recorded it, and the base the project names in CLAUDE.md
+    if [ -n "${_CREW_GD:-}" ]; then
+      cgd="$_CREW_GD"; [ -f "$_CREW_GD/commondir" ] && { IFS= read -r l < "$_CREW_GD/commondir"; l="${l%$'\r'}"; case "$l" in /*|[A-Za-z]:*) cgd="$l" ;; ?*) cgd="$_CREW_GD/$l" ;; esac; }
+      if [ -f "$cgd/refs/remotes/origin/HEAD" ]; then IFS= read -r ob < "$cgd/refs/remotes/origin/HEAD"; ob="${ob%$'\r'}"; ob="${ob#ref: refs/remotes/origin/}"; [ "$t" = "$ob" ] && return 1; fi
+    fi
+    if [ -f "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}/CLAUDE.md" ]; then
+      while IFS= read -r l || [ -n "$l" ]; do case "$l" in *"Base branch:"*) b="${l#*Base branch:}"; b="${b//[\` $'\r'$'\t']/}"; break ;; esac; done < "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}/CLAUDE.md"
+      [ -n "$b" ] && [ "$t" = "$b" ] && return 1
+    fi
+    return 0
+  }
+  if _gb_light_ok; then
+    gatelog ALLOW 4.4 "light profile: a commit, or a push to a work branch, once every gate is clean"
+    # Fixed text, so no json_escape: its four processes would put the push path over its ceiling.
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"§4.4 light profile: every gate is clean, and a commit or a push to a work branch is not asked about"}}'
+    exit 0
   fi
   # WHICH MODES CAN ACTUALLY ASK A PERSON. `default` and `acceptEdits` show the prompt to the human and wait.
   # `auto` and `dontAsk` do not: in `auto` the permission prompt is answered by the auto-mode classifier, and

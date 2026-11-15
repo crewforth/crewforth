@@ -15,7 +15,7 @@
 **Crewforth is your engineering crew for Claude Code.**
 
 It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain,<br>
-40 skills that hold the method, 17 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+40 skills that hold the method, 18 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 https://github.com/user-attachments/assets/6b626e47-fd95-4b81-90b0-4a011b75ef27
 
@@ -59,7 +59,7 @@ You approve a summary before anything is written, and `add` copies into `./.clau
 
 A status line under the prompt shows the gate's last word, an approval that still holds, the agents still running, the measured context fill and the session's cost; `/crew-todo` opens the plan's to-do panel under it (phases and tasks, done ticked, the task in work marked). Before a compaction, a hook writes down the state of the work (branch, uncommitted files, the last refusal, the findings), and the same session gets it back afterwards.
 
-**17 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
+**18 commands** in all, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-loosen`, `/crew-profile`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
 
 ## The agents
 
@@ -86,7 +86,7 @@ A status line under the prompt shows the gate's last word, an approval that stil
 
 | Rule | Enforced by |
 |:--|:--|
-| Commit, push and a merge into `main` need your approval, in every permission mode: one click on the gate's prompt, or in `auto` on a question that offers only what can happen now (commit, push, both, or the merge). A push in a repository with no remote is not asked about: it is refused with the reason. Where a `PermissionRequest` hook may be wired, which can answer a prompt before you do, the question and the gate's own prompt close and the gate names a command you type instead; Warp's notification hook, which cannot answer one, leaves them open. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal | `guard-bash.sh` and `prompt-approval.sh` |
+| Commit, push and a merge into `main` need your approval, in every permission mode: one click on the gate's prompt, or in `auto` on a question that offers only what can happen now (commit, push, both, or the merge). A push in a repository with no remote is not asked about: it is refused with the reason. Where a `PermissionRequest` hook may be wired, which can answer a prompt before you do, the question and the gate's own prompt close and the gate names a command you type instead; Warp's notification hook, which cannot answer one, leaves them open. If the gate says the approval path is closed (the recording hook is not wired, as in a worktree on an older Crewforth), press Shift+Tab or commit in your own terminal. The `light` profile (`/crew-profile light`, yours to type) drops the question for a commit, and for a push to a branch other than `main`, `master` or the base, once every gate is clean; `strict` turns three of the model gate's notes into refusals. Destructive commands and secrets are refused in every profile | `guard-bash.sh` and `prompt-approval.sh` |
 | A commit needs a clean review of that exact diff. The review starts from a deterministic pre-pass (secrets, debug calls, shellcheck, a lock file without its manifest), every finding cites the lines it is about, and `crew-refuter` tries to refute the ones that block | `guard-bash.sh`, `review-prepass` and the record `crew-review-agent` writes |
 | Destructive commands (`reset --hard`, force push, `rm -rf`, `--no-verify`) are refused, with one line saying what they would have touched: the changes and commits discarded, the files removed, the remote commits overwritten | `guard-bash.sh` |
 | No AI-authorship trace reaches a commit | `pre-commit` and `commit-msg` git hooks |

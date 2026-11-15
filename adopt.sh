@@ -79,15 +79,18 @@ fi
 # --- flags (B5 — where a refresh lands) ---  --here: the current branch · --new-branch: a fresh review branch.
 # Left empty, Stage 2 picks a smart default (first adopt -> new; update + untracked .claude -> here; update +
 # tracked -> ask). Unknown flags are ignored here (start.sh owns --backend/--frontend/… ; adopt auto-detects shape).
-BRANCH_MODE=""; ASSUME_YES=0; PRESET=""; _preset_take=0
+BRANCH_MODE=""; ASSUME_YES=0; PRESET=""; _preset_take=0; PROFILE=""; _profile_take=0
 _lang_flag=""; _lang_take=0
 for _a in "$@"; do
   # `--lang` with no value must not swallow the next flag: `--lang --yes` is --yes with no language given.
   if [ "$_lang_take" = 1 ]; then _lang_take=0; case "$_a" in -*) ;; *) _lang_flag="$_a"; continue ;; esac; fi
   if [ "$_preset_take" = 1 ]; then _preset_take=0; PRESET="$_a"; continue; fi
+  if [ "$_profile_take" = 1 ]; then _profile_take=0; PROFILE="$_a"; continue; fi
   case "$_a" in
   --preset=*)   PRESET="${_a#--preset=}" ;;
   --preset)     _preset_take=1 ;;
+  --profile=*)  PROFILE="${_a#--profile=}" ;;
+  --profile)    _profile_take=1 ;;    # light | standard | strict (4.1); unset keeps the project's profile
   --here)       BRANCH_MODE=here ;;
   --new-branch) BRANCH_MODE=new  ;;
   --ignore-local) GI_LOCAL=1 ;;     # ignore lines go to .git/info/exclude, not the tracked .gitignore (K12)
@@ -96,6 +99,8 @@ for _a in "$@"; do
   --lang)       _lang_take=1 ;;
 esac; done
 [ "$_preset_take" = 1 ] && { echo "ERROR: --preset needs a name or a file (default, strict, solo, or ./org.json)."; exit 1; }
+case "$PROFILE" in ''|light|standard|strict) ;; *) echo "ERROR: --profile takes light, standard or strict."; exit 1 ;; esac
+[ "$_profile_take" = 1 ] && { echo "ERROR: --profile needs light, standard or strict."; exit 1; }
 # A preset is checked before anything is changed: one that is not valid stops the update here.
 if [ -n "$PRESET" ]; then bash "$SRC/eval/lib/preset.sh" --check "$PRESET" || exit 1; fi
 
@@ -1620,6 +1625,19 @@ fi
 # The organisation's preset (checked before anything was changed): a block at the top of crew-model-rules. Without
 # --preset an update leaves the block that is there, with the project's own lines, as they were.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
+# --profile (4.1): the person running the update chose it. Unset, the project's own profile line stays as it is.
+# Run from inside a Claude Code session (/crew-update runs this through the Bash tool, CLAUDECODE is set), it only
+# tightens: a looser profile is the user's own /crew-profile, never a flag the session can pass.
+if [ -n "$PROFILE" ] && [ -n "${CLAUDECODE:-}" ] && [ -f .claude/eval/lib/profile.sh ]; then
+  . .claude/eval/lib/profile.sh; crew_profile .
+  if [ "$(crew_profile_rank "$PROFILE")" -lt "$(crew_profile_rank "$CREW_PROFILE")" ]; then
+    echo "  --profile $PROFILE not applied: it loosens $CREW_PROFILE, and inside a session only the user does that (the user can type /crew-profile $PROFILE)."
+    PROFILE=""
+  fi
+fi
+if [ -n "$PROFILE" ]; then
+  { grep -v '^profile ' .claude/crew-model-rules 2>/dev/null; printf 'profile %s\n' "$PROFILE"; } > .claude/crew-model-rules.tmp && mv -f .claude/crew-model-rules.tmp .claude/crew-model-rules
+fi
 # The project's own test, lint and type-check commands become `verify` lines of .claude/crew-model-rules
 # (eval/lib/verify-detect.sh), so an agent's verify command runs them from the first card on; the user is told which,
 # here, and takes one back by deleting its line. One already added once is not added again after it was deleted.
