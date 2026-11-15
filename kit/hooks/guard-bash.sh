@@ -4280,9 +4280,20 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     case "$t" in HEAD:*) t="${t#HEAD:}" ;; *:*) [ "${t%%:*}" = "${t#*:}" ] || return 1; t="${t#*:}" ;; HEAD|'') t="$_hb" ;; esac
     case "$t" in ''|*[!A-Za-z0-9._/-]*|refs/*) return 1 ;; esac
     case "$t" in main|master) return 1 ;; esac
+    [ -n "${_CREW_GD:-}" ] || return 1
+    cgd="$_CREW_GD"; [ -f "$_CREW_GD/commondir" ] && { IFS= read -r l < "$_CREW_GD/commondir"; l="${l%$'\r'}"; case "$l" in /*|[A-Za-z]:*) cgd="$l" ;; ?*) cgd="$_CREW_GD/$l" ;; esac; }
+    # A BRANCH: the name is this repository's own branch (HEAD's, or one under refs/heads, loose or packed). A tag
+    # (`git push origin v2.0.0`, measured in the field corpus) or anything else is a release step, and it is asked.
+    if [ "$t" != "$_hb" ]; then
+      w=0; [ -f "$cgd/refs/heads/$t" ] && w=1
+      if [ "$w" = 0 ] && [ -f "$cgd/packed-refs" ]; then
+        while read -r l r; do [ "$r" = "refs/heads/$t" ] && { w=1; break; }; done < "$cgd/packed-refs"
+      fi
+      [ "$w" = 1 ] || return 1
+      [ -f "$cgd/refs/tags/$t" ] && return 1
+    fi
     # origin's default branch, as the last fetch recorded it, and the base the project names in CLAUDE.md
-    if [ -n "${_CREW_GD:-}" ]; then
-      cgd="$_CREW_GD"; [ -f "$_CREW_GD/commondir" ] && { IFS= read -r l < "$_CREW_GD/commondir"; l="${l%$'\r'}"; case "$l" in /*|[A-Za-z]:*) cgd="$l" ;; ?*) cgd="$_CREW_GD/$l" ;; esac; }
+    if :; then
       if [ -f "$cgd/refs/remotes/origin/HEAD" ]; then IFS= read -r ob < "$cgd/refs/remotes/origin/HEAD"; ob="${ob%$'\r'}"; ob="${ob#ref: refs/remotes/origin/}"; [ "$t" = "$ob" ] && return 1; fi
     fi
     if [ -f "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}/CLAUDE.md" ]; then

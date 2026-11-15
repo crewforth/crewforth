@@ -12396,13 +12396,14 @@ grep -q 'strict profile' "$_v2/err" 2>/dev/null || _v2b="$_v2b [the strict refus
 # forms it cannot read go to the question; plan never lets it through; standard asks (the twin)
 _LP="$(mktemp -d)"
 ( cd "$_LP" && git init -q -b feat . && git config user.email t@example.com && git config user.name t && git remote add origin https://example.invalid/r.git \
-  && echo a > a && git add a && git commit -qm i && echo b >> a && git add a && mkdir -p .claude \
+  && echo a > a && git add a && git commit -qm i && git tag v1 && git branch side && git branch main && git branch master && echo b >> a && git add a && mkdir -p .claude \
   && printf '{"diff_oid":"%s","head":"%s","ts":"t"}\n' "$(git diff --cached | git hash-object --stdin)" "$(git rev-parse HEAD)" > .claude/review-pass.json ) >/dev/null 2>&1
 _lpq(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_LP" "$1" "$2" \
   | ( cd "$_LP" && CLAUDE_PROJECT_DIR="$_LP" CREW_GATE_LOG=/dev/null env -u CLAUDE_GIT_OK bash "$HOOKS/guard-bash.sh" 2>/dev/null ); }
 printf 'profile light\n' > "$_LP/.claude/crew-model-rules"
 for _c in 'auto|git commit -m x|y' 'default|git commit -m x|y' 'auto|git push|y' 'auto|git push -u origin feat|y' 'auto|git commit -m x && git push origin feat|y' \
-          'auto|git push origin main|n' 'auto|git push origin HEAD:master|n' 'auto|git push --tags|n' 'auto|git push origin feat:other|n' 'plan|git commit -m x|n' 'bypassPermissions|git push|n'; do
+          'auto|git push origin main|n' 'auto|git push origin HEAD:master|n' 'auto|git push --tags|n' 'auto|git push origin feat:other|n' 'plan|git commit -m x|n' 'bypassPermissions|git push|n' \
+          'auto|git push origin v1|n' 'auto|git push origin nosuch|n' 'auto|git push origin side|y'; do
   _m="${_c%%|*}"; _r="${_c#*|}"; _cmd="${_r%|*}"; _y="${_r##*|}"; _o="$(_lpq "$_m" "$_cmd")"
   case "$_y|$_o" in y\|*'light profile'*) ;; n\|*'light profile'*) _v2b="$_v2b [light let '$_cmd' ($_m) through]" ;; n\|*) ;; *) _v2b="$_v2b [light asked about '$_cmd' ($_m): ${_o:0:60}]" ;; esac
 done
@@ -12410,7 +12411,7 @@ printf '## Conventions\n- Base branch: `feat`\n' > "$_LP/CLAUDE.md"; case "$(_lp
 rm -f "$_LP/.claude/crew-model-rules"; case "$(_lpq auto 'git commit -m x')" in *'light profile'*) _v2b="$_v2b [standard let a commit through]" ;; esac
 rm -f "$_LP/.claude/review-pass.json"; printf 'profile light\n' > "$_LP/.claude/crew-model-rules"; case "$(_lpq auto 'git commit -m x')" in *'light profile'*) _v2b="$_v2b [light let a commit with no review through]" ;; esac
 rm -rf "$_LP"
-[ -z "$_v2b" ] && pass "strictness profile: standard with no line; the session can tighten (profile.sh --set) and cannot loosen, write the rules or profile.sh, or find a writer in the library; the user's /crew-profile needs a person (not a first message, not headless), reads only light/standard/strict, sets either way and leaves one line; strict refuses a whole-suite verify, a model above the floor and a re-audit where standard notes them; light lets a commit and a work-branch push through once the review record matches, asks for main, master, the Base branch and the forms it cannot read, never in plan or bypass, and not without the review" \
+[ -z "$_v2b" ] && pass "strictness profile: standard with no line; the session can tighten (profile.sh --set) and cannot loosen, write the rules or profile.sh, or find a writer in the library; the user's /crew-profile needs a person (not a first message, not headless), reads only light/standard/strict, sets either way and leaves one line; strict refuses a whole-suite verify, a model above the floor and a re-audit where standard notes them; light lets a commit and a push of one of the repository's own branches through once the review record matches, asks for main, master, the Base branch, a tag, a name that is no branch here and the forms it cannot read, never in plan or bypass, and not without the review" \
                || fail "strictness profile:$_v2b"
 # What a lowering cannot reach: the floors the card and the agent carry. Two raised floors are planted and lowered;
 # the model below still fails where another rule holds it, and passes where only the lowered floor did.
