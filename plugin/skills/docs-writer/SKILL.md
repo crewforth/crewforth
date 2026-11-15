@@ -58,6 +58,10 @@ What cannot be checked is deleted, not hedged. A business or legal statement nob
 open question to its owner, not a sentence in the doc. Last test per sentence: could the author defend it against
 the code without saying "what I meant was"? Yes stays; unsure is checked again; no is deleted.
 
+**The reader test:** hand the doc to an agent with no other context and the reader's task; where it stops, guesses
+or reads the code instead, the doc is missing something. **A living doc moves with the code:** when a change touches
+a symbol, a flag or a path a doc names, that section is updated in the same change.
+
 Before it ships, score the doc 0-2 on each: accurate against the code · the reader can do the task with it · one
 reader and one doc type · every example runs · no filler. A 0 anywhere is fixed before it is published.
 

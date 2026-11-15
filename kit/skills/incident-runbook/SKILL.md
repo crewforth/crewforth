@@ -8,7 +8,7 @@ description: |
 # Incident Response & Runbook
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "incident", "incident response", "runbook", "postmortem", "root cause", "outage", "production incident", "post-incident"
+Trigger phrases: "incident", "incident response", "runbook", "postmortem", "incident root cause", "outage", "production incident", "post-incident"
 
 Two modes: **live incident** (what to do right now) and **aftermath** (postmortem + runbook). Priority: stopping
 user impact > finding the root cause. No panic, one ordered step at a time.
