@@ -503,6 +503,13 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
     while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
     [ -n "$l" ] || continue
+    # A heading over the card is not a line of it (field N36: "card:" above a whole files/change/verify card was
+    # refused as "line 1 is not one of files:, change:, verify:"). Only before the first field, only a bare heading.
+    if [ "$ln" = 0 ]; then
+      k="$l"; while :; do case "$k" in ['#*_ ']*) k="${k:1}" ;; *) break ;; esac; done
+      while :; do case "$k" in *['#*_: ']) k="${k%?}" ;; *) break ;; esac; done
+      case "$k" in [Cc][Aa][Rr][Dd]|[Kk][Aa][Rr][Tt]|[Tt][Aa][Ss][Kk][' -'][Cc][Aa][Rr][Dd]) continue ;; esac
+    fi
     ln=$((ln+1))
     case "$l" in *:*) ;; *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;; esac
     k="${l%%:*}"; v="${l#*:}"

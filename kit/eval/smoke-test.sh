@@ -11445,7 +11445,14 @@ _v2one 'files: src/ui/a.ts\nchange: refactor (no behaviour change)\nverify: true
 for _pr in 'files: a · change: archi (planning only) · verify: none' 'files: a · change: feature extra · verify: none' 'files: a · verify: true · change: text' 'files: a · change: feature' 'Do this. files: a · change: feature · verify: true' 'Kartal files: a · change: feature · verify: true'; do
   _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
 done
-[ -z "$_v2b" ] && pass "a card on one line (· ; | separators, a Card: or Kart: lead, above: on the line) is read by its labels and held to the three-line rules: a critical path still needs opus; a kind with a note in parentheses is the kind, on one line or three; a bad change, labels out of order, a missing verify or prose first are refused" \
+# A bare heading over a three-line card is not its first line (field N36: `card:` above files/change/verify was refused).
+for _pr in 'card:\nfiles: src/ui/a.ts\nchange: feature\nverify: true' '## Task card\nfiles: src/ui/a.ts\nchange: feature\nverify: true' '**Kart:**\nfiles: src/ui/a.ts\nchange: feature\nverify: true'; do
+  _v2one "$_pr" sonnet; [ "$_rc" = 0 ] || _v2b="$_v2b [a heading over the card was refused: $_pr → $_rc]"
+done
+for _pr in 'card: see below\nfiles: a\nchange: feature\nverify: true' 'Context\nfiles: a\nchange: feature\nverify: true' 'files: a\ncard:\nchange: feature\nverify: true'; do
+  _v2one "$_pr" sonnet; { [ "$_rc" = 2 ] && grep -q 'opens with its task card' "$_v2/err"; } || _v2b="$_v2b [passed: $_pr → $_rc]"
+done
+[ -z "$_v2b" ] && pass "a card on one line (· ; | separators, a Card: or Kart: lead, above: on the line) is read by its labels and held to the three-line rules: a critical path still needs opus; a kind with a note in parentheses is the kind, on one line or three; a bad change, labels out of order, a missing verify or prose first are refused; a bare card: / ## Task card / Kart: heading over a three-line card is not a line of it, a heading with words or one inside the card is" \
                || fail "the one-line card:$_v2b"
 # `above:` among the three lines, not only after them (2026-10-19: 2 of 19 line refusals had it between change: and
 # verify:; the retry moved it down and passed). It keeps the model the same way; the three are still all required.
