@@ -8908,6 +8908,20 @@ else skip platform "a recursive rm through a symbolic link (ln -s made no link h
 if [ "$_rmtn" -lt 19 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 19"
 elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call and a link followed through / or a glob stay refused ($_rmtn rows)"
 else fail "recursive rm and temp directories:$_rmtb"; fi
+# A SUBAGENT'S git stash (field N33): it runs, with a note that the calling session's uncommitted work leaves the tree
+# until the pop; the main thread's stash, list/show/drop/clear and a subagent's other git calls get no note.
+_stb=""; _stv(){  # $1 = command, $2 = 1 for a subagent -> "rc/note|-"
+  local j; j='{"tool_name":"Bash","permission_mode":"auto","session_id":"s1","tool_input":{"command":"'"$1"'"}'
+  [ "$2" = 1 ] && j="$j"',"agent_id":"a1"'; j="$j}"
+  local o; o="$(printf '%s' "$j" | CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" 2>/dev/null)"; local r=$?
+  case "$o" in *additionalContext*'git stash takes the uncommitted work'*) echo "$r/note" ;; *) echo "$r/-" ;; esac; }
+for _sr in '1|git stash|0/note' '1|git stash -u && git diff && git stash pop|0/note' '1|git stash push -m x|0/note' \
+           '0|git stash|0/-' '1|git stash list|0/-' '1|git stash show -p|0/-' '1|git stash drop|0/-' '0|git stash drop stash@{0}|0/-' '1|git status|0/-'; do
+  _sa="${_sr%%|*}"; _sc="${_sr#*|}"; _sw="${_sc##*|}"; _sc="${_sc%|*}"
+  _sg="$(_stv "$_sc" "$_sa")"; [ "$_sg" = "$_sw" ] || _stb="$_stb [$_sc (subagent=$_sa) → $_sg, want $_sw]"
+done
+[ -z "$_stb" ] && pass "a subagent's git stash runs with a note that the session's uncommitted work leaves the tree until the pop; the main thread's stash, list, show, drop and a subagent's other git calls get none" \
+               || fail "git stash note:$_stb"
 # AN rm IN A CONTAINER IS THE CONTAINER'S (5.2, field N3): `docker exec app rm -rf /app/tmp` was refused as a host path.
 # It passes when every rm of the call runs in a docker/podman/compose/kubectl exec or run and every target is an
 # ordinary path there; what empties the container stays refused, and so does any rm left on the host.

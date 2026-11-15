@@ -4452,6 +4452,17 @@ fi
 # Branch creation used to be matched here in every spelling git accepts (checkout -b/-B/--orphan, switch
 # -c/-C/--create/--force-create/--orphan, with global options in front) so that default mode could ask. That
 # matcher is gone with the question; smoke §4e now pins the opposite — every spelling runs without a prompt.
+#
+# A SUBAGENT'S `git stash` (field N33: an audit agent stashed the work tree to look at HEAD, then popped it). It runs,
+# but the main thread's uncommitted work is out of the tree until the pop, and a pop that conflicts or never comes
+# leaves it there. A note, not a refusal: the agent is told the ways that do not move the tree. `git stash drop` stays
+# free (Barış, 2026-11-15): 20 of 502 field commands dropped a stash on purpose, after checking it was applied.
+if [ "$HAS_GIT" = 1 ]; then case "$INPUT" in *'"agent_id"'*)
+  if git_has "$CMD" 'stash' && ! git_has "$CMD" 'stash[[:space:]]+(list|show|drop|clear)'; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}\n' \
+      "$(json_escape "Crewforth: git stash takes the uncommitted work of the session that called you out of the tree until it is popped, and a pop that conflicts or never comes leaves it there. To see the committed version use git show HEAD:<path>, git diff, or a git worktree; if you stash, pop it in this same call and say so in your report.")"
+  fi ;;
+esac; fi
 exit 0
 }
 _gate_main "$@"
