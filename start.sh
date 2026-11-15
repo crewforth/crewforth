@@ -162,6 +162,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "(shared: .claude/ and CLAUDE.md stay committable)") s="(paylaşımlı: .claude/ ve CLAUDE.md commit'lenebilir kalır)" ;;
       "(default — pass --shared to commit .claude/ and CLAUDE.md)") s="(varsayılan — .claude/ ve CLAUDE.md'yi commit'lemek için --shared verin)" ;;
       "no") s='hayır' ;;
+      "docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
       "Just me, and leave .gitignore untouched") s=".gitignore'a dokunmadan yalnız ben" ;;
       "the same lines go to .git/info/exclude, which only this clone reads; the tracked .gitignore is not changed") s="aynı satırlar yalnız bu klonun okuduğu .git/info/exclude dosyasına yazılır; izlenen .gitignore değişmez" ;;
       "(this clone only)") s='(yalnız bu klon)' ;;
@@ -300,12 +301,16 @@ ask_yes() {  # $1 = question; returns 0 if the user says 'yes'
 #     fall back to the literal test, which is all that is knowable there.
 gi_add() {   # $@ = entries to ensure in $GI_FILE (./.gitignore unless --ignore-local); sets GI_WROTE to what it added
   local e
-  GI_WROTE=""
+  GI_WROTE=""; GI_TRACKED=""
   local gf="${GI_FILE:-.gitignore}"
   mkdir -p "$(dirname "$gf")" 2>/dev/null; [ -e "$gf" ] || : > "$gf"
   for e in "$@"; do
     if git rev-parse --git-dir >/dev/null 2>&1; then
       git check-ignore -q --no-index "$e" 2>/dev/null && continue   # --no-index: a dir holding tracked files (docs/HANDOVER.md) still counts as ignored
+      # docs/ that the project already TRACKS is its own (field, N26: 30 tracked files): ignoring it hides nothing that
+      # is tracked and only changes a file the project owns. Asked of HEAD, not the index: this run's own staged
+      # docs/HANDOVER.md must not count as the project tracking docs/.
+      if [ "$e" = docs/ ] && [ -n "$(git ls-tree -d --name-only HEAD -- docs 2>/dev/null)" ]; then GI_TRACKED=docs/; continue; fi
     else
       grep -qxF "$e" "$gf" 2>/dev/null && continue
     fi
@@ -809,6 +814,7 @@ fi
 # space-separated list this script built, not user input.
 # shellcheck disable=SC2086
 gi_add $GI_PLAN
+[ -n "${GI_TRACKED:-}" ] && { _mt 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'; echo "  ${_M}"; }
 [ -n "$GI_WROTE" ] && printf '  %s+%s %s: %s\n' "$GR" "$R" "$GI_LABEL" "$GI_WROTE"
 # Pinned only when git will actually CHECK .claude/ OUT — and that question goes to git, not to the mode
 # variable, for the same reason gi_add asks `git check-ignore` instead of grepping the file: the variable is

@@ -225,6 +225,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       ".claude/CLAUDE.md is tracked — keep sharing with the team") s=".claude/CLAUDE.md git'te izleniyor — ekiple paylaşmaya devam" ;;
       "untracked; Crewforth files are shared by default — pick hide to keep them local") s='izlenmiyor; Crewforth dosyaları varsayılan olarak paylaşılır — yerelde tutmak için hide seçin' ;;
       "hide") s='gizle' ;;
+      "docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
       ".claude is already gitignored in this repo — Crewforth stays local (pick share and un-ignore it to share)") s="bu depoda .claude zaten gitignore'da — Crewforth yerelde kalır (paylaşmak için share seçip ignore kuralını kaldırın)" ;;
       "#4 hide -> this repo already ignores .claude — nothing to add; Crewforth stays local") s="#4 hide -> bu depo .claude'u zaten yok sayıyor — eklenecek bir şey yok; Crewforth yerelde kalır" ;;
       "docs/ is gitignored here (a private install): %s and %s are written but not staged — they stay on this machine") s="docs/ burada gitignore'da (kişisel kurulum): %s ve %s yazıldı ama stage edilmedi — bu makinede kalır" ;;
@@ -472,12 +473,16 @@ ask_yes(){ local a q w
 #     writes. Outside a repository there is nothing to ask, so the literal test stays as the fallback.
 gi_add() {   # $@ = entries to ensure in $GI_FILE (./.gitignore unless --ignore-local); sets GI_WROTE to what it added
   local e
-  GI_WROTE=""
+  GI_WROTE=""; GI_TRACKED=""
   local gf="${GI_FILE:-.gitignore}"
   mkdir -p "$(dirname "$gf")" 2>/dev/null; [ -e "$gf" ] || : > "$gf"
   for e in "$@"; do
     if git rev-parse --git-dir >/dev/null 2>&1; then
       git check-ignore -q --no-index "$e" 2>/dev/null && continue   # --no-index: a dir holding tracked files (docs/HANDOVER.md) still counts as ignored
+      # docs/ that the project already TRACKS is its own (field, N26: 30 tracked files): ignoring it hides nothing that
+      # is tracked and only changes a file the project owns. Asked of HEAD, not the index: this run's own staged
+      # docs/HANDOVER.md must not count as the project tracking docs/.
+      if [ "$e" = docs/ ] && [ -n "$(git ls-tree -d --name-only HEAD -- docs 2>/dev/null)" ]; then GI_TRACKED=docs/; continue; fi
     else
       grep -qxF "$e" "$gf" 2>/dev/null && continue
     fi
@@ -2114,6 +2119,7 @@ fi
 GI_FILE=.gitignore
 [ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
 gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'
+[ -n "${GI_TRACKED:-}" ] && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.
 # That is the shared case, which is the one where a Windows teammate's `core.autocrlf=true` rewrites every
