@@ -44,6 +44,12 @@ Progress: tick a task [x] when its check passes, mark the one in work [~]; statu
 3. [ ] …
 ## Not covered by tests
 - <an input or case no test reaches> → task <n>                    (five at most)
+## Edge cases                                                      (three at least)
+- <empty · an error · two at once · a boundary> → AC-n or task <n>
+## Parallel
+- tasks <n>, <m> may run at once · <file or interface>: tasks <n>, <k>, never at once
+## Replan if
+- <a fact the plan rests on that, found false, makes it wrong>
 ## Assumptions / Open questions
 - ...
 ```
@@ -61,6 +67,19 @@ Progress: tick a task [x] when its check passes, mark the one in work [~]; statu
   plan quotes is the current code a task changes, word for word.
 - **Drift stops the work.** When a task's `Current code` no longer matches the file, or its files changed after the
   plan's `commit:`, the task stops and reports what moved. It does not improvise a new version of the plan.
+
+## Before the plan is handed over
+- **Split a task** that satisfies more than three criteria, has "and" in its title, spans two subsystems, or touches
+  about five files or more. A size that does not fit its files (S with eight of them) is the same smell.
+- **Say what a task needs and what it changes:** the fact that must hold before it (`Needs:`), and what is different
+  after it (`Changes:`), on its `Interfaces:` line or under it.
+- **Point at code by `file:line`**, not by description. **One name per thing** across the whole plan.
+- **No word a test cannot check** in a criterion: fast, robust, properly, handle, support, as needed, etc. Write the
+  number or the observable behaviour instead.
+- **The reader test.** Read the plan as an agent with no context would, and list every place it would have to guess.
+  Each one is answered from the code, decided by us (written in the plan, with the reading not taken), or the
+  user's (a `[NEEDS CLARIFICATION: …]` marker). Then a doubt pass: "what is wrong with this plan?", fixed; at most
+  three passes, then stop.
 
 **Every criterion carries a stable id, and every task names the ids it satisfies.** The id is what makes the plan
 checkable later: "AC-2 is only partly built" can be said, argued about and tracked; "the second checkbox" cannot,
@@ -118,6 +137,8 @@ a pass that produced no table did not run.
 
 ## DoD (this skill's contribution)
 - Every task's "done" is testable; ordering and dependencies are visible; the riskiest work has been brought to the front.
+- At least three edge cases, the tasks that may run at once and the ones that share a file or interface, and the
+  facts that would force a replan are in the plan; the reader test found no guess left unanswered.
 - Every unresolved ambiguity carries a `[NEEDS CLARIFICATION: …]` marker; no acceptance criterion contains one.
 - Every criterion has a stable `AC-n` id and at least one task that satisfies it; at close, a converge pass
   has run and either reported **Converged** or left its remaining items in the plan as tasks.
