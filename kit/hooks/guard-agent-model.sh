@@ -1244,6 +1244,7 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
     vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
   elif _am_whole_suite "$CARD_VERIFY"; then
+    _AMWSF=1
     vnote="Crewforth: this card's verify command runs the whole test suite ($_AMWS). An agent's verify is the tests of what it changed: name them in the card's verify: line (the test file or package this change touches, e.g. pytest <its test file>, npm test -- <its test file>, go test ./<its package>/...). The whole suite runs once at the end of the work, and in CI. The hook stops a verify after 120 s."
     _am_log "note: a verify command that runs the whole suite"
   fi
@@ -1273,9 +1274,30 @@ _am_rerun(){  # $1 = agent -> 0 when the call re-audits the same work
   [ "${last%% *}" = "$head" ]
 }
 if _am_rerun "$st"; then
+  _AMRR=1
   _rn="Crewforth: $st already audited this work in this session (the same HEAD) and raised nothing above low, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again; after a critical or high one, all do. If this is new work, go on."
   if [ -n "$vnote" ]; then vnote="$vnote $_rn"; else vnote="$_rn"; fi
   _am_log "note: $st called again on the same work after it raised nothing above low"
+fi
+# ---- the strict profile: what is a note elsewhere refuses (4.1, Barış 2026-11-15) ----
+# eval/lib/profile.sh reads `profile <name>` from .claude/crew-model-rules, the file the session cannot write. Three
+# notes become refusals, and nothing else changes: a verify that runs the whole suite, an auditor called again on the
+# same work, a model above the card's floor with no `above:` line (elsewhere it is lowered to the floor and told).
+CREW_PROFILE=standard
+[ -f "$_AM_HERE/../eval/lib/profile.sh" ] && . "$_AM_HERE/../eval/lib/profile.sh" && crew_profile "$_AMP"
+if [ "$CREW_PROFILE" = strict ]; then
+  if [ "${_AMWSF:-0}" = 1 ]; then
+    echo "GUARD (agent model, strict profile): this card's verify command runs the whole test suite ($_AMWS). Name the tests of what this change touches in its verify: line; the whole suite runs once at the end of the work." >&2
+    _am_log "strict: a verify that runs the whole suite"; exit 2
+  fi
+  if [ "${_AMRR:-0}" = 1 ]; then
+    echo "GUARD (agent model, strict profile): $st already audited this work in this session (the same HEAD) and raised nothing above low, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again. If this is new work, commit what is done first." >&2
+    _am_log "strict: an auditor called again on the same work"; exit 2
+  fi
+  if [ -n "$lowered" ]; then
+    echo "GUARD (agent model, strict profile): $st asked for $lowered, above $m, the floor of its card. Call it on $m, or add 'above: <why>' to the card to keep $lowered." >&2
+    _am_log "strict: a model above the card's floor with no above: line"; exit 2
+  fi
 fi
 # ---- effort: a note in the record, never a refusal ----
 # Two things the gate does not refuse. A call that names no effort cannot take the cheap first step after a failed

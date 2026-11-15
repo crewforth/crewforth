@@ -122,7 +122,16 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "Security gates armed on every install:") s='Her kurulumda devreye giren güvenlik kapıları:' ;;
       "commit/push approval gate — even in auto/bypass mode (guard-bash)") s='commit ve push için onay şartı — auto/bypass modunda bile (guard-bash)' ;;
       "trace scan — a git hook blocks AI traces / vendor names") s="iz taraması — AI izlerini ve sağlayıcı adlarını bir git hook'u yakalar" ;;
-      "real context measurement + handoff at 75%% (Stop hook)") s="bağlam doluluğu gerçekten ölçülür, %%75'te devir önerilir (Stop hook)" ;;
+      "real context measurement + a handoff at each fill threshold (Stop hook)") s="bağlam doluluğu gerçekten ölçülür, her doluluk eşiğinde devir yapılır (Stop hook)" ;;
+      "How strict should the gates be?") s='Kapılar ne kadar sıkı olsun?' ;;
+      "Destructive commands and secrets are refused in every profile. /crew-profile changes it later.") s='Yıkıcı komutlar ve sırlar her profilde reddedilir. Sonra /crew-profile ile değiştirilir.' ;;
+      "Standard") s='Standart' ;;
+      "every commit and push is asked; handoff at 25/50/75/95%% fill") s='her commit ve push sorulur; %%25/50/75/95 dolulukta devir' ;;
+      "Light") s='Hafif' ;;
+      "no question for a commit, or a push to a work branch, once every gate is clean; main is always asked") s="kapılar temizse commit ve iş dalına push sorulmaz; main her zaman sorulur" ;;
+      "Strict") s='Sıkı' ;;
+      "standard, and a whole-suite verify, a re-audit of the same work and a model above its floor are refused") s="standart; ayrıca tüm süit verify'ı, aynı işin tekrar denetimi ve tabanı üstündeki model reddedilir" ;;
+      "Profile") s='Profil' ;;
       "destructive command guard (rm -rf / force-push, etc.)") s='yıkıcı komut koruması (rm -rf, force-push vb.)' ;;
       "Install with these settings?") s='Bu ayarlarla kurayım mı?' ;;
       "Cancelled — nothing changed.") s='İptal edildi, hiçbir şey değişmedi.' ;;
@@ -208,6 +217,7 @@ Crewforth her zaman eksiksiz kurulur: tüm ajanlar ve skill'ler — backend, web
   --private | --shared   kurulum yalnızca sizin mi, yoksa ekiple paylaşılıp commit'lenecek mi? (varsayılan: private)
   --ignore-local         yok sayılacak satırları .gitignore yerine .git/info/exclude'a yaz (yalnız bu klon; .gitignore değişmez)
   --preset <ad|dosya>    bir kurum preset'i uygula: kritik yollar, model tabanları, izinli verify komutları
+  --profile light|standard|strict   kapıların sıkılığı (verilmezse sihirbaz sorar; etkileşimsiz kurulumda standard)
                          (gelenler: default, strict, solo; ya da kendi .json dosyanız)
   --lang tr|en   kurulum dili (verilmezse sihirbaz sorar)
   --yes, -y      tüm sorulara evet de (gözetimsiz kurulum)
@@ -229,6 +239,7 @@ Every install ships everything: all agents, all skills — backend, web and mobi
   --private | --shared   is the install yours alone, or committed for the team? (default: private)
   --ignore-local         write the ignore lines to .git/info/exclude instead of .gitignore (this clone only; .gitignore unchanged)
   --preset <name|file>   apply an organisation preset: critical paths, model floors, allowed verify commands
+  --profile light|standard|strict   how strict the gates are (asked when not given; standard when unattended)
                          (shipped: default, strict, solo; or a .json file of your own)
   --lang tr|en   installer language (asked interactively when not given)
   --yes, -y     answer every question with yes (unattended install)
@@ -458,13 +469,16 @@ case "$CREW_LANG" in tr|en) ;; *) CREW_LANG=en ;; esac
 # choice made by --lang or the menu above stayed in this shell, and the preflight block printed English.
 export CREW_LANG
 
-STACK="generic"; DOTNET_FLAG=0; LEGACY_FLAGS=""; ASSUME_YES=0; VISIBILITY=""; PRESET=""; _preset_take=0
+STACK="generic"; DOTNET_FLAG=0; LEGACY_FLAGS=""; ASSUME_YES=0; VISIBILITY=""; PRESET=""; _preset_take=0; PROFILE=""; _profile_take=0
 for a in "$@"; do
   # `--preset NAME`: the next word is its value, whatever it looks like (`--preset strict`, `--preset ./org.json`).
   if [ "$_preset_take" = 1 ]; then _preset_take=0; PRESET="$a"; continue; fi
+  if [ "$_profile_take" = 1 ]; then _profile_take=0; PROFILE="$a"; continue; fi
   case "$a" in
     --preset=*) PRESET="${a#--preset=}" ;;
     --preset)   _preset_take=1 ;;
+    --profile=*) PROFILE="${a#--profile=}" ;;
+    --profile)  _profile_take=1 ;;
     --lang) ;;                       # value consumed in the language pass above
     --lang=*) ;;
     tr|en) ;;                        # the value of a separated --lang
@@ -480,6 +494,8 @@ for a in "$@"; do
   esac
 done
 [ "$_preset_take" = 1 ] && { printf '%s\n' "$(m 'Unknown parameter: %s' "--preset (no value)")"; echo; usage; exit 1; }
+case "$PROFILE" in ''|light|standard|strict) ;; *) printf '%s\n' "$(m 'Unknown parameter: %s' "--profile $PROFILE")"; echo; usage; exit 1 ;; esac
+[ "$_profile_take" = 1 ] && { printf '%s\n' "$(m 'Unknown parameter: %s' "--profile (no value)")"; echo; usage; exit 1; }
 # A preset is checked before anything is installed: one that is not valid stops here, with nothing written.
 if [ -n "$PRESET" ]; then bash "$SRC/eval/lib/preset.sh" --check "$PRESET" || exit 1; fi
 
@@ -577,6 +593,28 @@ if [ -z "$VISIBILITY" ]; then
   crew_read s                        # empty => default (private = today's behaviour)
   case "$s" in 2) VISIBILITY="shared" ;; 3) VISIBILITY="private"; GI_LOCAL=1 ;; *) VISIBILITY="private" ;; esac
 fi
+# THE STRICTNESS PROFILE (4.1). Asked only when someone is there to answer, for the reason the visibility question
+# gives above: a non-interactive run reads nothing more from stdin and keeps standard, which is what Crewforth did
+# before profiles. --profile chooses it in a script. /crew-profile changes it later (a looser one only by the user).
+if [ -z "$PROFILE" ] && { [ ! -t 0 ] || [ "$ASSUME_YES" = 1 ]; }; then PROFILE=standard; fi
+if [ -z "$PROFILE" ]; then
+  h1  'How strict should the gates be?'
+  sub 'Destructive commands and secrets are refused in every profile. /crew-profile changes it later.'
+  echo
+  opt 1 'Standard' 1 'standard'
+  add  'every commit and push is asked; handoff at 25/50/75/95%% fill'
+  echo
+  opt 2 'Light' 0 'light'
+  add  'no question for a commit, or a push to a work branch, once every gate is clean; main is always asked'
+  echo
+  opt 3 'Strict' 0 'strict'
+  add  'standard, and a whole-suite verify, a re-audit of the same work and a model above its floor are refused'
+  echo
+  _mt 'Choice'; _a="$_M"; _mt 'empty=1'
+  printf '  %s->%s %s %s[1-3, %s]%s: ' "$CY" "$R" "$_a" "$D" "$_M" "$R"
+  crew_read s
+  case "$s" in 2) PROFILE=light ;; 3) PROFILE=strict ;; *) PROFILE=standard ;; esac
+fi
 # The exact lines this install will append, resolved once so the summary and the writer cannot disagree.
 if [ "$VISIBILITY" = "shared" ]; then
   GI_PLAN='docs/ .private-terms.txt .claude/.state/'   # .state is runtime state (update cache, snapshot), never shared
@@ -631,9 +669,10 @@ echo
 _mt 'Security gates armed on every install:'; printf '  %s%s%s\n' "$B" "$_M" "$R"
 gate 'commit/push approval gate — even in auto/bypass mode (guard-bash)'
 gate 'trace scan — a git hook blocks AI traces / vendor names'
-gate 'real context measurement + handoff at 75%% (Stop hook)'
+gate 'real context measurement + a handoff at each fill threshold (Stop hook)'
 gate 'destructive command guard (rm -rf / force-push, etc.)'
 echo
+row 'Profile' "${B}${PROFILE}${R}"
 row 'Will write' "${D}./.claude (agents·skills·commands·hooks·eval·studio·settings.json) + ./CLAUDE.md${R}"
 # .gitignore is a TRACKED file in most repos, so appending to it is a change to the project — it belongs in
 # the summary, named line by line, not discovered afterwards in `git diff`. Entries this repo already
@@ -736,6 +775,11 @@ cp "$SRC/README.md"         .claude/ 2>/dev/null || true
 } > .claude/kit.conf
 # The organisation's preset, now that .claude/ is in place (checked above): a block at the top of crew-model-rules.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
+# The profile, only when it is not the default: standard is what a missing line means. An existing profile line (a
+# reinstall) is kept unless --profile or the question chose another, which is the installing user's own act.
+if [ -n "$PROFILE" ] && [ "$PROFILE" != standard ]; then
+  { grep -v '^profile ' .claude/crew-model-rules 2>/dev/null; printf 'profile %s\n' "$PROFILE"; } > .claude/crew-model-rules.tmp && mv -f .claude/crew-model-rules.tmp .claude/crew-model-rules
+fi
 # The project's own test, lint and type-check commands become `verify` lines of .claude/crew-model-rules
 # (eval/lib/verify-detect.sh), so an agent's verify command runs them from the first card on; the user is told which,
 # here, and takes one back by deleting its line. One already added once is not added again after it was deleted.

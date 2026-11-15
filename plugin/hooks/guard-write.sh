@@ -528,7 +528,9 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
       GATE_RULE="gate-file edit (Write/Edit tools)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
     # The gates SOURCE eval/lib/crew-env.sh on every call, so it is part of them: overwritten with `exit 0`, every
     # rule stopped firing (3.0.1 review). Same file in the plugin edition, below.
-    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh])
+    # eval/lib/profile.sh too (4.1): the gates source it for the strictness profile, so a copy that always says light
+    # would loosen every one of them.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Pp][Rr][Oo][Ff][Ii][Ll][Ee].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Pp][Rr][Oo][Ff][Ii][Ll][Ee].[Ss][Hh])
       GATE_RULE="gate-file edit (Crewforth gate script)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
     */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Dd][Ii][Ss][Cc][Ii][Pp][Ll][Ii][Nn][Ee].[Mm][Dd]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Dd][Ii][Ss][Cc][Ii][Pp][Ll][Ii][Nn][Ee].[Mm][Dd])
       GATE_RULE="gate-file edit (discipline document)"; GATE_WHY="$WHY_DISC"; return 0 ;;
@@ -572,7 +574,7 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
   # the cache, by the whole path without its drive. Case folded.
   if [ -n "$_PWB" ]; then
     local r=1; shopt -q nocasematch && r=0; shopt -s nocasematch
-    case "$1" in *"$_PWB"$_PWV/hooks/*|*"$_PWB"$_PWV/hooks|*"$_PWB"$_PWV/.claude-plugin/*|*"$_PWB"$_PWV/.claude-plugin|*"$_PWB"$_PWV/eval/lib/crew-env.sh)
+    case "$1" in *"$_PWB"$_PWV/hooks/*|*"$_PWB"$_PWV/hooks|*"$_PWB"$_PWV/.claude-plugin/*|*"$_PWB"$_PWV/.claude-plugin|*"$_PWB"$_PWV/eval/lib/crew-env.sh|*"$_PWB"$_PWV/eval/lib/profile.sh)
       [ "$r" = 0 ] || shopt -u nocasematch
       GATE_RULE="gate-file edit (Crewforth gate script)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;; esac
     [ "$r" = 0 ] || shopt -u nocasematch

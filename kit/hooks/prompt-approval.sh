@@ -377,12 +377,12 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 
 # ---- WHICH TEXT IS AN APPROVAL: one function, asked here of the user's prompt and by guard-schedule.sh of a
 # prompt a tool is about to schedule ---------------------------------------------------------------------------
-_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen | allowverify, or "" when the text is none
+_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen | allowverify | profile, or "" when none
   # `loosen` is the other thing only the user's own message does: `/crew-loosen <agent> <change> <risk>` lowers a
   # floor that model routing raised (3.1.0). It is matched HERE so that everything that refuses to hand a session
   # an approval (a scheduled prompt, a `claude -p` call) refuses to hand it this as well: one question, one answer.
   local P="$1" _k _v _vr LC_ALL=C
-  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""; AV_CMD=""
+  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""; AV_CMD=""; PR_TO=""
   P="${P//$'\r'/}"
   while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
   while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
@@ -390,6 +390,13 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
   # message does. The message is at most 120 bytes before it reaches this function (the limit every reader of an
   # approval shares, guard-schedule.sh's included); a longer one is answered before that limit, not here.
   _k="${P%%[$' \t']*}"
+  # `/crew-profile [light|standard|strict]` (4.1): the strictness profile, set by the user's own message. With nothing
+  # after it, the profile in force is said. Anything else after it is not this command.
+  case "$_k" in /*) case "${_k##*[/:]}" in crew-profile)
+    _v="${P:${#_k}}"; _v="${_v//[$' \t']/}"
+    case "$_v" in ''|light|standard|strict) OP=profile; PR_TO="$_v" ;; esac
+    return 0 ;; esac ;;
+  esac
   case "$_k" in /*) case "${_k##*[/:]}" in crew-allow-verify)
     case "$P" in *$'\n'*) return 0 ;; esac
     AV_CMD="${P:${#_k}}"; while :; do case "$AV_CMD" in [$' \t']*) AV_CMD="${AV_CMD:1}" ;; *) break ;; esac; done
@@ -1032,6 +1039,34 @@ _crew_appr_op "$_JU"
 # so this is not the prompt a command or a schedule started a session with. In every permission mode: this is not
 # a commit. ONE model down, ONCE for each time the floor was raised; the record of outcomes is counted afresh for
 # that class from here, so the old failures do not raise it straight back.
+# ---- /crew-profile: the strictness profile, set by the user and by nobody else in the looser direction (4.1) ------
+# `profile <name>` in .claude/crew-model-rules (closed to the session), read by eval/lib/profile.sh. The same proof as
+# /crew-loosen that a person typed it. Tightening is open to the session too (profile.sh --set appends a stricter
+# line); only here can a profile be loosened, and here the file is rewritten so it holds one profile line.
+if [ "$OP" = profile ]; then
+  _lh="${BASH_SOURCE//\\//}"; _lh="${_lh%/*}"; [ "$_lh" = "${BASH_SOURCE//\\//}" ] && _lh=.
+  _pr="${CLAUDE_PROJECT_DIR:-$CWD}"; _pr="${_pr//\\//}"; _pr="${_pr%/}"
+  nop(){ say "Crewforth: profile NOT changed - $1" "The user sent the command only the user can type /crew-profile, and Crewforth did not change the profile: $1 Tell the user exactly that."; }
+  [ -f "$_lh/../eval/lib/profile.sh" ] || nop "Crewforth's profile reader is not installed beside this hook (eval/lib/profile.sh)."
+  . "$_lh/../eval/lib/profile.sh"; crew_profile "$_pr"; PR_FROM="$CREW_PROFILE"
+  if [ -z "$PR_TO" ]; then
+    say "Crewforth: profile $PR_FROM" "The user asked which strictness profile is in force: it is $PR_FROM. Say so in one line: light asks for no commit, and for no push to a branch other than main, master or a protected one, once every gate is clean, runs no turn-end check and hands off at 50/75/95%; standard asks for every commit and push and hands off at 25/50/75/95%; strict is standard where a whole-suite verify, a re-audit of the same work and a model above the card's floor refuse. To change it, the user can type /crew-profile light, standard or strict."
+  fi
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nop "this session has nobody in front of it (it was started with -p, by a program, or in the background, which Claude Code counts as unattended even when you type into it); change it in a regular session." ;; esac
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+  { [ -n "$TP" ] && [ -s "$TP" ]; } || nop "this is the first message of this session, or the session keeps no transcript."
+  [ "$PR_TO" = "$PR_FROM" ] && say "Crewforth: profile already $PR_TO" "The user asked to set the strictness profile to $PR_TO; it already is $PR_TO, nothing changed. Say so in one line."
+  _prf="$_pr/.claude/crew-model-rules"; _prt="$_prf.crew-profile.$$"; _pro=""
+  [ -d "$_pr/.claude" ] || nop "there is no .claude/ folder in this project."
+  if [ -f "$_prf" ]; then
+    while IFS= read -r _l || [ -n "$_l" ]; do case "${_l%$'\r'}" in "profile "*) continue ;; esac; _pro="$_pro$_l"$'\n'; done < "$_prf"
+  fi
+  { printf '%sprofile %s\n' "$_pro" "$PR_TO" > "$_prt" && mv -f "$_prt" "$_prf"; } 2>/dev/null || { rm -f "$_prt" 2>/dev/null; nop "the rules file could not be written."; }
+  crew_profile "$_pr"
+  [ "$CREW_PROFILE" = "$PR_TO" ] || nop "the line was written but the profile read back is $CREW_PROFILE."
+  say "Crewforth: profile $PR_FROM -> $PR_TO" "The user changed the strictness profile from $PR_FROM to $PR_TO with their own command. Say so in one line, with what $PR_TO changes (light: no question for a commit or a push to a branch other than main, master or a protected one once the gates are clean, no turn-end check, handoff at 50/75/95%; standard: every commit and push asked, handoff at 25/50/75/95%; strict: standard, and a whole-suite verify, a re-audit of the same work and a model above the card's floor refuse). Destructive commands and secrets are refused in every profile."
+fi
+
 if [ "$OP" = loosen ]; then
   nol(){ say "Crewforth: floor NOT lowered - $1" "The user sent the command only the user can type /crew-loosen, for $LO_AGENT $LO_CHANGE $LO_RISK, and Crewforth did not lower anything: $1 Tell the user exactly that."; }
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac

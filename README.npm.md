@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/Crewforth/crewforth/main/assets/logo.svg" alt="Crewforth" width="420"></p>
 
-**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain, 40 skills that hold the method, 17 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
+**Crewforth is your engineering crew for Claude Code.** It adds subagents, skills, commands and hooks to Claude Code: 14 specialist agents that each own a domain, 40 skills that hold the method, 18 commands you start with `/crew-…`, and hooks that enforce the rules that matter.
 
 ```bash
 npx crewforth init              # set up a new project
@@ -32,7 +32,7 @@ Then open Claude Code and run `/crew-doctor` to confirm the setup. Requires bash
 
 - **14 specialist agents**, from `crew-planner` to `crew-commit-agent`, each owning one domain.
 - **40 skills** holding the method: testing, migrations, API contracts, observability, accessibility, deployment.
-- **17 commands**, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-loosen`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
+- **18 commands**, each started with its `/crew-…` name: `/crew-plan`, `/crew-review`, `/crew-ship`, `/crew-handoff`, `/crew-brainstorm`, `/crew-update`, `/crew-doctor`, `/crew-gates`, `/crew-skill`, `/crew-studio`, `/crew-loosen`, `/crew-profile`, `/crew-allow-verify`, `/crew-map`, `/crew-audit`, `/crew-interview`, `/crew-pr`, `/crew-todo`.
 - In `auto` mode a commit, a push or a merge into `main` waits for your one click on a question that offers only what can happen now, tied to what is staged.
 - A stopped destructive command says what it would have touched; a review starts from a deterministic pre-pass, and `crew-refuter` tries to refute each finding that blocks.
 - **Organisation presets.** `npx crewforth init --preset strict` (or `solo`, or your own JSON file) carries critical paths, model floors and verify commands to every project.

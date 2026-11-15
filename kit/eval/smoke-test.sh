@@ -1253,6 +1253,17 @@ case "$(mkjson "${SGPFX}-cf" "$SGFX" false | CREW_HANDOFF_TIERS="30 60" CONTEXT_
       *"Handoff point 25%"*) pass "stop-hook: CREW_HANDOFF_TIERS sets the thresholds (30 60 -> 30% at 40); a malformed list falls back to 25/50/75/95" ;;
       *) fail "stop-hook: a malformed CREW_HANDOFF_TIERS did not fall back to the default" ;; esac ;;
   *) fail "stop-hook: CREW_HANDOFF_TIERS was not read" ;; esac
+# (4) the light profile (4.1) hands off at 50 / 75 / 95: 30% is silent there and 55% is the 50% handoff; the
+#     same 30% in a standard project is the 25% one (the twin), and CREW_HANDOFF_TIERS still wins over the profile.
+_sgl="$(mktemp -d)"; mkdir -p "$_sgl/.claude"; printf 'profile light\n' > "$_sgl/.claude/crew-model-rules"
+_sgp(){ mkjson "$1" "$SGFX" false | env CLAUDE_PROJECT_DIR="$_sgl" ${2:+CREW_HANDOFF_TIERS="$2"} CONTEXT_WINDOW=1000000 bash "$HOOKS/session-guard.sh" 2>/dev/null; }
+fill 300000; _sgl1="$(_sgp "${SGPFX}-l1")"; _sgl3="$(_sgp "${SGPFX}-l3" "20")"
+fill 550000; _sgl2="$(_sgp "${SGPFX}-l2")"
+rm -f "$_sgl/.claude/crew-model-rules"; fill 300000; _sgl4="$(_sgp "${SGPFX}-l4")"
+case "$_sgl1|$_sgl2|$_sgl3|$_sgl4" in "|"*"Handoff point 50%"*"|"*"Handoff point 20%"*"|"*"Handoff point 25%"*)
+    pass "stop-hook: the light profile hands off at 50/75/95 (30% silent, 55% is the 50% one), standard at 25 (the twin), and CREW_HANDOFF_TIERS wins over the profile" ;;
+  *) fail "stop-hook light profile tiers: light30='${_sgl1:0:60}' light55='${_sgl2:0:60}' env20='${_sgl3:0:60}' standard30='${_sgl4:0:60}'" ;; esac
+rm -rf "$_sgl"
 # (5) a jump straight past 95 must stamp the lower tiers too, so a post-/compact dip cannot re-fire 75
 fill 960000; sg "${SGPFX}-d" >/dev/null
 fill 760000
@@ -5852,7 +5863,7 @@ elif [ -f "$PHJ" ]; then
   # The expected number comes from kit/: every distinct `bash .claude/<x>.sh` there (off a `# full install` line) whose
   # <x> this edition ships. A fixed floor blamed the build for a legitimate edit that removed a command.
   _ppw="$(grep -rhE 'bash \.claude/' "$ROOT/agents" "$ROOT/skills" --include='*.md' 2>/dev/null | grep -v '# full install' \
-    | grep -oE 'bash \.claude/[A-Za-z0-9_./-]+\.sh([^A-Za-z0-9_./-]|$)' | sed -E 's/[^A-Za-z0-9_./-]$//' | sort -u \
+    | grep -oE 'bash \.claude/(hooks|skills)/[A-Za-z0-9_./-]+\.sh([^A-Za-z0-9_./-]|$)' | sed -E 's/[^A-Za-z0-9_./-]$//' | sort -u \
     | while IFS= read -r _pc; do [ -f "$PLUGIN/${_pc#bash .claude/}" ] && echo x; done | wc -l | tr -d ' ')"
   if [ -z "$_ppbad$_ppleft" ] && [ "$_ppn" != "$_ppw" ]; then fail "kit/ names $_ppw script(s) the plugin ships, plugin/ carries $_ppn plugin-root path(s) — run packaging/build-plugin.sh"
   elif [ -n "$_ppbad$_ppleft" ]; then fail "plugin edition names a script it cannot run —${_ppbad:+ missing:$_ppbad}${_ppleft:+ still the file-install path (127 there):$_ppleft}"
@@ -7691,6 +7702,11 @@ else
   { [ -f "$_tc/p/z.txt" ] && [ "$_r5" = 0 ] && [ -z "$_l5" ]; } && pass "turn-check: a clean pull in the turn counts nothing: someone else's commit is not the turn's" \
     || fail "turn-check: a pull was counted (pulled: $([ -f "$_tc/p/z.txt" ] && echo yes || echo no), rc $_r5, ran '$_l5')"
   : > "$_tcl"; _tcu; echo BAD > "$_tc/p/a.txt"; _r6="$( CREW_TURN_CHECK=off _tcs )"; _l6="$(_tcr)"; echo a > "$_tc/p/a.txt"
+  # The light profile (4.1) runs no turn-end check: the same red edit that stops the turn above passes, and nothing runs.
+  printf 'profile light\n' > "$_tc/p/.claude/crew-model-rules"
+  : > "$_tcl"; _tcu; echo BAD > "$_tc/p/a.txt"; _rL="$(_tcs)"; _lL="$(_tcr)"; echo a > "$_tc/p/a.txt"; rm -f "$_tc/p/.claude/crew-model-rules"
+  [ "$_rL|$_lL" = "0|" ] && pass "turn-check: the light profile runs no turn-end check (the red edit that stops a standard turn passes, nothing runs)" \
+    || fail "turn-check: the light profile still ran the check ('$_rL|$_lL')"
   printf '# p\nFast check (files): <one changed file in seconds>\n' > "$_tc/p/CLAUDE.md"; rm -rf "$_tc/p/.git/crewforth-turn"
   : > "$_tcl"; _tcu; echo BAD > "$_tc/p/a.txt"; _r7="$(_tcs)"; _l7="$(_tcr)"
   { [ "$_r6|$_l6" = "0|" ] && [ "$_r7|$_l7" = "0|" ] && [ ! -e "$_tc/p/.git/crewforth-turn" ]; } \
@@ -9254,6 +9270,8 @@ ln -s ~/.claude/plugins/cache/crewforth c ||| ln -s ~/.claude/plugins/cache/crew
 echo x > p/crewforth/crewforth/3.0.1/hooks/guard-bash.sh ||| cat p/crewforth/crewforth/3.0.1/hooks/guard-bash.sh
 echo 'exit 0' > @R@/eval/lib/crew-env.sh ||| cat @R@/eval/lib/crew-env.sh
 echo 'exit 0' > .claude/eval/lib/crew-env.sh ||| cat .claude/eval/lib/crew-env.sh
+echo 'crew_profile(){ CREW_PROFILE=light; }' > @R@/eval/lib/profile.sh ||| cat @R@/eval/lib/profile.sh
+echo 'crew_profile(){ CREW_PROFILE=light; }' > .claude/eval/lib/profile.sh ||| bash .claude/eval/lib/profile.sh --show
 rm /Users/b/Projects/crewforth/crewforth/3.0.1/hooks/x.sh ||| rm /Users/b/Projects/crewforth/plugin/hooks/x.sh
 PGEOF
 # Windows spellings: the root as the harness exports it (native), the command as PowerShell and Git Bash write it.
@@ -9283,6 +9301,8 @@ done <<'PGEOF3'
 @R@/hooks/trace-blocklist.txt ||| /Users/u/project/.claude-plugin-notes/plugin.json
 @R@/eval/lib/crew-env.sh ||| @R@/eval/lib/skill-listing.awk
 /p/.claude/eval/lib/crew-env.sh ||| /p/.claude/eval/lib/settings-json.awk
+@R@/eval/lib/profile.sh ||| @R@/eval/lib/preset.sh
+/p/.claude/eval/lib/profile.sh ||| /p/.claude/eval/lib/preview.sh
 PGEOF3
 [ "$PGN" -ge 37 ] || fail "FIXTURE: only $PGN plugin-gate pair(s) were read — the heredocs broke, not the hooks"
 # Reading and running stay free, and another plugin in the same cache is not Crewforth's to guard.
@@ -12337,6 +12357,62 @@ _v2call crew-backend-expert haiku 'src/ui/l4.ts' test-run true; [ "$_v2rc" = 2 ]
 _v2call crew-backend-expert sonnet 'src/payments/p.ts' feature none; [ "$_v2rc" = 2 ] || _v2b="$_v2b a-lowering-reached-critical-work"
 [ -z "$_v2b" ] && pass "/crew-loosen lowers a raised floor by one model, once: 16 messages that are not the command or not a person's are ignored (each of the eight openings of a turn nobody typed, with the bare command right behind it); a headless session, a session's first message, a class with no raised floor and routing switched off lower nothing and say why; the user's command writes one line (ts, agent, change, risk, from, to), the gate then allows the lower model, a second command is refused, the plugin's spelling is read; the class is counted afresh, so the old failures do not raise it back and five new ones do; critical work stays on opus" \
                || fail "/crew-loosen:$_v2b"
+# ---- the strictness profile (4.1): light · standard · strict --------------------------------------------------
+# `profile <name>` in .claude/crew-model-rules, closed to the session. The session may only TIGHTEN it (profile.sh --set
+# appends a stricter line); the user's own /crew-profile, read by prompt-approval.sh under the proofs /crew-loosen
+# needs, sets it either way. strict turns three notes of the model gate into refusals; light lets a commit, and a push
+# to a work branch, through without the question once every gate is clean (guard-bash.sh), and never in plan/bypass.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"; printf '{"type":"user"}\n' > "$_v2/sess.jsonl"; _PRL="$HOOKS/../eval/lib/profile.sh"
+_pfn(){ ( cd "$_v2p" && . "$_PRL" && crew_profile . && printf '%s' "$CREW_PROFILE" ); }
+[ "$(_pfn)" = standard ] || _v2b="$_v2b [no line is not standard: $(_pfn)]"
+( cd "$_v2p" && bash "$_PRL" --set strict >/dev/null 2>&1 ) && [ "$(_pfn)" = strict ] || _v2b="$_v2b [--set strict did not tighten]"
+for _p in light standard; do ( cd "$_v2p" && bash "$_PRL" --set "$_p" >/dev/null 2>&1 ) && _v2b="$_v2b [--set $_p loosened]"; done
+[ "$(_pfn)" = strict ] || _v2b="$_v2b [a refused --set changed the profile: $(_pfn)]"
+# what the session cannot do: write the rules file, or source the library and find a writer in it
+_v2write "$_v2p/.claude/crew-model-rules"; [ "$_v2wrc" = 2 ] || _v2b="$_v2b [the file tools may write the rules]"
+_v2write "$_v2p/.claude/eval/lib/profile.sh"; [ "$_v2wrc" = 2 ] || _v2b="$_v2b [the file tools may write profile.sh]"
+_pff="$(bash --norc --noprofile -c '. "$1"; declare -F' _ "$_PRL" 2>/dev/null | tr '\n' ' ')"
+[ "$_pff" = "declare -f crew_profile declare -f crew_profile_rank " ] || _v2b="$_v2b [profile.sh defines more than the reader: $_pff]"
+# the user's command: needs a person (a transcript, an attended session); then it sets either way, and says so
+_o="$(_v2say '/crew-profile light' "")"; case "$_o" in *"profile NOT changed"*) ;; *) _v2b="$_v2b [a first message loosened: ${_o:0:80}]" ;; esac
+_o="$(_V2SAYENV=CLAUDE_CODE_SESSION_ATTENDED=0 _v2say '/crew-profile light')"; case "$_o" in *"profile NOT changed"*) ;; *) _v2b="$_v2b [a headless session loosened: ${_o:0:80}]" ;; esac
+[ "$(_pfn)" = strict ] || _v2b="$_v2b [a refused command changed the profile]"
+_o="$(_v2say '/crew-profile loose')"; [ -z "$_o" ] && [ "$(_pfn)" = strict ] || _v2b="$_v2b [an unknown profile was read: ${_o:0:80}]"
+_o="$(_v2say '/crew-profile light')"; case "$_o" in *"profile strict -> light"*) ;; *) _v2b="$_v2b [the user's command did not loosen: ${_o:0:80}]" ;; esac
+[ "$(_pfn)" = light ] && [ "$(grep -c '^profile ' "$_v2p/.claude/crew-model-rules")" = 1 ] || _v2b="$_v2b [after the command: $(_pfn), $(grep -c '^profile ' "$_v2p/.claude/crew-model-rules") lines]"
+_o="$(_v2say '/crewforth:crew-profile')"; case "$_o" in *"profile light"*) ;; *) _v2b="$_v2b [the bare command (plugin spelling) did not say the profile: ${_o:0:80}]" ;; esac
+# strict: the three notes refuse; standard: they stay notes (the twins)
+_rl="$_v2p/.claude/state/crew-model/rounds/s"; mkdir -p "${_rl%/*}"
+for _pp in standard strict; do
+  printf 'profile %s\n' "$_pp" > "$_v2p/.claude/crew-model-rules"; _want=0; [ "$_pp" = strict ] && _want=2
+  _v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'npm test'; [ "$_v2rc" = "$_want" ] || _v2b="$_v2b [$_pp whole-suite verify: rc=$_v2rc]"
+  _v2call crew-frontend-expert opus 'src/ui/a.ts' feature none; [ "$_v2rc" = "$_want" ] || _v2b="$_v2b [$_pp model above the floor: rc=$_v2rc]"
+  printf 'crew-review-agent NONE lo\ncrew-backend-expert NONE lo\n' > "$_rl"
+  _v2call crew-review-agent sonnet 'src/ui/a.ts' audit none; [ "$_v2rc" = "$_want" ] || _v2b="$_v2b [$_pp re-audit: rc=$_v2rc]"
+  rm -f "$_rl" "$_v2p/.claude/state/crew-model/pending/"*
+done
+grep -q 'strict profile' "$_v2/err" 2>/dev/null || _v2b="$_v2b [the strict refusal does not say why: $(head -c 80 "$_v2/err")]"
+# light: guard-bash lets a commit and a work-branch push through once the review record matches; main and the
+# forms it cannot read go to the question; plan never lets it through; standard asks (the twin)
+_LP="$(mktemp -d)"
+( cd "$_LP" && git init -q -b feat . && git config user.email t@example.com && git config user.name t && git remote add origin https://example.invalid/r.git \
+  && echo a > a && git add a && git commit -qm i && git tag v1 && git branch side && git branch main && git branch master && echo b >> a && git add a && mkdir -p .claude \
+  && printf '{"diff_oid":"%s","head":"%s","ts":"t"}\n' "$(git diff --cached | git hash-object --stdin)" "$(git rev-parse HEAD)" > .claude/review-pass.json ) >/dev/null 2>&1
+_lpq(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_LP" "$1" "$2" \
+  | ( cd "$_LP" && CLAUDE_PROJECT_DIR="$_LP" CREW_GATE_LOG=/dev/null env -u CLAUDE_GIT_OK bash "$HOOKS/guard-bash.sh" 2>/dev/null ); }
+printf 'profile light\n' > "$_LP/.claude/crew-model-rules"
+for _c in 'auto|git commit -m x|y' 'default|git commit -m x|y' 'auto|git push|y' 'auto|git push -u origin feat|y' 'auto|git commit -m x && git push origin feat|y' \
+          'auto|git push origin main|n' 'auto|git push origin HEAD:master|n' 'auto|git push --tags|n' 'auto|git push origin feat:other|n' 'plan|git commit -m x|n' 'bypassPermissions|git push|n' \
+          'auto|git push origin v1|n' 'auto|git push origin nosuch|n' 'auto|git push origin side|y'; do
+  _m="${_c%%|*}"; _r="${_c#*|}"; _cmd="${_r%|*}"; _y="${_r##*|}"; _o="$(_lpq "$_m" "$_cmd")"
+  case "$_y|$_o" in y\|*'light profile'*) ;; n\|*'light profile'*) _v2b="$_v2b [light let '$_cmd' ($_m) through]" ;; n\|*) ;; *) _v2b="$_v2b [light asked about '$_cmd' ($_m): ${_o:0:60}]" ;; esac
+done
+printf '## Conventions\n- Base branch: `feat`\n' > "$_LP/CLAUDE.md"; case "$(_lpq auto 'git push origin feat')" in *'light profile'*) _v2b="$_v2b [light pushed to the Base branch]" ;; esac; rm -f "$_LP/CLAUDE.md"
+rm -f "$_LP/.claude/crew-model-rules"; case "$(_lpq auto 'git commit -m x')" in *'light profile'*) _v2b="$_v2b [standard let a commit through]" ;; esac
+rm -f "$_LP/.claude/review-pass.json"; printf 'profile light\n' > "$_LP/.claude/crew-model-rules"; case "$(_lpq auto 'git commit -m x')" in *'light profile'*) _v2b="$_v2b [light let a commit with no review through]" ;; esac
+rm -rf "$_LP"
+[ -z "$_v2b" ] && pass "strictness profile: standard with no line; the session can tighten (profile.sh --set) and cannot loosen, write the rules or profile.sh, or find a writer in the library; the user's /crew-profile needs a person (not a first message, not headless), reads only light/standard/strict, sets either way and leaves one line; strict refuses a whole-suite verify, a model above the floor and a re-audit where standard notes them; light lets a commit and a push of one of the repository's own branches through once the review record matches, asks for main, master, the Base branch, a tag, a name that is no branch here and the forms it cannot read, never in plan or bypass, and not without the review" \
+               || fail "strictness profile:$_v2b"
 # What a lowering cannot reach: the floors the card and the agent carry. Two raised floors are planted and lowered;
 # the model below still fails where another rule holds it, and passes where only the lowered floor did.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state"
