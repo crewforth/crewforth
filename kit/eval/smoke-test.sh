@@ -2085,6 +2085,9 @@ _tc_conf(){ # $1 = agents dir, $2 = skills dir -> "phrase :: a | b" per conflict
       $1=="T"{ l=$3; while (match(l, /"[^"]*"/)) { p=tolower(substr(l, RSTART, RLENGTH)); l=substr(l, RSTART+RLENGTH)
           if (!((p" "$2) in seen)) { seen[p" "$2]=1; w[p]=w[p]" "$2 } } }
       END{ for (p in w) { n=split(w[p], a, " "); for(i=1;i<=n;i++) for(j=i+1;j<=n;j++) if (!own[a[i]" "a[j]] && !own[a[j]" "a[i]]) print p" :: "a[i]" | "a[j] } }' | sort; }
+# Crewforth's own components only: an installed project may keep a skill of its own whose phrases overlap a
+# kit component (a 2.x pattern skill it kept, measured in e2e), and that is the project's routing to settle.
+if [ "$IS_KIT" != 1 ]; then skip scope "trigger-phrase collisions are checked in Crewforth's source checkout (an installed project holds its own skills)"; else
 _tcc="$(_tc_conf "$AGENTS" "$SKILLS")"
 _tct="$(mktemp -d)"; mkdir -p "$_tct/a" "$_tct/s/x" "$_tct/s/y" "$_tct/s/z"
 printf -- '---\nname: crew-o\nmetadata:\n  skills: [x]\n---\nTrigger phrases: "own phrase"\n' > "$_tct/a/crew-o.md"
@@ -2095,6 +2098,7 @@ _tcw="$(_tc_conf "$_tct/a" "$_tct/s" | tr '\n' ';')"; rm -rf "$_tct"
 if [ "$_tcw" != '"own phrase" :: crew-o | z;"own phrase" :: x | z;"shared phrase" :: x | y;' ]; then fail "FIXTURE: the trigger-conflict reader missed the planted conflicts or flagged an agent's own skill: $_tcw"
 elif [ -z "$_tcc" ]; then pass "no trigger phrase is shared by two components, other than an agent and a skill it applies; a planted pair (two skills, an agent and a skill it does not apply, any case) is caught"
 else fail "a trigger phrase is shared by two components that do not own each other (routing picks one at random): $(printf '%s' "$_tcc" | tr '\n' ';')"; fi
+fi
 
 sec "== 6e) CLAUDE.md split: sentinel · discipline/project boundary · no profile split =="
 # In the Crewforth repo ROOT is kit/ (payload). In an installed project it is .claude/, which has no
