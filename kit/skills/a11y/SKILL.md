@@ -75,7 +75,9 @@ Recipes for focus, forms and announcements (which channel says what, in order): 
 1. **Start with semantics** — the right element solves 80%. Use `button` instead of `role="button"`+`div`.
 2. **Navigate with the keyboard** — drop the mouse, run the whole flow with Tab/Shift-Tab/Enter/Escape; is focus visible and its order sensible.
 3. **Naming** — does every interactive element have an accessible name (`aria-label` on visual-only icon buttons).
-4. **Contrast** — check color pairs against the ratio; don't convey meaning by color alone (add an icon/text).
+4. **Contrast** — check color pairs against the ratio; don't convey meaning by color alone (add an icon/text). A
+   ratio is reported only when it was measured (a tool, the computed colours of the rendered pair); one that was not
+   is said as "not measured", never as a pass.
 5. **Dynamic content** — notify the screen reader via a live region (`aria-live`); manage modal focus.
 6. **Automated + manual** — tools like linters/axe are the baseline; but manual keyboard+reader testing is essential (tools don't catch 100%).
 
