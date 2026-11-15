@@ -47,6 +47,11 @@ public API is a commitment; a breaking change is expensive. Stack-agnostic (REST
 order of a list, the default page size and how long a call takes. Changing one of those is breaking for them; say
 it in the changelog like a field change.
 
+## Retiring a version or a field
+Announce it with a date (a changelog line, and the `Sunset` header of RFC 8594 on every response that uses it),
+keep it working until that date, measure who still calls it, tell those callers by name, and remove it only after
+the date with nobody left on it. A removal with no date, or before the measurement, is a breaking change by surprise.
+
 ## Invariant rules
 1. **A public API is a commitment** — a breaking change is not made silently; version + announcement.
 2. **Consistency > local cleverness** — a single naming/error/pagination pattern across the whole API.

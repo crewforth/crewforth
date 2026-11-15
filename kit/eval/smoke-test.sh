@@ -2071,6 +2071,31 @@ for s in reflect handoff; do
 done
 rm -rf "$SSD"
 
+# NO TRIGGER PHRASE IN TWO COMPONENTS (6.14). The same phrase in two skills, or in an agent and a skill it does not
+# apply, sends one ask two ways and routing picks whichever matches first ("root cause" was in incident-runbook and
+# systematic-debugging; "clear context" in handoff and token-budget). An agent and its own `metadata: skills:` entry
+# share phrases on purpose: the agent is the trigger for the skill. Read with awk, twin planted.
+_tc_conf(){ # $1 = agents dir, $2 = skills dir -> "phrase :: a | b" per conflict
+  { for f in "$1"/*.md; do [ -f "$f" ] || continue; n="${f##*/}"; n="${n%.md}"
+      printf 'O\t%s\t%s\n' "$n" "$(grep -m1 '^  skills:' "$f" | sed 's/.*\[//; s/\].*//; s/,/ /g')"
+      printf 'T\t%s\t%s\n' "$n" "$(grep -m1 '^Trigger phrases:' "$f")"; done
+    for f in "$2"/*/SKILL.md; do [ -f "$f" ] || continue; n="${f%/SKILL.md}"; n="${n##*/}"
+      printf 'T\t%s\t%s\n' "$n" "$(grep -m1 '^Trigger phrases:' "$f")"; done; } \
+  | LC_ALL=C awk -F'\t' '$1=="O"{k=split($3,s," "); for(i=1;i<=k;i++) own[$2" "s[i]]=1; next}
+      $1=="T"{ l=$3; while (match(l, /"[^"]*"/)) { p=tolower(substr(l, RSTART, RLENGTH)); l=substr(l, RSTART+RLENGTH)
+          if (!((p" "$2) in seen)) { seen[p" "$2]=1; w[p]=w[p]" "$2 } } }
+      END{ for (p in w) { n=split(w[p], a, " "); for(i=1;i<=n;i++) for(j=i+1;j<=n;j++) if (!own[a[i]" "a[j]] && !own[a[j]" "a[i]]) print p" :: "a[i]" | "a[j] } }' | sort; }
+_tcc="$(_tc_conf "$AGENTS" "$SKILLS")"
+_tct="$(mktemp -d)"; mkdir -p "$_tct/a" "$_tct/s/x" "$_tct/s/y" "$_tct/s/z"
+printf -- '---\nname: crew-o\nmetadata:\n  skills: [x]\n---\nTrigger phrases: "own phrase"\n' > "$_tct/a/crew-o.md"
+printf -- '---\nname: x\n---\nTrigger phrases: "own phrase", "Shared Phrase"\n' > "$_tct/s/x/SKILL.md"
+printf -- '---\nname: y\n---\nTrigger phrases: "shared phrase"\n' > "$_tct/s/y/SKILL.md"
+printf -- '---\nname: z\n---\nTrigger phrases: "own phrase"\n' > "$_tct/s/z/SKILL.md"
+_tcw="$(_tc_conf "$_tct/a" "$_tct/s" | tr '\n' ';')"; rm -rf "$_tct"
+if [ "$_tcw" != '"own phrase" :: crew-o | z;"own phrase" :: x | z;"shared phrase" :: x | y;' ]; then fail "FIXTURE: the trigger-conflict reader missed the planted conflicts or flagged an agent's own skill: $_tcw"
+elif [ -z "$_tcc" ]; then pass "no trigger phrase is shared by two components, other than an agent and a skill it applies; a planted pair (two skills, an agent and a skill it does not apply, any case) is caught"
+else fail "a trigger phrase is shared by two components that do not own each other (routing picks one at random): $(printf '%s' "$_tcc" | tr '\n' ';')"; fi
+
 sec "== 6e) CLAUDE.md split: sentinel · discipline/project boundary · no profile split =="
 # In the Crewforth repo ROOT is kit/ (payload). In an installed project it is .claude/, which has no
 # CLAUDE.md but does have the already-split DISCIPLINE.md. Assert whichever is present.
