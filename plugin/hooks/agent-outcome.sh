@@ -174,7 +174,12 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
       # running it again cost one more suite-length wait for the same answer.
       _AOT="Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here: the next card that carries it is told, and for $D days the hook does not run it again. Do not repeat the task on another model for this.$SKT"
     else
-      _AOT="Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this.$SKT"
+      case "$WN" in
+        pytest*|'the verify command could not be run'*)
+          _AOT="Crewforth: the agent's verify command ran but tested nothing ($VCMD): $WN. Nothing is concluded about the work. Check the path or the command, run the tests this change touches yourself with the Bash tool and judge those; do not repeat the task on another model for this.$SKT" ;;
+        *)
+          _AOT="Crewforth: the agent's verify command was NOT run by the hook ($VCMD): $WN. Nothing is concluded about the work. Run the verify command yourself with the Bash tool and judge the result; do not repeat the task on another model for this.$SKT" ;;
+      esac
     fi
     return 0
   fi
@@ -496,6 +501,19 @@ case "$EV" in
         else wait "$VPID" 2>/dev/null; VRC=$?; [ "$VRC" = 0 ] && _am_slow_put "$VCMD" ""; fi
         VSEC="$WAITED"
         VOUT="$(tail -n 15 "$VF" 2>/dev/null)"; rm -f "$VF" 2>/dev/null
+      fi
+      # A verify that could not run its tests says nothing about the work (field N34: pytest's exit 4, a test file
+      # that does not exist, was read as a failed verify and the model was told to step up). Exit 126/127 is a
+      # command that cannot run; pytest's 4 is a usage error (a path it cannot find), its 5 that no test was collected.
+      # Recorded as not run, with why; the work is neither passed nor failed.
+      if [ "$RES" != blocked ] && [ "$RES" != timeout ] && [ "$VRC" != 0 ]; then
+        case "$VRC" in
+          126|127) RES=blocked; WHYNOT="the verify command could not be run (exit $VRC: not found or not executable)" ;;
+          4|5) case " $VCMD " in *[[:space:]/]pytest[[:space:]]*|*'-m pytest '*|*py.test*)
+                 RES=blocked
+                 if [ "$VRC" = 4 ]; then WHYNOT="pytest could not run what the verify names (exit 4: a path or option it does not know)"
+                 else WHYNOT="pytest collected no test (exit 5): the verify names no test of this change"; fi ;; esac ;;
+        esac
       fi
       if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
       elif [ "$VRC" = 0 ]; then RES=pass

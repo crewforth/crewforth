@@ -926,6 +926,11 @@ _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMV
   case "$c" in ''|none) return 0 ;; esac
   case "$c" in
     *$'\n'*|*$'\r'*) _AMVW="it is more than one line"; return 1 ;;
+  esac
+  # A placeholder left from the card's template (field N34: `verify: … <the test files you add or touch>`) is not a
+  # redirect, and saying so sent the writer looking in the wrong place.
+  [[ $c =~ \<[A-Za-z][^\<\>]*[A-Za-z.]\> ]] && { _AMVW="it holds a placeholder that was never filled in (${BASH_REMATCH[0]}): write the real command"; return 1; }
+  case "$c" in
     *';'*|*'&'*|*'|'*|*'<'*|*'>'*|*'`'*|*'$('*) _AMVW="it chains, pipes, redirects or substitutes (; & | < > \` \$( )"; return 1 ;;
     *[$'\001'-$'\010'$'\013'-$'\037']*) _AMVW="it holds a control character"; return 1 ;;
   esac
