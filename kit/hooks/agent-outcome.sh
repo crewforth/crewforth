@@ -520,7 +520,13 @@ case "$EV" in
       else RES=fail; fi
     fi
     # The report's last line, and the model the agent's own transcript names.
-    _json_slice "$INPUT" last_assistant_message >/dev/null; LAST="$_JS"; [ "${#LAST}" -gt 400 ] && LAST="${LAST:${#LAST}-400}"
+    _json_slice "$INPUT" last_assistant_message >/dev/null; LAST="$_JS"
+    # The highest severity the WHOLE report names, for the audit-round ledger below (3.5): `hi` for critical or high, `lo`
+    # otherwise. Read as words, with the confidence line taken out first (every report ends `confidence: high`); a stray
+    # "high" elsewhere reads as `hi`, and that errs toward silence: the re-audit note is only ever said after a `lo`.
+    _sevt="${LAST//onfidence: high/}"; _sevt="${_sevt//onfidence: High/}"
+    case "$_sevt" in *[Cc]ritical*|*CRITICAL*|*[Hh]igh*|*HIGH*|*[Bb]locker*|*BLOCKER*) SEV=hi ;; *) SEV=lo ;; esac
+    [ "${#LAST}" -gt 400 ] && LAST="${LAST:${#LAST}-400}"
     _json_unescape "$LAST" >/dev/null; LAST="$_JU"
     while :; do case "$LAST" in *[$' \t\n\r']) LAST="${LAST%?}" ;; *) break ;; esac; done
     ESCL=0; case $'\n'"$LAST" in *$'\n'"escalate:"*) ESCL=1 ;; esac      # a write to a critical path was refused
@@ -551,6 +557,14 @@ case "$EV" in
     _ao_unlock
     case "$RES" in pass|fail) _ao_calibrate "$AG" "$CH" "$RK" ;; esac
     [ "$AG" = crew-review-agent ] && [ -n "$REVV" ] && _ao_review_pass "$REVV"
+    # THE AUDIT-ROUND LEDGER (3.5): one line per crew agent that stopped in this session, `agent head severity`, which
+    # guard-agent-model.sh reads when an auditor is called again (a note, never a refusal). The HEAD says whether a
+    # commit closed the work in between. One process, on an agent's stop only.
+    _json_slice "$INPUT" session_id >/dev/null; _rsid="$_JS"
+    case "$_rsid" in ''|*[!A-Za-z0-9_-]*) ;; *)
+      _rh="$(git -C "$_AMP" -c core.fsmonitor= rev-parse --verify --quiet HEAD 2>/dev/null)" || _rh=NONE; [ -n "$_rh" ] || _rh=NONE
+      mkdir -p "$_AMD/rounds" 2>/dev/null && printf '%s %s %s\n' "$AG" "$_rh" "$SEV" >> "$_AMD/rounds/$_rsid" 2>/dev/null ;;
+    esac
     # A BACKGROUND agent's outcome has no PostToolUse to be told in (its call came back at launch): what the session
     # would have been told waits for the main thread's Stop (--stop above).
     if [ -f "$_AMD/bg/$AID" ]; then
