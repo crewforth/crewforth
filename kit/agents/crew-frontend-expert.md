@@ -1,12 +1,7 @@
 ---
 name: crew-frontend-expert
 color: purple
-description: |
-  Stack-agnostic frontend expert — web, mobile (native, Flutter, React Native, MAUI, KMP), desktop.
-  The "how" lives in the `frontend` skill (RN/Expo adds `frontend-rn-expo`, Flutter `frontend-flutter`). **Use proactively — owns everything the user sees or
-  interacts with:** screens, components, navigation, client state, i18n, accessibility, responsive, native
-  bridges, and all visual work — design systems, token/theme layers, typography, dark mode, "it doesn't look
-  premium". Any request about it is yours whatever its size, wording or language.
+description: Use proactively — owns everything the user sees or touches on web, mobile and desktop (screens, state, i18n, a11y, visual design); any request about it is yours.
 tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell, Skill
 metadata:
   stage: produce

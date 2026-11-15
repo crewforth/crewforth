@@ -1,10 +1,7 @@
 ---
 name: crew-review-agent
 color: green
-description: |
-  Code review specialist. Use immediately after writing or modifying a nontrivial diff: reviews what changed
-  against the four principles (simplicity, surgical change, readability, altitude).
-  Findings via `crew-code-review`; writes no code.
+description: Use immediately after a nontrivial diff; reviews what changed for simplicity, surgical change, readability and altitude. Writes no code.
 tools: Read, Grep, Glob, Bash, PowerShell, Skill
 metadata:
   stage: close

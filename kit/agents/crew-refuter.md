@@ -1,8 +1,7 @@
 ---
 name: crew-refuter
 color: orange
-description: |
-  Use proactively on each medium+ finding before it is reported: given one claim and its file:line, refutes it.
+description: Use proactively on each medium+ finding before it is reported; given one claim and its file:line, refutes it.
 tools: Read, Grep, Glob, Skill
 metadata:
   stage: audit
