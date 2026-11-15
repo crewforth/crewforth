@@ -220,7 +220,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       ".claude/CLAUDE.md is tracked — keep sharing with the team") s=".claude/CLAUDE.md git'te izleniyor — ekiple paylaşmaya devam" ;;
       "untracked; Crewforth files are shared by default — pick hide to keep them local") s='izlenmiyor; Crewforth dosyaları varsayılan olarak paylaşılır — yerelde tutmak için hide seçin' ;;
       "hide") s='gizle' ;;
-      "docs/ is tracked in this repository, so it was not added to .gitignore; Crewforth's working documents there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
+      "docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
       ".claude is already gitignored in this repo — Crewforth stays local (pick share and un-ignore it to share)") s="bu depoda .claude zaten gitignore'da — Crewforth yerelde kalır (paylaşmak için share seçip ignore kuralını kaldırın)" ;;
       "#4 hide -> this repo already ignores .claude — nothing to add; Crewforth stays local") s="#4 hide -> bu depo .claude'u zaten yok sayıyor — eklenecek bir şey yok; Crewforth yerelde kalır" ;;
       "docs/ is gitignored here (a private install): %s and %s are written but not staged — they stay on this machine") s="docs/ burada gitignore'da (kişisel kurulum): %s ve %s yazıldı ama stage edilmedi — bu makinede kalır" ;;
@@ -2101,7 +2101,7 @@ fi
 GI_FILE=.gitignore
 [ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
 gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'
-[ -n "${GI_TRACKED:-}" ] && say 'docs/ is tracked in this repository, so it was not added to .gitignore; Crewforth'\''s working documents there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
+[ -n "${GI_TRACKED:-}" ] && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.
 # That is the shared case, which is the one where a Windows teammate's `core.autocrlf=true` rewrites every

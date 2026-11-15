@@ -153,7 +153,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "(shared: .claude/ and CLAUDE.md stay committable)") s="(paylaşımlı: .claude/ ve CLAUDE.md commit'lenebilir kalır)" ;;
       "(default — pass --shared to commit .claude/ and CLAUDE.md)") s="(varsayılan — .claude/ ve CLAUDE.md'yi commit'lemek için --shared verin)" ;;
       "no") s='hayır' ;;
-      "docs/ is tracked in this repository, so it was not added to .gitignore; Crewforth's working documents there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
+      "docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
       "Just me, and leave .gitignore untouched") s=".gitignore'a dokunmadan yalnız ben" ;;
       "the same lines go to .git/info/exclude, which only this clone reads; the tracked .gitignore is not changed") s="aynı satırlar yalnız bu klonun okuduğu .git/info/exclude dosyasına yazılır; izlenen .gitignore değişmez" ;;
       "(this clone only)") s='(yalnız bu klon)' ;;
@@ -770,7 +770,7 @@ fi
 # space-separated list this script built, not user input.
 # shellcheck disable=SC2086
 gi_add $GI_PLAN
-[ -n "${GI_TRACKED:-}" ] && { _mt 'docs/ is tracked in this repository, so it was not added to .gitignore; Crewforth'\''s working documents there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'; echo "  ${_M}"; }
+[ -n "${GI_TRACKED:-}" ] && { _mt 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'; echo "  ${_M}"; }
 [ -n "$GI_WROTE" ] && printf '  %s+%s %s: %s\n' "$GR" "$R" "$GI_LABEL" "$GI_WROTE"
 # Pinned only when git will actually CHECK .claude/ OUT — and that question goes to git, not to the mode
 # variable, for the same reason gi_add asks `git check-ignore` instead of grepping the file: the variable is
