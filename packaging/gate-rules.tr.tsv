@@ -86,4 +86,5 @@ the user's approval covers this merge	kullanıcının onayı bu merge'ü kapsıy
 a pull request merged into a protected branch	korunan dala merge edilen pull request
 a pull request merged into a protected branch, with no approval	onay olmadan korunan dala merge edilen pull request
 a pull request merged into a base that is not protected	korunmayan bir tabana merge edilen pull request
+a pull request merge this hook cannot bind to one named pull request	bu hook'un tek bir adlı pull request'e bağlayamadığı merge
 light profile: a commit, or a push to a work branch, once every gate is clean	hafif profil: tüm kapılar temizken bir commit ya da iş dalına push
