@@ -8805,7 +8805,7 @@ RMT='2 @@ PowerShell @@ Remove-Item -Recurse -Force C:\\proj\\*
 2 @@ Bash @@ rm -rf ./build
 0 @@ Bash @@ rm -rf build
 0 @@ Bash @@ rm -rf node_modules dist
-0 @@ Bash @@ rm -rf \"$T\"
+0 @@ Bash @@ T=build; rm -rf \"$T\"
 0 @@ Bash @@ rm -rf .cache
 0 @@ Bash @@ rm -f notes.txt
 0 @@ Bash @@ rm .
@@ -8828,7 +8828,7 @@ RMT='2 @@ PowerShell @@ Remove-Item -Recurse -Force C:\\proj\\*
 0 @@ Bash @@ cd .. && rm -rf myproj
 0 @@ Bash @@ find . -name x.tmp -delete
 0 @@ Bash @@ ls -A | xargs rm -rf
-0 @@ Bash @@ rm -rf $HOME_OLD
+0 @@ Bash @@ HOME_OLD=old; rm -rf $HOME_OLD
 0 @@ Bash @@ echo rm -rf $HOME
 2 @@ Bash @@ rm -rf \"C:\\Users\\me\"
 2 @@ Bash @@ rm -rf C:\\Users\\me\\AppData
@@ -8837,7 +8837,7 @@ RMT='2 @@ PowerShell @@ Remove-Item -Recurse -Force C:\\proj\\*
 2 @@ Bash @@ rm -rf \"$TMP\"
 0 @@ Bash @@ rm -rf my\\ dir
 0 @@ Bash @@ TMP=\"$(mktemp -d)\"; rm -rf \"$TMP\"
-0 @@ Bash @@ rm -rf $USERPROFILE_OLD
+0 @@ Bash @@ USERPROFILE_OLD=old; rm -rf $USERPROFILE_OLD
 2 @@ Bash @@ rm -rf \"..\\\\..\"
 2 @@ Bash @@ rm -rf \"\\\\server\\share\\x\"
 2 @@ Bash @@ rm -rf \\\\Users\\\\me
@@ -8915,6 +8915,36 @@ else skip platform "a recursive rm through a symbolic link (ln -s made no link h
 if [ "$_rmtn" -lt 26 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 26"
 elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call, an rm inside quotes, backticks or $( ) and a link followed through / or a glob stay refused; a here-document, loop, export or substitution AFTER the last rm does not stop a name set before it from being read (field N32) ($_rmtn rows)"
 else fail "recursive rm and temp directories:$_rmtb"; fi
+# A BARE NAME AS THE TARGET (N37): `S=/Users/me; rm -rf $S` carried none of / * ~ and passed. Refused unless the call
+# sets the name to a fresh mktemp, a plain relative name, or a path inside a temp root; a here-document body is text.
+_rmbb=""; _rmbn=0
+while IFS='|' read -r _rw _rc; do [ -n "$_rc" ] || continue
+  _rc="${_rc//@T@/$_rmtd}"; _rmbn=$((_rmbn+1)); _rg="$(_rmtv "$_rc")"
+  [ "$_rg" = "$_rw" ] || _rmbb="$_rmbb [$_rc → $_rg, want $_rw]"
+done <<'RMB'
+2|S=/etc/crew-nope; rm -rf $S
+2|S=/etc/crew-nope; rm -rf \"$S\"
+2|S=/etc/crew-nope; rm -rf ${S}
+2|rm -rf $CREW_UNSET_X
+2|for d in /etc/crew-nope; do rm -rf $d; done
+2|read d; rm -rf \"$d\"
+2|D=$(pwd); rm -rf \"$D\"
+2|D=..; rm -rf $D
+2|S=@T@/x; S=/etc/crew-nope; rm -rf $S
+2|trap 'rm -rf \"$W\"' EXIT; echo hi
+2|bash -c 'rm -rf $CREW_UNSET_X'
+2|S=build; rm -rf $S $CREW_UNSET_X
+2|bash <<'EOF'\nrm -rf $CREW_UNSET_X\nEOF
+0|S=build; rm -rf $S
+0|D=$(mktemp -d); echo x > $D/f; rm -rf \"$D\"
+0|W=$(mktemp -d); trap 'rm -rf \"$W\"' EXIT; echo hi
+0|S=@T@/x; rm -rf \"$S\"
+0|cat > f.py <<'EOF'\nrm -rf $CREW_UNSET_X\nEOF
+0|git rm -r --cached $F
+RMB
+if [ "$_rmbn" != 19 ]; then fail "FIXTURE: the bare-name rm table ran $_rmbn rows, not 19"
+elif [ -z "$_rmbb" ]; then pass "a recursive rm of a bare \$NAME is refused unless this call sets it to a fresh mktemp, a plain relative name or a temp path; an unset name, a for/read binding, another expansion, .., a reassignment and rm in a trap, bash -c or a shell's here-document stay refused, text in any other here-document is not read (N37, $_rmbn rows)"
+else fail "recursive rm of a bare name:$_rmbb"; fi
 # A SUBAGENT'S git stash (field N33): it runs, with a note that the calling session's uncommitted work leaves the tree
 # until the pop; the main thread's stash, list/show/drop/clear and a subagent's other git calls get no note.
 _stb=""; _stv(){  # $1 = command, $2 = 1 for a subagent -> "rc/note|-"
