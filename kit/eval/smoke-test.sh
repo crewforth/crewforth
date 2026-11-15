@@ -10597,7 +10597,29 @@ printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"a
 { [ "$(_pa_op)" = merge ] && grep -q '^pr=7$' "$_pa_rec" && grep -q '^base=master$' "$_pa_rec"; } || _gmx="$_gmx [the merge question's Merge did not record it: $(tr '\n' ' ' < "$_pa_rec" 2>/dev/null)]"
 : > "$_gmpend"; _paq_pre auto "$_gmq" '' tgm2
 [ "$_par" = 2 ] || _gmx="$_gmx [the merge question was asked with no merge waiting]"
-[ -z "$_gmx" ] && pass "gh pr merge into main or master (or a base gh does not name) is one click in default, refused and written down in auto, and approved by the typed /crew-approve merge or the merge question's Merge for that pull request and base only (not another pull request, not another session); into next it is free; the words in an echo are not gated" \
+# Field N35: a loop of merges wrote `pr=?`, which neither the question nor /crew-approve could take, and the merge
+# question was refused for the push question of the state; `do gh pr merge` / `then gh pr merge` were not gated at all.
+# A call that cannot be bound to ONE named pull request is refused before gh is asked, and nothing is written down.
+for _gmc in 'for n in 42 43; do gh pr merge $n --merge; done' 'gh pr merge 42 && gh pr merge 43' 'echo 42 | xargs -n1 gh pr merge'; do
+  : > "$_gmpend"; GM_BASE=next _gmrun auto "$_gmc"
+  { [ "$_par" = 2 ] && grep -q 'one pull request per call' "$_PA/err" && ! [ -s "$_gmpend" ]; } \
+    || _gmx="$_gmx [not refused as unbindable, or written down: $_gmc: rc=$_par $(head -c 80 "$_PA/err")]"
+done
+for _gmc in 'if true; then gh pr merge 42; fi' "bash -c 'gh pr merge 42'" 'sudo gh pr merge 42' 'gh pr merge \"42\" --merge'; do
+  GM_BASE=main _gmrun default "$_gmc"
+  case "$_par|$_pao" in 0\|*'"permissionDecision":"ask"'*'merge pull request 42 into main'*) ;; *) _gmx="$_gmx [not one click for pull request 42: $_gmc: rc=$_par ${_pao:0:80}]" ;; esac
+done
+GM_BASE=main _gmrun auto 'gh pr merge 42 --merge'
+grep -qi 'commit message' "$_PA/err" && _gmx="$_gmx [the merge refusal asks for a commit message]"
+# a here-document's body is text unless a shell reads it: PR notes written with cat were refused as merges
+for _gmc in 'cat > notes.md <<EOF\nthen gh pr merge 42 (\"gh pr merge\")\nEOF' 'python3 - <<EOF\ns=\"then gh pr merge 42\"\nEOF'; do
+  GM_BASE=main _gmrun default "$_gmc"; [ "$_par|$_pao" = "0|" ] || _gmx="$_gmx [a here-document's text was gated: $_gmc]"
+done
+for _gmc in 'bash <<EOF\ngh pr merge 42\nEOF' 'cat <<EOF | sh\ngh pr merge 42\nEOF'; do
+  GM_BASE=main _gmrun default "$_gmc"
+  case "$_par|$_pao" in 0\|*'"permissionDecision":"ask"'*) ;; *) _gmx="$_gmx [a merge a shell reads from a here-document was not asked: $_gmc: rc=$_par]" ;; esac
+done
+[ -z "$_gmx" ] && pass "gh pr merge into main or master (or a base gh does not name) is one click in default, refused and written down in auto, and approved by the typed /crew-approve merge or the merge question's Merge for that pull request and base only (not another pull request, not another session); into next it is free; the words in an echo are not gated; behind do, then, bash -c, sudo or quotes it is gated the same; a loop, xargs or two merges in one call is refused as one that no approval can be bound to, and nothing is written down; a here-document's text is not a merge unless a shell reads it" \
                || fail "gh pr merge approval:$_gmx"
 # An approval holds as long as what it is about is unchanged, not for 30 minutes (field: a question asked at night was
 # refused in the morning). The question and the refused command write down the staged tree and HEAD; the answer or
