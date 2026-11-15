@@ -8856,7 +8856,7 @@ done <<'RMC'
 0|docker compose exec web rm -rf /app/node_modules
 0|docker-compose exec web rm -rf /srv/cache
 0|podman exec app rm -rf /app/tmp
-0|docker run --rm img rm -rf /x/y
+0|docker run --rm img rm -rf /srv/y
 0|docker exec app rm -rf node_modules/.cache ./x
 0|docker exec app sh -c \"rm -rf /app/tmp\"
 0|docker exec app rm -rf /app/x/*
@@ -8875,9 +8875,18 @@ done <<'RMC'
 2|docker ps; rm -rf /crew-nope/y
 2|rm -rf /app/tmp
 2|docker exec app ls; sudo rm -rf /crew-nope/x
+2|docker exec app rm -rf C:\\x
+2|docker exec app rm -rf C:/Users/crew-nope
+2|docker exec app rm -rf /c/Users/crew-nope
+2|docker exec app rm -rf ..\\..
+2|docker exec app rm -rf C:
+2|env rm -rf C:\\Users\\crew-nope
+2|command rm -rf C:\\Users\\crew-nope
+2|nice -n 5 rm -rf C:\\Users\\crew-nope
+0|env rm -rf build
 RMC
-if [ "$_rmcn" -lt 25 ]; then fail "FIXTURE: the container-rm table ran $_rmcn rows, not 25"
-elif [ -z "$_rmcb" ]; then pass "an rm that runs in a container passes (docker, podman, compose, kubectl; exec and run; sh -c; a glob two levels down; docker's own rm beside it); /, /*, ~, ., .., a top-level directory, a glob at the top, .., an expansion and any rm left on the host stay refused ($_rmcn rows)"
+if [ "$_rmcn" -lt 34 ]; then fail "FIXTURE: the container-rm table ran $_rmcn rows, not 34"
+elif [ -z "$_rmcb" ]; then pass "an rm that runs in a container passes (docker, podman, compose, kubectl; exec and run; sh -c; a glob two levels down; docker's own rm beside it); /, /*, ~, ., .., a top-level directory, a glob at the top, .., an expansion, a Windows-shaped path (C:\\x, C:/x, /c/x, ..\\..) and any rm left on the host stay refused; so does a Windows path behind env, command or nice ($_rmcn rows)"
 else fail "rm in a container:$_rmcb"; fi
 # The preview names the rm's own targets: it used to cut the call at the first "git" and preview another command's words.
 _rmtp="$( cd "$_rmtd" && . "$ROOT/eval/lib/preview.sh" && crew_preview rm "rm -rf ./x 2>/dev/null; git status" && printf '%s' "$_CREW_PV" )"

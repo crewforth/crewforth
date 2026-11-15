@@ -1245,6 +1245,9 @@ _rm_container_only(){
       if [ "$inrm" = 0 ]; then [ "$w" = rm ] && { inrm=1; rmseen=1; }; continue; fi
       case "$w" in --) continue ;; -*) continue ;; [0-9]'>'*|'>'*|'2>&1'|'&>'*) continue ;; esac
       case "$w" in ''|'.'|'..'|'~'|'~/'*|'*'|'/'|'/*'|*'$'*|*'{'*) return 1 ;; esac
+      # A Windows-shaped path is the host's on this machine, whatever runs it: a drive (`C:\x`, `C:/x`, `C:`), a
+      # backslash, or Git Bash's drive mount (`/c/Users`). Measured on Windows: these passed once read as container paths.
+      case "$w" in [A-Za-z]:*|*\\*|/[A-Za-z]|/[A-Za-z]/*) return 1 ;; esac
       case "/$w/" in */../*) return 1 ;; esac
       case "$w" in
         /*) t="${w#/}"; t="${t%/}"
@@ -1275,15 +1278,21 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Z
 # deletes it; `$USERPROFILE` is the home there, and `$TEMP`, `$TMP`, `$TMPDIR` are the whole temp root. The drive is
 # looked for in the rm's own segment (_RMWIN): a first version looked anywhere after rm on the line and refused 13
 # real commands whose later text held a backslash (a here-document's \n).
+# A WRAPPER IN FRONT is the same rm: `env rm -rf C:\Users\me`, `command rm`, `nice rm` (measured on Windows: all three
+# deleted the folder, rc 0, where `rm` and `sudo rm` were refused). The three rules below read rm behind sudo, env,
+# command, nice, nohup, time, exec, doas, ionice, stdbuf and timeout, with their own arguments between.
 _RMNL=$'\n'
-_RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\.\.?|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\}|\$\(pwd\)|\$USERPROFILE|\$\{USERPROFILE\})["'"'"']?([[:space:];&|)}]|$)'
+_RMDOT='(^|[;&|({'"$_RMNL"'])[[:blank:]]*((sudo|env|command|nice|nohup|time|exec|doas|ionice|stdbuf|timeout)[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\.\.?|\$HOME|\$\{HOME\}|\$PWD|\$\{PWD\}|\$\(pwd\)|\$USERPROFILE|\$\{USERPROFILE\})["'"'"']?([[:space:];&|)}]|$)'
 # a Windows path, as a target of this rm's own segment only: by its drive (`C:\Users\me`, `'C:\'`, `D:/x`), and the
 # drive-less forms Git Bash resolves too (measured on Windows): `..\..` (the real parent), `\\host\c$` (a share that
 # reaches the drive's root), `\Users\me` (rooted on the current drive). `my\ dir`, an escaped space, is none of them.
-_RMWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?([A-Za-z]:[/\\]|\.\.?\\|\\\\[A-Za-z0-9]|\\[A-Za-z])'
+_RMWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*((sudo|env|command|nice|nohup|time|exec|doas|ionice|stdbuf|timeout)[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?([A-Za-z]:[/\\]|\.\.?\\|\\\\[A-Za-z0-9]|\\[A-Za-z])'
 # the whole temp root by its name — unless this call sets that name itself (`TMP=$(mktemp -d); …; rm -rf "$TMP"` is
 # the usual clean-up of its own folder: measured, 2 real commands)
-_RMTMPV='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\$TEMP|\$\{TEMP\}|\$TMP|\$\{TMP\}|\$TMPDIR|\$\{TMPDIR\})["'"'"']?([[:space:];&|)}]|$)'
+# _RMWIN's targets, for an rm a container tool runs (docker, podman, compose, kubectl): there rm stands at no command
+# position, so _RMWIN does not reach it. A bare drive (`C:`) is one too.
+_RMCWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?(docker|podman|docker-compose|kubectl)[[:blank:]][^;&|'"$_RMNL"']*[[:blank:]"'"'"']rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?([A-Za-z]:[/\\]|[A-Za-z]:([[:space:]"'"'"';&|)]|$)|\.\.?\\|\\\\[A-Za-z0-9]|\\[A-Za-z])'
+_RMTMPV='(^|[;&|({'"$_RMNL"'])[[:blank:]]*((sudo|env|command|nice|nohup|time|exec|doas|ionice|stdbuf|timeout)[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\$TEMP|\$\{TEMP\}|\$TMP|\$\{TMP\}|\$TMPDIR|\$\{TMPDIR\})["'"'"']?([[:space:];&|)}]|$)'
 case "$CMD" in *[Rr][Mm]*)
   _rmc="$CMD"
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
@@ -1293,6 +1302,10 @@ case "$CMD" in *[Rr][Mm]*)
   # there stands at no command position, so the line above did not see it (measured: rc 0 before).
   case "$_rmc" in *[Ee][Xx][Ee][Cc]*|*[Rr][Uu][Nn]*)
     [[ $_rmc =~ (^|[;&|({$_RMNL])[[:blank:]]*(sudo[[:blank:]]+)?(docker|podman|docker-compose|kubectl)[[:blank:]][^;&|$_RMNL]*[[:blank:]\"\']rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#$_RMNL]*[[:blank:]])?[\"\']?(\.\.?|\*)[\"\']?([[:space:];&|)}]|$) ]] \
+      && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
+    # ...and a Windows-shaped target there (`C:\x`, `C:`, `..\..`, `\\host\c$`, `\Users`): it carries none of / * ~,
+    # so the first rule never saw it (measured on Windows: rc 0 before and after the container rule).
+    [[ $_rmc =~ $_RMCWIN ]] \
       && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; } ;;
   esac
   [[ $_rmc =~ $_RMWIN ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
