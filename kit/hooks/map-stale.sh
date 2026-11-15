@@ -326,6 +326,52 @@ _ms_path(){  # $1 = a path, JSON-escaped or not -> _MSP: forward slashes, a driv
   case "$p" in [A-Z]:/*) u="${u%%"${p:0:1}"*}"; p="${l:${#u}:1}${p:1}" ;; esac   # the drive letter, lower case, no fork
   _MSP="${p%/}"; }
 
+# ---- DOCS THAT NAME WHAT CHANGED (6.13) ----------------------------------------------------------------------
+# A doc that describes a file goes stale the moment the file changes, and nothing says so. Each Edit or Write records
+# the project file it touched (one redirection, no process); at Stop, the tracked Markdown of the project (CHANGELOG
+# left out, and any doc this session edited itself) is searched for those files, by path or by a name distinctive
+# enough to mean them. Each doc found is said once per session, with its lines: a fact, and "it still holds" is a
+# good answer. A handful of processes (git ls-files, grep), and only on a Stop after a new edit. CREW_DOC_STALE=off.
+_ms_docs(){  # -> DOUT, "" when there is nothing new to say
+  DOUT=""
+  case "${CREW_DOC_STALE:-on}" in off|OFF|0|false) return 0 ;; esac
+  local E="$ST/doc-edits-$SID" N="$ST/doc-edits-$SID-n" T="$ST/doc-edits-$SID-told"
+  local ed="" told="" l b pats="" seen="" hit f ln cnt=0 last="" cur="" out="" n=0
+  [ -f "$E" ] || return 0
+  IFS= read -r -d '' ed < "$E" || true
+  [ -f "$N" ] && IFS= read -r last < "$N"
+  [ "${#ed}" = "${last:-0}" ] && return 0                       # nothing edited since the last look
+  printf '%s\n' "${#ed}" > "$N" 2>/dev/null
+  [ -f "$T" ] && { IFS= read -r -d '' told < "$T" || true; }
+  local told0="$told"
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    case "$seen" in *"|$l|"*) continue ;; esac; seen="$seen|$l|"
+    case "$l" in *.md|*.MD|*.markdown) continue ;; esac
+    pats="$pats$l"$'\n'
+    b="${l##*/}"
+    case "$b" in index.*|main.*|utils.*|util.*|app.*|mod.*|lib.*|types.*|__init__.py|setup.*|config.*|package.json) ;;
+      ?????*.*) pats="$pats$b"$'\n' ;; esac
+  done <<< "$ed"
+  [ -n "$pats" ] || return 0
+  hit="$(cd "$P" 2>/dev/null && git -c core.fsmonitor= ls-files -z -- '*.md' 2>/dev/null \
+    | xargs -0 grep -H -n -F -f <(printf '%s' "$pats") -- 2>/dev/null | head -n 200)" || true
+  [ -n "$hit" ] || return 0
+  while IFS= read -r l; do
+    f="${l%%:*}"; ln="${l#*:}"; ln="${ln%%:*}"
+    case "$f" in CHANGELOG*|*/CHANGELOG*|changelog*) continue ;; esac
+    case "$seen$told0" in *"|$f|"*) continue ;; esac              # edited this session, or said at an earlier Stop
+    if [ "$f" != "$cur" ]; then
+      n=$((n+1)); [ "$n" -le 5 ] || break
+      out="$out${out:+; }$f line $ln"; cur="$f"; told="$told|$f|"; cnt=1
+    else cnt=$((cnt+1)); [ "$cnt" -le 4 ] && out="$out, $ln"; fi
+  done <<< "$hit"
+  [ -n "$out" ] || return 0
+  printf '%s' "$told" > "$T" 2>/dev/null
+  out="${out//\\/\\\\}"; out="${out//\"/\\\"}"
+  DOUT="Docs: these name a file this session changed: $out. If what they say still holds, nothing to do."
+}
+
 # ---- the payload -----------------------------------------------------------------------------------------
 _json_slice "$INPUT" hook_event_name >/dev/null; EV="$_JS"
 case "$EV" in PostToolUse|Stop) ;; *) exit 0 ;; esac
@@ -338,27 +384,33 @@ _ms_path "$P"; P="$_MSP"
 M="$P/.crewforth/crew-map.json"; C="$P/.crewforth/contracts.md"; ST="$P/.claude/state"
 
 # ---- Stop: the user hears which of the project's rules this session's edits touched, each key once ------------
+# ...and which of the project's tracked docs name a file the session changed (6.13). One systemMessage for both.
 if [ "$EV" = Stop ]; then
+  OUT=""
   S="$ST/contracts-$SID"
-  [ -f "$S" ] || exit 0
-  LIST=""; IFS= read -r -d '' LIST < "$S" || true
-  SAID=""; [ -f "$S-said" ] && { IFS= read -r -d '' SAID < "$S-said" || true; }
-  NEW=""; rest="$LIST"
-  while [ -n "$rest" ]; do
-    rest="${rest#|}"; k="${rest%%|*}"; rest="${rest#"$k"}"; rest="${rest#|}"
-    [ -n "$k" ] || continue
-    case "$SAID" in *"|$k|"*) ;; *) NEW="$NEW${NEW:+, }$k"; SAID="$SAID|$k|" ;; esac
-  done
-  [ -n "$NEW" ] || exit 0
-  printf '%s' "$SAID" > "$S-said" 2>/dev/null || exit 0
-  printf '{"systemMessage":"Contracts: this session edited files that .crewforth/contracts.md cites for %s. A review gives a verdict per key (the user can type /crew-review); a rule that still holds needs no change to the file."}\n' "$NEW"
+  if [ -f "$S" ]; then
+    LIST=""; IFS= read -r -d '' LIST < "$S" || true
+    SAID=""; [ -f "$S-said" ] && { IFS= read -r -d '' SAID < "$S-said" || true; }
+    NEW=""; rest="$LIST"
+    while [ -n "$rest" ]; do
+      rest="${rest#|}"; k="${rest%%|*}"; rest="${rest#"$k"}"; rest="${rest#|}"
+      [ -n "$k" ] || continue
+      case "$SAID" in *"|$k|"*) ;; *) NEW="$NEW${NEW:+, }$k"; SAID="$SAID|$k|" ;; esac
+    done
+    if [ -n "$NEW" ] && printf '%s' "$SAID" > "$S-said" 2>/dev/null; then
+      OUT="Contracts: this session edited files that .crewforth/contracts.md cites for $NEW. A review gives a verdict per key (the user can type /crew-review); a rule that still holds needs no change to the file."
+    fi
+  fi
+  _ms_docs
+  [ -n "$DOUT" ] && OUT="$OUT${OUT:+ }$DOUT"
+  [ -n "$OUT" ] || exit 0
+  printf '{"systemMessage":"%s"}\n' "$OUT"
   exit 0
 fi
 
 _json_slice "$INPUT" tool_name >/dev/null
 case "$_JS" in Edit|Write|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 _json_slice "$INPUT" agent_id >/dev/null;   _ms_id "$_JS"; AG="$_MSI"
-[ -f "$M" ] || [ -f "$C" ] || exit 0
 
 _json_slice "$INPUT" file_path >/dev/null; FP="$_JS"
 [ -n "$FP" ] || { _json_slice "$INPUT" notebook_path >/dev/null; FP="$_JS"; }
@@ -372,6 +424,10 @@ case "$FP" in
   *) REL="${FP#./}" ;;               # relative: already the project's
 esac
 case "$REL" in ''|../*|*/../*) exit 0 ;; esac
+# 6.13: the file this session changed, for the docs check at Stop (one redirection; the state folder may not exist yet)
+# Only where the project already has a .claude/: a project without one is not given one by this hook.
+case "${CREW_DOC_STALE:-on}" in off|OFF|0|false) ;; *) [ -d "$P/.claude" ] && { { printf '%s\n' "$REL" >> "$ST/doc-edits-$SID"; } 2>/dev/null || { mkdir -p "$ST" 2>/dev/null && printf '%s\n' "$REL" >> "$ST/doc-edits-$SID"; } 2>/dev/null; } ;; esac
+[ -f "$M" ] || [ -f "$C" ] || exit 0
 
 # Whatever is said below leaves through one line of JSON, written on the way out, so an early exit of the map's
 # part still delivers the contracts' part. The map's note comes first.

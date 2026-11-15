@@ -24,7 +24,9 @@ read as "designed" — many one-off decisions read as "assembled".** Design is s
 3. **Typography** — one or two families, a small scale (≈4–6 steps), consistent line-height (~1.5 body). Limit weights. Measure ~45–75 chars per line. Type does most of the hierarchy work.
 4. **Color** — a restrained system: 1 brand/accent, a neutral ramp, semantic states (success/warn/error). Accent is for *action and emphasis*, not decoration. Verify contrast (→ `a11y`) on the pair as it renders, alpha and the surface under it included; a failing pair is reported, not recoloured unasked, and the first fix is lightness, not hue.
 5. **Layout & composition** — align to a grid; consistent alignment edges. Respect proximity/similarity (Gestalt). Responsive by *intent* (reflow, not just shrink); design the breakpoints, don't inherit them by accident.
-6. **State & polish** — design loading / empty / error / disabled / hover / focus as first-class, not afterthoughts. Motion is restrained and purposeful: ~150–250ms, `ease-out` for enter and exit (never `ease-in` on UI), a strong custom curve rather than the built-in `ease`; it honors `prefers-reduced-motion`. Durations, easing, interruption and gestures: `references/motion.md`. The words on buttons, errors and empty states: `references/ui-copy.md`.
+6. **State & polish** — design loading / empty / error / disabled / hover / focus as first-class, not afterthoughts. Motion is restrained and purposeful: ~150–250ms, `ease-out` for enter and exit (never `ease-in` on UI), a strong custom curve rather than the built-in `ease`; it honors `prefers-reduced-motion`. Durations, easing, interruption and gestures: `references/motion.md`. The words on buttons, errors and empty states: `references/ui-copy.md`. Every state, and the inputs that
+   break a layout, on one page before a user sees them: `references/state-page.md`. A value outside the project's
+   tokens (a raw colour, a spacing off the scale) is found by a search, not by eye: list them before calling it done.
 
 ## When the project gives no design direction
 Look for the project's own system first: a token file, a theme, the components it already has. If there is one,

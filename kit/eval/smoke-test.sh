@@ -7863,6 +7863,24 @@ if [ -x "$MS" ]; then
   grep -q '"additionalContext":"Crew Map: .*(Said once per agent.) Contracts: .*pay-idempotent' "$_MSP/out" && [ "$(wc -l < "$_MSP/out" | tr -d ' ')" = 1 ] \
     && pass "map-stale contracts: with a map too, one JSON line carries both notes, the map's first" \
     || fail "map-stale contracts: map + contracts did not give one line with both notes: $(head -c 300 "$_MSP/out")"
+  # DOCS THAT NAME WHAT CHANGED (6.13): at Stop, the tracked docs that name a file the session changed are said once,
+  # with their lines; CHANGELOG, a doc the session edited, a later Stop and CREW_DOC_STALE=off say nothing.
+  _MDD="$_msd/docs"; mkdir -p "$_MDD/src" "$_MDD/docs" "$_MDD/.claude"
+  ( cd "$_MDD" && git init -q . && git config user.email t@example.com && git config user.name t && echo x > src/payment-service.ts \
+    && printf '# App\nSee src/payment-service.ts for totals.\nAlso payment-service.ts again.\n' > README.md \
+    && printf 'payment-service.ts\n' > docs/guide.md && printf 'payment-service.ts\n' > CHANGELOG.md \
+    && printf 'payment-service.ts\n' > docs/edited.md && git add -A && git -c core.hooksPath=/dev/null commit -qm i ) >/dev/null 2>&1
+  _mdq(){ ( cd "$_MDD" && env -u CREW_MAP_STALE CLAUDE_PROJECT_DIR="$_MDD" ${2:+CREW_DOC_STALE=$2} bash "$MS" 2>/dev/null ) <<< "$1"; }
+  _mde(){ _mdq "{\"session_id\":\"$1\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$_MDD/$2\"}}" "${3:-}" >/dev/null; }
+  _mds(){ _mdq "{\"session_id\":\"$1\",\"hook_event_name\":\"Stop\"}" "${2:-}"; }
+  _mde d1 docs/edited.md; _mde d1 src/payment-service.ts; _mdo1="$(_mds d1)"; _mdo2="$(_mds d1)"
+  _mde d2 src/payment-service.ts off; _mdo3="$(_mds d2 off)"
+  _mde d3 src/other.ts; _mdo4="$(_mds d3)"
+  case "$_mdo1" in *'"systemMessage":"Docs: '*'README.md line 2, 3; docs/guide.md line 1.'*) _mdb="" ;; *) _mdb=" [first Stop: ${_mdo1:0:160}]" ;; esac
+  case "$_mdo1" in *CHANGELOG*|*edited.md*) _mdb="$_mdb [said CHANGELOG or a doc the session edited]" ;; esac
+  [ -z "$_mdo2$_mdo3$_mdo4" ] || _mdb="$_mdb [said again, with CREW_DOC_STALE=off, or for a file no doc names: ${_mdo2:0:60}${_mdo3:0:60}${_mdo4:0:60}]"
+  [ -z "$_mdb" ] && pass "map-stale docs: at Stop the tracked docs that name a changed file are said once with their lines (path and a distinctive name); CHANGELOG, a doc the session edited, a later Stop, a file no doc names and CREW_DOC_STALE=off say nothing" \
+    || fail "map-stale docs:$_mdb"
   # Cost: an edit that does not fire starts no process (counter from §4.5's gate cost table, when it calibrated).
   if declare -F _gcost >/dev/null 2>&1 && [ "${_gc1:-}" = 5 ] && [ "${_gc2:-}" = 7 ]; then
     _MSP="$_msd/cost"; mkdir -p "$_MSP"; msmap "$_MSP"; mscon "$_MSP"
@@ -7871,6 +7889,8 @@ if [ -x "$MS" ]; then
     ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$MS" "$_msd/c1.json" "$_msd/t1" && printf '%s' "$_GCN" > "$_msd/n1" )
     _msn1="$(cat "$_msd/n1" 2>/dev/null)"
     mstop "$_MSP" s1 > "$_msd/c2.json"
+    # The first Stop after an edit pays the docs check (6.13); the Stop measured is the next one, with nothing new.
+    ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" bash "$MS" < "$_msd/c2.json" >/dev/null 2>&1 )
     ( cd "$_MSP" && unset CREW_MAP_STALE && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$MS" "$_msd/c2.json" "$_msd/t2" && printf '%s' "$_GCN" > "$_msd/n2" )
     _msn2="$(cat "$_msd/n2" 2>/dev/null)"
     sed '/^IFS= read -r -d .. INPUT || true$/a\
@@ -7879,7 +7899,7 @@ _PLANT="$(printf x | grep -c x)"
     ( cd "$_MSP" && CLAUDE_PROJECT_DIR="$_MSP" _gcost "$_msd/twin.sh" "$_msd/c1.json" "$_msd/t3" && printf '%s' "$_GCN" > "$_msd/n3" )
     _msn3="$(cat "$_msd/n3" 2>/dev/null)"
     if [ "${_msn3:-0}" -lt 2 ]; then fail "map-stale cost: a planted \$( ) + grep read ${_msn3:-nothing} — the counter sees nothing here, so a zero proves nothing"
-    elif [ "$_msn1" = 0 ] && [ "$_msn2" = 0 ]; then pass "map-stale cost: an edit that does not fire and a Stop with nothing touched start 0 processes, with a map and contracts to read (planted twin read $_msn3)"
+    elif [ "$_msn1" = 0 ] && [ "$_msn2" = 0 ]; then pass "map-stale cost: an edit that does not fire and a Stop with nothing new start 0 processes, with a map and contracts to read (planted twin read $_msn3)"
     else fail "map-stale cost: an edit cost ${_msn1:-?} processes and a Stop ${_msn2:-?}, want 0 each — it runs after every Edit/Write call and every Stop, and on Git Bash a process is 20-130 ms"; fi
   elif [ "$IS_KIT" != 1 ]; then skip scope "map-stale cost: the process counter is calibrated in Crewforth's source checkout, not in an install"
   else skip fixture "map-stale cost: the process counter of the gate cost table did not calibrate on this bash, so no cost is claimed"; fi
