@@ -3838,13 +3838,35 @@ fi
 # is approved like a push: one click where a prompt reaches a person, the approval question (or a typed
 # /crew-approve merge) in auto. Into any other base (`next`, a feature branch) it is free. The base is asked of gh
 # itself, only on this command: `gh pr view <pr> --json baseRefName`.
-_GM_RE='(^|[;&|(]|&&|\|\|)[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
-if [[ $'\n'"${CMD_SEEN//$'\n'/;}" =~ $_GM_RE ]]; then
+# Where it may stand (field N35: `for …; do gh pr merge …; done` and `if …; then gh pr merge …; fi` matched nothing):
+# after a separator, a shell keyword (do then else elif { !), a quote or $( (bash -c '…', "$(…)"), or a wrapper with
+# its options (sudo env command nohup exec time timeout nice xargs watch).
+_GM_RE='(^|[;&|(`{!"'"'"']|&&|\|\||\$\(|(^|[[:space:];&|(])(do|then|else|elif|sudo|env|command|nohup|exec|time|timeout|nice|xargs|watch)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*|[0-9]+[smhd]?))*)[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+# A here-document's body is text unless a shell reads it (field N35: session notes written with `cat > … <<'EOF'` and
+# a `python3 - <<'EOF'` that named "gh pr merge" in their text were read as merges). The body of one that goes to a
+# shell (`bash <<EOF`) stays.
+_GM_HD='(^|[^<])<<-?[[:space:]]*["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
+_GM_HDSH='(^|[;&|(]|[[:space:]])(ba|z|da|k)?sh([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<'
+_gm_strip_hd(){  # $1 = command -> _GMS: it without the bodies of here-documents that no shell reads
+  local line w="" out="" t
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$w" ]; then t="${line#"${line%%[![:space:]]*}"}"; [ "$t" = "$w" ] && w=""; continue; fi
+    out="$out$line"$'\n'
+    if [[ $line =~ $_GM_HD ]]; then
+      t="${BASH_REMATCH[2]}"
+      [[ $line =~ $_GM_HDSH ]] || [[ $line =~ $_GT_PIPESH ]] || w="$t"
+    fi
+  done <<< "$1"
+  _GMS="$out"
+}
+_gm_txt="$CMD_SEEN"; case "$_gm_txt" in *'<<'*) _gm_strip_hd "$_gm_txt"; _gm_txt="$_GMS" ;; esac
+if [[ $'\n'"${_gm_txt//$'\n'/;}" =~ $_GM_RE ]]; then
   # The pull request it names: the first word after `merge` that is not an option or an option's value.
-  _gm_rest="${CMD_SEEN#*gh*pr*merge}"; _gm_rest="${_gm_rest%%[;&|$'\n']*}"; _gm_sel=""; _gm_skip=0
+  _gm_rest="${_gm_txt#*gh*pr*merge}"; _gm_rest="${_gm_rest%%[;&|$'\n']*}"; _gm_sel=""; _gm_skip=0
   set -f
   for _gm_w in $_gm_rest; do
     if [ "$_gm_skip" = 1 ]; then _gm_skip=0; continue; fi
+    _gm_w="${_gm_w//[\"\']/}"
     case "$_gm_w" in
       -b|--body|-t|--subject|-F|--body-file|-A|--author-email|--match-head-commit) _gm_skip=1 ;;
       -*) ;;
@@ -3853,6 +3875,21 @@ if [[ $'\n'"${CMD_SEEN//$'\n'/;}" =~ $_GM_RE ]]; then
   done
   set +f
   case "$_gm_sel" in *[!A-Za-z0-9._/:#-]*) _gm_sel="?" ;; esac
+  # xargs (or parallel) feeds it pull requests this hook never sees.
+  _GM_XA='(xargs|parallel)[^;&|]*gh[[:space:]]+pr[[:space:]]+merge'
+  [[ $_gm_txt =~ $_GM_XA ]] && _gm_sel="?"
+  # ONE PULL REQUEST, NAMED, PER CALL (field N35). An approval is bound to one pull request and its base. A loop
+  # (`for n in 202 203; do gh pr merge $n; done`) names none this hook can read: the pending record held `pr=?`, the
+  # question gate could not take it, and neither the question nor /crew-approve could approve anything. Two merges
+  # in one call would ride on the first one's approval. Both are refused before gh is asked, whatever the base.
+  _gm_n=0; _gm_t=$'\n'"${_gm_txt//$'\n'/;}"
+  while [[ $_gm_t =~ $_GM_RE ]]; do _gm_n=$((_gm_n+1)); _gm_t="${_gm_t#*"${BASH_REMATCH[0]}"}"; done
+  if [ "$_gm_sel" = "?" ] || [ "$_gm_n" -gt 1 ]; then
+    gatelog BLOCK 4.4 "a pull request merge this hook cannot bind to one named pull request"
+    echo "GUARD (§4.4): merge one pull request per call, its number written out (gh pr merge 202 --merge). This call names a pull request through a variable or a loop, or merges more than one, so no approval can be bound to it." >&2
+    echo "Run one gh pr merge per call. A merge into main or master is then asked about one pull request at a time; one into another base goes through." >&2
+    exit 2
+  fi
   _gm_base=""
   if command -v gh >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then
@@ -3912,7 +3949,7 @@ Approve only if you want this merged into $_gm_into now.")"
       _gm_prh=1; _gb_prh && _gm_prh=0      # also loads prompt-approval.sh, where the question is defined
       if [ "$PERM_MODE" = auto ] && [ "$_gm_prh" = 1 ] && declare -F _crew_q_json >/dev/null 2>&1 && _q_wired; then
         _crew_q_json merge
-        echo "$_CREW_Q_ASK" >&2
+        echo "ASK THE USER WITH ONE CLICK: name the pull request and the branch it merges into, then call AskUserQuestion with exactly this input, nothing added or changed:" >&2
         echo "{\"questions\":[$_CREW_QJ]}" >&2
         echo "Their answer is recorded by Crewforth itself; then run the same merge command again." >&2
       else
