@@ -13748,6 +13748,14 @@ GLW='2 2 @@ git log --output=.claude/hooks/guard-bash.sh -1
 2 2 @@ chmod -x .claude/hooks/pre-commit
 2 2 @@ git config --file .git/config alias.x \"!rm\"
 2 2 @@ node -e writeFileSync(.claude/hooks/x)
+2 2 @@ ls .claude/hooks | xargs rm
+2 2 @@ sed -i \x27\x27 \x27s/a/b/\x27 .claude/hooks/guard-bash.sh
+2 2 @@ sed -i \x27s/a/b/w .claude/hooks/x\x27 docs/a.md
+2 2 @@ sed -i -e \x27s/a/b/\x27 -e \x27s/c/.claude\\/settings.json/\x27 docs/a.md
+2 2 @@ cd .claude/hooks && sed -i \x27s/a/b/\x27 guard-bash.sh
+2 2 @@ D=.claude/hooks; sed -i \x27s/a/b/\x27 $D/guard-bash.sh
+2 2 @@ IFS=x cat .claude/hooks/guard-bash.sh
+2 2 @@ ls .claude/hooks | while IFS= read -r f; do rm \"$f\"; done
 2 2 @@ .claude/hooks/x'
 _cf_table "$GLW"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
 # (2) the path hidden: a glob, a variable, a loop, a cd, the parent directory, quoting inside the name, a
@@ -13899,7 +13907,12 @@ GPW='0 0 @@ cat .claude/hooks/guard-bash.sh
 0 0 @@ git reset -q .claude/settings.json
 0 0 @@ cat <<\x27E\x27 > notes.md\nsee .claude/hooks/guard-bash.sh\nE
 0 0 @@ python3 - <<\x27E\x27\nprint(1)\nE\ngit status --short | grep -v .claude
-0 0 @@ .claude/git-shim/git status'
+0 0 @@ .claude/git-shim/git status
+0 0 @@ grep -v \x27^#\x27 .claude/hooks/floor-blocklist.txt | while IFS= read -r p; do grep -n -- \"$p\" x.txt; done
+0 0 @@ git diff --cached --name-only | xargs grep -n Claude
+0 0 @@ ls .claude/hooks | xargs -I{} cat .claude/hooks/{}
+0 0 @@ sed -i \x27\x27 \x27s/old/see .claude\\/settings.local.json/\x27 docs/STATE.md
+0 0 @@ sed -i.bak \x27s|a|.claude/hooks/x|g\x27 docs/a.md'
 _cf_table "$GPW"; _cfgb="$_cfgb$_cfbad"; _cfgn=$((_cfgn+_cfn))
 GPH='0 0 @@ cd .claude/hooks && ls
 0 0 @@ cd .claude/hooks && bash board.sh status
@@ -13987,7 +14000,7 @@ _cf_table '2 2 @@ Remove-Item .claude/hooks/guard-bash.sh
 0 0 @@ Get-Content C:\\Users\\ed\\p\\.claude\\hooks\\x
 0 0 @@ bash C:\\Users\\node\\p\\.claude\\hooks\\board.sh status
 2 2 @@ node C:\\Users\\ed\\p\\.claude\\hooks\\x.js' PowerShell
-if [ "$_cfgrn $_cfgpn $_cfn" != "170 91 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 170, 91 and 8"
+if [ "$_cfgrn $_cfgpn $_cfn" != "178 96 8" ]; then fail "FIXTURE: the gate-file tables have $_cfgrn, $_cfgpn and $_cfn rows, not 178, 96 and 8"
 elif [ -z "$_cfgb$_cfbad" ]; then pass "a command that names a gate file is a reader, a runner of a hook script or a reading git command, or it is refused: 170 calls refused (a write by option or by a program the old verb list did not know: curl -o, wget -O, sort -o, git --output, tar -C, unzip -d, unlink, shred, touch, patch, an editor, find -delete, git checkout / restore of the file; the path hidden behind a glob, a variable, a loop, a cd, the parent directory, quoting, a substitution, xargs; bash -c, eval, source; a changed PATH, an alias, a function; an interpreter fed a here-document, a shell or Python fed a here-document whose body names the file even when another command of the call names it too), 91 pass or reach the commit prompt (a here-document that names a gate file, fed to cat, tee or git commit -F -; grep -n rm, cat, head, less, diff, git log / diff / show / add, git restore --staged / reset of a path (the index only), bash <hook script>, a commit message or a note that names one, a folder called ed or node), 8 calls from inside .claude, .claude/hooks, .git and .git/hooks answer to the list as a whole and from any other folder do not, 8 PowerShell calls keep the verb rule (254 rows)"
 else fail "the gate-file list:$_cfgb$_cfbad"; fi
 # ---- awk that only reads is a reader; a glob under .claude/state that cannot reach a record is not one -----------

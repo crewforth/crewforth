@@ -1925,6 +1925,40 @@ _gt_awk_reads(){
   case "$p" in *'>'*) return 1 ;; esac
   return 0
 }
+# sed: in place only when no file it edits is a gate path and its one script is a plain s/// whose flags neither
+# write (w) nor run (e). Field N20: `sed -i '' 's/…/… .claude\/settings.local.json …/' docs/STATE.md` named the
+# settings file only as text in the replacement, and was refused as tamper. W and k are _gt_ok's.
+_gt_sed_ok(){  # $1 = k -> 0 = reads, or edits only files that are not gate paths
+  local i=$(($1+1)) w inplace=0 scr="" ns=0 files="" dl rest p1 p2 fl
+  while [ "$i" -lt "${#W[@]}" ]; do
+    w="${W[i]}"
+    case "$w" in
+      --i*|-[!-]*[iI]*|-[iI]*) inplace=1
+        case "$w" in -i|-I) case "${W[i+1]:-}" in $'\003'|.?*) i=$((i+1)) ;; esac ;; esac ;;   # BSD's suffix word ('' or .bak)
+      -e|--expression) ns=$((ns+1)); scr="${W[i+1]:-}"; i=$((i+1)) ;;
+      -f|--file) _GTW="'sed $w' reads its script from a file"; return 1 ;;
+      -*) ;;
+      *) if [ "$ns" = 0 ] && [ -z "$scr" ]; then scr="$w"; ns=1; else files="$files $w"; fi ;;
+    esac
+    i=$((i+1))
+  done
+  [ "$inplace" = 1 ] || return 0
+  _gt_named "$files" && { _GTW="'sed -i' edits a gate file in place"; return 1; }
+  # By a short name in a gate directory, or a file the shell finds for it (a name, a glob): not known here, so refused.
+  [ "${taint:-0}" = 2 ] && { _GTW="'sed -i' in a call that stands in a gate directory"; return 1; }
+  case "$files" in *'$'*|*'`'*|*'*'*|*'?'*|*'['*|*'{'*) _GTW="'sed -i' on a file the shell names for it (a variable or a glob)"; return 1 ;; esac
+  [ "$ns" = 1 ] || { _GTW="'sed -i' with more than one script"; return 1; }
+  scr="${scr//$'\002'/ }"
+  # one s command: s<d>pattern<d>replacement<d>flags, flags only g p i I and digits
+  case "$scr" in s?*) ;; *) _GTW="'sed -i' with a script that is not one s command"; return 1 ;; esac
+  dl="${scr:1:1}"; rest="${scr:2}"
+  case "$dl" in [A-Za-z0-9\\[:space:]]) _GTW="'sed -i' with an s command this hook cannot read"; return 1 ;; esac
+  p1="${rest//\\$dl/}"                       # escaped delimiters are text
+  case "$p1" in *"$dl"*"$dl"*) ;; *) _GTW="'sed -i' with an s command this hook cannot read"; return 1 ;; esac
+  fl="${p1##*"$dl"}"
+  case "$fl" in *[!gpiI0-9]*) _GTW="'sed -i' with s flags that write or run ($fl)"; return 1 ;; esac
+  return 0
+}
 _gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate path; $3 = one digit per word of $1, 0 = the
            # shell expands nothing in it -> 0 = on the list · 1 = not (_GTW says why)
   local seg="${1//[$'\t\n']/ }" taint="${2:-0}" k=0 a w base sub scr
@@ -1935,6 +1969,9 @@ _gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate pa
   while [ "$k" -lt "${#W[@]}" ]; do
     case "${W[k]}" in
       then|do|else|elif|if|while|until|'!'|'{'|time) k=$((k+1)) ;;
+      # `IFS= read -r line` is how a file is read line by line (field N20: refused twice, reading the floor blocklist):
+      # an empty IFS in front of read changes how read splits its input, not what any word runs.
+      IFS=) if [ "${W[k+1]:-}" = read ]; then k=$((k+1)); else a=1; k=$((k+1)); fi ;;
       [A-Za-z_]*=*) case "${W[k]%%=*}" in *[!A-Za-z0-9_]*) break ;; *) a=1; k=$((k+1)) ;; esac ;;
       *) break ;;
     esac
@@ -2013,8 +2050,20 @@ _gt_ok(){  # $1 = one simple command, unquoted; $2 = 1: the call binds a gate pa
       esac
       for w in ${W[@]+"${W[@]:a}"}; do case "$w" in --ou*|--ext*) _GTW="'git $sub $w' writes a file or runs a program"; return 1 ;; esac; done
       return 0 ;;
+    xargs)                            # judged by the command it runs (field N20: `… | xargs grep -n …` was refused)
+      a=$((k+1))
+      while [ "$a" -lt "${#W[@]}" ]; do
+        case "${W[a]}" in
+          -n|-L|-P|-s|-d|-E|-I|-a) a=$((a+2)) ;;
+          --) a=$((a+1)); break ;;
+          -*) a=$((a+1)) ;;
+          *) break ;;
+        esac
+      done
+      [ "$a" -lt "${#W[@]}" ] || return 0      # no command: xargs runs echo
+      _gt_ok "${W[*]:a}" "$taint" "${3:a}"; return $? ;;
     rg)   for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --pr*) _GTW="'rg $w' runs a program on every file"; return 1 ;; esac; done; return 0 ;;
-    sed)  for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --i*|-[!-]*[iI]*|-[iI]*) _GTW="'sed $w' edits the file in place"; return 1 ;; esac; done; return 0 ;;
+    sed)  _gt_sed_ok "$k" && return 0; return 1 ;;
     sort) for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --o*|-[!-]*o*|-o*) _GTW="'sort $w' writes a file"; return 1 ;; esac; done; return 0 ;;
     less) for w in ${W[@]+"${W[@]:k}"}; do case "$w" in --log*|--LOG*|-[!-]*[oO]*|-[oO]*) _GTW="'less $w' writes a log file"; return 1 ;; esac; done; return 0 ;;
     chmod)                            # making a hook runnable again is how the doctor's advice is followed; any other mode is not
@@ -2134,7 +2183,9 @@ _gt_judge(){  # the call -> returns 1 with _GTW set when one of its commands is 
       # does the call BIND a gate path (an assignment, a for list, a cd), hand names on (a substitution, xargs),
       # or change what a command word runs?
       # A call that changes what a command word RUNS vouches for none of its words: `PATH=/x; cat <gate file>`.
-      if [[ "$CMD_UQ" =~ $_GT_MEAN ]]; then _GTW="the call holds '${BASH_REMATCH[0]# }', which can change what a command word runs"; return 1; fi
+      # `IFS= read` sets IFS for that read only (field N20); any other IFS= still counts.
+      local _gtmu="$CMD_UQ"; while [[ $_gtmu =~ IFS=[[:space:]]+read([[:space:]]|$) ]]; do _gtmu="${_gtmu/"${BASH_REMATCH[0]}"/read }"; done
+      if [[ "$_gtmu" =~ $_GT_MEAN ]]; then _GTW="the call holds '${BASH_REMATCH[0]# }', which can change what a command word runs"; return 1; fi
       if [[ "$CMD_UQ" =~ $_GT_PIPESH ]]; then _GTW="the call pipes text into a shell, which runs it"; return 1; fi
       [[ "$CMD_UQ" =~ $_GT_BIND ]] && taint=1
       case "$CMD" in *'$('*|*'`'*) taint=1 ;; esac
@@ -2199,7 +2250,10 @@ case "$INPUT" in
       block "write/tamper of a gate file (hook/settings/.git-hooks)" "4.5" tamper
     fi ;;
 esac
-_gate_named && _grep "$CMD" -qiE "(sed|perl|awk|ruby)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-i[^;&|]*$GATE"          && block "in-place edit of a gate file" "4.5" tamper
+# The line-wide backstop. Under the Bash tool sed is judged above by what it edits (_gt_sed_ok: a gate path named only
+# as text in an s/// is not an edit of it, field N20); perl, awk and ruby -i are refused there as well, and stay here.
+case "$INPUT" in *'"tool_name":"PowerShell"'*|*'"tool_name": "PowerShell"'*) _GIE='(sed|perl|awk|ruby)' ;; *) _GIE='(perl|awk|ruby)' ;; esac
+_gate_named && _grep "$CMD" -qiE "$_GIE[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-i[^;&|]*$GATE"          && block "in-place edit of a gate file" "4.5" tamper
 # /CREW-NOT-A-RUNG
 # The redirect TARGET must be the gate path, not merely something later on the line: a target is one token, so
 # it cannot contain whitespace or a command separator.
