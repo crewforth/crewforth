@@ -8859,6 +8859,51 @@ else skip platform "a recursive rm through a symbolic link (ln -s made no link h
 if [ "$_rmtn" -lt 19 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 19"
 elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call and a link followed through / or a glob stay refused ($_rmtn rows)"
 else fail "recursive rm and temp directories:$_rmtb"; fi
+# AN rm IN A CONTAINER IS THE CONTAINER'S (5.2, field N3): `docker exec app rm -rf /app/tmp` was refused as a host path.
+# It passes when every rm of the call runs in a docker/podman/compose/kubectl exec or run and every target is an
+# ordinary path there; what empties the container stays refused, and so does any rm left on the host.
+_rmcb=""; _rmcn=0
+while IFS='|' read -r _rw _rc; do [ -n "$_rc" ] || continue
+  _rmcn=$((_rmcn+1)); _rg="$(_rmtv "$_rc")"; [ "$_rg" = "$_rw" ] || _rmcb="$_rmcb [$_rc → $_rg, want $_rw]"
+done <<'RMC'
+0|docker exec app rm -rf /app/tmp
+0|docker exec -it -u root app rm -rf /var/cache/x /tmp/y
+0|kubectl exec pod -- rm -rf /tmp/x
+0|docker compose exec web rm -rf /app/node_modules
+0|docker-compose exec web rm -rf /srv/cache
+0|podman exec app rm -rf /app/tmp
+0|docker run --rm img rm -rf /srv/y
+0|docker exec app rm -rf node_modules/.cache ./x
+0|docker exec app sh -c \"rm -rf /app/tmp\"
+0|docker exec app rm -rf /app/x/*
+0|docker rm -f c1; docker exec app rm -rf /app/tmp
+2|docker exec app rm -rf /
+2|docker exec app rm -rf /*
+2|docker exec app rm -rf ~
+2|docker exec app rm -rf ~/x
+2|docker exec app rm -rf .
+2|docker exec app rm -rf ..
+2|docker exec app rm -rf /usr
+2|docker exec app rm -rf /app/*
+2|docker exec app rm -rf /app/../etc
+2|docker exec app rm -rf $HOME/x
+2|docker exec app rm -rf /app/tmp && rm -rf /Users/crew-nope/x
+2|docker ps; rm -rf /crew-nope/y
+2|rm -rf /app/tmp
+2|docker exec app ls; sudo rm -rf /crew-nope/x
+2|docker exec app rm -rf C:\\x
+2|docker exec app rm -rf C:/Users/crew-nope
+2|docker exec app rm -rf /c/Users/crew-nope
+2|docker exec app rm -rf ..\\..
+2|docker exec app rm -rf C:
+2|env rm -rf C:\\Users\\crew-nope
+2|command rm -rf C:\\Users\\crew-nope
+2|nice -n 5 rm -rf C:\\Users\\crew-nope
+0|env rm -rf build
+RMC
+if [ "$_rmcn" -lt 34 ]; then fail "FIXTURE: the container-rm table ran $_rmcn rows, not 34"
+elif [ -z "$_rmcb" ]; then pass "an rm that runs in a container passes (docker, podman, compose, kubectl; exec and run; sh -c; a glob two levels down; docker's own rm beside it); /, /*, ~, ., .., a top-level directory, a glob at the top, .., an expansion, a Windows-shaped path (C:\\x, C:/x, /c/x, ..\\..) and any rm left on the host stay refused; so does a Windows path behind env, command or nice ($_rmcn rows)"
+else fail "rm in a container:$_rmcb"; fi
 # The preview names the rm's own targets: it used to cut the call at the first "git" and preview another command's words.
 _rmtp="$( cd "$_rmtd" && . "$ROOT/eval/lib/preview.sh" && crew_preview rm "rm -rf ./x 2>/dev/null; git status" && printf '%s' "$_CREW_PV" )"
 case "$_rmtp" in *status*|*'2>'*) fail "the rm preview names words that are not rm targets: $_rmtp" ;;
