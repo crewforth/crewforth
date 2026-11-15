@@ -8895,6 +8895,13 @@ done <<'RMT'
 2|TMPDIR=/etc; rm -rf $TMPDIR/crew-nope
 2|rm -rf @T@/x; sudo rm -rf /etc/crew-nope
 2|rm -rf @T@/crew-nope-dir/../../x
+0|S=@T@/x; rm -rf $S/sub; for f in a; do echo $f; done
+0|S=@T@/x; rm -rf $S/sub\ncat > $S/f.py <<'EOF'\nS=/etc\nx=`date`\nEOF
+0|S=@T@; rm -rf $S/x/sub; export Q=1; echo $(date)
+2|S=@T@/x; read S; rm -rf $S/crew-nope
+2|S=@T@/x; rm -rf $S/sub; bash -c 'rm -rf /etc/crew-nope'
+2|S=@T@/x; rm -rf $S/sub; echo `rm -rf /etc/crew-nope`
+2|S=@T@/x; rm -rf $S/sub; echo $(rm -rf /etc/crew-nope)
 RMT
 # a link to the home: the link itself may go, its target may not (a trailing / or a glob follows it)
 ln -s "$HOME" "$_rmtd/home" 2>/dev/null
@@ -8905,8 +8912,8 @@ if [ -L "$_rmtd/home" ]; then
   done
 else skip platform "a recursive rm through a symbolic link (ln -s made no link here)" 3; fi
 [ -d "$_rmtd/x/sub" ] || _rmtb="$_rmtb FIXTURE:the-hook-removed-something"
-if [ "$_rmtn" -lt 19 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 19"
-elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call and a link followed through / or a glob stay refused ($_rmtn rows)"
+if [ "$_rmtn" -lt 26 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 26"
+elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call, an rm inside quotes, backticks or $( ) and a link followed through / or a glob stay refused; a here-document, loop, export or substitution AFTER the last rm does not stop a name set before it from being read (field N32) ($_rmtn rows)"
 else fail "recursive rm and temp directories:$_rmtb"; fi
 # AN rm IN A CONTAINER IS THE CONTAINER'S (5.2, field N3): `docker exec app rm -rf /app/tmp` was refused as a host path.
 # It passes when every rm of the call runs in a docker/podman/compose/kubectl exec or run and every target is an

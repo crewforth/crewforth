@@ -1159,15 +1159,22 @@ _rmt_unset(){ local x=" ${1# }" ; while case "$x" in *" $2="*) true ;; *) false 
 _rm_temp_only(){
   local s="$1" seg w n v a k first rmseen=0 ok
   local -a W
-  case "$s" in *'`'*|*'$('*|*'<('*|*'>('*|*'eval '*|*xargs*|*'-exec'*) return 1 ;; esac
   _rmt_roots; [ -n "$_RMT_ROOTS" ] || return 1
   # Names are resolved only where the text says plainly what they hold: no here-document (its body is not commands,
   # and a `S=/tmp/x` line in it sets nothing), nothing that binds a name another way, and the LAST plain assignment
   # wins (`S=/tmp/a; S=/Users/me; rm -rf $S/x` deletes in the home). TMPDIR is taken from the environment only when
   # the call does not set it.
-  local assigns=" " noassign=0 envtmp="${TMPDIR:-}"
-  case "$s" in *'<<'*) noassign=1 ;; esac
-  [[ $s =~ (^|[^A-Za-z0-9_])(read|for|export|declare|local|typeset|unset|eval|source|mapfile|readarray|printf[[:space:]]+-v)([[:space:]]|$) ]] && noassign=1
+  # Only the text up to the end of the LAST rm can change what an rm deletes (field N32: `S=<scratch>; rm -rf $S;`
+  # followed by a here-document, a for loop or an export was refused 9 times). A binder after it is not looked at;
+  # one before it still stops every name from being read.
+  local assigns=" " noassign=0 envtmp="${TMPDIR:-}" pre="$s" rest
+  local sep=$' \t\n;&|(`"\'{!'
+  rest="${s%[$sep]rm[$' \t']*}"
+  if [ "$rest" != "$s" ]; then pre="${s#"$rest"}"; pre="$rest${pre%%[$'\n;&|']*}"
+  else case "$s" in rm[$' \t']*) pre="${s%%[$'\n;&|']*}" ;; esac; fi
+  case "$pre" in *'`'*|*'$('*|*'<('*|*'>('*|*'eval '*|*xargs*|*'-exec'*) return 1 ;; esac
+  case "$pre" in *'<<'*) noassign=1 ;; esac
+  [[ $pre =~ (^|[^A-Za-z0-9_])(read|for|export|declare|local|typeset|unset|eval|source|mapfile|readarray|printf[[:space:]]+-v)([[:space:]]|$) ]] && noassign=1
   case "$s" in *[!A-Za-z0-9_]TMPDIR=*|TMPDIR=*) envtmp="" ;; esac
   _gsub "$s" $'\n' ';'; s="$_GS"; _gsub "$s" '&&' ';'; s="$_GS"; _gsub "$s" '||' ';'; s="$_GS"; _gsub "$s" '|' ';'; s="$_GS"
   local IFS=';'
@@ -1181,7 +1188,7 @@ _rm_temp_only(){
                       case "$v" in *'$'*|*'*'*|*'?'*|*'`'*|'') ;; *) assigns="$assigns$n=$v " ;; esac; fi; continue ;;
       export) continue ;;
       rm) ;;
-      *) case "$seg" in *[[:space:]]rm[[:space:]]*|rm[[:space:]]*) return 1 ;; esac; continue ;;   # rm behind sudo, env, a wrapper
+      *) case "$seg" in *[$sep]rm[[:space:]]*|rm[[:space:]]*) return 1 ;; esac; continue ;;   # rm behind sudo, env, a wrapper, a quote (bash -c "rm …")
     esac
     rmseen=1; local dd=0 cnt=0
     for ((k=1; k<${#W[@]}; k++)); do
