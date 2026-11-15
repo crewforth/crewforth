@@ -1208,12 +1208,61 @@ _rm_temp_only(){
   done
   [ "$rmseen" = 1 ]
 }
+# AN rm THAT RUNS IN A CONTAINER (5.2, field N3): `docker exec app rm -rf /app/tmp` deletes in the container, and the
+# rule below read /app/tmp as a host path and refused it (its preview even looked for it on the host). 0 only when
+# every rm of the call stands in a `docker|podman [compose|container] exec|run`, `docker-compose exec|run` or
+# `kubectl exec` segment, and every target there is an ordinary path in the container: relative, or absolute with at
+# least two levels, no `..`, no `~`, no `$`. `/`, `/*`, `~`, `.`, `..`, `*`, a top-level directory (`/usr`) and a glob
+# at the top level are refused as before: they empty the container, and a mounted volume is the host's. An rm outside
+# such a segment is the host's and is judged as before. Builtins only.
+_rm_container_only(){
+  local s="$1" seg first k w kw rmseen=0 inrm cnt t pre
+  local -a W
+  # A here-document is no reason to stop: its lines are segments too, and one that holds an rm is not a container's,
+  # so it keeps the refusal (measured: 3 field calls cleaned a container and wrote a note in the same call).
+  case "$s" in *'`'*|*'$('*|*'<('*|*'>('*|*'eval '*|*xargs*|*'-exec'*) return 1 ;; esac
+  _gsub "$s" $'\n' ';'; s="$_GS"; _gsub "$s" '&&' ';'; s="$_GS"; _gsub "$s" '||' ';'; s="$_GS"; _gsub "$s" '|' ';'; s="$_GS"
+  local IFS=';'
+  for seg in $s; do
+    case " $seg " in *[[:space:]\"\']rm[[:space:]]*) ;; *) continue ;; esac
+    IFS=$' \t'; read -r -a W <<< "$seg"; IFS=';'
+    [ "${#W[@]}" -gt 1 ] || return 1
+    k=0; [ "${W[0]}" = sudo ] && k=1
+    first="${W[k]}"; kw=""
+    case "$first" in docker|podman|docker-compose|kubectl) ;; *) return 1 ;; esac
+    for ((k=k+1; k<${#W[@]}; k++)); do
+      w="${W[k]}"
+      case "$w" in -*) continue ;; compose|container) [ "$first" != kubectl ] && continue; return 1 ;; esac
+      case "$first:$w" in kubectl:exec|docker:exec|docker:run|podman:exec|podman:run|docker-compose:exec|docker-compose:run) kw="$w" ;; esac
+      break
+    done
+    # `docker rm -f c`, `docker volume rm v`, `kubectl … rm`: the tool's own subcommand removes a container or a
+    # volume, not a file; it is no rm of a path.
+    [ -n "$kw" ] || continue
+    inrm=0; cnt=0
+    for ((k=k+1; k<${#W[@]}; k++)); do
+      w="${W[k]}"; w="${w//\"/}"; w="${w//\'/}"
+      if [ "$inrm" = 0 ]; then [ "$w" = rm ] && { inrm=1; rmseen=1; }; continue; fi
+      case "$w" in --) continue ;; -*) continue ;; [0-9]'>'*|'>'*|'2>&1'|'&>'*) continue ;; esac
+      case "$w" in ''|'.'|'..'|'~'|'~/'*|'*'|'/'|'/*'|*'$'*|*'{'*) return 1 ;; esac
+      case "/$w/" in */../*) return 1 ;; esac
+      case "$w" in
+        /*) t="${w#/}"; t="${t%/}"
+            case "$t" in */*) ;; *) return 1 ;; esac                              # a top-level directory, or a glob there
+            case "$w" in *'*'*|*'?'*|*'['*) pre="${w%%[*?[]*}"; pre="${pre#/}"; case "$pre" in */?*) ;; *) return 1 ;; esac ;; esac ;;
+      esac
+      cnt=$((cnt+1))
+    done
+    [ "$inrm" = 1 ] && [ "$cnt" -gt 0 ] || return 1
+  done
+  [ "$rmseen" = 1 ]
+}
 # Scoped to targets carrying `/`, `*` or `~` ON PURPOSE — `rm -rf build` is a routine local delete and blocking
 # it would make the gate noise. What was NOT on purpose: the recursive flag was matched as lowercase `r` in one
 # short cluster, so `rm -Rf /`, `rm -fR /`, `rm -f -r /` and `rm --recursive --force /` all walked past while
 # `rm -rf /` was blocked. Same class as the chmod hole found in evals/permission-pressure: one spelling gated,
 # another reaching the identical state. Case, flag order and the long form are all the same command.
-case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && ! _rm_temp_only "$CMD" && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
+case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && ! _rm_temp_only "$CMD" && ! _rm_container_only "$CMD" && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
 # ADDED (3.1.0): `.` and `..` as a target carry none of those three characters and are the widest targets there are —
 # `rm -rf .` at a project root takes the whole tree, `..` its parent (both passed). Narrower than the test above on
 # purpose, so that it adds no noise: `rm` must stand at a command position, `sudo` or not (`git rm -r --cached .`, `npm rm`,
@@ -1240,6 +1289,12 @@ case "$CMD" in *[Rr][Mm]*)
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
   case "$CMD" in *\\"$_RMNL"*) [ "${#CMD}" -le 4096 ] && _rmc="${CMD//\\$_RMNL/ }" ;; esac
   [[ $_rmc =~ $_RMDOT ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
+  # ...and inside a container (5.2): `docker exec app rm -rf .` empties the container's working directory, and the rm
+  # there stands at no command position, so the line above did not see it (measured: rc 0 before).
+  case "$_rmc" in *[Ee][Xx][Ee][Cc]*|*[Rr][Uu][Nn]*)
+    [[ $_rmc =~ (^|[;&|({$_RMNL])[[:blank:]]*(sudo[[:blank:]]+)?(docker|podman|docker-compose|kubectl)[[:blank:]][^;&|$_RMNL]*[[:blank:]\"\']rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#$_RMNL]*[[:blank:]])?[\"\']?(\.\.?|\*)[\"\']?([[:space:];&|)}]|$) ]] \
+      && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; } ;;
+  esac
   [[ $_rmc =~ $_RMWIN ]] && { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
   if [[ $_rmc =~ $_RMTMPV ]]; then
     _rmv="${BASH_REMATCH[0]}"; _rmv="${_rmv#*\$}"; _rmv="${_rmv#\{}"; _rmv="${_rmv%%[\}\"\' ;&|)]*}"
