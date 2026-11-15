@@ -12003,6 +12003,34 @@ done
 [ -f "$_v2p/.claude/state/crew-model/fails/ctw1" ] && _v2b="$_v2b [a test-write red was counted as a fail]"
 [ -z "$_v2b" ] && pass "a background agent whose verify fails is not kept running (the field lost 4 of 8 such stops after a handback): it is recorded as fail with no fix, its mark is cleared, and the session is told at Stop that it was not sent back, with the repeat; a foreground red is still kept once; a test-write card's red is red, in the foreground and the background: not kept, not told, not counted" \
                || fail "a background red / a test-write red:$_v2b"
+# A VERIFY THAT TESTED NOTHING (field N34: pytest's exit 4 for a test file that does not exist was read as a failed
+# verify, and the model was told to step up). Exit 126/127, and pytest's 4 or 5, are recorded as not run with why: not
+# kept, not counted, told as "ran but tested nothing"; a test-write card's exit 4 is not its expected red.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/t4" "$_v2p/t5" "$_v2p/t1"
+printf '#!/bin/sh\nexit 4\n' > "$_v2p/t4/pytest"; printf '#!/bin/sh\nexit 5\n' > "$_v2p/t5/pytest"; printf '#!/bin/sh\nexit 4\n' > "$_v2p/t1/runner"
+chmod +x "$_v2p/t4/pytest" "$_v2p/t5/pytest" "$_v2p/t1/runner"
+printf 'verify t4/pytest\nverify t5/pytest\nverify t1/runner\nverify ./crew-no-such-tool\n' > "$_v2p/.claude/crew-model-rules"
+_v2plantv(){ printf 'agent=crew-test-expert\ntier=sonnet\nasked=sonnet\nchange=%s\nrisk=normal\ncard=c%s\nbg=false\nesc=-\nverify=%s\n' "$3" "$1" "$2" > "$_v2p/.claude/state/crew-model/agents/$1"; }
+for _vt in 'nt4|t4/pytest -q|feature' 'nt5|t5/pytest -q|feature' 'nt7|./crew-no-such-tool|feature' 'nt8|t4/pytest -q|test-write'; do
+  _vi="${_vt%%|*}"; _vr="${_vt#*|}"; _vc="${_vr%%|*}"; _vk="${_vr#*|}"
+  _v2plantv "$_vi" "$_vc" "$_vk"; _o="$(_v2stop "$_vi")"
+  [ -z "$_o" ] || _v2b="$_v2b [$_vc: kept running: ${_o:0:80}]"
+  [ "$(_v2res "$_vi")" = blocked ] || _v2b="$_v2b [$_vc ($_vk): $(_v2res "$_vi"), want blocked]"
+  case "$(_v2post "$_vi")" in *'ran but tested nothing'*) ;; *) _v2b="$_v2b [$_vc: not told it tested nothing]" ;; esac
+  [ -f "$_v2p/.claude/state/crew-model/fails/c$_vi" ] && _v2b="$_v2b [$_vc: counted as a fail]"
+done
+# the twin: exit 4 from a command that is not pytest is a failure as before
+_v2plantv nt9 't1/runner' feature; _o="$(_v2stop nt9)"
+case "$_o" in *'"decision":"block"'*'Fix the work so that the command passes'*) ;; *) _v2b="$_v2b [exit 4 of another runner was not a failure: ${_o:0:80}]" ;; esac
+# a placeholder left in the card's verify is named as one, not as a redirect (field N34); a real redirect still is one
+_phd="$_v2p"
+for _pv in 'pytest <the test files you add or touch>|placeholder that was never filled in' 'pytest tests/a.py > out.txt|chains, pipes, redirects'; do
+  _pc="${_pv%%|*}"; _pw="${_pv#*|}"
+  _o="$(printf '{"hook_event_name":"PreToolUse","tool_name":"Agent","session_id":"s","cwd":"%s","tool_input":{"prompt":"files: tests/test_x.py\\nchange: test-write\\nverify: %s\\n\\nDo it.","subagent_type":"crew-test-expert","model":"sonnet"}}' "$_phd" "$_pc" | (cd "$_phd" && CLAUDE_PROJECT_DIR="$_phd" CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-agent-model.sh" 2>&1))"
+  case "$_o" in *"$_pw"*) ;; *) _v2b="$_v2b [verify '$_pc' was not said to be: $_pw]" ;; esac
+done
+[ -z "$_v2b" ] && pass "a verify that tested nothing (exit 126/127, pytest's 4 or 5) is recorded as not run with why, not kept, not counted, and told as having tested nothing; a test-write card's exit 4 is not its red; exit 4 of another runner is still a failure; a placeholder left in the verify is named as one, a real redirect as a redirect" \
+               || fail "a verify that tested nothing:$_v2b"
 # THE CARD'S SKILLS. Field (2026-11-13): of 4,326 crew agent runs, 14 read their own skill and none called the Skill
 # tool (`metadata: skills:` is not a field Claude Code reads, and no agent had the tool). A card may name `skills:`;
 # the gate refuses a name that is not an installed skill, and the agent's stop is held to calling each one (or reading
