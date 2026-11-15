@@ -20,9 +20,11 @@ Loaded on demand — the SKILL.md loop is the method; this is the toolbox for a 
 ## Intermittent / heisenbugs (can't reliably reproduce)
 
 The cause is almost always one of:
-- **Timing / races** — order of concurrent operations; add delays/logging to widen the window and expose it. A bug that vanishes when you add a log is a timing bug (the log changed the timing).
+- **Timing / races** — order of concurrent operations; add delays/logging to widen the window and expose it. A bug that vanishes when you add a log is a timing bug (the log changed the timing). The fix waits on a condition (poll until the state holds, with a cap), never on a fixed sleep: a sleep long enough here is too short on a slower machine.
 - **Shared/leaked state** — a previous test/run left state behind; run the case in full isolation and in a different order (`--shuffle`).
-- **Ordering dependence** — passes alone, fails in the suite → cross-test coupling. Bisect the test order.
+- **Ordering dependence** — passes alone, fails in the suite → cross-test coupling. Bisect the test order: run the
+  failing test after the first half of the tests before it, then after the half that still breaks it, until one test
+  is left. That one leaves state behind (a file, a global, a row, an env var): fix its cleanup, not the victim.
 - **Resource / environment** — memory pressure, disk, clock, locale, network flake, an unpinned dependency version. Pin and compare.
 - **Uninitialized / nondeterministic** — reads of uninitialized memory, map iteration order, unseeded randomness, `Date.now()`.
 
