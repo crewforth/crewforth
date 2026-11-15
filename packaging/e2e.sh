@@ -301,6 +301,18 @@ for _gl in "$P/.claude/gate-log.tsv" "$P/.git/crewforth-gate-log.tsv"; do
 done
 echo "[adopt/proof] the install's proofs ran and wrote nothing to the gate log"
 grep -qx 'stack=generic' "$P/.claude/kit.conf"          || die "a .NET brownfield adopt did not record stack=generic" adopt-brownfield "$P"
+# A project that TRACKS docs/ keeps its .gitignore (field, N26: an update added docs/ over 30 tracked files and staged
+# it). The twin is the fixture above, which tracks no docs/: there docs/ is added, so the check is not silent by default.
+grep -qx 'docs/' "$P/.gitignore" || die "adopt did not gitignore docs/ in a repo that does not track it" adopt-brownfield "$P"
+P2="$WORK/adopt-tracked-docs"; rm -rf "$P2"; mkdir -p "$P2/docs"
+cp adopt.sh "$P2/"; cp -R kit "$P2/"; cp VERSION "$P2/"
+printf 'notes\n' > "$P2/docs/notes.md"; printf 'node_modules/\n' > "$P2/.gitignore"
+( cd "$P2" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
+run_adopt "$P2" --yes
+grep -qx 'docs/' "$P2/.gitignore" && die "adopt gitignored docs/ that the project tracks (N26)" adopt-brownfield "$P2"
+case "$ADOPT_OUT" in *'docs/ is tracked in this repository'*) ;; *) die "adopt did not say why docs/ was left out of .gitignore" adopt-brownfield "$P2" ;; esac
+echo "[adopt/tracked-docs] a tracked docs/ is not gitignored, and the install says so; an untracked one is"
+rm -rf "$P2"
 [ ! -e "$P/.claude/skills/cqrs-aop-module" ]             || die "the removed .NET pattern skill was installed" adopt-brownfield "$P"
 [ ! -f "$P/.claude/agents/backend-expert.md" ]          || die "overlapping project agent was not taken over" adopt-brownfield "$P"
 [ -f "$P/.claude/superseded/agents/backend-expert.md" ] || die "taken-over agent's original was not backed up" adopt-brownfield "$P"
