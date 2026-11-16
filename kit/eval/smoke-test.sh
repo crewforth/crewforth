@@ -8139,7 +8139,7 @@ _tmo(){ # $1 settings file -> the SubagentStop timeout of agent-outcome.sh, or e
   awk '/"[A-Za-z]+": *\[/ && !/"hooks"/ { ev=$0; sub(/^[^"]*"/, "", ev); sub(/".*/, "", ev) }
        ev == "SubagentStop" && /agent-outcome\.sh/ { f=1 }
        f && /"timeout"/ { v=$0; gsub(/[^0-9]/, "", v); print v; exit }' "$1" 2>/dev/null; }
-_cap="$(sed -n 's/.*\[ "\$LIM" -le \([0-9][0-9]*\) \] || LIM=.*/\1/p' "$HOOKS/agent-outcome.sh" | head -1)"
+_cap="$(sed -n 's/.*\[ "\$_AMVL" -le \([0-9][0-9]*\) \] || _AMVL=.*/\1/p' "$HOOKS/guard-agent-model.sh" | head -1)"
 _tset="$(_tmo "$ROOT/settings.json")"
 _ttw="$(mktemp)"; sed 's/"timeout": 600/"timeout": 300/' "$ROOT/settings.json" > "$_ttw"; _ttv="$(_tmo "$_ttw")"; rm -f "$_ttw"
 if [ -z "$_cap" ] || [ -z "$_tset" ]; then fail "FIXTURE: could not read the verify cap (${_cap:-none}) or the SubagentStop timeout (${_tset:-none})"
@@ -11971,7 +11971,7 @@ done
 _vs="$_v2p/.claude/state/verify-slow"
 [ "$(grep -cE "$(printf '^2\t\./slow\.sh\t[0-9]+$')" "$_vs" 2>/dev/null)" = 1 ] || _v2b="$_v2b [not remembered once: $(tr '\t' '|' < "$_vs" 2>/dev/null | head -c 80)]"
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
-_v2call crew-review-agent sonnet 'src/ui/a.ts' audit './slow.sh'
+_V2ENV="CREW_VERIFY_TIMEOUT=2" _v2call crew-review-agent sonnet 'src/ui/a.ts' audit './slow.sh'
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"additionalContext":"Crewforth: this card'*'did not finish in 2s the last time'*'Write the tests this change touches'*) ;; *) _v2b="$_v2b [the next card was not told: rc=$_v2rc $(head -c 90 "$_v2/out")]" ;; esac
 case "$(cat "$_v2/out" 2>/dev/null)" in *permissionDecision*) _v2b="$_v2b the-slow-note-decided-the-call" ;; esac
 # the twin: a command never stopped here is not told (the rule allows it, so no other notice can answer)
@@ -11979,7 +11979,7 @@ printf 'verify ./slow.sh\nverify test -d .\n' > "$_v2p/.claude/crew-model-rules"
 _v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'test -d .'
 { [ "$_v2rc" = 0 ] && [ ! -s "$_v2/out" ]; } || _v2b="$_v2b [a command never stopped was told: $(head -c 80 "$_v2/out")]"
 # spacing is not a new command: the same words with other spaces are the same entry
-_v2call crew-review-agent sonnet 'src/ui/a.ts' audit '  ./slow.sh '
+_V2ENV="CREW_VERIFY_TIMEOUT=2" _v2call crew-review-agent sonnet 'src/ui/a.ts' audit '  ./slow.sh '
 case "$(cat "$_v2/out" 2>/dev/null)" in *'did not finish in 2s the last time'*) ;; *) _v2b="$_v2b [the same command with other spacing was not told]" ;; esac
 # a pass of a remembered command forgets it; the others stay; the file holds at most 50, the newest kept
 { printf '540\ttest -d .\n'; _i=0; while [ $_i -lt 55 ]; do printf '540\tnpm run x%s\n' "$_i"; _i=$((_i+1)); done; printf '2\t./slow.sh\n'; } > "$_vs"
@@ -11995,7 +11995,7 @@ grep -q "$(printf '\tnpm run x0$')" "$_vs" && _v2b="$_v2b the-oldest-was-kept-pa
 printf 'verify ./slow.sh\n' > "$_v2p/.claude/crew-model-rules"
 [ -z "$(ls "$_v2p/.claude/state/crew-model/fails" 2>/dev/null)" ] || _v2b="$_v2b marked-the-card-failed"
 [ -f "$_v2p/.claude/state/crew-model-floors.auto" ] && _v2b="$_v2b a-timeout-counted-for-calibration"
-grep -q 'LIM" -le 560 \] || LIM=560' "$HOOKS/agent-outcome.sh" || _v2b="$_v2b the-limit-is-not-held-under-the-hooks-own"
+grep -q '_AMVL" -le 560 \] || _AMVL=560' "$HOOKS/guard-agent-model.sh" || _v2b="$_v2b the-limit-is-not-held-under-the-hooks-own"
 [ -z "$_v2b" ] && pass "a verify command that does not finish is stopped at its own limit together with the process it started, by each way of grouping it this machine has ($(echo $_v2ways)), and recorded as timeout: not a pass, not a fail, no fix asked, no escalation, nothing counted for the class; the session is told not to run the whole command again but the tests the change touches; the command is remembered as slow (once, by its words not its spacing, at most 50, a pass forgets it) and the next card that carries it is told, never refused; the limit is held under the hook's own" \
                || fail "verify timeout:$_v2b"
 # A command REMEMBERED as slow is not run again for CREW_VERIFY_SLOW_DAYS (7): in the field the next agent's stop
@@ -12009,7 +12009,7 @@ _t0=$SECONDS; _o="$(_v2stop sk-fresh)"; _t1=$((SECONDS - _t0))
 [ "$(_v2res sk-fresh)" = timeout ] || _v2b="$_v2b [fresh: result $(_v2res sk-fresh), want timeout]"
 [ -f "$_v2p/ran.mark" ] && _v2b="$_v2b a-command-stopped-today-was-run-again"
 _skl="$(awk -F'\t' '$2 == "sk-fresh" { print $14 "|" $15 }' "$_v2p/.claude/state/model-outcomes.tsv")"; case "$_skl" in '-|not run: it did not finish in 540s'*) ;; *) _v2b="$_v2b [the line does not say why it was not run (why_not), or gives it a duration: $_skl]" ;; esac
-grep -q 'LIM="${CREW_VERIFY_TIMEOUT:-120}"' "$HOOKS/agent-outcome.sh" || _v2b="$_v2b [the verify limit is not 120 s by default]"
+grep -q '_AMVL=120; _AMVLW=default' "$HOOKS/guard-agent-model.sh" || _v2b="$_v2b [the verify limit is not 120 s by default]"
 [ -z "$_o" ] || _v2b="$_v2b [fresh: the agent was kept running]"
 case "$(_v2post sk-fresh)" in *'was stopped: not run: it did not finish in 540s when it last ran here, within the last 7 days'*'for 7 days the hook does not run it again'*) ;; *) _v2b="$_v2b [fresh: the session was not told it was not run: $(_v2post sk-fresh | head -c 120)]" ;; esac
 grep -qE "$(printf '^540\t\./mark\.sh\t')$_now\$" "$_vs" || _v2b="$_v2b [a skip rewrote the remembered line: $(tr '\t' '|' < "$_vs")]"
@@ -12029,6 +12029,49 @@ _v2call crew-review-agent sonnet 'src/ui/a.ts' audit './mark.sh'
 case "$(cat "$_v2/out")" in *'does not run it again'*) _v2b="$_v2b [an expired line still says it will not run]" ;; *'did not finish in 540s the last time'*) ;; *) _v2b="$_v2b [an expired line is not told at all]" ;; esac
 [ -z "$_v2b" ] && pass "a verify command stopped at its limit here is not run again for 7 days (CREW_VERIFY_SLOW_DAYS): the line says timeout and why, the session is told it was not run, the remembered line is kept as it was, and the card's writer is told up front; after the days, a line with no epoch (3.5.0-rc.5) and CREW_VERIFY_SLOW_DAYS=0 run it again, and a pass forgets it" \
                || fail "a remembered slow verify:$_v2b"
+# THE LIMIT IS THE PROJECT'S (field N1): three named test files that ran 146 s were stopped at 120 three times, and
+# CREW_VERIFY_TIMEOUT was an environment variable nobody had set. A `verify-timeout <seconds>` line in
+# .claude/crew-model-rules (the file only the user writes) sets it; the variable, where set, comes first; at most 560;
+# a word, 0 or nothing is the default. A command remembered as slow at a limit below the one in force is run again;
+# at the same or a higher one it is not. The session told of a timeout is told the line.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/.claude/state"; _vs="$_v2p/.claude/state/verify-slow"
+printf '#!/bin/sh\nsleep 300 &\necho $! > child.pid\nwait\n' > "$_v2p/slow.sh"; chmod +x "$_v2p/slow.sh"
+printf '#!/bin/sh\necho ran > ran.mark\n' > "$_v2p/mark.sh"; chmod +x "$_v2p/mark.sh"
+_vtkill(){ local c=""; [ -f "$_v2p/child.pid" ] && IFS= read -r c < "$_v2p/child.pid"; case "$c" in ''|*[!0-9]*) ;; *) kill -KILL "$c" 2>/dev/null ;; esac; rm -f "$_v2p/child.pid"; }
+_vtwhy(){ awk -F'\t' -v a="$1" '$2 == a { print $15 }' "$_v2p/.claude/state/model-outcomes.tsv" 2>/dev/null; }
+# the line sets it (no variable): stopped at 2 s, and the session is told the line
+printf 'verify ./slow.sh\nverify-timeout 500\nverify-timeout 2\n' > "$_v2p/.claude/crew-model-rules"; rm -f "$_vs"
+_v2plant vt-rule './slow.sh'; _t0=$SECONDS; _v2stop vt-rule >/dev/null; _t1=$((SECONDS - _t0)); _vtkill
+case "$(_v2res vt-rule)|$(_vtwhy vt-rule)" in 'timeout|it did not finish in 2s') ;; *) _v2b="$_v2b [rules line not used (last wins): $(_v2res vt-rule)|$(_vtwhy vt-rule)]" ;; esac
+[ "$_t1" -le 20 ] || _v2b="$_v2b [rules: took ${_t1}s]"
+case "$(_v2post vt-rule)" in *'did not finish in 2s'*'verify-timeout <seconds>'*'.claude/crew-model-rules'*) ;; *) _v2b="$_v2b [the session was not told the line: $(_v2post vt-rule | head -c 100)]" ;; esac
+# the variable comes first
+printf 'verify ./slow.sh\nverify-timeout 500\n' > "$_v2p/.claude/crew-model-rules"; rm -f "$_vs"
+_v2plant vt-env './slow.sh'; _t0=$SECONDS; _V2ENV="CREW_VERIFY_TIMEOUT=2" _v2stop vt-env >/dev/null; _t1=$((SECONDS - _t0)); _vtkill
+case "$(_vtwhy vt-env)" in 'it did not finish in 2s') ;; *) _v2b="$_v2b [the variable did not come first: $(_vtwhy vt-env)]" ;; esac
+[ "$_t1" -le 20 ] || _v2b="$_v2b [env: took ${_t1}s]"
+# remembered at 2 s, the limit now 5: run again (the twin: remembered at 540, the limit 300: not run)
+_now="$(date +%s)"
+printf 'verify ./mark.sh\nverify-timeout 5\n' > "$_v2p/.claude/crew-model-rules"
+printf '2\t./mark.sh\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/ran.mark"; _v2plant vt-raised './mark.sh'; _v2stop vt-raised >/dev/null
+{ [ "$(_v2res vt-raised)" = pass ] && [ -f "$_v2p/ran.mark" ]; } || _v2b="$_v2b [a command stopped below the raised limit was not run again: $(_v2res vt-raised)]"
+printf 'verify ./mark.sh\nverify-timeout 300\n' > "$_v2p/.claude/crew-model-rules"
+printf '540\t./mark.sh\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/ran.mark"; _v2plant vt-same './mark.sh'; _v2stop vt-same >/dev/null
+{ [ "$(_v2res vt-same)" = timeout ] && [ ! -f "$_v2p/ran.mark" ]; } || _v2b="$_v2b [a command stopped at a higher limit was run again: $(_v2res vt-same)]"
+# the card's writer: not told "not run again" when the limit was raised above the remembered one
+printf 'verify ./mark.sh\nverify-timeout 5\n' > "$_v2p/.claude/crew-model-rules"
+printf '2\t./mark.sh\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'src/ui/a.ts' audit './mark.sh'
+case "$(cat "$_v2/out" 2>/dev/null)" in *'did not finish in 2s the last time'*) _v2b="$_v2b [told slow though the limit was raised]" ;; esac
+# the whole-suite note names the limit in force: the line, 560 at most, the default for a word, 0 or an overlong number
+for _vc in "300|300" "9999|560" "99999999999999999999|560" "abc|120" "0|120" "|120"; do
+  _vl="${_vc%%|*}"; _vw="${_vc#*|}"
+  printf 'verify pytest\nverify-timeout %s\n' "$_vl" > "$_v2p/.claude/crew-model-rules"; rm -f "$_vs" "$_v2p/.claude/state/crew-model/pending/"*
+  _v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'pytest'
+  case "$(cat "$_v2/out" 2>/dev/null)" in *"The hook stops a verify after ${_vw} s."*) ;; *) _v2b="$_v2b [verify-timeout '$_vl' -> not ${_vw}s: $(grep -o 'stops a verify after [0-9]*s' "$_v2/out")]" ;; esac
+done
+[ -z "$_v2b" ] && pass "an agent's verify limit is the project's: a verify-timeout line in .claude/crew-model-rules sets it (the last wins), CREW_VERIFY_TIMEOUT comes first, at most 560, a word, 0 or nothing is 120; a command remembered as slow below the limit in force is run again and the card's writer is not told it is slow, one stopped at or above it is not; the session told of a timeout is told the line" \
+               || fail "verify limit from the project's rules:$_v2b"
 # A BACKGROUND agent's outcome reaches the session at the main thread's Stop: its call came back at launch, so there
 # is no PostToolUse to tell it in (field, 3.5.0-rc.5: a timeout and a fail reached nobody). Told once, only to its
 # own session; nothing for a foreground agent, for a pass, or when there is no notice.

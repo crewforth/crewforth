@@ -391,7 +391,7 @@ _AM_RE_L="(^|[^A-Za-z])($_AM_W_L)([^a-z]|\$)"
 _AM_RE_C="(^|[^A-Z])($_AM_W_C)([^a-z]|\$)"
 _AM_RE_U="(^|[^A-Za-z])($_AM_W_U)([^A-Za-z]|\$)"
 _AM_RULES_READ=0; _AM_RULES=()
-_am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", "-<TAB>glob", "f<TAB>agent change risk tier", "v<TAB>command"
+_am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", "-<TAB>glob", "f<TAB>agent change risk tier", "v<TAB>command", "t<TAB>seconds"
   local l a b c d
   [ "$_AM_RULES_READ" = 1 ] && return 0
   _AM_RULES_READ=1; _AM_RULES=()
@@ -406,6 +406,8 @@ _am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", 
       "- "*|"-"$'\t'*) l="${l:1}"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done; _AM_RULES+=("-"$'\t'"$l") ;;
       "verify "*) l="${l#verify }"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
                   [ -n "$l" ] && case "$l" in *[\;\&\|\<\>\`\$]*) ;; *) _AM_RULES+=("v"$'\t'"$l") ;; esac ;;
+      "verify-timeout "*) l="${l#verify-timeout }"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
+                  case "$l" in ''|*[!0-9]*) ;; *) _AM_RULES+=("t"$'\t'"$l") ;; esac ;;
       "floor "*) IFS=$' \t' read -r a b c d _ <<< "${l#floor }"; _am_tier "${d:-}"
                  [ -n "$_AMT" ] && [ -n "${c:-}" ] && _AM_RULES+=("f"$'\t'"$a $b $c $_AMT") ;;
     esac
@@ -896,6 +898,31 @@ _am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given) an
     return 0
   done < "$f"
   return 1; }
+# THE TIME AN AGENT'S VERIFY IS GIVEN: 120 s by default (3.2: an agent's verify is the tests of what it changed). A
+# project whose tests of one change take longer raises it with a line `verify-timeout <seconds>` in
+# .claude/crew-model-rules, the file only the user writes (field N1: three named test files, 295 tests, ran 146 s and
+# were stopped at 120 three times). CREW_VERIFY_TIMEOUT, where it is set, comes first. Held at 560, under the hook's own
+# 600 s, whatever is asked for. The last line wins, as with every line of that file.
+_am_verify_limit(){  # -> _AMVL (seconds) and _AMVLW (where it came from: env, rules, default)
+  local r
+  _AMVL=""; _AMVLW=default
+  case "${CREW_VERIFY_TIMEOUT:-}" in ''|*[!0-9]*) ;; *) _AMVL="$CREW_VERIFY_TIMEOUT"; _AMVLW=env ;; esac
+  if [ -z "$_AMVL" ]; then
+    _am_rules
+    for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
+      case "$r" in t$'\t'*) _AMVL="${r#t$'\t'}"; _AMVLW=rules ;; esac
+    done
+  fi
+  case "$_AMVL" in ''|*[!0-9]*) _AMVL=120; _AMVLW=default ;; esac
+  [ "${#_AMVL}" -le 4 ] || _AMVL=560
+  _AMVL=$((10#$_AMVL)); [ "$_AMVL" -ge 1 ] || { _AMVL=120; _AMVLW=default; }
+  [ "$_AMVL" -le 560 ] || _AMVL=560
+  return 0; }
+# A command remembered as slow at a limit BELOW the one in force now is run again: the user raised the limit for it.
+_am_slow_below(){  # after _am_slow_get and _am_verify_limit -> 0 when it was stopped at fewer seconds than _AMVL gives
+  local n="${_AMSS%s}"
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$n" -lt "$_AMVL" ]; }
 _am_slow_fresh(){  # after _am_slow_get -> 0 while the stop hook leaves the command unrun; _AMSD = the days
   local now
   _AMSD="${CREW_VERIFY_SLOW_DAYS:-7}"; case "$_AMSD" in ''|*[!0-9]*) _AMSD=7 ;; esac
@@ -1251,13 +1278,13 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
   if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
     vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
-  elif _am_slow_get "$CARD_VERIFY"; then
+  elif _am_verify_limit; _am_slow_get "$CARD_VERIFY" && ! _am_slow_below; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
     vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
   elif _am_whole_suite "$CARD_VERIFY"; then
     _AMWSF=1
-    vnote="Crewforth: this card's verify command runs the whole test suite ($_AMWS). An agent's verify is the tests of what it changed: name them in the card's verify: line (the test file or package this change touches, e.g. pytest <its test file>, npm test -- <its test file>, go test ./<its package>/...). The whole suite runs once at the end of the work, and in CI. The hook stops a verify after 120 s."
+    vnote="Crewforth: this card's verify command runs the whole test suite ($_AMWS). An agent's verify is the tests of what it changed: name them in the card's verify: line (the test file or package this change touches, e.g. pytest <its test file>, npm test -- <its test file>, go test ./<its package>/...). The whole suite runs once at the end of the work, and in CI. The hook stops a verify after ${_AMVL:-120} s."
     _am_log "note: a verify command that runs the whole suite"
   fi
 fi
