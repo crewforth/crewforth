@@ -8320,6 +8320,18 @@ if [ -f "$GR" ]; then
   for d in eval hooks skills agents; do [ -d "$ROOT/$d" ] && cp -R "$ROOT/$d" "$DTMP/.claude/$d"; done
   cp "$ROOT/settings.json" "$DTMP/.claude/settings.json" 2>/dev/null
   DOUT="$(cd "$DTMP" && CREW_LANG=en bash .claude/eval/doctor.sh 2>"$DTMP/err")"
+  # The strictness profile in force is shown by both reports, read by the gates' own reader: none written is standard,
+  # the last `profile` line wins. (It lives in .claude/crew-model-rules, which the session cannot write: DECISIONS §17.)
+  _gpb=""
+  case "$DOUT" in *"strictness profile: standard"*) ;; *) _gpb="$_gpb [doctor, no profile line: not standard]" ;; esac
+  printf 'profile light\n' > "$DTMP/.claude/crew-model-rules"
+  case "$(cd "$DTMP" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null)" in *"strictness profile: light (.claude/crew-model-rules"*) ;; *) _gpb="$_gpb [doctor: light not shown]" ;; esac
+  case "$(cd "$DTMP" && CREW_GATE_LOG= bash .claude/eval/gate-report.sh 2>/dev/null)" in *"profile: light"*) ;; *) _gpb="$_gpb [gate-report: light not shown]" ;; esac
+  printf 'profile light\nprofile strict\n' > "$DTMP/.claude/crew-model-rules"
+  case "$(cd "$DTMP" && CREW_GATE_LOG= bash .claude/eval/gate-report.sh 2>/dev/null)" in *"profile: strict"*) ;; *) _gpb="$_gpb [gate-report: the last line did not win]" ;; esac
+  rm -f "$DTMP/.claude/crew-model-rules"
+  [ -z "$_gpb" ] && pass "doctor and gate-report show the strictness profile in force (standard when none is written, the last line wins)" \
+                 || fail "the strictness profile is not shown:$_gpb"
   # An install from before 2.5.0 keeps the old `Bash`-only matcher, and nothing in the session looks wrong
   # while every PowerShell command walks past §4.5. doctor has to SAY so, so this drives the downgrade.
   case "$DOUT" in *"watch both Bash and PowerShell"*) pass "doctor confirms the shell matcher covers PowerShell" ;;
