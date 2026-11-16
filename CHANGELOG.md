@@ -83,6 +83,11 @@ versioning follows [SemVer](https://semver.org/).
 - **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with
   it** (`git restore --staged`, `git reset <path>`). Both were refused in real use; every other form stays refused.
 - **A TypeScript project may verify with `tsc -b`.** Existing installs get the line on update.
+- **An agent is told its card's skills where it starts.** A card's `skills:` was only checked when the agent stopped,
+  and a background agent, which most are, is not sent back: in the field 3 of 30 agents called a skill. The block a
+  crew agent gets at its start now names them and asks for each to be called before any change.
+  A skill an agent did not apply is no longer handed to the session to load after the fact, which in the field
+  produced a checklist and no check: the notice says to put it on the reviewer's card instead.
 
 ### Fixed
 
