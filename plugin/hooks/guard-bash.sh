@@ -3091,7 +3091,7 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   if [ -z "$sid" ] || [ "$sid" != "$_JS" ]; then _APW="the approval on record was given in another session"; return 1; fi
   _json_slice "$INPUT" tool_name >/dev/null; tool="$_JS"
   if [ "$hc" = 0 ]; then
-    case "$op" in commit|commit+push) ;; *) _APW="the approval on record is for a push, not for a commit"; return 1 ;; esac
+    case "$op" in commit|commit+push) ;; *) _APW="the approval on record is for a $op, not for a commit"; return 1 ;; esac
     _a44_collapse "$CMD" commit "$tool" || { _APW="$_A44_WHY. Run the commit alone: git commit -m '…'"; return 1; }
     _c44_scan "$_A44_S" || { _APW="an approved commit takes its message and -q, -s or -v, nothing else ($_C44_WHY)"; return 1; }
     cur="$(git -C "$dir" -c core.fsmonitor= write-tree 2>/dev/null)"
@@ -3101,7 +3101,7 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
     fi
     return 0
   fi
-  case "$op" in push|commit+push) ;; *) _APW="the approval on record is for a commit, not for a push"; return 1 ;; esac
+  case "$op" in push|commit+push) ;; *) _APW="the approval on record is for a $op, not for a push"; return 1 ;; esac
   # No quoted argument in a push: a quoted span is compared as a placeholder, and a branch may be named like one.
   case "$CMD" in *[\"\']*) _APW="a quote in the push command. Run the push alone and unquoted: git push <remote> <branch>"; return 1 ;; esac
   _a44_collapse "$CMD" push "$tool" || { _APW="$_A44_WHY. Run the push alone: git push <remote> <branch>"; return 1; }

@@ -114,6 +114,9 @@ versioning follows [SemVer](https://semver.org/).
   finished later was never checked, and a missed-skills notice came before its report. While a command the agent
   started has not reported back and the agent has not handed its report back, the stop is a pause: nothing is
   judged, and the record waits for the stop that ends it.
+- **A merge approved with the question no longer holds the next approval question.** The merge stayed on record as
+  waiting for 30 minutes, so the commit question asked after the merge was refused as "not the question this state
+  asks". The answer now uses the waiting merge up, and a commit refused on a merge approval says it was a merge.
 
 ## [3.5.0] — 2026-11-13
 
