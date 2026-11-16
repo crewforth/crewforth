@@ -97,6 +97,8 @@ versioning follows [SemVer](https://semver.org/).
 - **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
 - **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
 - **The mid-session update warning is said once,** and a compaction ends it.
+- **The first commit of a repository is pushed on its commit+push approval.** Approved before any commit existed, its
+  push was refused and the user was asked again.
 - **A lowered model is told to the model,** not only written to the gate log.
 - **A push after a refused commit says the commit was not made.**
 - **A background agent's failed verify is recorded and told at the end of the turn,** instead of being sent back to an
