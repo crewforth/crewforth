@@ -18,6 +18,17 @@ versioning follows [SemVer](https://semver.org/).
 - **A Windows path is refused behind a wrapper and inside a container.** `env`, `command` or `nice` in front of
   `rm -rf C:\Users\…` hid the target from the rule, and Git Bash deleted the folder. Every wrapper the rule knows
   (`sudo`, `env`, `command`, `nice`, `nohup`, `time`, `exec`, `doas`, `ionice`, `stdbuf`, `timeout`) is looked through.
+- **A recursive `rm` of a bare name is refused unless the call sets that name to a known path.** `S=/home/me; rm -rf $S`
+  passed, because the target carried no `/`, `*` or `~`. It passes now only when the call sets the name to a fresh
+  `$(mktemp …)`, a plain relative name such as `build`, or a path inside a temp folder. A name from the environment,
+  from `for` or `read`, or from another expansion is refused. This rule also reads an `rm` after `do` or `then`, and
+  one inside `trap '…'` or `bash -c '…'`.
+- **A scratch-folder `rm` no longer lets another `rm` through.** `rm -rf $S/x; bash -c 'rm -rf /etc/x'` passed
+  because the first `rm` was a temp folder; an `rm` inside a quote beside it is judged now.
+- **A pull request merged in a loop, after `then`, or behind a wrapper is gated too.** `for n in …; do gh pr merge $n; done`
+  and `xargs gh pr merge` passed with no gate. A call may merge one pull request, named by number, branch or URL.
+  A pull request named by a variable or through `xargs`, or several merges in one call, are refused with that reason,
+  whatever the base.
 
 ### Added
 
@@ -51,6 +62,8 @@ versioning follows [SemVer](https://semver.org/).
   test, a state page for frontend work, measured-only contrast in accessibility reports, a token-budget rule for the
   same error three times, and "run it without the new text first" when writing a skill. Two trigger phrases shared by
   two components were given to one.
+- **A subagent's `git stash` gets a note:** the calling session's uncommitted work leaves the working tree until
+  the stash is popped. `git stash drop` and `git stash clear` stay free.
 
 ### Changed
 
@@ -81,6 +94,18 @@ versioning follows [SemVer](https://semver.org/).
 - **A clean review unblocks the commit even when auto mode refuses the reviewer's own write:** the stop hook writes the
   review record.
 - **The install's own gate proofs no longer write a refusal to the project's gate log.**
+- **A merge into `main` no longer loops on its approval.** A merge in a loop recorded a pending approval with no
+  pull request, which neither the question nor `/crew-approve merge` could clear. Such a call is now refused before
+  any record is written. A here-document that mentions `gh pr merge` in its text is no longer read as a merge.
+- **Cleaning the session's scratch folder is no longer refused** when the same call later has a here-document, a `for`
+  loop or an `export` after the `rm`.
+- **A verify that ran but tested nothing is not called a failure.** pytest exit 4 or 5 (a path or option it does not
+  know, no tests collected) and exit 126 or 127 (command not runnable) are recorded as `blocked`, with the reason. No stronger model
+  is suggested for them. A card's verify that still holds an unfilled `<placeholder>` says so by name.
+- **A task card that opens with a heading** (`Task card`, `## Card:`) is read. The heading used to break the card's
+  first field.
+- **Reading a gate file is not tampering with it:** `while IFS= read`, `xargs grep` and a plain `sed -i 's/…/…/'` on
+  a file that is not a gate file were refused in real use.
 
 ## [3.5.0] — 2026-11-13
 
