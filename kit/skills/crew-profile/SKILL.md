@@ -33,3 +33,5 @@ What each profile does:
 | whole-suite verify, re-audit of the same work, model above the card's floor | a note | a note | refused |
 
 Destructive commands and secrets are refused in every profile.
+
+`/crew-gates` and `/crew-doctor` show the profile in force too.

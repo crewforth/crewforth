@@ -8320,6 +8320,18 @@ if [ -f "$GR" ]; then
   for d in eval hooks skills agents; do [ -d "$ROOT/$d" ] && cp -R "$ROOT/$d" "$DTMP/.claude/$d"; done
   cp "$ROOT/settings.json" "$DTMP/.claude/settings.json" 2>/dev/null
   DOUT="$(cd "$DTMP" && CREW_LANG=en bash .claude/eval/doctor.sh 2>"$DTMP/err")"
+  # The strictness profile in force is shown by both reports, read by the gates' own reader: none written is standard,
+  # the last `profile` line wins. (It lives in .claude/crew-model-rules, which the session cannot write: DECISIONS §17.)
+  _gpb=""
+  case "$DOUT" in *"strictness profile: standard"*) ;; *) _gpb="$_gpb [doctor, no profile line: not standard]" ;; esac
+  printf 'profile light\n' > "$DTMP/.claude/crew-model-rules"
+  case "$(cd "$DTMP" && CREW_LANG=en bash .claude/eval/doctor.sh 2>/dev/null)" in *"strictness profile: light (.claude/crew-model-rules"*) ;; *) _gpb="$_gpb [doctor: light not shown]" ;; esac
+  case "$(cd "$DTMP" && CREW_GATE_LOG= bash .claude/eval/gate-report.sh 2>/dev/null)" in *"profile: light"*) ;; *) _gpb="$_gpb [gate-report: light not shown]" ;; esac
+  printf 'profile light\nprofile strict\n' > "$DTMP/.claude/crew-model-rules"
+  case "$(cd "$DTMP" && CREW_GATE_LOG= bash .claude/eval/gate-report.sh 2>/dev/null)" in *"profile: strict"*) ;; *) _gpb="$_gpb [gate-report: the last line did not win]" ;; esac
+  rm -f "$DTMP/.claude/crew-model-rules"
+  [ -z "$_gpb" ] && pass "doctor and gate-report show the strictness profile in force (standard when none is written, the last line wins)" \
+                 || fail "the strictness profile is not shown:$_gpb"
   # An install from before 2.5.0 keeps the old `Bash`-only matcher, and nothing in the session looks wrong
   # while every PowerShell command walks past §4.5. doctor has to SAY so, so this drives the downgrade.
   case "$DOUT" in *"watch both Bash and PowerShell"*) pass "doctor confirms the shell matcher covers PowerShell" ;;
@@ -12214,9 +12226,26 @@ _v2stopx sk3 "$_v2/t3.jsonl" true >/dev/null; [ "$(_v2rs sk3 verify)|$(_v2rs sk3
 case "$(printf '{"session_id":"s","hook_event_name":"Stop","stop_hook_active":false}' | ( cd "$_v2p" && _v2e bash "$_V2O" --stop 2>/dev/null ))" in *'(sk4)'*'api-design): it ran in the background and was not sent back'*) ;; *) _v2b="$_v2b [the background miss was not told at Stop]" ;; esac
 # no transcript: not judged
 _v2plants sk5 'test -f ok.txt' 'api-design'; [ -z "$(_v2stopx sk5 "$_v2/none.jsonl")" ] && [ -z "$(_v2rs sk5 skills_missed | grep -v '^-$')" ] || _v2b="$_v2b [judged without a transcript]"
+# A PAUSE IS NOT THE END (field, rc.3): an agent waiting for a background command of its own stops before its work is
+# done. Not judged while a command it started has not reported; judged once it has, in both forms of the start line.
+for _bgl in 'Command running in background with ID: bq6aa1. Output is being written to: x' 'Command did not complete within its 600s timeout and was moved to the background (ID: bq6aa1). Output'; do
+  rm -f "$_v2p/ok.txt" "$_v2p/.claude/state/crew-model/results/sk6" "$_v2p/.claude/state/crew-model/agents/sk6.used"
+  _v2plants sk6 'test -f ok.txt' 'api-design'; _v2launch sk6 async_launched >/dev/null; _v2tx "$_v2/t6.jsonl" api-design
+  printf '{"type":"attachment","tools":[{"name":"SubagentHandback","description":"Deliver your final report"}]}\n' >> "$_v2/t6.jsonl"
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","content":"%s"}]}}\n' "$_bgl" >> "$_v2/t6.jsonl"
+  [ -z "$(_v2stopx sk6 "$_v2/t6.jsonl")" ] && [ ! -f "$_v2p/.claude/state/crew-model/results/sk6" ] && [ -f "$_v2p/.claude/state/crew-model/agents/sk6" ] \
+    || _v2b="$_v2b [a paused agent was judged: $(_v2rs sk6 verify) (${_bgl:0:30})]"
+  printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>bq6aa1</task-id>\\n<status>completed</status>"}}\n' >> "$_v2/t6.jsonl"
+  : > "$_v2p/ok.txt"; _v2stopx sk6 "$_v2/t6.jsonl" >/dev/null
+  [ "$(_v2rs sk6 verify)" = pass ] || _v2b="$_v2b [the agent was not judged once its command reported: $(_v2rs sk6 verify) (${_bgl:0:30})]"
+done
+# ...and a report handed back is the end even with a command that never reported (field: 3 of 38 agents)
+rm -f "$_v2p/.claude/state/crew-model/results/sk7"; _v2plants sk7 'test -f ok.txt' 'api-design'; _v2launch sk7 async_launched >/dev/null; _v2tx "$_v2/t7.jsonl" api-design
+printf '{"type":"user","message":{"content":[{"type":"tool_result","content":"Command running in background with ID: bq7aa1."}]}}\n{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_7","name":"SubagentHandback","input":{"message":"done"}}]}}\n' >> "$_v2/t7.jsonl"
+_v2stopx sk7 "$_v2/t7.jsonl" >/dev/null; [ "$(_v2rs sk7 verify)" = pass ] || _v2b="$_v2b [an agent that handed back was not judged: $(_v2rs sk7 verify)]"
 # every crew agent can call the Skill tool
 for _ag in "$ROOT"/agents/*.md; do _t="$(grep -m1 '^tools:' "$_ag")"; case "$_t, " in *' Skill, '*) ;; *) _v2b="$_v2b [${_ag##*/} has no Skill tool]" ;; esac; done
-[ -z "$_v2b" ] && pass "a card's skills: are read in both forms and recorded; a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript; every crew agent has the Skill tool" \
+[ -z "$_v2b" ] && pass "a card's skills: are read in both forms and recorded; a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript, nor while a background command the agent started has not reported to it and it has not handed back; every crew agent has the Skill tool" \
                || fail "the card's skills:$_v2b"
 # THE REVIEW-PASS RECORD IS WRITTEN BY THE STOP HOOK. Field (3.5.0): the auto-mode classifier refused
 # crew-review-agent's own write of .claude/review-pass.json and the commit was left to the user's hand. A report

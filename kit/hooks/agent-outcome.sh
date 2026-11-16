@@ -86,6 +86,21 @@ _am_state
 # was three hours off on a machine at +0300 (measured on Windows, bash 5.3; macOS's bash 3.2 took the `date` branch
 # and CI runs in UTC, so neither showed it). One process, on a hook that is not on any hot path.
 _ao_now(){ _AON="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; case "$_AON" in [0-9][0-9][0-9][0-9]-*Z) ;; *) _AON=- ;; esac; }
+# $1 = the agent's transcript -> 0 and _AOBG (its id) when the agent has not handed its report back and a command it
+# ran in the background has not reported back to it: started as `running in background with ID: X` or `moved to the background (ID: X`, reported as
+# `<task-id>X</task-id>` (both measured in field transcripts, 2.1.3xx).
+_ao_bg_open(){ local s n id
+  # Its report handed back is the end, whatever is still running: Claude Code takes SubagentHandback as the last call
+  # (field: 3 of 38 agents handed back with a background command that never reported to them).
+  # The call itself, not the tool's definition, which the transcript carries too.
+  grep -qE '"type":"tool_use","id":"[^"]*","name":"SubagentHandback"' "$1" 2>/dev/null && return 1
+  s="$(grep -oE '(running in background with ID|moved to the background \(ID): [A-Za-z0-9]+' "$1" 2>/dev/null)" || return 1
+  n="$(grep -oE '<task-id>[A-Za-z0-9]+</task-id>' "$1" 2>/dev/null)"
+  while IFS= read -r id; do
+    id="${id##* }"
+    case $'\n'"$n"$'\n' in *$'\n<task-id>'"$id"$'</task-id>\n'*) ;; *) _AOBG="$id"; return 0 ;; esac
+  done <<< "$s"
+  return 1; }
 # One writer at a time on the record: a line is added when an agent stops and a line is rewritten when its model
 # arrives, and two hooks can run at once. The lock is a folder (made, or not) with the second it was taken inside.
 #   held now          waited for, three seconds at most, then gone ahead without it: this hook does not hang an
@@ -378,6 +393,15 @@ case "$EV" in
     # way). No transcript to read: the record is used as it was matched. A card no record carries: nothing is
     # judged, because the command that would run is not one the gate saw for this agent.
     _json_slice "$INPUT" agent_transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; ATP="${_JU//\\//}"
+    # A PAUSE IS NOT THE END. An agent that waits for a background command of its own stops, and Claude Code wakes it
+    # when that command reports (field, 3.6.0-rc.3: its verify ran here while the agent's own run of it was still
+    # going and was stopped at the limit; the work it finished 60 minutes later was never judged; a skills notice
+    # came 4 minutes before the report). A command it started that has not reported to it yet: nothing is judged and
+    # the record is kept for the stop that comes when it has.
+    if [ -f "$ATP" ] && _ao_bg_open "$ATP"; then
+      _am_log "note: $AID paused while its background command $_AOBG runs; it is judged when it stops for good"
+      exit 0
+    fi
     if [ -f "$ATP" ]; then
       L1=""; IFS= read -r L1 < "$ATP" || true
       # The task is the first record's content: a string (measured, Claude Code 2.1.294), or, where it is a list of
