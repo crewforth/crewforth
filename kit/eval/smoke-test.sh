@@ -10225,7 +10225,19 @@ _pa_run auto 'git push origin feat/x'; { [ "$_par" = 2 ] && grep -q 'does not ca
 _pa_new; _pa_say auto 'approve: commit+push' >/dev/null                                   # the approved diff, on a base that moved
 ( cd "$_paw" && git stash -q && git commit -q --allow-empty -m base-moved && git stash pop -q && git add a.txt && git commit -qm same-diff ) >/dev/null 2>&1
 _pa_run auto 'git push origin feat/x'; { [ "$_par" = 2 ] && grep -q 'HEAD is not the commit the user approved' "$_PA/err"; } || _pabad="$_pabad same-diff-on-another-parent:rc=$_par"
-[ -z "$_pabad" ] && pass "commit+push: the push is refused before the commit exists, allowed for the commit the approved diff became, and refused for a commit with another diff, the same diff on a moved base, or one more commit on top" \
+# The first commit of a repository (field, rc.3): approved on no HEAD, the root commit the approved index became is
+# pushed without a second question; a root commit of another diff is not.
+_pa_root(){ _pa_new; rm -rf "$_paw"; ( git init -q "$_paw" && cd "$_paw" && git config user.email t@example.com && git config user.name t \
+  && git config core.hooksPath /dev/null && git checkout -q -b feat/x && git remote add origin "$_PA/remote.git" && echo one > a.txt && git add a.txt ) >/dev/null 2>&1; _pa_review; }
+_pa_root; _pa_say auto 'approve: commit+push' >/dev/null
+[ "$(_pa_op)" = commit+push ] || _pabad="$_pabad root:not-recorded($(_pa_op))"
+_pa_run auto 'git push origin feat/x'; { [ "$_par" = 2 ] && grep -q 'the repository still has no commit' "$_PA/err"; } || _pabad="$_pabad root:push-before-the-commit:rc=$_par"
+( cd "$_paw" && git commit -qm first ) >/dev/null 2>&1
+_pa_run auto 'git push origin feat/x'; [ "$_par" = 0 ] || _pabad="$_pabad root:push-of-the-approved-first-commit:rc=$_par $(head -c 120 "$_PA/err")"
+_pa_root; _pa_say auto 'approve: commit+push' >/dev/null
+( cd "$_paw" && echo unapproved >> a.txt && git add a.txt && git commit -qm other ) >/dev/null 2>&1
+_pa_run auto 'git push origin feat/x'; { [ "$_par" = 2 ] && grep -q 'does not carry what the user approved' "$_PA/err"; } || _pabad="$_pabad root:push-of-another-first-commit:rc=$_par"
+[ -z "$_pabad" ] && pass "commit+push: the push is refused before the commit exists, allowed for the commit the approved diff became (the first commit of a repository too), and refused for a commit with another diff, the same diff on a moved base, or one more commit on top" \
                  || fail "commit+push binding:$_pabad"
 
 # ---- the record cannot be written by the session it would approve ---------------------------------------------

@@ -3147,8 +3147,14 @@ _approval_ok(){  # 0 = the user's recorded approval covers THIS call. Otherwise 
   if [ "$h" != NONE ] && [ "$_hd" = "$h" ]; then
     _APW="the commit this push was to carry was not made: HEAD is still ${h:0:7}, where the approval was given, so the commit was refused or failed before it. Resolve what stopped the commit and commit again (the approval still covers what is staged, if it has not changed), then push"; return 1
   fi
+  # THE FIRST COMMIT OF A REPOSITORY: approved on no HEAD, it has no parent. It used to be refused whatever it was
+  # ("its parent is NONE, the approval was given on NONE"), and the user was asked again for the push (field, 3.6.0-rc.3).
+  # It is the approved one when it is a root commit; its tree is compared below like any other.
+  if [ "$h" = NONE ] && [ "$_hd" = NONE ]; then
+    _APW="the commit this push was to carry was not made: the repository still has no commit, so the commit was refused or failed before it. Resolve what stopped the commit and commit again (the approval still holds), then push"; return 1
+  fi
   cur="$(git -C "$dir" rev-parse --verify --quiet 'HEAD^' 2>/dev/null || echo NONE)"
-  if [ "$h" = NONE ] || [ "$cur" != "$h" ]; then
+  if [ "$cur" != "$h" ]; then
     _APW="HEAD is not the commit the user approved (its parent is ${cur:0:7}, the approval was given on ${h:0:7})"; return 1
   fi
   cur="$(git -C "$dir" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"
