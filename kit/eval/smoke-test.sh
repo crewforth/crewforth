@@ -12193,12 +12193,18 @@ _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'true · skills: api-de
 [ "$_v2rc" = 0 ] || _v2b="$_v2b [a card with installed skills was refused: $(head -c 120 "$_v2/err")]"
 grep -q '^skills=api-design observability$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null || _v2b="$_v2b [skills not recorded: $(_v2skrec x)]"
 grep -q '^verify=true$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null || _v2b="$_v2b [skills: leaked into verify]"
+# ...and the agent is told them where it starts: most run in the background, where the stop cannot send them back
+_o="$(printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"skst","agent_type":"crew-backend-expert"}' | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ))"
+case "$_o" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"Crewforth rules'*'Your task card names skills: api-design observability. Before you change anything, call each one with the Skill tool'*'"}}') ;; *) _v2b="$_v2b [the starting agent was not told its card's skills: ${_o:0:80}…${_o: -160}]" ;; esac
+printf '%s' "$_o" | json_ok; case $? in 0|2) ;; *) _v2b="$_v2b [the start block with skills is not JSON]" ;; esac
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 for _bad in 'no-such-skill' 'Api/design'; do
   _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature "true · skills: $_bad"
   case "$_v2rc|$(cat "$_v2/err")" in "2|"*"skills: names"*"not an installed skill"*"api-design"*) ;; *) _v2b="$_v2b [$_bad: rc $_v2rc $(head -c 100 "$_v2/err")]" ;; esac
 done
 _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'true'; [ "$_v2rc" = 0 ] && grep -q '^skills=-$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null || _v2b="$_v2b [a card with no skills: rc $_v2rc]"
+_o="$(printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"skst2","agent_type":"crew-backend-expert"}' | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ))"
+case "$_o" in *'Crewforth rules'*'Your task card names skills'*) _v2b="$_v2b [a card with no skills told some]" ;; *'Crewforth rules'*) ;; *) _v2b="$_v2b [a card with no skills: no rules block]" ;; esac
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2plants(){ printf 'agent=crew-backend-expert\ntier=sonnet\nasked=sonnet\nchange=feature\nrisk=normal\ncard=c%s\nbg=false\nesc=-\nverify=%s\nskills=%s\n' "$1" "$2" "$3" > "$_v2p/.claude/state/crew-model/agents/$1"; }
 _v2rs(){ grep "^$2=" "$_v2p/.claude/state/crew-model/results/$1" 2>/dev/null | cut -d= -f2-; }
@@ -12223,7 +12229,7 @@ _v2stopx sk3 "$_v2/t3.jsonl" true >/dev/null; [ "$(_v2rs sk3 verify)|$(_v2rs sk3
 : > "$_v2p/ok.txt"; _v2plants sk4 'test -f ok.txt' 'api-design'; _v2launch sk4 async_launched >/dev/null; _v2tx "$_v2/t4.jsonl"
 [ -z "$(_v2stopx sk4 "$_v2/t4.jsonl")" ] || _v2b="$_v2b [a background agent was sent back for skills]"
 [ "$(_v2rs sk4 skills_missed)" = api-design ] || _v2b="$_v2b [background miss not recorded]"
-case "$(printf '{"session_id":"s","hook_event_name":"Stop","stop_hook_active":false}' | ( cd "$_v2p" && _v2e bash "$_V2O" --stop 2>/dev/null ))" in *'(sk4)'*'api-design): it ran in the background and was not sent back'*) ;; *) _v2b="$_v2b [the background miss was not told at Stop]" ;; esac
+case "$(printf '{"session_id":"s","hook_event_name":"Stop","stop_hook_active":false}' | ( cd "$_v2p" && _v2e bash "$_V2O" --stop 2>/dev/null ))" in *'(sk4)'*'api-design): it ran in the background and was not sent back. Loading them yourself now does not change the work'*"put them on crew-review-agent's card as its skills: line"*) ;; *) _v2b="$_v2b [the background miss was not told at Stop]" ;; esac
 # no transcript: not judged
 _v2plants sk5 'test -f ok.txt' 'api-design'; [ -z "$(_v2stopx sk5 "$_v2/none.jsonl")" ] && [ -z "$(_v2rs sk5 skills_missed | grep -v '^-$')" ] || _v2b="$_v2b [judged without a transcript]"
 # A PAUSE IS NOT THE END (field, rc.3): an agent waiting for a background command of its own stops before its work is
@@ -12245,7 +12251,7 @@ printf '{"type":"user","message":{"content":[{"type":"tool_result","content":"Co
 _v2stopx sk7 "$_v2/t7.jsonl" >/dev/null; [ "$(_v2rs sk7 verify)" = pass ] || _v2b="$_v2b [an agent that handed back was not judged: $(_v2rs sk7 verify)]"
 # every crew agent can call the Skill tool
 for _ag in "$ROOT"/agents/*.md; do _t="$(grep -m1 '^tools:' "$_ag")"; case "$_t, " in *' Skill, '*) ;; *) _v2b="$_v2b [${_ag##*/} has no Skill tool]" ;; esac; done
-[ -z "$_v2b" ] && pass "a card's skills: are read in both forms and recorded; a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript, nor while a background command the agent started has not reported to it and it has not handed back; every crew agent has the Skill tool" \
+[ -z "$_v2b" ] && pass "a card's skills: are read in both forms, recorded and told to the agent where it starts (a card with none tells none); a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript, nor while a background command the agent started has not reported to it and it has not handed back; every crew agent has the Skill tool" \
                || fail "the card's skills:$_v2b"
 # THE REVIEW-PASS RECORD IS WRITTEN BY THE STOP HOOK. Field (3.5.0): the auto-mode classifier refused
 # crew-review-agent's own write of .claude/review-pass.json and the commit was left to the user's hand. A report

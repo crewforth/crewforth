@@ -180,7 +180,9 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
   _am_rec_get "$R" esc; ESC="$_AMV"; _am_rec_get "$R" cmd; VCMD="$_AMV"; _am_rec_get "$R" effort; EF="$_AMV"
   _am_rec_get "$R" skills_missed; SKM="$_AMV"; case "$SKM" in -) SKM="" ;; esac
   _am_rec_get "$R" fixes; FX="$_AMV"
-  SKT=""; [ -n "$SKM" ] && SKT=" It did not apply the skills its card named ($SKM)$( [ -f "${R%/results/*}/tries/${R##*/}.skills" ] && echo ', even when sent back once' || echo ': it ran in the background and was not sent back'); check the work against them with the Skill tool before building on it."
+  # Not "check it with the Skill tool": the field answer to that was the session loading the skill after the work was
+  # done and writing a checklist (3 of 4 main-thread Skill calls, 3.6.0-rc.3). A review that carries the skill is a check.
+  SKT=""; [ -n "$SKM" ] && SKT=" It did not apply the skills its card named ($SKM)$( [ -f "${R%/results/*}/tries/${R##*/}.skills" ] && echo ', even when sent back once' || echo ': it ran in the background and was not sent back'). Loading them yourself now does not change the work; to have the work checked against them, put them on crew-review-agent's card as its skills: line."
   case "$RES" in fail|blocked|timeout) ;; *) if [ "$CONF" != low ]; then [ -n "$SKT" ] || return 1; _AOT="Crewforth:${SKT}"; return 0; fi ;; esac
   if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
     # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
@@ -336,10 +338,10 @@ case "$EV" in
     case "$AT" in crew-*) ;; *) exit 0 ;; esac
     # The rules every crew agent cites ("CLAUDE.md §4 applies") are not in its context: a subagent inherits the skill
     # listing, not the session's CLAUDE.md (measured, token-budget). One short block, the same for every crew agent,
-    # given here so it is never copied into fourteen agent files. Printed before the bookkeeping, which writes
-    # nothing to stdout and only ever exits 0.
-    printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStart\",\"additionalContext\":\"$CREW_AGENT_RULES\"}}"
-    [ -d "$_AMD/pending" ] || exit 0
+    # given here so it is never copied into fourteen agent files. Printed after the bookkeeping, which writes nothing
+    # to stdout and leaves the pass below on every path (`break`), so the block is given whatever it finds.
+    for _ao_once in 1; do
+    [ -d "$_AMD/pending" ] || break
     # The oldest call of this agent type that no agent has taken yet. Two calls of one type made together can start
     # in either order; where they ask for different models the agent is recorded on the LOWER one, so the check at
     # write time errs towards refusing.
@@ -353,8 +355,8 @@ case "$EV" in
       cands="$cands$f"$'\n'
       _am_rec_get "$f" tier && { _am_rank "$_AMV"; [ "$_AMR" -lt "$low" ] && low="$_AMR"; }
     done
-    [ -n "$cands" ] || exit 0
-    mkdir -p "$_AMD/agents" 2>/dev/null || exit 0
+    [ -n "$cands" ] || break
+    mkdir -p "$_AMD/agents" 2>/dev/null || break
     # TAKEN UNDER A LOCK, THEN BY RENAME. Two agents of one type start at the same moment, each in its own hook
     # process, and both see the same oldest record. (Reading it and deleting it afterwards gave both the same record.)
     # A rename alone was the lock on POSIX, and was not on Windows: two hook processes both reported the same rename
@@ -372,12 +374,21 @@ case "$EV" in
       rm -f "$take" 2>/dev/null; take=""          # locked, but the record had gone (dropped as stale): let it be
     done <<< "$cands"
     set +C
-    [ "$got" = 1 ] || exit 0
+    [ "$got" = 1 ] || break
     _am_rec_get "$claim" tier; _am_rank "$_AMV"
     if [ "$low" -lt "$_AMR" ]; then _am_name "$low"
       { grep -v '^tier=' "$claim"; printf 'asked=%s\ntier=%s\nambiguous=1\n' "$_AMV" "$_AMN"; } > "$_AMD/agents/$AID" 2>/dev/null
     else { cat "$claim"; printf 'asked=%s\n' "$_AMV"; } > "$_AMD/agents/$AID" 2>/dev/null; fi
     rm -f "$claim" "$take" 2>/dev/null
+    done
+    # THE CARD'S SKILLS, said where the agent starts (field, 3.6.0-rc.3: of 30 agents 3 called a skill; of 14 cards
+    # naming skills in one project, 7 agents applied none). The stop hook checks it, and sends a foreground agent back
+    # once; a background agent, which most are, is only reported. Names as the gate recorded them: [a-z0-9-] only.
+    _ao_sk=""
+    if [ -f "$_AMD/agents/$AID" ] && _am_rec_get "$_AMD/agents/$AID" skills; then
+      case "$_AMV" in ''|-|*[!a-z0-9\ -]*) ;; *) _ao_sk=" Your task card names skills: $_AMV. Before you change anything, call each one with the Skill tool and follow it; when you stop, Crewforth checks that you did." ;; esac
+    fi
+    printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStart\",\"additionalContext\":\"$CREW_AGENT_RULES$_ao_sk\"}}"
     exit 0 ;;
 
   SubagentStop)
