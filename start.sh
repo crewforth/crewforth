@@ -117,7 +117,13 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       "shared") s='paylaşımlı' ;;
       ".claude/ and CLAUDE.md stay out of git — nothing appears in your teammates' checkouts") s=".claude/ ve CLAUDE.md git'e girmez — ekip arkadaşlarınız hiçbir şey görmez" ;;
       ".claude/ and CLAUDE.md are committable — everyone gets the same agents, skills and gates") s=".claude/ ve CLAUDE.md commit'lenebilir — herkes aynı ajanlarla, skill'lerle ve kapılarla çalışır" ;;
-      "internal working documents (docs/) stay private in BOTH answers") s='iç çalışma belgeleri (docs/) HER İKİ seçenekte de dışarıda kalır' ;;
+      "internal working documents (docs/): asked next when you share") s='iç çalışma belgeleri (docs/): paylaşırsanız ayrıca sorulur' ;;
+      "docs/ — the working documents") s='docs/ — çalışma belgeleri' ;;
+      "Plans, decisions and handovers the agents write. A team may want them in the repository too.") s="Ajanların yazdığı planlar, kararlar ve devir notları. Ekip bunları da depoda isteyebilir." ;;
+      "Keep docs/ private") s="docs/ gizli kalsın" ;;
+      "docs/ goes to .gitignore; files that are committed never name one in it") s="docs/ .gitignore'a eklenir; commit'lenen dosyalar içindeki bir dosyanın adını anmaz" ;;
+      "Commit docs/ too") s="docs/ da commit'lensin" ;;
+      "docs/ is committed with the project; a file in it in a diff is not a leak") s="docs/ projeyle birlikte commit'lenir; diff'teki bir docs/ dosyası sızıntı sayılmaz" ;;
       "[2/2] Summary · see what will be installed before you confirm") s='[2/2] Özet · onaylamadan önce neyin kurulacağına bakın' ;;
       "Security gates armed on every install:") s='Her kurulumda devreye giren güvenlik kapıları:' ;;
       "commit/push approval gate — even in auto/bypass mode (guard-bash)") s='commit ve push için onay şartı — auto/bypass modunda bile (guard-bash)' ;;
@@ -216,6 +222,7 @@ Crewforth her zaman eksiksiz kurulur: tüm ajanlar ve skill'ler — backend, web
   --backend | --frontend | --mobile | --fullstack   hâlâ kabul edilir ama etkisi yok (eski komutlar bozulmasın diye)
   --private | --shared   kurulum yalnızca sizin mi, yoksa ekiple paylaşılıp commit'lenecek mi? (varsayılan: private)
   --ignore-local         yok sayılacak satırları .gitignore yerine .git/info/exclude'a yaz (yalnız bu klon; .gitignore değişmez)
+  --share-docs           docs/ (iç çalışma belgeleri) de commit'lensin; verilmezse paylaşımlı kurulumda sorulur
   --preset <ad|dosya>    bir kurum preset'i uygula: kritik yollar, model tabanları, izinli verify komutları
   --profile light|standard|strict   kapıların sıkılığı (verilmezse sihirbaz sorar; etkileşimsiz kurulumda standard)
                          (gelenler: default, strict, solo; ya da kendi .json dosyanız)
@@ -238,6 +245,7 @@ Every install ships everything: all agents, all skills — backend, web and mobi
   --backend | --frontend | --mobile | --fullstack   accepted, no effect (kept so older commands still run)
   --private | --shared   is the install yours alone, or committed for the team? (default: private)
   --ignore-local         write the ignore lines to .git/info/exclude instead of .gitignore (this clone only; .gitignore unchanged)
+  --share-docs           commit docs/ (the working documents) too; asked in a shared install when not given
   --preset <name|file>   apply an organisation preset: critical paths, model floors, allowed verify commands
   --profile light|standard|strict   how strict the gates are (asked when not given; standard when unattended)
                          (shipped: default, strict, solo; or a .json file of your own)
@@ -488,6 +496,7 @@ for a in "$@"; do
     --yes|-y) ASSUME_YES=1 ;;
     --private) VISIBILITY="private" ;;
     --shared)  VISIBILITY="shared" ;;
+    --share-docs) DOCS="shared" ;;
     --ignore-local) GI_LOCAL=1 ;;
     -h|--help) usage; exit 0 ;;
     *) printf '%s\n' "$(m 'Unknown parameter: %s' "$a")"; echo; usage; exit 1 ;;
@@ -583,7 +592,7 @@ if [ -z "$VISIBILITY" ]; then
   echo
   opt 2 'The whole team' 0 'shared'
   add  '.claude/ and CLAUDE.md are committable — everyone gets the same agents, skills and gates'
-  skip 'internal working documents (docs/) stay private in BOTH answers'
+  skip 'internal working documents (docs/): asked next when you share'
   echo
   opt 3 'Just me, and leave .gitignore untouched' 0 'private'
   add  'the same lines go to .git/info/exclude, which only this clone reads; the tracked .gitignore is not changed'
@@ -593,6 +602,26 @@ if [ -z "$VISIBILITY" ]; then
   crew_read s                        # empty => default (private = today's behaviour)
   case "$s" in 2) VISIBILITY="shared" ;; 3) VISIBILITY="private"; GI_LOCAL=1 ;; *) VISIBILITY="private" ;; esac
 fi
+# docs/ IN A SHARED INSTALL (DECISIONS, 2026-11-16). A team that shares Crewforth may want its plans and decisions in
+# the repository as well; the answer is recorded in kit.conf (docs=), which the session start and the reviewer read.
+# Asked only when someone is there to answer and the install is shared; --share-docs chooses it in a script.
+if [ -z "${DOCS:-}" ] && [ "$VISIBILITY" = shared ] && [ -t 0 ] && [ "$ASSUME_YES" != 1 ]; then
+  echo
+  h1  'docs/ — the working documents'
+  sub 'Plans, decisions and handovers the agents write. A team may want them in the repository too.'
+  echo
+  opt 1 'Keep docs/ private' 1 'private'
+  add  'docs/ goes to .gitignore; files that are committed never name one in it'
+  echo
+  opt 2 'Commit docs/ too' 0 'shared'
+  add  'docs/ is committed with the project; a file in it in a diff is not a leak'
+  echo
+  _mt 'Choice'; _a="$_M"; _mt 'empty=1'
+  printf '  %s->%s %s %s[1-2, %s]%s: ' "$CY" "$R" "$_a" "$D" "$_M" "$R"
+  crew_read s
+  case "$s" in 2) DOCS="shared" ;; *) DOCS="private" ;; esac
+fi
+[ -n "${DOCS:-}" ] || DOCS="private"
 # THE STRICTNESS PROFILE (4.1). Asked only when someone is there to answer, for the reason the visibility question
 # gives above: a non-interactive run reads nothing more from stdin and keeps standard, which is what Crewforth did
 # before profiles. --profile chooses it in a script. /crew-profile changes it later (a looser one only by the user).
@@ -621,6 +650,7 @@ if [ "$VISIBILITY" = "shared" ]; then
 else
   GI_PLAN='docs/ .claude/ CLAUDE.md .private-terms.txt'
 fi
+[ "$DOCS" = shared ] && GI_PLAN="${GI_PLAN#docs/ }"
 # K12: where those lines go. .gitignore is the default and is tracked in most repos; --ignore-local (or answer 3)
 # writes them to this clone's info/exclude instead, which git reads the same way and nobody else sees. The path is
 # asked of git, so a linked worktree resolves to the shared one. Without a repository there is no such file.
@@ -772,6 +802,9 @@ cp "$SRC/README.md"         .claude/ 2>/dev/null || true
   # A locale guess (--yes or no terminal, nothing named) is used but not recorded: the next update would reuse it
   # as if somebody had chosen it. --lang, CREW_LANG and the menu are choices, and are.
   [ "${_LANG_GUESSED:-0}" = 1 ] || echo "lang=${CREW_LANG:-en}"
+  # What was chosen for git: the session start compares it with what git does (hooks/session-rehydrate.sh).
+  echo "visibility=$VISIBILITY"
+  echo "docs=$DOCS"
 } > .claude/kit.conf
 # The organisation's preset, now that .claude/ is in place (checked above): a block at the top of crew-model-rules.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi

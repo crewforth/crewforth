@@ -74,6 +74,11 @@ versioning follows [SemVer](https://semver.org/).
   a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
 - **`/crew-approve` is an internal fallback,** named by the gate where no question can be asked, and no longer listed.
   With `/crew-profile` the command count is 18.
+- **A session is told what its install shares and how strict it is.** The installer records the choice
+  (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
+  with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,
+  and under the light profile it no longer asks for a commit the gate lets through. A shared install also asks
+  whether `docs/` is committed (`--share-docs`); an update keeps both answers.
 - **An `rm` that runs inside a container is judged as one.** `docker|podman exec|run`, `docker compose` and
   `kubectl exec` removing a relative path, or an absolute one two or more levels deep, inside the container
   pass; `/`, `~`, `.`, `..`, a top-level folder, an expansion and any host `rm` in the same call stay refused.

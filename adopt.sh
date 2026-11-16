@@ -753,6 +753,11 @@ fi
 # migration question: was this a pre-3.0 .NET install? If so its pattern skill stays, as the project's own.
 # LEGACY_PROFILE is a pre-2.0 leftover of the same kind: it selects nothing, it only drives a notice.
 LEGACY_PROFILE="$(kit_conf_get profile)"; KIT_STACK="$(kit_conf_get stack)"; KIT_INSTALLER="$(kit_conf_get installer)"
+# What the install chose for git (start.sh writes them; DECISIONS 2026-11-16): kept by every update, read by the
+# session start and the reviewer. An install from before has none: visibility follows #4 below, docs/ stays private.
+KIT_VIS="$(kit_conf_get visibility)"; KIT_DOCS="$(kit_conf_get docs)"
+case "$KIT_VIS" in shared|private) ;; *) KIT_VIS="" ;; esac
+case "$KIT_DOCS" in shared|private) ;; *) KIT_DOCS="" ;; esac
 # No kit.conf means the project predates it (v1.0.x). Recover the pattern from the files themselves.
 INFERRED=0
 { [ "$KIT_PRESENT" = 1 ] && [ -z "$KIT_STACK" ]; } && kit_infer_shape
@@ -1626,6 +1631,10 @@ fi
   # --yes run with nothing named guesses from the locale, and a guess written down would pin an install that was
   # set up in Turkish to English from its first unattended update on.
   [ "$_LANG_CHOSEN" = 1 ] && echo "lang=$CREW_LANG"
+  if [ -n "$KIT_VIS" ]; then echo "visibility=$KIT_VIS"
+  elif [ "$DEC4" = hide ]; then echo "visibility=private"
+  else echo "visibility=shared"; fi
+  echo "docs=${KIT_DOCS:-private}"
 } > .claude/kit.conf
 # The organisation's preset (checked before anything was changed): a block at the top of crew-model-rules. Without
 # --preset an update leaves the block that is there, with the project's own lines, as they were.
@@ -2118,7 +2127,9 @@ fi
 # one) and leaves the tracked .gitignore alone. adopt always runs in a repository, so the path always resolves.
 GI_FILE=.gitignore
 [ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
-gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'
+# A docs/ the install shares (kit.conf docs=shared) is not hidden again by an update.
+if [ "$KIT_DOCS" = shared ]; then gi_add '.claude/review-pass.json' '.claude/.state/'
+else gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'; fi
 [ -n "${GI_TRACKED:-}" ] && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.
