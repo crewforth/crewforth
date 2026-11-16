@@ -109,6 +109,9 @@ versioning follows [SemVer](https://semver.org/).
   first field.
 - **Reading a gate file is not tampering with it:** `while IFS= read`, `xargs grep` and a plain `sed -i 's/…/…/'` on
   a file that is not a gate file were refused in real use.
+- **A merge approved with the question no longer holds the next approval question.** The merge stayed on record as
+  waiting for 30 minutes, so the commit question asked after the merge was refused as "not the question this state
+  asks". The answer now uses the waiting merge up, and a commit refused on a merge approval says it was a merge.
 
 ## [3.5.0] — 2026-11-13
 

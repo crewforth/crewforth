@@ -880,6 +880,12 @@ _pa_record(){
   # What was waiting has been approved: it is not approved a second time. Only here, after every proof and the record
   # itself: a bare command that recorded nothing (a headless session, a first message) leaves it for the user.
   [ "$BARE" = 1 ] && { : > "$_bp"; } 2>/dev/null
+  # A merge approved by the question uses up the merge that was waiting too. Left in place, it made every approval
+  # question of the next 30 minutes the merge one, and refused the commit question asked after the merge was done.
+  if [ "$OP" = merge ] && [ "$BARE" = 0 ] && _crew_q_merge_pending "$SID"; then
+    _bp="${CLAUDE_PROJECT_DIR:-$CWD}"; _bp="${_bp//\\//}"; _bp="${_bp%/}/.claude/state/crew-approval-pending"
+    { : > "$_bp"; } 2>/dev/null
+  fi
 
   _h="${HEAD_NOW:0:7}"; _d="${TREE:0:7}"
   # THE ADDRESS IS SHOWN TO THE USER, not only compared: a rewrite set BEFORE the approval (`url.<x>.insteadOf`) is

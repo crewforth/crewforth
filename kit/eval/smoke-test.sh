@@ -10646,6 +10646,13 @@ _paq_pre auto "$_gmq" '' tgm1
 printf '{"session_id":"s","transcript_path":"%s","cwd":"%s","permission_mode":"auto","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[%s],"answers":{"%s":"Merge"}},"tool_response":{"questions":[%s],"answers":{"%s":"Merge"}},"tool_use_id":"tgm1"}' "$_patr" "$_paw" "$_gmq" "$_gmt" "$_gmq" "$_gmt" > "$_PA/q.json"
 ( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" < "$_PA/q.json" >/dev/null 2>&1 )
 { [ "$(_pa_op)" = merge ] && grep -q '^pr=7$' "$_pa_rec" && grep -q '^base=master$' "$_pa_rec"; } || _gmx="$_gmx [the merge question's Merge did not record it: $(tr '\n' ' ' < "$_pa_rec" 2>/dev/null)]"
+# Field (rc.3): the merge answered by the question left the refused merge waiting, so for 30 minutes every approval
+# question was the merge one and the commit question asked after the merge was refused. The answer uses it up.
+grep -q '^op=merge$' "$_gmpend" && _gmx="$_gmx [the merge question's Merge left the merge waiting: $(tr '\n' ' ' < "$_gmpend")]"
+_paq_pre auto "$_gmq" '' tgm3
+[ "$_par" = 2 ] || _gmx="$_gmx [the merge question was asked again after its Merge was recorded]"
+_pa_run auto 'git commit -m x'
+grep -q 'the approval on record is for a merge, not for a commit' "$_PA/err" || _gmx="$_gmx [a commit refused on a merge approval does not name the merge: $(grep -o 'the approval on record[^.]*' "$_PA/err")]"
 : > "$_gmpend"; _paq_pre auto "$_gmq" '' tgm2
 [ "$_par" = 2 ] || _gmx="$_gmx [the merge question was asked with no merge waiting]"
 # Field N35: a loop of merges wrote `pr=?`, which neither the question nor /crew-approve could take, and the merge
@@ -10670,7 +10677,7 @@ for _gmc in 'bash <<EOF\ngh pr merge 42\nEOF' 'cat <<EOF | sh\ngh pr merge 42\nE
   GM_BASE=main _gmrun default "$_gmc"
   case "$_par|$_pao" in 0\|*'"permissionDecision":"ask"'*) ;; *) _gmx="$_gmx [a merge a shell reads from a here-document was not asked: $_gmc: rc=$_par]" ;; esac
 done
-[ -z "$_gmx" ] && pass "gh pr merge into main or master (or a base gh does not name) is one click in default, refused and written down in auto, and approved by the typed /crew-approve merge or the merge question's Merge for that pull request and base only (not another pull request, not another session); into next it is free; the words in an echo are not gated; behind do, then, bash -c, sudo or quotes it is gated the same; a loop, xargs or two merges in one call is refused as one that no approval can be bound to, and nothing is written down; a here-document's text is not a merge unless a shell reads it" \
+[ -z "$_gmx" ] && pass "gh pr merge into main or master (or a base gh does not name) is one click in default, refused and written down in auto, and approved by the typed /crew-approve merge or the merge question's Merge for that pull request and base only (the Merge uses up the merge that was waiting) (not another pull request, not another session); into next it is free; the words in an echo are not gated; behind do, then, bash -c, sudo or quotes it is gated the same; a loop, xargs or two merges in one call is refused as one that no approval can be bound to, and nothing is written down; a here-document's text is not a merge unless a shell reads it" \
                || fail "gh pr merge approval:$_gmx"
 # An approval holds as long as what it is about is unchanged, not for 30 minutes (field: a question asked at night was
 # refused in the morning). The question and the refused command write down the staged tree and HEAD; the answer or
