@@ -39,6 +39,15 @@ TMP="${TMPDIR:-/tmp}/crew-gate-$$"; mkdir -p "$TMP"; trap 'rm -rf "$TMP"' EXIT
 # interpolates a shell variable ("… that cannot prompt (${PERM_MODE:-unknown})"): the inventory reads the
 # source, the log holds the expanded value, so the two never compare equal and the rule is reported as never
 # observed forever — a false negative in the one direction that matters. Both sides drop the trailing (...).
+# The strictness profile in force, read by the gates' own reader (eval/lib/profile.sh): light leaves a clean commit and
+# a push to a work branch unasked, strict refuses what is otherwise a note. No reader here: nothing is said.
+profile_line(){
+  local d
+  for d in ./.claude/eval/lib ./eval/lib; do
+    [ -f "$d/profile.sh" ] || continue
+    . "$d/profile.sh"; crew_profile .
+    echo "  profile: $CREW_PROFILE  (.claude/crew-model-rules; /crew-profile changes it)"; return 0
+  done; }
 key(){ printf '%s' "$1" | sed 's/[[:space:]]*([^()]*)[[:space:]]*$//'; }
 
 # ---- inventory: derived from the hooks, one awk pass per file (no per-rule subprocess: Windows forks cost 62-135 ms)
@@ -101,7 +110,7 @@ allowlists(){
 if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then
   if [ -d "./.claude" ]; then
     if [ "$JSON" = 1 ]; then printf '{"measured":true,"rules":%s,"decisions":0}\n' "$NRULES"; else
-      echo "== gate report =="
+      echo "== gate report =="; profile_line
       echo "  ✅ no gate has fired in this project yet — $NRULES rules wired, recording on,"
       echo "     nothing has tripped one. (Recording writes .claude/gate-log.tsv, which is gitignored;"
       echo "     rule names and verdicts only, never the command — CREW_GATE_LOG_CMD=1 adds it for debugging.)"
@@ -110,7 +119,7 @@ if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then
     exit 0
   fi
   if [ "$JSON" = 1 ]; then printf '{"measured":false,"rules":%s,"reason":"nowhere to record"}\n' "$NRULES"; else
-    echo "== gate report =="
+    echo "== gate report =="; profile_line
     echo "  ·  NOT MEASURED — no .claude/ to record into. $NRULES rules are wired; how often they fire is unknown."
     echo "     ↳ point it somewhere:  export CREW_GATE_LOG=\"\$PWD/gate-log.tsv\""
   fi
@@ -134,7 +143,7 @@ if [ "$JSON" = 1 ]; then
   exit 0
 fi
 
-echo "== gate report =="
+echo "== gate report =="; profile_line
 echo "  log: $LOG  ($LINES line(s), $TOT decision(s))"
 echo
 echo "  verdicts:"

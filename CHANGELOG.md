@@ -83,6 +83,8 @@ versioning follows [SemVer](https://semver.org/).
 - **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with
   it** (`git restore --staged`, `git reset <path>`). Both were refused in real use; every other form stays refused.
 - **A TypeScript project may verify with `tsc -b`.** Existing installs get the line on update.
+- **The strictness profile in force is shown** by `/crew-gates` and `/crew-doctor`. It was only answered by
+  `/crew-profile`.
 - **An agent is told its card's skills where it starts.** A card's `skills:` was only checked when the agent stopped,
   and a background agent, which most are, is not sent back: in the field 3 of 30 agents called a skill. The block a
   crew agent gets at its start now names them and asks for each to be called before any change.
@@ -114,6 +116,11 @@ versioning follows [SemVer](https://semver.org/).
   first field.
 - **Reading a gate file is not tampering with it:** `while IFS= read`, `xargs grep` and a plain `sed -i 's/…/…/'` on
   a file that is not a gate file were refused in real use.
+- **An agent that pauses for its own background command is not judged at the pause.** It stops while it waits, and
+  its verify ran then, beside the agent's own run of the same tests, and was stopped at the limit; the work it
+  finished later was never checked, and a missed-skills notice came before its report. While a command the agent
+  started has not reported back and the agent has not handed its report back, the stop is a pause: nothing is
+  judged, and the record waits for the stop that ends it.
 - **A merge approved with the question no longer holds the next approval question.** The merge stayed on record as
   waiting for 30 minutes, so the commit question asked after the merge was refused as "not the question this state
   asks". The answer now uses the waiting merge up, and a commit refused on a merge approval says it was a merge.
