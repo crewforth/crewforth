@@ -1155,6 +1155,25 @@ _rmt_in(){  # $1 = absolute path, no .. ; $2 = full: the path itself is followed
   for r in $_RMT_ROOTS; do case "$real" in "$r"/?*) return 0 ;; esac; done
   return 1
 }
+# A shell with no script reads its commands from the pipe in front of it: `… | sh`.
+_GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
+# A here-document's body is text unless a shell reads it (field N35: session notes written with `cat > … <<'EOF'` and
+# a `python3 - <<'EOF'` that named "gh pr merge" in their text were read as merges; N37: a script a python body was
+# editing held `rm -rf "$work"`). The body of one that goes to a shell (`bash <<EOF`, `… | sh`) stays.
+_SHD_RE='(^|[^<])<<-?[[:space:]]*["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
+_SHD_SH='(^|[;&|(]|[[:space:]])(ba|z|da|k)?sh([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<'
+_strip_hd(){  # $1 = command -> _SHD: it without the bodies of here-documents that no shell reads
+  local line w="" out="" t
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$w" ]; then t="${line#"${line%%[![:space:]]*}"}"; [ "$t" = "$w" ] && w=""; continue; fi
+    out="$out$line"$'\n'
+    if [[ $line =~ $_SHD_RE ]]; then
+      t="${BASH_REMATCH[2]}"
+      [[ $line =~ $_SHD_SH ]] || [[ $line =~ $_GT_PIPESH ]] || w="$t"
+    fi
+  done <<< "$1"
+  _SHD="$out"
+}
 _rmt_unset(){ local x=" ${1# }" ; while case "$x" in *" $2="*) true ;; *) false ;; esac; do local pre="${x%%" $2="*}" post="${x#*" $2="}"; post="${post#* }"; x="$pre $post"; done; printf '%s' "$x"; }   # $1 assigns, $2 name -> assigns without it
 _rm_temp_only(){
   local s="$1" seg w n v a k first rmseen=0 ok
@@ -1279,7 +1298,7 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Z
 # `docker run --rm` and a quoted "rm -r ." are not it), the dot must be an argument of its own in that rm's segment
 # (`.git`, `./x`, `a.` are not), and a `#` ends the look (a comment is not a target), and so does a line break (`rm -rf dist⏎npx tsc -p .`). A builtin match: no process.
 # The same holds for `$HOME`, `${HOME}`, `$PWD`, `${PWD}` and `$(pwd)`, quoted or not: one argument, no `/`, and the
-# whole home or working tree (all five passed). `$HOME_OLD`, `cd .. && rm -rf dir`, `find -delete` and `xargs rm` stay free.
+# whole home or working tree (all five passed). `$HOME_OLD`, `cd .. && rm -rf dir`, `find -delete` and `xargs rm` are not this rule's (a bare name is N37's, below).
 # And on Windows (measured in a real hook on Git Bash, all rc 0 before): a path written with backslashes only
 # (`rm -rf "C:\Users\me"`, `'C:\'`) carried none of the three characters the rule above looks for, and Git Bash's rm
 # deletes it; `$USERPROFILE` is the home there, and `$TEMP`, `$TMP`, `$TMPDIR` are the whole temp root. The drive is
@@ -1300,6 +1319,33 @@ _RMWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*((sudo|env|command|nice|nohup|time|exec
 # position, so _RMWIN does not reach it. A bare drive (`C:`) is one too.
 _RMCWIN='(^|[;&|({'"$_RMNL"'])[[:blank:]]*(sudo[[:blank:]]+)?(docker|podman|docker-compose|kubectl)[[:blank:]][^;&|'"$_RMNL"']*[[:blank:]"'"'"']rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?([A-Za-z]:[/\\]|[A-Za-z]:([[:space:]"'"'"';&|)]|$)|\.\.?\\|\\\\[A-Za-z0-9]|\\[A-Za-z])'
 _RMTMPV='(^|[;&|({'"$_RMNL"'])[[:blank:]]*((sudo|env|command|nice|nohup|time|exec|doas|ionice|stdbuf|timeout)[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?(\$TEMP|\$\{TEMP\}|\$TMP|\$\{TMP\}|\$TMPDIR|\$\{TMPDIR\})["'"'"']?([[:space:];&|)}]|$)'
+# A BARE NAME AS THE TARGET (N37): `S=/Users/me; rm -rf $S` carries none of / * ~, so the first rule never looked at
+# it, and the name can hold anything. 0 only when every value this call gives the name is known: a fresh `$(mktemp …)`
+# (it made that path itself), a plain relative name with no `/` (the same as `rm -rf build`, which passes), or an
+# absolute path _rm_temp_only resolves inside a temp root. A name the call never sets (it comes from the environment),
+# one bound by for, read, select, mapfile or printf -v, and one set from any other expansion stay refused. Read on the
+# text without the bodies of here-documents no shell reads. Builtins only. -> 0 known, 1 not, 2 absolute (ask the temp rule)
+_rm_name_known(){
+  local t="$1" n="$2" r v abs=0 seen=0
+  [[ $t =~ (^|[^A-Za-z0-9_])(for|select|read|mapfile|readarray|printf[[:space:]]+-v)[[:space:]]+([^;&|$_RMNL]*[[:space:]])?$n([[:space:];&|]|$) ]] && return 1
+  r="$t"
+  while [[ $r =~ (^|[^A-Za-z0-9_\$])$n=(.*)$ ]]; do
+    v="${BASH_REMATCH[2]}"; r="$v"; seen=1
+    case "$v" in
+      '$(mktemp'[[:space:]\)]*|'"$(mktemp'[[:space:]\)]*)
+        v="${v#\"}"; v="${v#'$('}"; v="${v%%\)*}"
+        case "$v" in *'$('*|*'`'*|*[\;\&\|]*) return 1 ;; esac
+        continue ;;
+    esac
+    v="${v%%[[:space:];&|)]*}"; v="${v//\"/}"; v="${v//\'/}"
+    case "$v" in *'$'*|*'`'*|*'*'*|*'?'*|*'['*|*'{'*|*'~'*|'.'|'..'|*/..|*/../*|../*) return 1 ;; esac
+    case "$v" in /*) abs=1 ;; */*) return 1 ;; esac
+  done
+  [ "$seen" = 1 ] || return 1
+  [ "$abs" = 0 ] || return 2
+  return 0
+}
+_RMBV='(^|[;&|({`"'"'"''"$_RMNL"'])[[:blank:]]*((do|then|else|elif)[[:blank:]]+)?((sudo|env|command|nice|nohup|time|exec|doas|ionice|stdbuf|timeout)[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?)?rm[[:space:]]+(-[A-Za-z]*[[:space:]]+|--[a-z-]*[[:space:]]+)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)([[:space:]]+(-[A-Za-z]+|--[a-z-]*))*[[:blank:]]+([^;&|#'"$_RMNL"']*[[:blank:]])?["'"'"']?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?["'"'"']?([[:space:];&|)}`"'"'"']|$)'
 case "$CMD" in *[Rr][Mm]*)
   _rmc="$CMD"
   # a backslash-newline continues the line (`rm -rf \⏎.`); folded only when one is there and the command is short
@@ -1319,6 +1365,18 @@ case "$CMD" in *[Rr][Mm]*)
   if [[ $_rmc =~ $_RMTMPV ]]; then
     _rmv="${BASH_REMATCH[0]}"; _rmv="${_rmv#*\$}"; _rmv="${_rmv#\{}"; _rmv="${_rmv%%[\}\"\' ;&|)]*}"
     [[ $_rmc =~ (^|[^A-Za-z0-9_])$_rmv= ]] || { _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf" "4.5" loss; }
+  fi
+  if [[ $_rmc =~ \$ ]]; then
+    _rmt="$_rmc"; case "$_rmt" in *'<<'*) _strip_hd "$_rmt"; _rmt="$_SHD" ;; esac
+    _rmr="$_rmt"
+    while [[ $_rmr =~ $_RMBV ]]; do
+      _rmm="${BASH_REMATCH[0]}"; _rmr="${_rmr#*"$_rmm"}"
+      _rmv="${_rmm##*\$}"; _rmv="${_rmv#\{}"; _rmv="${_rmv%%[!A-Za-z0-9_]*}"
+      _rm_name_known "$_rmt" "$_rmv"; _rmk=$?
+      [ "$_rmk" = 0 ] && continue
+      [ "$_rmk" = 2 ] && _rm_temp_only "$_rmc" && continue
+      _PV_KIND=rm; _PV_CMD="$_rmc"; block "destructive rm -rf (a target this call does not set to a known path: \$$_rmv)" "4.5" loss
+    done
   fi ;; esac
 # A whole-tree `git checkout -- .` / `git restore .` destroys every uncommitted change with no reflog and no
 # undo — the same loss as `reset --hard`, which has been gated since the beginning, by a command that was not.
@@ -2107,8 +2165,6 @@ _GT_DOTGIT='(^|[[:space:];&|(])(cd|pushd)[[:space:]]+[^[:space:];&|]*\.git[/\\]*
 # _GT_MEAN: a word that changes what a later command word runs. _GT_BIND: one that hands names on to a command.
 _GT_MEAN='(^|[;&|[:space:](])(alias|function|hash|enable|builtin|source|eval|exec|trap|export|declare|typeset|readonly)([[:space:]]|$)|(PATH|ENV|IFS)=|\(\)'
 _GT_BIND='(^|[;&|[:space:](])(xargs|parallel|read|mapfile|readarray)([[:space:]]|$)'
-# A shell with no script reads its commands from the pipe in front of it: `… | sh`.
-_GT_PIPESH='[|][[:space:]]*(ba|z|da|k)?sh[[:space:]]*($|[;&|<>])'
 _gt_hd_prog(){  # the call -> 1 with _GTW when a here-document whose body names a gate path goes to a command that is
                # not a text sink (cat, tee, git commit -F -). Line by line, builtins only; read only when the call names one.
   local l t pre w seg rest m0 dl body="" re='<<(-?)[[:space:]]*(["'"'"']?)([A-Za-z_][A-Za-z0-9_.-]*)'
@@ -3896,24 +3952,7 @@ fi
 # after a separator, a shell keyword (do then else elif { !), a quote or $( (bash -c '…', "$(…)"), or a wrapper with
 # its options (sudo env command nohup exec time timeout nice xargs watch).
 _GM_RE='(^|[;&|(`{!"'"'"']|&&|\|\||\$\(|(^|[[:space:];&|(])(do|then|else|elif|sudo|env|command|nohup|exec|time|timeout|nice|xargs|watch)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*|[0-9]+[smhd]?))*)[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
-# A here-document's body is text unless a shell reads it (field N35: session notes written with `cat > … <<'EOF'` and
-# a `python3 - <<'EOF'` that named "gh pr merge" in their text were read as merges). The body of one that goes to a
-# shell (`bash <<EOF`) stays.
-_GM_HD='(^|[^<])<<-?[[:space:]]*["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
-_GM_HDSH='(^|[;&|(]|[[:space:]])(ba|z|da|k)?sh([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<'
-_gm_strip_hd(){  # $1 = command -> _GMS: it without the bodies of here-documents that no shell reads
-  local line w="" out="" t
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ -n "$w" ]; then t="${line#"${line%%[![:space:]]*}"}"; [ "$t" = "$w" ] && w=""; continue; fi
-    out="$out$line"$'\n'
-    if [[ $line =~ $_GM_HD ]]; then
-      t="${BASH_REMATCH[2]}"
-      [[ $line =~ $_GM_HDSH ]] || [[ $line =~ $_GT_PIPESH ]] || w="$t"
-    fi
-  done <<< "$1"
-  _GMS="$out"
-}
-_gm_txt="$CMD_SEEN"; case "$_gm_txt" in *'<<'*) _gm_strip_hd "$_gm_txt"; _gm_txt="$_GMS" ;; esac
+_gm_txt="$CMD_SEEN"; case "$_gm_txt" in *'<<'*) _strip_hd "$_gm_txt"; _gm_txt="$_SHD" ;; esac
 if [[ $'\n'"${_gm_txt//$'\n'/;}" =~ $_GM_RE ]]; then
   # The pull request it names: the first word after `merge` that is not an option or an option's value.
   _gm_rest="${_gm_txt#*gh*pr*merge}"; _gm_rest="${_gm_rest%%[;&|$'\n']*}"; _gm_sel=""; _gm_skip=0
