@@ -94,6 +94,7 @@ versioning follows [SemVer](https://semver.org/).
 ### Fixed
 
 - **An update no longer gitignores a `docs/` the project tracks.**
+- **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
 - **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
 - **The mid-session update warning is said once,** and a compaction ends it.
 - **A lowered model is told to the model,** not only written to the gate log.

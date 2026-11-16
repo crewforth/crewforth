@@ -46,6 +46,13 @@ const TIP_MS = 400;
 // fro across Auto's limit for 60 frames turned every card into a chip and back 57 times, each a full redraw.
 export const RESIZE_SETTLE_MS = 150;
 
+// WHAT A PRESS ON THE PANE DOES NOT PAN. A press that pans captures the pointer, and a captured press never becomes a
+// click on what it started on: the Plan tab sat in the corner and did nothing when clicked (field, 3.6.0-rc.3;
+// measured in Chrome, 0 of 2 clicks on a button outside these, 2 of 2 once it is in the list). Anything the viewer
+// clicks that lives on the pane is named here.
+export const PAN_SKIP = '.cv-node, .cv-minimap, .cv-legend, .cv-todo-chip';
+export const panSkips = (target) => Boolean(target?.closest?.(PAN_SKIP));
+
 // Marks, so a card says what kind of thing it is before it is read.
 //
 // Crewforth's own is the three chevrons, drawn here because the shape is three strokes and its colours are the
@@ -294,8 +301,8 @@ export class Canvas {
   #wire() {
     // Pan, zoom and Fit are the shared viewport's: the same on the graph and on the project map.
     this.vp = new Viewport(this.root, this.viewport, {
-      // the summary box is a .cv-legend too
-      skip: (t) => Boolean(t.closest?.('.cv-node') || t.closest?.('.cv-minimap') || t.closest?.('.cv-legend')),
+      // the summary box is a .cv-legend too; the Plan tab is not inside one
+      skip: panSkips,
       onApply: () => { this.#mapView(); this.onChange(this.state()); },
     });
 

@@ -7839,6 +7839,15 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   const chipShown = !box.chip.hidden;
   check('no plan, no box; closed, it stays closed and leaves a tab in the corner',
     hiddenNoPlan && box.el.hidden && chipShown && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
+  // The emitted click above never meets the pane's pan, which captures a real press: the tab passed here and did
+  // nothing in Chrome. The pan has to leave the tab alone, read by its own class.
+  {
+    const { panSkips } = await import(`../../kit/studio/web/canvas.js?pan=${Date.now()}`);
+    const as = (cls) => ({ closest: (sel) => (sel.split(',').some((x) => cls.split(/\s+/).some((c) => x.trim() === `.${c}`)) ? {} : null) });
+    check('a press on the plan corner tab, its box or a node does not pan; on the empty pane it does',
+      panSkips(as(box.chip.className)) && panSkips(as(box.el.className)) && panSkips(as('cv-node')) && !panSkips(as('canvas')),
+      box.chip.className);
+  }
   box.chip.emit('click');
   check('the corner tab opens a closed plan again, wherever the toolbar is wide or narrow',
     !box.el.hidden && box.chip.hidden && localStorage.getItem('crewforth-studio-todo') === 'open');
