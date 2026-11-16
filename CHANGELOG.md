@@ -78,7 +78,8 @@ versioning follows [SemVer](https://semver.org/).
   (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
   with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,
   and under the light profile it no longer asks for a commit the gate lets through. A shared install also asks
-  whether `docs/` is committed (`--share-docs`); an update keeps both answers.
+  whether `docs/` is committed (`--share-docs`); an update keeps both answers. A crew agent is told the same where it starts, so a reviewer
+  does not report a shared `docs/` as a leak.
 - **An `rm` that runs inside a container is judged as one.** `docker|podman exec|run`, `docker compose` and
   `kubectl exec` removing a relative path, or an absolute one two or more levels deep, inside the container
   pass; `/`, `~`, `.`, `..`, a top-level folder, an expansion and any host `rm` in the same call stay refused.

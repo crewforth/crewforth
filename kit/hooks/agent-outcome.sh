@@ -388,7 +388,19 @@ case "$EV" in
     if [ -f "$_AMD/agents/$AID" ] && _am_rec_get "$_AMD/agents/$AID" skills; then
       case "$_AMV" in ''|-|*[!a-z0-9\ -]*) ;; *) _ao_sk=" Your task card names skills: $_AMV. Before you change anything, call each one with the Skill tool and follow it; when you stop, Crewforth checks that you did." ;; esac
     fi
-    printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStart\",\"additionalContext\":\"$CREW_AGENT_RULES$_ao_sk\"}}"
+    # WHAT THIS INSTALL COMMITS (DECISIONS, 2026-11-16): the session start says it to the session, and a subagent does
+    # not get that line. A reviewer that did not know refused a shared docs/ twice (field, rc.3). Read from kit.conf with
+    # builtins; said only where the install shares something.
+    _ao_in=""
+    if [ -f "$_AMP/.claude/kit.conf" ]; then
+      while IFS= read -r _l || [ -n "$_l" ]; do
+        case "${_l%$'\r'}" in
+          visibility=shared) _ao_in="$_ao_in .claude/ and CLAUDE.md are committed in this project (a shared install), so naming them in a diff is not a finding." ;;
+          docs=shared) _ao_in="$_ao_in docs/ is committed in this project (the user chose it at install): a docs/ file in a diff, or a committed file that names one, is not a finding." ;;
+        esac
+      done < "$_AMP/.claude/kit.conf"
+    fi
+    printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStart\",\"additionalContext\":\"$CREW_AGENT_RULES$_ao_sk$_ao_in\"}}"
     exit 0 ;;
 
   SubagentStop)

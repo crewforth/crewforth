@@ -12239,6 +12239,14 @@ for _bad in 'no-such-skill' 'Api/design'; do
 done
 _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'true'; [ "$_v2rc" = 0 ] && grep -q '^skills=-$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null || _v2b="$_v2b [a card with no skills: rc $_v2rc]"
 _o="$(printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"skst2","agent_type":"crew-backend-expert"}' | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ))"
+# ...and what the install commits, which the session start says to the session and not to a subagent (field: a
+# reviewer refused a shared docs/ twice). Nothing for a private install.
+case "$_o" in *'is committed in this project'*) _v2b="$_v2b [a private install told an agent it commits something]" ;; esac
+printf 'visibility=shared\ndocs=shared\n' > "$_v2p/.claude/kit.conf"
+_o2="$(printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"skst3","agent_type":"crew-review-agent"}' | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ))"
+case "$_o2" in *'.claude/ and CLAUDE.md are committed in this project'*'docs/ is committed in this project'*) ;; *) _v2b="$_v2b [a shared install did not tell the agent: ${_o2: -200}]" ;; esac
+printf '%s' "$_o2" | json_ok; case $? in 0|2) ;; *) _v2b="$_v2b [the start block with the install note is not JSON]" ;; esac
+rm -f "$_v2p/.claude/kit.conf"
 case "$_o" in *'Crewforth rules'*'Your task card names skills'*) _v2b="$_v2b [a card with no skills told some]" ;; *'Crewforth rules'*) ;; *) _v2b="$_v2b [a card with no skills: no rules block]" ;; esac
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2plants(){ printf 'agent=crew-backend-expert\ntier=sonnet\nasked=sonnet\nchange=feature\nrisk=normal\ncard=c%s\nbg=false\nesc=-\nverify=%s\nskills=%s\n' "$1" "$2" "$3" > "$_v2p/.claude/state/crew-model/agents/$1"; }
@@ -12286,7 +12294,7 @@ printf '{"type":"user","message":{"content":[{"type":"tool_result","content":"Co
 _v2stopx sk7 "$_v2/t7.jsonl" >/dev/null; [ "$(_v2rs sk7 verify)" = pass ] || _v2b="$_v2b [an agent that handed back was not judged: $(_v2rs sk7 verify)]"
 # every crew agent can call the Skill tool
 for _ag in "$ROOT"/agents/*.md; do _t="$(grep -m1 '^tools:' "$_ag")"; case "$_t, " in *' Skill, '*) ;; *) _v2b="$_v2b [${_ag##*/} has no Skill tool]" ;; esac; done
-[ -z "$_v2b" ] && pass "a card's skills: are read in both forms, recorded and told to the agent where it starts (a card with none tells none); a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript, nor while a background command the agent started has not reported to it and it has not handed back; every crew agent has the Skill tool" \
+[ -z "$_v2b" ] && pass "a card's skills: are read in both forms, recorded and told to the agent where it starts (a card with none tells none), with what a shared install commits; a name that is not an installed skill is refused with the agent's list; a foreground agent that did not call or read one is sent back once, naming them, and a miss after that is recorded and told; a skills send-back leaves the verify its own fix; a background agent is not sent back, its miss is told at Stop; nothing is judged without a transcript, nor while a background command the agent started has not reported to it and it has not handed back; every crew agent has the Skill tool" \
                || fail "the card's skills:$_v2b"
 # THE REVIEW-PASS RECORD IS WRITTEN BY THE STOP HOOK. Field (3.5.0): the auto-mode classifier refused
 # crew-review-agent's own write of .claude/review-pass.json and the commit was left to the user's hand. A report
