@@ -64,6 +64,9 @@ versioning follows [SemVer](https://semver.org/).
   two components were given to one.
 - **A subagent's `git stash` gets a note:** the calling session's uncommitted work leaves the working tree until
   the stash is popped. `git stash drop` and `git stash clear` stay free.
+- **A project sets how long an agent's verify may run.** A line `verify-timeout <seconds>` in
+  `.claude/crew-model-rules`, the file only the user writes, raises the 120 s limit, up to 560. A verify stopped at a
+  lower limit runs again once the limit is raised. When a verify is stopped, the session is told the line.
 
 ### Changed
 

@@ -20,7 +20,8 @@
 #                          not a command a hook may run (it chains other than by &&, a step is allowed by no rule,
 #                          or the shell gate would refuse or ask; the user is told once with the message that allows it)
 #                                                   -> blocked: not run, nothing concluded.
-#                          not finished in CREW_VERIFY_TIMEOUT seconds (120; at most 560)
+#                          not finished in its limit (120 s; a `verify-timeout <seconds>` line in
+#                          .claude/crew-model-rules or CREW_VERIFY_TIMEOUT raises it; at most 560)
 #                                                   -> timeout: stopped, nothing concluded, the command remembered as
 #                                                      slow; for CREW_VERIFY_SLOW_DAYS (7) it is not run again, and
 #                                                      the agent's line says timeout with why "not run" (the hook did
@@ -172,7 +173,7 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
     if [ "$RES" = timeout ]; then
       # Not "run it yourself": the command that ran out of time is, in the field, the whole suite, and the session
       # running it again cost one more suite-length wait for the same answer.
-      _AOT="Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here: the next card that carries it is told, and for $D days the hook does not run it again. Do not repeat the task on another model for this.$SKT"
+      _AOT="Crewforth: the agent's verify command was stopped: $WN ($VCMD). Nothing is concluded about the work. Do not run that whole command again to judge it: run the tests this change touches yourself with the Bash tool and judge those; the whole suite is a check for the end of the work. The command is remembered as slow here: the next card that carries it is told, and for $D days the hook does not run it again. Do not repeat the task on another model for this. If the tests this change touches need longer than that, tell the user: a line \`verify-timeout <seconds>\` (at most 560) in .claude/crew-model-rules, a file only the user writes, raises the limit for this project, and a command stopped below it is run again.$SKT"
     else
       case "$WN" in
         pytest*|'the verify command could not be run'*)
@@ -456,7 +457,7 @@ case "$EV" in
         # is the place the command actually starts. Not run; nothing is concluded about the work.
         RES=blocked; VRC=0
         _ao_tell_allow "${VSTEP:-$VCMD}" "$WHYNOT"
-      elif _am_slow_get "$VCMD" && _am_slow_fresh; then
+      elif _am_verify_limit; _am_slow_get "$VCMD" && _am_slow_fresh && ! _am_slow_below; then
         # Stopped at the limit here within the last days: run again it would only wait the limit out once more
         # (measured: the next agent's stop hook ran the same suite into the same 540 s). Recorded as what it is
         # known to be, timeout, with why it did not run; the PreToolUse note told the card's writer this up front.
@@ -467,7 +468,8 @@ case "$EV" in
         # The limit stays under the hook's own 600 s whatever is asked for.
         # 120 s by default (3.2): an agent's verify is the tests of what it changed; the whole suite, which ran 494-1005 s
         # in the field and held every agent for the full 540 s it had, is for the end of the work and for CI.
-        LIM="${CREW_VERIFY_TIMEOUT:-120}"; case "$LIM" in ''|*[!0-9]*) LIM=120 ;; esac; [ "$LIM" -le 560 ] || LIM=560
+        # The limit is _am_verify_limit's: CREW_VERIFY_TIMEOUT, else a `verify-timeout` line, else 120; at most 560.
+        LIM="$_AMVL"
         VF="$_AMD/tries/$AID.out"
         # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
         # server a test left behind. `setsid` where there is one (CREW_VERIFY_NO_SETSID=1 skips it); otherwise job
