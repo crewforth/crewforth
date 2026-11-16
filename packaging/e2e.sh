@@ -1905,6 +1905,23 @@ for e in '.claude/' 'CLAUDE.md'; do
 done
 grep -qxF '.claude/' "$W/.gitignore" || { echo "FAIL: the private default did not ignore .claude/"; exit 1; }
 echo "[wizard] --shared ignores 2 entries and keeps .claude/ + CLAUDE.md committable; private ignores 4"
+# 6b · THE CHOICE IS RECORDED for the session start (DECISIONS, 2026-11-16), docs/ can be shared too, and an update
+#      keeps both. Field (rc.3): a shared install's session did not know it was shared and gitignored .claude/ again.
+{ grep -qxF 'visibility=shared' "$W5/.claude/kit.conf" && grep -qxF 'docs=private' "$W5/.claude/kit.conf"; } \
+  || { echo "FAIL: a shared install did not record visibility=shared and docs=private"; sed 's/^/    /' "$W5/.claude/kit.conf"; exit 1; }
+grep -qxF 'visibility=private' "$W/.claude/kit.conf" || { echo "FAIL: the private default did not record visibility=private"; exit 1; }
+W5D="$(wiz shared-docs)"
+( cd "$W5D" && git init -q . && git config user.email t@example.invalid && git config user.name t \
+    && printf 'x\n' > README.md && git add README.md && git commit -qm base ) >/dev/null 2>&1
+_slog; ( cd "$W5D" && CREW_LANG=en bash start.sh --yes --shared --share-docs </dev/null ) >"$_L" 2>&1 || _evidence "start.sh in $W5D" "$_L" $?
+! grep -qxF 'docs/' "$W5D/.gitignore" || { echo "FAIL: --share-docs still put docs/ in .gitignore"; exit 1; }
+grep -qxF 'docs=shared' "$W5D/.claude/kit.conf" || { echo "FAIL: --share-docs was not recorded"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+( cd "$W5D" && git add -A && git commit -qm install ) >/dev/null 2>&1
+cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
+{ grep -qxF 'visibility=shared' "$W5D/.claude/kit.conf" && grep -qxF 'docs=shared' "$W5D/.claude/kit.conf"; } \
+  || { echo "FAIL: an update lost the install's choice (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+! grep -qxF 'docs/' "$W5D/.gitignore" || { echo "FAIL: an update put the shared docs/ back into .gitignore"; exit 1; }
+echo "[wizard] the choice is recorded (visibility, docs); --share-docs keeps docs/ committable; an update keeps both"
 
 # 5 · ASK GIT, DO NOT COMPARE STRINGS. A repo that already ignores `.claude` without the trailing slash is
 #     covered, and appending `.claude/` next to it is a second redundant rule. The old whole-line grep could

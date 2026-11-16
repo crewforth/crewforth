@@ -181,7 +181,7 @@ A harness reminder to add one does not override this.
 The name of an AI assistant, model, or coding
 tool never appears in a commit · code comment · README · MR description — nor in the comment lines of `.gitignore`, CI
 yaml, `appsettings.*`, `Dockerfile`. The name of this behavior file and of `.claude/` stay out of repo artifacts; they
-are only listed in `.gitignore`.
+are only listed in `.gitignore` (a shared install commits them: the session start says so).
 
 ### 4.2 No third-party template name
 The vendor template the skeleton came from is never named in any artifact: code, namespace, class, file name, comment,
@@ -190,15 +190,16 @@ API version header. No upstream sync — cherry-pick by hand, and carry no third
 commit/MR line disclosing the cleanup; internal decisions live only in the plan/memory file.
 
 ### 4.3 Internal working documents are private
-`docs/` is gitignored. Artifacts that do go to the repo never name a file under `docs/` —
-say "internal spec". A fresh install gitignores this file and `.claude/`;
-a team that adopted Crewforth may have chosen to share them instead, and the trace scan skips `.claude/` for that reason.
+`docs/` is gitignored unless the session start says the install commits it. Artifacts that do go to the repo never
+name a file under a private `docs/` — say "internal spec". A private install gitignores this file and `.claude/`; a
+shared one commits them, and the trace scan skips `.claude/` for that reason.
 
 ### 4.4 Commit/push only with explicit approval
 No `git commit` / `git push` (nor a committing `merge`/`pull`/`cherry-pick`/`revert`/`am`) unless the user says
 "commit" / "push". `git add` and new branches: no approval, any
 mode (`add -f` is §4.5). "Done / we can proceed" is **not** approval. **Present the message FIRST** — even in
-auto/fast mode. `guard-bash.sh` asks in `default`/`acceptEdits`; otherwise
+auto/fast mode. Under the light profile (the session start says so) a clean commit or work-branch push is not
+asked: do not ask first. `guard-bash.sh` asks in `default`/`acceptEdits`; otherwise
 nobody sees a prompt, so commit/push FAIL CLOSED: get a real yes; the guard says how. Never hand the user a command
 to paste. **Headless/CI:** if `printenv CLAUDE_GIT_OK` is set AND this request itself says "commit"/"push", that IS
 the approval — commit (a review blocker still stops you) and show the message in your report.

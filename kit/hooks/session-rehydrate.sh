@@ -100,6 +100,50 @@ if [ "$SRC" = startup ] && [ -d "$ROOT/.claude/state" ]; then
 fi
 DEPSMSG=""
 _rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+# WHAT THIS INSTALL SHARES, AND HOW STRICT IT IS (DECISIONS, 2026-11-16). The written rules say .claude/, CLAUDE.md and
+# docs/ stay out of the repository and that a commit is the user's to approve; a shared install, a shared docs/ and the
+# light profile change that. A session that was not told put .claude/ and CLAUDE.md back into .gitignore and asked for
+# a commit the gate would have let through (field, 3.6.0-rc.3). Said only where something differs from the default.
+# The choice is read from kit.conf; what git does is asked of git (one check-ignore; a tracked file is never reported),
+# and where the two disagree that is what is said. No git (an empty PATH): only the choice.
+INSTMSG=""; _vis=""; _docs=""; _prof=standard
+if [ -f "$ROOT/.claude/kit.conf" ]; then
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "${_l%$'\r'}" in visibility=shared) _vis=shared ;; docs=shared) _docs=shared ;; esac
+  done < "$ROOT/.claude/kit.conf"
+fi
+if [ -f "$_rh/../eval/lib/profile.sh" ]; then . "$_rh/../eval/lib/profile.sh"; crew_profile "$ROOT"; _prof="$CREW_PROFILE"; fi
+if [ -n "$_vis$_docs" ]; then
+  _ig=""; _igrc=2
+  if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    _ig="$(git -C "$ROOT" check-ignore .claude/settings.json CLAUDE.md docs/PLAN.md 2>/dev/null)"; _igrc=$?
+  fi
+  _hid=""
+  if [ "$_igrc" -le 1 ]; then
+    case $'\n'"$_ig"$'\n' in *$'\n.claude/settings.json\n'*) _hid="$_hid .claude/" ;; esac
+    case $'\n'"$_ig"$'\n' in *$'\nCLAUDE.md\n'*) _hid="$_hid CLAUDE.md" ;; esac
+  fi
+  if [ "$_vis" = shared ]; then
+    if [ -n "$_hid" ]; then INSTMSG="This install was set up to be shared with the team (visibility=shared in .claude/kit.conf), but git ignores${_hid}: tell the user once, and change .gitignore only if they ask."
+    elif [ "$_igrc" -gt 1 ]; then INSTMSG="This install was set up to be shared with the team (visibility=shared in .claude/kit.conf): .claude/ and CLAUDE.md are meant to be committed with the project; do not add them to .gitignore."
+    else INSTMSG="This install is shared with the team (visibility=shared in .claude/kit.conf): .claude/ and CLAUDE.md are committed with the project, so the rule that keeps them out of the repository does not apply here; do not add them to .gitignore."; fi
+  fi
+  if [ "$_docs" = shared ]; then
+    if [ "$_igrc" -gt 1 ]; then
+      INSTMSG="${INSTMSG:+$INSTMSG }docs/ was chosen to be committed too (docs=shared in .claude/kit.conf, the user's choice at install): a docs/ file in a diff, or a committed file that names one, is not a finding here."
+    else
+      case $'\n'"$_ig"$'\n' in
+        *$'\ndocs/PLAN.md\n'*) INSTMSG="${INSTMSG:+$INSTMSG }docs/ was chosen to be committed (docs=shared in .claude/kit.conf), but git ignores it: tell the user once, and change .gitignore only if they ask." ;;
+        *) INSTMSG="${INSTMSG:+$INSTMSG }docs/ is committed too (docs=shared in .claude/kit.conf, the user's choice at install): a docs/ file in a diff, or a committed file that names one, is not a finding here." ;;
+      esac
+    fi
+  fi
+fi
+case "$_prof" in
+  light) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile light: once every gate is clean, a commit and a push to a branch that is not main, master, origin's default or the CLAUDE.md Base branch go through without a question, so do not ask the user for them yourself; the gate asks when it must. A push to such a branch and a tag are still asked." ;;
+  strict) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile strict: a verify that runs the whole suite, an auditor called again on the same work and a model above the card's floor with no above: line are refused." ;;
+esac
+[ -n "$INSTMSG" ] && MSG="${MSG:+$MSG }$INSTMSG"
 # A COMPACTION RELOADS THE RULES. context-usage.sh warns once that an update landed mid-session; after a compaction
 # CLAUDE.md has been read again, so the version the context carries is the one on disk: re-stamp its marker (and drop
 # the "told" note) or it would keep the old version as the session's and say a stale warning that is no longer true.

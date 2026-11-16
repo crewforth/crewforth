@@ -83,6 +83,11 @@ versioning follows [SemVer](https://semver.org/).
 - **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with
   it** (`git restore --staged`, `git reset <path>`). Both were refused in real use; every other form stays refused.
 - **A TypeScript project may verify with `tsc -b`.** Existing installs get the line on update.
+- **A session is told what its install shares and how strict it is.** The installer records the choice
+  (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
+  with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,
+  and under the light profile it no longer asks for a commit the gate lets through. A shared install also asks
+  whether `docs/` is committed (`--share-docs`); an update keeps both answers.
 
 ### Fixed
 
