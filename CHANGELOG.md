@@ -83,6 +83,8 @@ versioning follows [SemVer](https://semver.org/).
 - **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with
   it** (`git restore --staged`, `git reset <path>`). Both were refused in real use; every other form stays refused.
 - **A TypeScript project may verify with `tsc -b`.** Existing installs get the line on update.
+- **The strictness profile in force is shown** by `/crew-gates` and `/crew-doctor`. It was only answered by
+  `/crew-profile`.
 
 ### Fixed
 

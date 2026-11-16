@@ -61,6 +61,7 @@ _mt() {
       "no .claude/ in '%s' — is Crewforth installed here?") s="'%s' içinde .claude/ yok — Crewforth burada kurulu mu?" ;;
       'VERSION present (%s)') s='VERSION var (%s)' ;;
       'VERSION missing') s='VERSION yok' ;;
+      'strictness profile: %s (.claude/crew-model-rules; change it with /crew-profile)') s='sıkılık profili: %s (.claude/crew-model-rules; /crew-profile ile değişir)' ;;
       "no install trace: VERSION is here but .claude/kit-manifest.txt is not — the last update did not finish, or .claude/ was copied; run: npx crewforth update --here (information only — nothing was changed)") s="kurulum izi yok: VERSION var ama .claude/kit-manifest.txt yok — son güncelleme bitmemiş ya da .claude/ kopyalanmış; çalıştırın: npx crewforth update --here (yalnız bilgi — hiçbir şey değiştirilmedi)" ;;
       'no install trace: components the install manifest lists are not here (%s) — the last update did not finish, or .claude/ was copied; run: npx crewforth update --here (information only — nothing was changed; if you removed a component on purpose, ignore this line)') s='kurulum izi yok: kurulum manifestinin listelediği bileşenler burada yok (%s) — son güncelleme bitmemiş ya da .claude/ kopyalanmış; çalıştırın: npx crewforth update --here (yalnız bilgi — hiçbir şey değiştirilmedi; bir bileşeni bilerek sildiyseniz bu satırı yok sayın)' ;;
       'install trace: the components on disk match the install manifest') s='kurulum izi: diskteki bileşenler kurulum manifestiyle uyuşuyor' ;;
@@ -253,6 +254,13 @@ _mt "== Crewforth — install doctor =="; echo "$_M"
 # 1) VERSION (marks a full install; also what /crew-update compares)
 if [ -f .claude/VERSION ]; then ok "VERSION present (%s)" "$(head -1 .claude/VERSION | tr -cd '0-9A-Za-z.-')"
 else bad "VERSION missing" "reinstall or update Crewforth (npx crewforth update)"; fi
+
+# 1a) The strictness profile in force: what the commit and push gates and the handoff thresholds follow. Read by
+#     profile.sh, the reader the gates use; a project with no `profile` line is standard.
+if [ -f "$_DOC_LIB/profile.sh" ]; then
+  . "$_DOC_LIB/profile.sh"; crew_profile .
+  ok "strictness profile: %s (.claude/crew-model-rules; change it with /crew-profile)" "$CREW_PROFILE"
+fi
 
 # 1b) Is that version the current one? Read-only, from the cache session-update-check.sh maintains — doctor makes
 #     no network call of its own, so this stays honest offline (no cache -> nothing said) and instant everywhere.
