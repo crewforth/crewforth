@@ -72,6 +72,7 @@ versioning follows [SemVer](https://semver.org/).
 
 - **The approval question offers what the state allows.** Nothing staged asks about a push only; no remote asks about
   a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
+- **The approval question offers "Commit + push" first,** the answer given nearly every time.
 - **`/crew-approve` is an internal fallback,** named by the gate where no question can be asked, and no longer listed.
   With `/crew-profile` the command count is 18.
 - **A session is told what its install shares and how strict it is.** The installer records the choice
