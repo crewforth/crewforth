@@ -427,6 +427,22 @@ check('prose without a notice yields nothing', none.size === 0);
   const { buildGraph, shellsIn } = await import(`../../kit/studio/server/lib/graph.js?sh=${Date.now()}`);
   const gpl = await import(`../../kit/studio/web/graph-plan.js?sh=${Date.now()}`);
   const nav = await import(`../../kit/studio/web/nav.js?sh=${Date.now()}`);
+  // The navigator's project filter (DECISIONS 2026-11-17): all · with Crewforth · without.
+  {
+    const ps = nav.projectsShown;
+    const K = [{ key: 'k1' }, { key: 'k2' }]; const B = [{ key: 'b1' }];
+    const keys = (r) => (r?.pool ?? []).map((p) => p.key).join(',');
+    const allFolded = ps?.(K, B, { kind: 'all', bareOpen: false }); const allOpen = ps?.(K, B, { kind: 'all', bareOpen: true });
+    const kit = ps?.(K, B, { kind: 'kit', bareOpen: true }); const bare = ps?.(K, B, { kind: 'bare' }); const odd = ps?.(K, B, { kind: 'x' });
+    check('the project filter: all keeps the projects without Crewforth folded behind a show line until opened; with and without show only their own; anything else is all',
+      keys(allFolded) === 'k1,k2' && allFolded?.foldedBare === true && keys(allOpen) === 'k1,k2,b1' && allOpen?.foldedBare === false
+      && keys(kit) === 'k1,k2' && kit?.foldedBare === false && keys(bare) === 'b1' && bare?.foldedBare === false && odd?.kind === 'all',
+      `${keys(allFolded)}/${keys(allOpen)}/${keys(kit)}/${keys(bare)}/${odd?.kind}`);
+    const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? ''; const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+    check('the filter is wired: its three choices are in the page, and the list is built through projectsShown with the remembered choice',
+      /data-kind="all"[\s\S]*data-kind="kit"[\s\S]*data-kind="bare"/.test(html) && /projectsShown\(withKit, bare, \{ kind: projKind/.test(appSrc)
+      && /store\.set\('crewforth-studio-proj-kind'/.test(appSrc));
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sh-'));
   const sub = path.join(dir, 'subagents');
   fs.mkdirSync(sub);

@@ -12,8 +12,7 @@ import { renderMarkdown } from './md.js';
 import { Chat } from './chat.js';
 import {
   summaryChips, sessionStatus, sessionName, sessionSub, ago, matchesSession, highlight, badgeFor,
-  liveSessions, liveCount, liveGroups, projectOfCwd, span, machines, seenAgo, isFirstRun,
-} from './nav.js';
+  liveSessions, liveCount, liveGroups, projectOfCwd, span, machines, seenAgo, isFirstRun, projectsShown } from './nav.js';
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote, projectRows, projectLine } from './usage.js';
@@ -73,6 +72,7 @@ const el = {
   tbShow: document.getElementById('tb-show'),
   tbExpand: document.getElementById('tb-expand'),
   tbFold: document.getElementById('tb-fold'),
+  projKind: document.getElementById('proj-kind'),
   tbZoomOut: document.getElementById('tb-zoom-out'),
   tbZoom: document.getElementById('tb-zoom'),
   tbZoomIn: document.getElementById('tb-zoom-in'),
@@ -1716,6 +1716,8 @@ let projectsDefaulted = false;
 let filterText = '';
 let showMissing = false;
 let showBare = false;          // projects without Crewforth files stay folded away until asked for
+// The navigator's filter: every project, only those with Crewforth, or only those without (DECISIONS 2026-11-17).
+let projKind = ['all', 'kit', 'bare'].includes(store.get('crewforth-studio-proj-kind')) ? store.get('crewforth-studio-proj-kind') : 'all';
 let showHidden = false;
 let renaming = null;          // the session whose name is being typed
 
@@ -1943,7 +1945,8 @@ function paintProjects() {
   const withKit = reachable.filter((p) => !isBare(p));
   const bare = reachable.filter(isBare);
   const bareOpen = showBare || Boolean(filterText) || Boolean(current && isBare(findSessionRow(current)?.project ?? {}));
-  const pool = bareOpen ? [...withKit, ...bare] : withKit;
+  const { pool, foldedBare } = projectsShown(withKit, bare, { kind: projKind, bareOpen });
+  for (const b of el.projKind?.querySelectorAll('[data-kind]') ?? []) b.setAttribute('aria-checked', String(b.dataset.kind === projKind));
   const sectionHead = (text, label, run) => {
     const line = node('div', 'nav-section');
     line.append(node('span', null, text));
@@ -1970,7 +1973,7 @@ function paintProjects() {
     if (filterText && !projectHit && !sessions.length) continue;
     shown += 1;
     const here = isBare(p) ? 'bare' : 'kit';
-    if (here !== section && bare.length) {
+    if (here !== section && bare.length && projKind === 'all') {
       section = here;
       frag.append(here === 'kit'
         ? sectionHead(t('With Crewforth · {n}', { n: withKit.length }))
@@ -2055,7 +2058,7 @@ function paintProjects() {
       () => { showHidden = !showHidden; paintProjects(); },
     ));
   }
-  if (bare.length && !bareOpen) {
+  if (foldedBare) {
     frag.append(sectionHead(t('Without Crewforth · {n}', { n: bare.length }), t('show'), () => { showBare = true; paintProjects(); }));
   }
   if (missing > 0 && !filterText) {
@@ -2405,6 +2408,7 @@ function remoteSection() {
 function paintOtherMachines() {
   const m = machines(fleetData);
   const others = [...m.peers, ...m.remote];
+  if (el.projKind) el.projKind.hidden = navTab !== 'projects';
   el.otherMachines.hidden = navTab !== 'projects' || others.length === 0;
   if (el.otherMachines.hidden) return;
   const label = node('button', 'nav-foot-label', t('Other machines'));
@@ -3055,6 +3059,9 @@ async function pollSessions() {
   } catch { /* the Live indicator says so; the list keeps what it last showed */ }
 }
 
+for (const b of el.projKind?.querySelectorAll('[data-kind]') ?? []) {
+  b.addEventListener('click', () => { projKind = b.dataset.kind; store.set('crewforth-studio-proj-kind', projKind); paintProjects(); });
+}
 setTab(store.get('crewforth-studio-nav-tab') ?? 'projects');
 // The view the viewer chose, or the one this window opens on: the List on a phone, the graph elsewhere.
 applyPhoneBand(true);
