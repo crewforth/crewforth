@@ -4480,7 +4480,7 @@ function computed(rules, el, ancestors, media = []) {
       { id: 'w1', kind: 'workflow', workflowId: 'wf-fixture', status: 'running', members: 3, byStatus: { running: 3 }, spawnDepth: 1, parentId: 'session' },
       kid('m1', 'running', 'Explore', 'w1'),
       kid('m2', 'running', 'reviewer', 'w1'),
-      kid('m3', 'failed', 'tester', 'w1'),
+      { ...kid('m3', 'failed', 'tester', 'w1'), model: 'claude-opus-5-5', effort: 'high' },
     ],
     edges: [],
   };
@@ -4598,6 +4598,10 @@ function computed(rules, el, ancestors, media = []) {
   check('a run\'s members sit inside the run; no wire is drawn to them',
     ['m1', 'm2', 'm3'].every((id) => canvas.cellEls.has(id) && !canvas.els.has(id) && !edgeIn(canvas, 'w1', id)),
     `${canvas.cellEls.size} members drawn inside; ${[...canvas.edgeEls.keys()].filter((k) => k.startsWith('w1')).length} wires leave the run`);
+  check('a member of a group carries its model and effort, as a card does; one with no model shows none',
+    canvas.cellEls.get('m3').parts.model?.textContent === 'Opus 5.5 · high' && canvas.cellEls.get('m3').parts.model?.hidden === false
+    && canvas.cellEls.get('m1').parts.model?.hidden === true,
+    `m3 "${canvas.cellEls.get('m3').parts.model?.textContent}" · m1 hidden ${canvas.cellEls.get('m1').parts.model?.hidden}`);
   check('every member carries its own state and its word',
     canvas.cellEls.get('m3').dataset.state === 'failed' && canvas.cellEls.get('m3').parts.word.textContent === 'Failed'
     && canvas.cellEls.get('m1').dataset.state === 'live' && canvas.cellEls.get('m1').parts.word.textContent === 'Running');
@@ -7975,6 +7979,23 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
       panSkips(as(box.chip.className)) && panSkips(as(box.el.className)) && panSkips(as('cv-node')) && !panSkips(as('canvas')),
       box.chip.className);
   }
+  // The session summary leaves a tab too (field: once closed it could only come back from View options).
+  {
+    const { Canvas: SC, panSkips: sk } = await import(`../../kit/studio/web/canvas.js?spend=${Date.now()}`);
+    const sc = new SC(document.createElement('div'), {});
+    sc.setSpend([{ label: 'Working time', value: '3m' }]);
+    sc.showSpend(false);
+    const closedTab = sc.spendChip?.hidden === false && sc.spendEl.hidden;
+    sc.spendChip?.emit('click');
+    const as2 = (cls) => ({ closest: (sel) => (sel.split(',').some((x) => cls.split(/\s+/).some((c) => x.trim() === `.${c}`)) ? {} : null) });
+    check('closed, the session summary leaves a Session tab in its corner; the tab opens it, and a press on it does not pan',
+      closedTab && !sc.spendEl.hidden && sc.spendChip?.hidden === true && Boolean(sk?.(as2(sc.spendChip?.className ?? ''))),
+      `tab shown when closed ${closedTab}, box after click ${!sc.spendEl.hidden}`);
+  }
+  // The project list opens the project you stand in once, when it first arrives — not again after the viewer folded
+  // every project (measured in Chrome: folded, it was open again within five seconds). app.js has no DOM harness here.
+  check('the project you stand in starts open once, not again each time every project is folded',
+    /if \(!projectsDefaulted\) \{\s*projectsDefaulted = true;/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '') && !/if \(!expanded\.size\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   box.chip.emit('click');
   check('the corner tab opens a closed plan again, wherever the toolbar is wide or narrow',
     !box.el.hidden && box.chip.hidden && localStorage.getItem('crewforth-studio-todo') === 'open');

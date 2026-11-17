@@ -1710,6 +1710,9 @@ async function offerTerminal(anchor, sessionId) {
 let projectsData = null;
 let fleetData = null;
 let expanded = new Set();
+// The project you stand in starts open the first time the list arrives, and only then: a test of "nothing is open"
+// on every refresh (about once a second) opened it again a moment after the viewer folded it (measured in Chrome).
+let projectsDefaulted = false;
 let filterText = '';
 let showMissing = false;
 let showBare = false;          // projects without Crewforth files stay folded away until asked for
@@ -1743,7 +1746,8 @@ function renderSessions(data) {
   projectsData = data;
   // The project you are standing in starts open; the rest stay folded, or a
   // machine with 175 projects buries the one you are working in.
-  if (!expanded.size) {
+  if (!projectsDefaulted) {
+    projectsDefaulted = true;
     const cur = data.projects.find((p) => p.current) ?? data.projects[0];
     if (cur) expanded.add(cur.key);
   }
