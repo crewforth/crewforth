@@ -10794,10 +10794,22 @@ if [ -n "$JSONQ" ] && [ -n "$_aqo" ]; then printf '%s' "$_aqo" | json_ok || _aqb
 for _aqc in default:crew-commit-agent dontAsk:crew-commit-agent acceptEdits:crew-commit-agent auto:crew-review-agent; do
   [ -z "$(_aq_run "${_aqc%%:*}" "${_aqc#*:}")" ] || _aqbad="$_aqbad [${_aqc%%:*}, ${_aqc#*:}: handed the question over]"
 done
+# Under the light profile (field, rc.4: the session asked the user for every commit and push the gate let through): on a
+# work branch nothing is handed over but that nothing is asked; on main only the push question, after the commit. The
+# branch is set by the case itself, not read from init.defaultBranch.
+printf 'profile light\n' > "$_aq/p/.claude/crew-model-rules"
+( cd "$_aq/p" && git checkout -q -b feat/x ) >/dev/null 2>&1; _aqo="$(_aq_run auto crew-commit-agent)"
+case "$_aqo" in *'on feat/x a commit and its push go through without a question'*) ;; *) _aqbad="$_aqbad [light, work branch: not told that nothing is asked: ${_aqo:0:120}]" ;; esac
+case "$_aqo" in *'Crewforth approval'*) _aqbad="$_aqbad [light, work branch: the question was still handed over]" ;; esac
+( cd "$_aq/p" && git checkout -q -b main ) >/dev/null 2>&1; _aqo="$(_aq_run auto crew-commit-agent)"
+case "$_aqo" in *'a push to main is asked'*'Push only'*) ;; *) _aqbad="$_aqbad [light, main: the push question was not handed over: ${_aqo:0:120}]" ;; esac
+case "$_aqo" in *'Commit only'*) _aqbad="$_aqbad [light, main: a commit answer was offered]" ;; esac
+if [ -n "$JSONQ" ] && [ -n "$_aqo" ]; then printf '%s' "$_aqo" | json_ok || _aqbad="$_aqbad [light, main: not JSON]"; fi
+rm -f "$_aq/p/.claude/crew-model-rules"
 printf '%s' '{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}' > "$_aq/ccd/settings.json"
 [ -z "$(_aq_run auto crew-commit-agent)" ] || _aqbad="$_aqbad [a PermissionRequest hook is wired: the question was still handed over]"
 rm -rf "$_aq"
-[ -z "$_aqbad" ] && pass "in auto, calling crew-commit-agent hands the session the fixed one-click question; not in default, acceptEdits or dontAsk, not for another agent, not with a PermissionRequest hook" \
+[ -z "$_aqbad" ] && pass "in auto, calling crew-commit-agent hands the session the fixed one-click question; under the light profile, nothing on a work branch and the push question alone on main; not in default, acceptEdits or dontAsk, not for another agent, not with a PermissionRequest hook" \
   || fail "the one-click question hand-over:$_aqbad"
 # THE CLICK BEFORE THE TYPED WAY, at the turn's end (2026-10-18: 9 of 18 typed asks in two real `auto` sessions on rc.4
 # came in a turn where no commit was tried, so neither the refusal nor the commit agent's hand-over offered the click).
@@ -12702,7 +12714,8 @@ for _p in light standard; do ( cd "$_v2p" && bash "$_PRL" --set "$_p" >/dev/null
 _v2write "$_v2p/.claude/crew-model-rules"; [ "$_v2wrc" = 2 ] || _v2b="$_v2b [the file tools may write the rules]"
 _v2write "$_v2p/.claude/eval/lib/profile.sh"; [ "$_v2wrc" = 2 ] || _v2b="$_v2b [the file tools may write profile.sh]"
 _pff="$(bash --norc --noprofile -c '. "$1"; declare -F' _ "$_PRL" 2>/dev/null | tr '\n' ' ')"
-[ "$_pff" = "declare -f crew_profile declare -f crew_profile_rank " ] || _v2b="$_v2b [profile.sh defines more than the reader: $_pff]"
+# crew_push_asked is a reader too (two files read, nothing written): the gate and the commit agent's hand-over share it.
+[ "$_pff" = "declare -f crew_profile declare -f crew_profile_rank declare -f crew_push_asked " ] || _v2b="$_v2b [profile.sh defines more than the readers: $_pff]"
 # the user's command: needs a person (a transcript, an attended session); then it sets either way, and says so
 _o="$(_v2say '/crew-profile light' "")"; case "$_o" in *"profile NOT changed"*) ;; *) _v2b="$_v2b [a first message loosened: ${_o:0:80}]" ;; esac
 _o="$(_V2SAYENV=CLAUDE_CODE_SESSION_ATTENDED=0 _v2say '/crew-profile light')"; case "$_o" in *"profile NOT changed"*) ;; *) _v2b="$_v2b [a headless session loosened: ${_o:0:80}]" ;; esac

@@ -4490,7 +4490,6 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     case "$r" in ''|*[!A-Za-z0-9._-]*) [ -z "$r" ] || return 1 ;; esac
     case "$t" in HEAD:*) t="${t#HEAD:}" ;; *:*) [ "${t%%:*}" = "${t#*:}" ] || return 1; t="${t#*:}" ;; HEAD|'') t="$_hb" ;; esac
     case "$t" in ''|*[!A-Za-z0-9._/-]*|refs/*) return 1 ;; esac
-    case "$t" in main|master) return 1 ;; esac
     [ -n "${_CREW_GD:-}" ] || return 1
     cgd="$_CREW_GD"; [ -f "$_CREW_GD/commondir" ] && { IFS= read -r l < "$_CREW_GD/commondir"; l="${l%$'\r'}"; case "$l" in /*|[A-Za-z]:*) cgd="$l" ;; ?*) cgd="$_CREW_GD/$l" ;; esac; }
     # A BRANCH: the name is this repository's own branch (HEAD's, or one under refs/heads, loose or packed). A tag
@@ -4503,14 +4502,8 @@ if git_has "$CMD_SEEN" 'commit|push'; then
       [ "$w" = 1 ] || return 1
       [ -f "$cgd/refs/tags/$t" ] && return 1
     fi
-    # origin's default branch, as the last fetch recorded it, and the base the project names in CLAUDE.md
-    if :; then
-      if [ -f "$cgd/refs/remotes/origin/HEAD" ]; then IFS= read -r ob < "$cgd/refs/remotes/origin/HEAD"; ob="${ob%$'\r'}"; ob="${ob#ref: refs/remotes/origin/}"; [ "$t" = "$ob" ] && return 1; fi
-    fi
-    if [ -f "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}/CLAUDE.md" ]; then
-      while IFS= read -r l || [ -n "$l" ]; do case "$l" in *"Base branch:"*) b="${l#*Base branch:}"; b="${b//[\` $'\r'$'\t']/}"; break ;; esac; done < "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}/CLAUDE.md"
-      [ -n "$b" ] && [ "$t" = "$b" ] && return 1
-    fi
+    # main, master, origin's default branch and the CLAUDE.md base: asked (eval/lib/profile.sh, one reader)
+    crew_push_asked "$cgd" "${CLAUDE_PROJECT_DIR:-${_CWD:-.}}" "$t" && return 1
     return 0
   }
   if _gb_light_ok; then
