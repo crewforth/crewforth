@@ -88,6 +88,10 @@ versioning follows [SemVer](https://semver.org/).
   before). At their start Crewforth gives them the project's own `CLAUDE.md`, without the rule file it imports, which
   the short rule block every crew agent gets stands for; a file too long to pass is named for the agent to read.
   Measured with the same task: the refuter's first request fell from 27,871 to 20,450 tokens.
+- **The always-on rules are 850 bytes shorter.** Notes that explained rather than ruled went from the discipline file:
+  how it is installed, why the token bullets are not a gate, what to do on the mid-session update notice (the notice
+  says it), a repeat of the commit and destructive-command gates, and the SonarQube detail of the Definition of Done
+  (the `sonarqube-check` skill and the review hold it). No rule changed.
 
 - **The approval question offers what the state allows.** Nothing staged asks about a push only; no remote asks about
   a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
