@@ -1973,11 +1973,11 @@ function paintProjects() {
     if (filterText && !projectHit && !sessions.length) continue;
     shown += 1;
     const here = isBare(p) ? 'bare' : 'kit';
-    if (here !== section && bare.length && projKind === 'all') {
+    if (here !== section && (bare.length || projKind !== 'all')) {   // a filtered list keeps its heading (DECISIONS 2026-11-17)
       section = here;
       frag.append(here === 'kit'
         ? sectionHead(t('With Crewforth · {n}', { n: withKit.length }))
-        : sectionHead(t('Without Crewforth · {n}', { n: bare.length }), showBare && !filterText ? t('hide') : null, () => { showBare = false; paintProjects(); }));
+        : sectionHead(t('Without Crewforth · {n}', { n: bare.length }), showBare && !filterText && projKind === 'all' ? t('hide') : null, () => { showBare = false; paintProjects(); }));
     }
 
     const open = expanded.has(p.key) || Boolean(filterText);

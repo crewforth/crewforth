@@ -442,6 +442,8 @@ check('prose without a notice yields nothing', none.size === 0);
     check('the filter is wired: its three choices are in the page, and the list is built through projectsShown with the remembered choice',
       /data-kind="all"[\s\S]*data-kind="kit"[\s\S]*data-kind="bare"/.test(html) && /projectsShown\(withKit, bare, \{ kind: projKind/.test(appSrc)
       && /store\.set\('crewforth-studio-proj-kind'/.test(appSrc));
+    check('a filtered project list keeps its section heading (DECISIONS 2026-11-17: the headings stay)',
+      /here !== section && \(bare\.length \|\| projKind !== 'all'\)/.test(appSrc));
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sh-'));
   const sub = path.join(dir, 'subagents');
