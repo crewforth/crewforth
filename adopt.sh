@@ -758,6 +758,13 @@ LEGACY_PROFILE="$(kit_conf_get profile)"; KIT_STACK="$(kit_conf_get stack)"; KIT
 KIT_VIS="$(kit_conf_get visibility)"; KIT_DOCS="$(kit_conf_get docs)"
 case "$KIT_VIS" in shared|private) ;; *) KIT_VIS="" ;; esac
 case "$KIT_DOCS" in shared|private) ;; *) KIT_DOCS="" ;; esac
+# NO RECORD (an install from before 3.6.0-rc.4): docs/ is asked of git, as visibility follows #4 (DECISIONS 2026-11-17,
+# N46). Tracked and not ignored is a docs/ the team commits; anything else is private. Field: a project that commits
+# its docs/ was recorded private by its first update and the session had to correct it. Two git calls, on update only.
+if [ -z "$KIT_DOCS" ]; then
+  if [ -n "$(git ls-files -- docs 2>/dev/null | head -1)" ] && ! git check-ignore -q docs/PLAN.md 2>/dev/null; then KIT_DOCS=shared; _DOCS_FROM_GIT=1
+  else KIT_DOCS=private; fi
+fi
 # No kit.conf means the project predates it (v1.0.x). Recover the pattern from the files themselves.
 INFERRED=0
 { [ "$KIT_PRESENT" = 1 ] && [ -z "$KIT_STACK" ]; } && kit_infer_shape
@@ -2130,7 +2137,8 @@ GI_FILE=.gitignore
 # A docs/ the install shares (kit.conf docs=shared) is not hidden again by an update.
 if [ "$KIT_DOCS" = shared ]; then gi_add '.claude/review-pass.json' '.claude/.state/'
 else gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'; fi
-[ -n "${GI_TRACKED:-}" ] && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
+# Said too when docs= was read from git as shared: the same docs/, tracked, and left out of .gitignore for that reason.
+{ [ -n "${GI_TRACKED:-}" ] || [ "${_DOCS_FROM_GIT:-0}" = 1 ]; } && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.
 # That is the shared case, which is the one where a Windows teammate's `core.autocrlf=true` rewrites every
