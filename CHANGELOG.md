@@ -83,6 +83,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **The always-on rules are 850 bytes shorter.** Notes that explained rather than ruled went from the discipline file:
+  how it is installed, why the token bullets are not a gate, what to do on the mid-session update notice (the notice
+  says it), a repeat of the commit and destructive-command gates, and the SonarQube detail of the Definition of Done
+  (the `sonarqube-check` skill and the review hold it). No rule changed.
+
 - **The approval question offers what the state allows.** Nothing staged asks about a push only; no remote asks about
   a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
 - **The approval question offers "Commit + push" first,** the answer given nearly every time.
