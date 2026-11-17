@@ -22,6 +22,7 @@ import { endForeignSession } from './lib/end-session.js';
 import { readPlanTodo } from './lib/plan-todo.js';
 import { projectDir, listSessions, findSession, listProjects, projectGroups, sessionCwd, agentMetaFiles } from './lib/projects.js';
 import { ProjectUsage } from './lib/project-usage.js';
+import { readSettings, checkChange, writeSettings } from './lib/project-settings.js';
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
@@ -334,6 +335,27 @@ export async function handle(req, res) {
     if (!PROJECT_USAGE.groups.has(key)) return sendJson(res, 200, { measured: false, reason: 'no such project on this machine' });
     PROJECT_USAGE.want(key);
     return sendJson(res, 200, { project: key, ...PROJECT_USAGE.summary(key) });
+  }
+
+  // A project's install settings (DECISIONS 2026-11-17, N45): sharing, docs/, profile, verify limit, with what git
+  // does beside them. The session cannot write these files; the panel is the user's process, so it can. Only a
+  // project this machine has sessions for is answered: the key is a path, and no other path is ever written.
+  if (url.pathname === '/api/project-settings') {
+    const key = req.method === 'POST' ? null : url.searchParams.get('project') ?? '';
+    const asked = req.method === 'POST' ? await readBody(req) : null;
+    if (req.method === 'POST') {
+      const gate = writeAllowed(req);
+      if (!gate.ok) return sendJson(res, 403, { ok: false, reason: gate.reason });
+      if (!asked) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
+    } else if (req.method !== 'GET') return sendJson(res, 405, { ok: false, reason: 'GET or POST only' });
+    const name = key ?? String(asked.project ?? '');
+    const group = name ? (await projectGroups()).get(name) : null;
+    if (!group?.cwd || !fs.existsSync(group.cwd)) return sendJson(res, 404, { ok: false, reason: 'no such project on this machine' });
+    if (req.method === 'GET') return sendJson(res, 200, { ok: true, project: name, ...readSettings(group.cwd) });
+    const change = checkChange(asked.set);
+    if (!change.ok) return sendJson(res, 400, change);
+    const out = writeSettings(group.cwd, change.set);
+    return sendJson(res, out.ok ? 200 : 409, { project: name, ...out });
   }
 
   if (url.pathname === '/api/fleet') {
