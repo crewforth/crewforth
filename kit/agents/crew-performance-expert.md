@@ -3,6 +3,7 @@ name: crew-performance-expert
 color: yellow
 description: Use proactively when a change touches a hot path, a query, a render or a large payload, or something is slow; measured findings, no fix.
 tools: Read, Grep, Glob, Bash, PowerShell, Skill
+omitClaudeMd: true
 metadata:
   stage: audit
   skills: [performance]
