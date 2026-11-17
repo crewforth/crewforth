@@ -4353,7 +4353,7 @@ function computed(rules, el, ancestors, media = []) {
       { id: 'w1', kind: 'workflow', workflowId: 'wf-fixture', status: 'running', members: 3, byStatus: { running: 3 }, spawnDepth: 1, parentId: 'session' },
       kid('m1', 'running', 'Explore', 'w1'),
       kid('m2', 'running', 'reviewer', 'w1'),
-      kid('m3', 'failed', 'tester', 'w1'),
+      { ...kid('m3', 'failed', 'tester', 'w1'), model: 'claude-opus-5-5', effort: 'high' },
     ],
     edges: [],
   };
@@ -4471,6 +4471,10 @@ function computed(rules, el, ancestors, media = []) {
   check('a run\'s members sit inside the run; no wire is drawn to them',
     ['m1', 'm2', 'm3'].every((id) => canvas.cellEls.has(id) && !canvas.els.has(id) && !edgeIn(canvas, 'w1', id)),
     `${canvas.cellEls.size} members drawn inside; ${[...canvas.edgeEls.keys()].filter((k) => k.startsWith('w1')).length} wires leave the run`);
+  check('a member of a group carries its model and effort, as a card does; one with no model shows none',
+    canvas.cellEls.get('m3').parts.model?.textContent === 'Opus 5.5 · high' && canvas.cellEls.get('m3').parts.model?.hidden === false
+    && canvas.cellEls.get('m1').parts.model?.hidden === true,
+    `m3 "${canvas.cellEls.get('m3').parts.model?.textContent}" · m1 hidden ${canvas.cellEls.get('m1').parts.model?.hidden}`);
   check('every member carries its own state and its word',
     canvas.cellEls.get('m3').dataset.state === 'failed' && canvas.cellEls.get('m3').parts.word.textContent === 'Failed'
     && canvas.cellEls.get('m1').dataset.state === 'live' && canvas.cellEls.get('m1').parts.word.textContent === 'Running');
