@@ -67,6 +67,11 @@
         <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 4l-4 4 4 4"/></svg>
       </button>
     </div>
+    <div id="proj-kind" class="seg seg-sm" role="radiogroup" aria-label="Which projects">
+      <button class="seg-btn" type="button" role="radio" data-kind="all" aria-checked="true">All</button>
+      <button class="seg-btn" type="button" role="radio" data-kind="kit" aria-checked="false">With Crewforth</button>
+      <button class="seg-btn" type="button" role="radio" data-kind="bare" aria-checked="false">No Crewforth</button>
+    </div>
     <div class="seg" role="tablist" aria-label="Navigator">
       <button class="seg-btn" type="button" role="tab" id="tab-projects" data-tab="projects" aria-controls="sessions" aria-selected="true">Projects</button>
       <button class="seg-btn" type="button" role="tab" id="tab-live" data-tab="live" aria-controls="fleet" aria-selected="false">Live <span id="live-count" class="badge" hidden></span></button>
