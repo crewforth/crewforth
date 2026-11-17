@@ -1921,7 +1921,17 @@ cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
 { grep -qxF 'visibility=shared' "$W5D/.claude/kit.conf" && grep -qxF 'docs=shared' "$W5D/.claude/kit.conf"; } \
   || { echo "FAIL: an update lost the install's choice (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
 ! grep -qxF 'docs/' "$W5D/.gitignore" || { echo "FAIL: an update put the shared docs/ back into .gitignore"; exit 1; }
-echo "[wizard] the choice is recorded (visibility, docs); --share-docs keeps docs/ committable; an update keeps both"
+# ...and an install with no docs= record (before rc.4) gets one from git on update (N46): a docs/ the project tracks and
+# does not ignore is shared; the same install with docs/ ignored is private.
+sed -i.bak '/^docs=/d' "$W5D/.claude/kit.conf" && rm -f "$W5D/.claude/kit.conf.bak"
+mkdir -p "$W5D/docs" && printf 'x\n' > "$W5D/docs/NOTES.md" && ( cd "$W5D" && git add -A && git -c core.hooksPath=/dev/null commit -qm docs ) >/dev/null 2>&1
+cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
+grep -qxF 'docs=shared' "$W5D/.claude/kit.conf" || { echo "FAIL: no docs= record, docs/ tracked and not ignored: not derived as shared (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+sed -i.bak '/^docs=/d' "$W5D/.claude/kit.conf" && rm -f "$W5D/.claude/kit.conf.bak"; printf 'docs/\n' >> "$W5D/.gitignore"
+( cd "$W5D" && git add -A && git -c core.hooksPath=/dev/null commit -qm ignore ) >/dev/null 2>&1
+cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
+grep -qxF 'docs=private' "$W5D/.claude/kit.conf" || { echo "FAIL: no docs= record, docs/ ignored: not derived as private (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+echo "[wizard] the choice is recorded (visibility, docs); --share-docs keeps docs/ committable; an update keeps both, and derives docs= from git where none is recorded"
 
 # 5 · ASK GIT, DO NOT COMPARE STRINGS. A repo that already ignores `.claude` without the trailing slash is
 #     covered, and appending `.claude/` next to it is a second redundant rule. The old whole-line grep could
