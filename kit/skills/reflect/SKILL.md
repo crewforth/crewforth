@@ -1,8 +1,8 @@
 ---
 name: reflect
 description: |
-  Retrospective self-audit after nontrivial work: unverified assumptions, skipped items, is-this-the-right-
-  approach — findings, not code. The step-back counterpart to iterate's refine-to-done loop.
+  Step back after nontrivial work: unverified assumptions, skipped items, whether this is the right approach.
+  Findings, not code; the counterpart of iterate.
 ---
 
 # Reflect — step back and audit the work, not just the code

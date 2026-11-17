@@ -83,6 +83,10 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **The skill listing is 334 characters shorter.** Six skill descriptions (`automode-policy`, `confidence-check`,
+  `dependency-upgrade`, `eval-grader`, `reflect`, `sonarqube-check`) say what the skill does and when, without the
+  explanation; each was measured to be picked as often as before.
+
 - **Two read-only agents start without CLAUDE.md.** `crew-refuter` and `crew-performance-expert` cite nothing from it and
   write nothing, so their definitions set `omitClaudeMd` (Claude Code 2.1.271 and later; older versions load it as
   before). At their start Crewforth gives them the project's own `CLAUDE.md`, without the rule file it imports, which

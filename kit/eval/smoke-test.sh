@@ -3010,7 +3010,7 @@ BUDGET_AGENTS=4019   # 5827 → 4019 (−1808), the measured sum: every agent de
                      # +crew-performance-expert (~426B) — security, privacy and tests each had an independent
                      # reviewer and performance was the one quality axis where the author audited their own
                      # work. Bought at ~110 tokens per session; the alternative was leaving that gap open.)
-BUDGET_SKILL_LISTING=8056 # the skill listing as Claude Code counts it (eval/lib/skill-listing.awk — the count doctor.sh
+BUDGET_SKILL_LISTING=7722 # 8056 → 7722 (−334, measured; DECISIONS §21 step 3): six descriptions say what and when without the explanation, each held to its selection rate by skill-eval; nine more were shortened and kept their text, their cases not all measured. the skill listing as Claude Code counts it (eval/lib/skill-listing.awk — the count doctor.sh
                           # reports too), in CHARACTERS. 9194 → 8056 (−1138, the measured size): eighteen descriptions
                           # stopped summarising their method and say when instead (six, then twelve, each measured by
                           # skill-eval), so the listing shrank and the budget follows it down.

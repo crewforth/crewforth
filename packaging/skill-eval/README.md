@@ -22,7 +22,9 @@ neighbour's work. A skill that no row reaches cannot be measured, and the gate s
 measured), and `--no-publish` (the tool's default is to publish the report to claude.ai). The plugin under test is a
 copy of `plugin/` with the cases added, hooks on: what is measured is what a user gets.
 
-**What it cost, measured:** one run of the six `adr` cases on Sonnet, $0.43 at list price, about $0.07 a case. The
+**What it cost, measured:** one run of the six `adr` cases on Sonnet, $0.43 at list price, about $0.07 a case. A run of
+55 cases across fifteen skills (2026-11-17) cost $5.02 and stopped at the ceiling after 21: about $0.24 a case. Plan
+with the higher figure; a case's cost depends on the skill it loads. The
 baseline (`--all --source holdout --baseline`: the 18 held-out cases, three runs each) cost $3.75.
 
 **The baseline, measured:** 16 of the 18 held-out cases picked their skill in all three runs. `api-design` ("this
