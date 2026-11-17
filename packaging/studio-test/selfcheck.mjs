@@ -2537,6 +2537,128 @@ check('prose without a notice yields nothing', none.size === 0);
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
 }
 
+/* -- a project's all-time total ---------------------------------------------------------------------------------
+   Every session of a project, added up. Read from temp directories built here, never from this machine's
+   transcripts. The cache is checked by counting the reads it makes. */
+{
+  const us = await import(`../../kit/studio/server/lib/usage.js?pu=${Date.now()}`);
+  const wu = await import(`../../kit/studio/web/usage.js?pu=${Date.now()}`);
+  const pu = await import(`../../kit/studio/server/lib/project-usage.js?pu=${Date.now()}`).catch(() => ({}));
+  const { listSessions } = await import(`../../kit/studio/server/lib/projects.js?pu=${Date.now()}`);
+  const at = (min) => new Date(Date.UTC(2026, 0, 1) + min * 60_000).toISOString();
+  const u1 = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 300 };
+  const rec = (id, min, model = 'claude-opus-5-5', extra = {}) => ({ type: 'assistant', timestamp: at(min), message: { id, model, usage: u1, content: [] }, ...extra });
+  const turn = (min, ms) => ({ type: 'system', subtype: 'turn_duration', durationMs: ms, timestamp: at(min) });
+  // A transcript whose first cwd is past the first 8 KB (field: 43 of 990, the furthest at 35 KB) belongs to its project,
+  // not to one of its own; the hours of a project's total are hours, not days.
+  {
+    const { sessionCwd } = await import(`../../kit/studio/server/lib/projects.js?cwd=${Date.now()}`);
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-cwd-'));
+    const f = path.join(d, 'late.jsonl');
+    fs.writeFileSync(f, `${JSON.stringify({ type: 'tools-used', text: 'x'.repeat(20000) })}\n${JSON.stringify({ type: 'user', cwd: '/work/demo' })}\n`);
+    const got = await sessionCwd(f, fs.statSync(f).size);
+    fs.rmSync(d, { recursive: true, force: true });
+    check('a session whose first cwd is past the first 8 KB is filed under its project', got === '/work/demo', String(got));
+    check('a project total counts hours, not days', wu.fmtSpan(41 * 3600_000, { hours: true }) === '41h 0m' && wu.fmtSpan(41 * 3600_000) === '1d 17h',
+      `${wu.fmtSpan(41 * 3600_000, { hours: true })} / ${wu.fmtSpan(41 * 3600_000)}`);
+  }
+
+  const active = us.timesOf([{ timestamp: at(0) }, { timestamp: at(2) }, { timestamp: at(1) }, { timestamp: at(20) }, { timestamp: at(21) }]);
+  check('the active-time estimate adds the gaps between records in time order, and leaves a gap of over five minutes out',
+    active?.activeMs === 3 * 60_000 && us.timesOf([{ timestamp: at(0) }, { timestamp: at(5) }])?.activeMs === 5 * 60_000
+    && us.timesOf([])?.activeMs === 0, `activeMs ${active?.activeMs}`);
+
+  // Two sessions' answers, one with a model the price table has no row for.
+  const tk = (n) => ({ input: n, output: n, cacheWrite: n, cacheRead: 10 * n, fresh: 3 * n, total: 13 * n });
+  const tally = (n, cost, unpriced = []) => ({ tokens: tk(n), responses: 1, cost, costAtNormal: cost, unpriced });
+  const sA = { ...tally(100, 1.5), byModel: { 'claude-opus-5-5': tally(100, 1.5) }, parts: { session: tally(60, 1), agents: tally(40, 0.5) },
+    workedMs: 0, turns: 0, activeMs: 120_000, startedAt: 10, lastAt: 20 };
+  const sB = { ...tally(10, null, ['some-other-model']), byModel: { 'some-other-model': tally(10, null, ['some-other-model']) },
+    parts: { session: tally(10, null, ['some-other-model']), agents: tally(0, 0) }, workedMs: 0, turns: 0, activeMs: 60_000, startedAt: 5, lastAt: 30 };
+  const sC = { ...tally(50, 2), byModel: { 'claude-opus-5-5': tally(50, 2) }, parts: { session: tally(50, 2), agents: tally(0, 0) },
+    workedMs: 90_000, turns: 3, activeMs: 999_000, startedAt: 1, lastAt: 2 };
+  const both = pu.combineUsage?.([sA, sB]);
+  check('a project\'s total adds every session\'s tokens, by kind, by model and by who spent them',
+    both?.sessions === 2 && both.tokens.fresh === 330 && both.tokens.cacheRead === 1100 && both.parts?.session.tokens.fresh === 210
+    && both.parts?.agents.tokens.fresh === 120 && both.byModel?.['claude-opus-5-5']?.cost === 1.5 && both.byModel?.['some-other-model']?.cost === null
+    && both.startedAt === 5 && both.lastAt === 30, JSON.stringify(both?.tokens));
+  check('one session with a model that has no price makes the total no estimate, and names the model',
+    both?.cost === null && both.unpriced?.join() === 'some-other-model' && pu.combineUsage?.([sA])?.cost === 1.5, `cost ${both?.cost}`);
+  const timed = pu.combineUsage?.([sA, sC]);
+  check('the time is one measure, never both: turns timed anywhere give their sum and no estimate; none timed give the estimate',
+    both?.workedMs === 0 && both.activeMs === 180_000 && timed?.workedMs === 90_000 && timed.activeMs === null && timed.durationMs === null,
+    `untimed ${both?.workedMs}/${both?.activeMs}, timed ${timed?.workedMs}/${timed?.activeMs}`);
+
+  // The cache, on real files: two sessions, one with an agent, read through a reader that counts.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-project-usage-'));
+  const lines = (rs) => rs.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  fs.writeFileSync(path.join(dir, 's1.jsonl'), lines([{ timestamp: at(0), cwd: '/work/example' }, rec('m1', 1), rec('m2', 3), rec('m3', 30)]));
+  fs.writeFileSync(path.join(dir, 's2.jsonl'), lines([{ timestamp: at(100), cwd: '/work/example' }, rec('n1', 101)]));
+  const sub = path.join(dir, 's2', 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'agent-x1.meta.json'), JSON.stringify({ agentType: 'Explore' }));
+  fs.writeFileSync(path.join(sub, 'agent-x1.jsonl'), lines([rec('x1', 102)]));
+  const group = async () => new Map([['/work/example', { key: '/work/example', sessions: await listSessions(dir) }]]);
+  let reads = 0;
+  const tracker = pu.ProjectUsage ? new pu.ProjectUsage({ read: (s) => { reads += 1; return us.sessionUsage(s); } }) : null;
+  tracker?.note(await group());
+  await tracker?.drain();
+  const firstSum = tracker?.summary('/work/example');
+  const r1 = reads;
+  tracker?.groups.set('/work/example', (await group()).get('/work/example').sessions);
+  await tracker?.refresh('/work/example');
+  check('every session of the project is read once, and read again only when its files change',
+    r1 === 2 && reads === 2 && firstSum?.sessions === 2 && firstSum.pending === 0 && firstSum.responses === 5,
+    `reads ${r1} then ${reads}, ${firstSum?.responses} responses`);
+  check('with no turn timed, the project\'s time is the estimate: 1 + 2 minutes in one session (27 left out), 1 in the other (its agent\'s transcript is not counted)',
+    firstSum?.workedMs === 0 && firstSum.activeMs === 4 * 60_000, `activeMs ${firstSum?.activeMs}`);
+  fs.appendFileSync(path.join(sub, 'agent-x1.jsonl'), lines([rec('x2', 103)]));
+  await tracker?.refresh('/work/example');
+  const r2 = reads;
+  fs.appendFileSync(path.join(dir, 's1.jsonl'), lines([turn(31, 45_000)]));
+  const moved = (await group()).get('/work/example').sessions;
+  tracker?.groups.set('/work/example', moved);
+  const pendingNow = tracker?.summary('/work/example')?.pending;
+  await tracker?.refresh('/work/example');
+  const after = tracker?.summary('/work/example');
+  check('an agent\'s transcript growing re-reads its session alone; a session that moved is pending until it is read again',
+    r2 === 3 && reads === 4 && pendingNow === 1 && after?.pending === 0 && after.responses === 6, `reads ${r2}, ${reads}; pending ${pendingNow}`);
+  check('once one transcript timed a turn, the project\'s time is the timed turns and nothing else',
+    after?.workedMs === 45_000 && after.activeMs === null && wu.projectRows?.(after)?.some((r) => r.label === 'Working time')
+    && !wu.projectRows?.(after)?.some((r) => r.label === 'Active time (estimate)'), `workedMs ${after?.workedMs}`);
+  check('the navigator\'s short total is kept time and estimate, and nothing before any of it is read',
+    wu.projectLine?.(tracker?.short('/work/example')) === `45s · ${wu.fmtCost(after?.cost)}` && wu.projectLine?.(null) === null
+    && new pu.ProjectUsage().short('/work/example') === null, wu.projectLine?.(tracker?.short('/work/example')));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const rows = wu.projectRows?.({ measured: true, ...both, pending: 2 }) ?? [];
+  check('the project box has the summary box\'s rows, the session count first and how many are still being read',
+    rows.map((r) => r.label).join() === 'Sessions,Still reading,Active time (estimate),Tokens,From cache,Main sessions,Agents,Cost'
+    && rows[0].value === '2' && rows[1].value === '2 sessions' && rows.find((r) => r.label === 'Cost').value === '—'
+    && rows.find((r) => r.label === 'Cost').detail?.length === 2 && wu.projectRows?.({ measured: false, pending: 3 })?.length === 0,
+    rows.map((r) => r.label).join());
+
+  const dom = installDom();
+  const { Canvas, panSkips } = await import(`../../kit/studio/web/canvas.js?pu=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  const hiddenAtFirst = c.projectEl?.hidden === true;
+  c.setProject?.('/work/example', rows);
+  const shown = c.projectEl?.hidden === false && c.project?.rows.children.length === 2 * rows.length && c.projectKey === '/work/example'
+    && c.project?.name.textContent === 'Project · all time' && c.spendEl.hidden === true;
+  c.project?.close.emit('click');
+  check('a project\'s total opens in its own box on the canvas, apart from the session\'s, and the close mark shuts it',
+    hiddenAtFirst && shown && c.projectEl?.hidden === true && c.projectKey === null);
+  check('the project box is one the pane does not pan from: a press on it reaches its rows',
+    Boolean(c.projectEl) && panSkips({ closest: (sel) => (sel.split(',').map((x) => x.trim().slice(1)).some((k) => c.projectEl.className.split(' ').includes(k)) ? c.projectEl : null) }));
+  dom();
+  const appJs = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const idxJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('the navigator\'s total is drawn from the project list, and a click on it asks the server and fills the project box',
+    /projectLine\(p\.allTime\)/.test(appJs) && /\/api\/project-usage\?project=/.test(appJs) && /canvas\.setProject\(key, /.test(appJs)
+    && /PROJECT_USAGE\.note\(/.test(idxJs) && /p\.allTime = PROJECT_USAGE\.short\(p\.key\)/.test(idxJs)
+    && /listProjects\(\{[^}]*groups \}\)/.test(idxJs));
+}
+
 /* --------------------------------------------------------- §8 palette */
 
 process.stdout.write('\n== §8 palette ==\n');
@@ -2687,6 +2809,11 @@ check('the token gate covers every /api/ path',
   check('an /api/ request with an unknown token is refused with 403', wrong.status === 403, `status ${wrong.status}`);
   const asOwner = await call('GET', '/api/health', { token: owner });
   check('the owner is told it is the owner', asOwner.status === 200 && asOwner.json?.role === 'owner', `status ${asOwner.status}, role ${asOwner.json?.role}`);
+  const puNone = await call('GET', '/api/project-usage');
+  const puAsked = await call('GET', '/api/project-usage', { token: owner });
+  check('a project\'s total is behind the token like every other route, and naming no project reads nothing',
+    puNone.status === 403 && puAsked.status === 200 && puAsked.json?.measured === false && puAsked.json?.reason === 'no project named',
+    `${puNone.status} / ${puAsked.status} ${JSON.stringify(puAsked.json)}`);
   check('health says whether the server runs the code on disk: a server that just started says unchanged',
     asOwner.json?.code?.changed === false, JSON.stringify(asOwner.json?.code));
 
