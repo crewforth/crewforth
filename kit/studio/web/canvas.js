@@ -164,7 +164,7 @@ export class Canvas {
     this.tipEl.setAttribute('role', 'tooltip');
     this.tipEl.hidden = true;
 
-    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.spendEl, this.tipEl);
+    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.spendEl, this.spendChip, this.tipEl);
   }
 
   /** What the session spent: time, tokens and an estimate of the cost. Closed, it stays closed until asked for. */
@@ -183,6 +183,14 @@ export class Canvas {
     box.append(head, this.spendRows);
     this.spendOpen = readFlag('crewforth-studio-spend') !== 'closed';
     box.hidden = true;                       // until there is a session's usage to show
+    // Closed, a small "Session" tab stays in its corner and brings it back, as the plan box's does: the only way back
+    // was an entry in View options, which a viewer did not find. It carries the plan tab's class, so the pane's pan
+    // leaves a press on it alone (PAN_SKIP), and its look.
+    this.spendChip = mk('button', 'cv-todo-chip cv-spend-chip', t('Session'));
+    this.spendChip.type = 'button';
+    this.spendChip.title = t('Show time, tokens and cost');
+    this.spendChip.addEventListener('click', () => this.showSpend(true));
+    this.spendChip.hidden = true;
     return box;
   }
 
@@ -190,6 +198,7 @@ export class Canvas {
     this.spendOpen = Boolean(on);
     writeFlag('crewforth-studio-spend', on ? 'open' : 'closed');
     this.spendEl.hidden = !on || !this.spendCount;
+    this.spendChip.hidden = Boolean(on) || !this.spendCount;
   }
 
   /**
@@ -248,6 +257,7 @@ export class Canvas {
       this.spendRows.replaceChildren(...list.flatMap((r) => { const p = this.spendParts.get(r.label); return [p.row, p.detail]; }));
     }
     this.spendEl.hidden = !this.spendOpen || !this.spendCount;
+    this.spendChip.hidden = this.spendOpen || !this.spendCount;
   }
 
   /** What the lines and the two marks mean. Shown until it is closed, and then not again unless asked for. */
