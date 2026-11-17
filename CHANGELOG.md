@@ -77,6 +77,9 @@ versioning follows [SemVer](https://semver.org/).
   Code timed or, when it timed none, an estimate that does not count pauses of over five minutes; the label says
   which. The sessions are read in the background, one at a time, and a session is read again only when its files
   change.
+- **Studio filters projects by Crewforth.** Above the navigator, **All**, **With Crewforth** and **No Crewforth**
+  choose which projects the list shows. Under **All** the projects without Crewforth stay folded under their own
+  heading, as before. The choice is kept across reloads.
 
 ### Changed
 

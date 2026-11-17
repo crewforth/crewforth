@@ -196,6 +196,9 @@ body {
 }
 .seg-btn:hover { color: var(--ink); }
 .seg-btn[aria-selected="true"] { background: var(--surface-raised); color: var(--ink); }
+.seg-btn[aria-checked="true"] { background: var(--surface-raised); color: var(--ink); }
+.seg-sm .seg-btn { font-size: 11px; padding-top: 2px; padding-bottom: 2px; }
+#proj-kind[hidden] { display: none; }
 .seg-btn .badge { height: 18px; }
 
 /* The small bordered button the inspector still uses for copy and widen. */
