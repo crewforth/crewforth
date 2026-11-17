@@ -134,6 +134,10 @@ Allow is an answer to Claude Code. It does not go around anything:
 - Studio's hook runs beside the project's other hooks, not after them, so the dock can ask about a call that another gate refuses anyway. That is a known limit.
 - Two calls are not put to you, because there is nothing in them to judge: a lookup of a tool's definition, and, in plan mode only, the write of Claude Code's own plan file in its plans directory. The dock stays silent for them, which is not an approval: Claude Code decides them as it would with no panel. The plan itself still comes to the dock.
 
+## Project settings
+
+The **⋯** beside a project that has Crewforth opens **Settings**, the choices made at install, which a session cannot change: **Sharing** (whether `.claude/` and `CLAUDE.md` are committed), **docs/** (whether the working documents are), **Gates** (light, standard, strict) and **Verify limit** (how long an agent's verify command may run, 1–560 seconds; empty is the default 120). A choice is written at once. Sharing and docs/ are read when a session starts; the gates and the limit take effect at once. Under each sharing row stands what git does with those files today. When git ignores what is set to be shared, the dialog says so; it does not edit `.gitignore`.
+
 ## Starting a session
 
 **New session** opens a panel on the right: the project the session runs in, its permission mode, and an optional first message. Three modes are offered. **Plan** is the default: it reads and plans, and cannot change files. **Accept edits** and **Default** edit files and run commands, each call after you allow it in the dock. Modes that skip Crewforth's gates are not offered. If Studio is closed while such a session runs, its requests are denied.

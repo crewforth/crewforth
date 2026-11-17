@@ -67,6 +67,10 @@ versioning follows [SemVer](https://semver.org/).
 - **A project sets how long an agent's verify may run.** A line `verify-timeout <seconds>` in
   `.claude/crew-model-rules`, the file only the user writes, raises the 120 s limit, up to 560. A verify stopped at a
   lower limit runs again once the limit is raised. When a verify is stopped, the session is told the line.
+- **Studio: a project's settings.** The **⋯** menu of a project with Crewforth opens **Settings**: sharing, `docs/`,
+  the gates' profile and the verify limit. A choice is written at once to `.claude/kit.conf` or
+  `.claude/crew-model-rules`, the files the session cannot write. Beside the sharing rows the dialog shows what git
+  does with those files, and says so when git ignores what is set to be shared; it never edits `.gitignore`.
 - **Studio shows a project's all-time total.** Beside each project's name the navigator shows the time and
   estimated cost of all its sessions, the unlisted older ones too. Clicking it opens **Project · all time** on the
   canvas, with the same rows as the session summary and the number of sessions. The time is either the turns Claude
@@ -84,6 +88,8 @@ versioning follows [SemVer](https://semver.org/).
 - **The approval question offers "Commit + push" first,** the answer given nearly every time.
 - **`/crew-approve` is an internal fallback,** named by the gate where no question can be asked, and no longer listed.
   With `/crew-profile` the command count is 18.
+- **A session cannot change the install's settings** (`.claude/kit.conf`): its shell and file tools are refused, as for
+  the model rules. A session had rewritten `docs=` itself; the reviewer reads it. The user changes them in Studio.
 - **A session is told what its install shares and how strict it is.** The installer records the choice
   (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
   with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,

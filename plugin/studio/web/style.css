@@ -2135,3 +2135,25 @@ body.vresizing { cursor: row-resize; user-select: none; }
   .shell.no-chat > .inspector { left: 0; right: 0; top: 0; width: auto; border-left: none; }
   .inspector-split { display: none; }
 }
+
+/* The project settings dialog (DECISIONS 2026-11-17, N45). */
+.sdlg {
+  width: min(460px, calc(100vw - 32px)); padding: 0; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px -20px var(--shade);
+}
+.sdlg::backdrop { background: var(--shade-soft); }
+.sdlg-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) 0; }
+.sdlg-title { margin: 0; font-size: 14px; font-weight: 600; }
+.sdlg-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3); }
+.sdlg-row { display: flex; flex-direction: column; gap: 6px; }
+.sdlg-label { font-size: 12px; font-weight: 600; }
+.sdlg-help, .sdlg-note, .sdlg-status { margin: 0; font-size: 12px; color: var(--ink-dim); }
+.sdlg-note.muted { color: var(--ink-faint); }
+.sdlg-note.warn { color: var(--status-waiting); }
+.sdlg .seg { align-self: flex-start; }
+.sdlg .seg-btn { height: 24px; font-size: 12px; }
+.sdlg .seg-btn[aria-checked="true"] { background: var(--surface-raised); color: var(--ink); }
+.sdlg-num { display: flex; align-items: center; gap: var(--space-2); }
+.sdlg-num input { flex: none; width: 90px; }
+.sdlg-status { min-height: 16px; padding: 0 var(--space-3) var(--space-3); }

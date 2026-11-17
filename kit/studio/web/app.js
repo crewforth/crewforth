@@ -16,6 +16,7 @@ import {
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
 import { summaryRows, usageLine, costNote, projectRows, projectLine } from './usage.js';
+import { settingsRows, hasSettings } from './settings-plan.js';
 import { agentSpendRows } from './agent-spend.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
@@ -72,6 +73,7 @@ const el = {
   tbShow: document.getElementById('tb-show'),
   tbExpand: document.getElementById('tb-expand'),
   tbFold: document.getElementById('tb-fold'),
+  settingsDlg: document.getElementById('settings-dlg'),
   projKind: document.getElementById('proj-kind'),
   tbZoomOut: document.getElementById('tb-zoom-out'),
   tbZoom: document.getElementById('tb-zoom'),
@@ -1920,6 +1922,104 @@ async function pullUsage() {
 /* A project's all-time total on the canvas. The server reads it behind the panel and answers with what it has, so
    this asks again while sessions are still being read, and stops when the box is closed or shows another project. */
 let projectTotalTimer = null;
+// A project's install settings (DECISIONS 2026-11-17, N45): sharing, docs/, gates, verify limit. The session cannot
+// write these files; the panel is the user's own process, so this is where they change after the install. Each
+// choice is written at once and read back, and git's own state stands beside the sharing rows.
+async function openProjectSettings(p) {
+  const dlg = el.settingsDlg;
+  let last = null;
+  let busy = false;
+  const save = async (set) => {
+    if (busy) return;
+    busy = true;
+    let d;
+    try {
+      const r = await fetch(api('/api/project-settings'),
+        { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ project: p.key, set }) });
+      d = await r.json();
+    } catch (e) {
+      d = { ok: false, reason: e.message };
+    }
+    busy = false;
+    if (d.ok) last = d.settings;
+    paint(last, d.ok ? t('Saved.') : t('Not saved — {reason}', { reason: d.reason ?? t('no reason given') }));
+  };
+  const paint = (s, status = '') => {
+    const head = node('div', 'sdlg-head');
+    const title = node('h2', 'sdlg-title', t('Settings · {name}', { name: p.label }));
+    title.id = 'sdlg-title';
+    const close = node('button', 'row-more');
+    close.type = 'button';
+    close.setAttribute('aria-label', t('Close'));
+    close.append(icon(ICON.close));
+    close.addEventListener('click', () => dlg.close());
+    head.append(title, node('span', 'row-fill'), close);
+    const body = node('div', 'sdlg-body');
+    const rows = settingsRows(s);
+    if (!s) body.append(node('p', 'sdlg-help', t('Reading the settings…')));
+    else if (!rows) body.append(node('p', 'sdlg-help', s.reason ?? t('Crewforth is not installed in this project.')));
+    for (const r of rows ?? []) {
+      const row = node('div', 'sdlg-row');
+      row.append(node('div', 'sdlg-label', r.label), node('p', 'sdlg-help', r.help));
+      if (r.choices) {
+        const seg = node('div', 'seg seg-sm');
+        seg.setAttribute('role', 'radiogroup');
+        seg.setAttribute('aria-label', r.label);
+        for (const c of r.choices) {
+          const b = node('button', 'seg-btn', c.label);
+          b.type = 'button';
+          b.setAttribute('role', 'radio');
+          b.setAttribute('aria-checked', String(c.value === r.value));
+          b.addEventListener('click', () => { if (c.value !== r.value) save({ [r.key]: c.value }); });
+          seg.append(b);
+        }
+        row.append(seg);
+        if (r.unset) row.append(node('p', 'sdlg-note muted', t('Not recorded yet: the hooks treat it as private.')));
+      } else {
+        const line = node('div', 'sdlg-num');
+        const input = node('input', 'srow-rename');
+        input.type = 'number';
+        input.min = String(r.number.min);
+        input.max = String(r.number.max);
+        input.value = r.value ?? '';
+        input.placeholder = String(r.number.fallback);
+        input.setAttribute('aria-label', r.label);
+        const apply = () => {
+          const n = Number(input.value);
+          if (input.value === '') save({ verifyTimeout: null });
+          else if (Number.isInteger(n) && n >= r.number.min && n <= r.number.max) save({ verifyTimeout: n });
+          else paint(last, t('Not saved — {reason}', { reason: t('a whole number from 1 to {max}', { max: r.number.max }) }));
+        };
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+        const set = node('button', 'link', t('Save'));
+        set.type = 'button';
+        set.addEventListener('click', apply);
+        const reset = node('button', 'link', t('Default'));
+        reset.type = 'button';
+        reset.disabled = r.unset;
+        reset.addEventListener('click', () => save({ verifyTimeout: null }));
+        line.append(input, set, reset);
+        row.append(line, node('p', 'sdlg-note muted', r.unset
+          ? t('Not set: {n} seconds, the default.', { n: r.number.fallback })
+          : t('Set: {n} seconds.', { n: r.value })));
+      }
+      if (r.note) row.append(node('p', `sdlg-note ${r.note.tone}`, r.note.text));
+      body.append(row);
+    }
+    const foot = node('p', 'sdlg-status', status);
+    foot.setAttribute('role', 'status');
+    dlg.replaceChildren(head, body, foot);
+  };
+  paint(null);
+  if (!dlg.open) dlg.showModal();
+  try {
+    last = await getJson(`/api/project-settings?project=${encodeURIComponent(p.key)}`);
+  } catch (e) {
+    last = { ok: false, reason: e.message };
+  }
+  paint(last);
+}
+
 async function openProjectTotal(key) {
   clearTimeout(projectTotalTimer);
   if (view !== 'graph') setView('graph');
@@ -2008,6 +2108,20 @@ function paintProjects() {
       totalLine.append(b);
     }
     head.append(node('span', 'row-fill'), versionBadge(p.kit));
+    if (hasSettings(p)) {
+      const more = node('button', 'row-more');
+      more.type = 'button';
+      more.setAttribute('aria-label', t('More for {name}', { name: p.label }));
+      more.setAttribute('aria-haspopup', 'menu');
+      more.append(icon(ICON.more));
+      more.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openMenu(more, [{ label: t('Settings…'), run: () => openProjectSettings(p) }]);
+      });
+      more.addEventListener('keydown', (e) => e.stopPropagation());
+      head.append(more);
+      head.addEventListener('contextmenu', (e) => { e.preventDefault(); more.click(); });
+    }
     head.title = (p.cwd ?? p.dir) + (p.exists ? '' : ' — directory no longer exists');
     const toggle = () => {
       if (expanded.has(p.key)) expanded.delete(p.key); else expanded.add(p.key);

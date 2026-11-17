@@ -2677,6 +2677,69 @@ check('prose without a notice yields nothing', none.size === 0);
     && /listProjects\(\{[^}]*groups \}\)/.test(idxJs));
 }
 
+/* -- a project's install settings (DECISIONS 2026-11-17, N45) ------------------------------------------------------
+   The panel writes what the session cannot: kit.conf's visibility=/docs=, crew-model-rules' profile and verify-timeout.
+   Built in a temp git repository here; the readers it must agree with are the hooks, so each value is read back the
+   way they read it. */
+{
+  const ps = await import(`../../kit/studio/server/lib/project-settings.js?ps=${Date.now()}`).catch(() => ({}));
+  const sp = await import(`../../kit/studio/web/settings-plan.js?ps=${Date.now()}`).catch(() => ({}));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-ps-'));
+  const g = (...a) => spawnSync('git', ['-C', root, ...a], { encoding: 'utf8' });
+  g('init', '-q');
+  fs.mkdirSync(path.join(root, '.claude'));
+  fs.writeFileSync(path.join(root, '.claude', 'kit.conf'), 'version=3.6.0\r\nvisibility=private\r\nlang=en\r\n');
+  fs.writeFileSync(path.join(root, '.claude', 'crew-model-rules'), '# mine\n+ src/pay/**\nprofile strict\nverify-timeout 30\nprofile light\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.claude/\n');
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'x\n');
+  g('add', 'CLAUDE.md');
+  const before = ps.readSettings?.(root);
+  check('settings are read as the hooks read them: the last profile line wins, docs= unrecorded is null, git says what it does',
+    before?.installed === true && before.visibility === 'private' && before.docs === null && before.profile === 'light'
+    && before.verifyTimeout === 30 && before.git?.claude?.ignored === true && before.git?.claudeMd?.tracked === true,
+    JSON.stringify(before));
+  const bad = [ps.checkChange?.({ profile: 'loose' }), ps.checkChange?.({ verifyTimeout: 561 }), ps.checkChange?.({ verifyTimeout: 2.5 }),
+    ps.checkChange?.({ lang: 'tr' }), ps.checkChange?.({}), ps.checkChange?.(null)];
+  check('a change outside the choices is refused: an unknown profile, a limit above 560 or not whole, an unknown key, nothing',
+    bad.every((r) => r?.ok === false), bad.map((r) => r?.reason).join(' | '));
+  const w = ps.writeSettings?.(root, ps.checkChange?.({ visibility: 'shared', docs: 'shared', profile: 'standard', verifyTimeout: 300 })?.set ?? {});
+  const conf = fs.readFileSync(path.join(root, '.claude', 'kit.conf'), 'utf8');
+  const rules = fs.readFileSync(path.join(root, '.claude', 'crew-model-rules'), 'utf8');
+  const prof = spawnSync('bash', ['-c', `. "${path.join(REPO, 'kit/eval/lib/profile.sh')}"; crew_profile "$1"; printf %s "$CREW_PROFILE"`, '_', root], { encoding: 'utf8' }).stdout;
+  check('a write sets only its own lines: the other lines and the CRLF of kit.conf stay, the profile and limit stand once',
+    w?.ok === true && conf === 'version=3.6.0\r\nvisibility=shared\r\nlang=en\r\ndocs=shared\r\n'
+    && rules === '# mine\n+ src/pay/**\nprofile standard\nverify-timeout 300\n' && w.settings?.verifyTimeout === 300,
+    JSON.stringify({ conf, rules }));
+  check('the hooks read back what the panel wrote (profile.sh says standard)', prof === 'standard', prof);
+  ps.writeSettings?.(root, { verifyTimeout: null });
+  check('the limit set back to the default removes its line',
+    !/verify-timeout/.test(fs.readFileSync(path.join(root, '.claude', 'crew-model-rules'), 'utf8')) && ps.readSettings?.(root)?.verifyTimeout === null);
+  const none = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-ps-'));
+  check('a project without Crewforth has nothing to set, and nothing is written into it',
+    ps.readSettings?.(none)?.installed === false && ps.writeSettings?.(none, { profile: 'light' })?.ok === false && fs.readdirSync(none).length === 0);
+  // The dialog's lines: git disagreeing with the setting is said; agreeing is plain.
+  const after = ps.readSettings?.(root);
+  const rows = sp.settingsRows?.(after) ?? [];
+  const vis = rows.find((r) => r.key === 'visibility');
+  const docsRow = rows.find((r) => r.key === 'docs');
+  check('the dialog warns when git ignores what is set to be shared, and not when nothing disagrees',
+    rows.length === 4 && vis?.note?.tone === 'warn' && docsRow?.note?.tone === 'ok'
+    && sp.gitNote?.('visibility', 'private', { claude: { tracked: false, ignored: true }, claudeMd: { tracked: false, ignored: true } })?.tone === 'ok'
+    && sp.gitNote?.('docs', 'private', { docs: { tracked: true, ignored: false } })?.tone === 'warn' && sp.gitNote?.('docs', 'shared', null)?.tone === 'muted',
+    JSON.stringify(rows.map((r) => [r.key, r.note?.tone])));
+  check('only a project on this machine, still there, with Crewforth opens the settings',
+    sp.hasSettings?.({ local: true, exists: true, kit: { installed: true } }) === true && sp.hasSettings?.({ local: false, exists: true, kit: { installed: true } }) === false
+    && sp.hasSettings?.({ exists: true, kit: { installed: false } }) === false && sp.hasSettings?.({ exists: false, kit: { installed: true } }) === false);
+  const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  const route = idx.slice(idx.indexOf("url.pathname === '/api/project-settings'"), idx.indexOf("url.pathname === '/api/fleet'"));
+  check('the settings route writes only with the write header and only into a project this machine has sessions for',
+    /writeAllowed\(req\)/.test(route) && /projectGroups\(\)\)\.get\(name\)/.test(route) && /checkChange\(asked\.set\)/.test(route));
+  const app = read(path.join(WEB_ROOT, 'app.js')) ?? ''; const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+  check('the project row opens the settings from its menu, in the page\'s dialog',
+    /<dialog id="settings-dlg"/.test(html) && /if \(hasSettings\(p\)\)/.test(app) && /openProjectSettings\(p\)/.test(app) && /dlg\.showModal\(\)/.test(app));
+  fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(none, { recursive: true, force: true });
+}
+
 /* --------------------------------------------------------- §8 palette */
 
 process.stdout.write('\n== §8 palette ==\n');

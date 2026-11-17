@@ -134,6 +134,10 @@ Allow, Claude Code'a verilen bir cevap. Hiçbir şeyin etrafından dolanmıyor:
 - Studio'nun hook'u projenin diğer hook'larından sonra değil, onlarla yan yana koşuyor. O yüzden dock, başka bir kapının zaten reddedeceği bir çağrıyı da sorabiliyor. Bu bilinen bir sınır.
 - İki çağrı size sorulmuyor, çünkü içlerinde yargılanacak bir şey yok: bir aracın tanımına bakılması ve, yalnız plan kipinde, Claude Code'un kendi plan dosyasının plans dizinine yazılması. Dock bunlarda sessiz kalıyor; bu bir onay değil: kararı Claude Code, panel yokmuş gibi veriyor. Planın kendisi yine dock'a geliyor.
 
+## Proje ayarları
+
+Crewforth kurulu bir projenin yanındaki **⋯** menüsü **Ayarlar**'ı açar. Burada kurulumda verilen ve oturumun değiştiremediği seçimler var: **Paylaşım** (`.claude/` ve `CLAUDE.md` commit'lenir mi), **docs/** (çalışma belgeleri commit'lenir mi), **Kapılar** (hafif, standart, sıkı) ve **Doğrulama süresi** (bir ajanın doğrulama komutunun kaç saniye çalışabileceği, 1–560; boş bırakılırsa varsayılan 120). Seçim hemen kaydedilir. Paylaşım ve docs/ oturum başlarken okunur; kapılar ve süre hemen geçerli olur. Her paylaşım satırının altında git'in bu dosyalarla bugün ne yaptığı yazar. Paylaşılması seçilen bir şeyi git yok sayıyorsa diyalog bunu söyler; `.gitignore`'a dokunmaz.
+
 ## Oturum başlatmak
 
 **New session** sağda bir panel açıyor: oturumun koşacağı proje, izin kipi ve isteğe bağlı ilk mesaj. Üç kip sunuluyor. **Plan** varsayılan: okuyor ve planlıyor, dosya değiştiremiyor. **Accept edits** ve **Default** dosya düzenliyor ve komut koşturuyor; her çağrı, siz dock'ta izin verdikten sonra. Crewforth'un kapılarını atlayan kipler sunulmuyor. Böyle bir oturum koşarken Studio kapalıysa istekleri reddediliyor.
