@@ -204,25 +204,39 @@ export class Usage {
  * included; with its agents' transcripts counted too, that span is `Usage`'s `startedAt` to `lastAt`.
  * `workedMs` is the turns Claude Code timed itself (`system` / `turn_duration` records), added up; zero when it
  * recorded none, and a turn that is still running is not in it.
+ * `activeMs` is an estimate for a transcript that timed no turn: the gaps between consecutive records, in time
+ * order, added up, a gap longer than ACTIVE_GAP_MS left out whole as a pause. Only the project total reads it, and
+ * only when none of the project's transcripts timed a turn: the two are never added together.
  */
 export function timesOf(records) {
   let first = null;
   let last = null;
   let workedMs = 0;
   let turns = 0;
+  const stamps = [];
   for (const r of records ?? []) {
     const t = r?.timestamp ? Date.parse(r.timestamp) : NaN;
     if (Number.isFinite(t)) {
       if (first === null || t < first) first = t;
       if (last === null || t > last) last = t;
+      stamps.push(t);
     }
     if (r?.type === 'system' && r.subtype === 'turn_duration' && typeof r.durationMs === 'number' && r.durationMs > 0) {
       workedMs += r.durationMs;
       turns += 1;
     }
   }
-  return { durationMs: first !== null && last !== null ? last - first : null, workedMs, turns };
+  stamps.sort((a, b) => a - b);
+  let activeMs = 0;
+  for (let i = 1; i < stamps.length; i += 1) {
+    const gap = stamps[i] - stamps[i - 1];
+    if (gap <= ACTIVE_GAP_MS) activeMs += gap;
+  }
+  return { durationMs: first !== null && last !== null ? last - first : null, workedMs, turns, activeMs };
 }
+
+/** A gap between two records longer than this is a pause, not work: the active-time estimate leaves it out. */
+export const ACTIVE_GAP_MS = 5 * 60_000;
 
 /**
  * The usage with the times beside it. The span runs to the last record of ANY of the session's files: an agent
@@ -231,7 +245,7 @@ export function timesOf(records) {
 export function withTimes(usage, mainRecords) {
   const u = usage.result();
   const t = timesOf(mainRecords);
-  return { ...u, workedMs: t.workedMs, turns: t.turns, durationMs: u.startedAt !== null && u.lastAt !== null ? u.lastAt - u.startedAt : null };
+  return { ...u, workedMs: t.workedMs, turns: t.turns, activeMs: t.activeMs, durationMs: u.startedAt !== null && u.lastAt !== null ? u.lastAt - u.startedAt : null };
 }
 
 /** A session's usage with its agents', and how long it took. */
