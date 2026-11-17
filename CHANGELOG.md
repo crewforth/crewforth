@@ -110,6 +110,7 @@ versioning follows [SemVer](https://semver.org/).
   group, and its members were drawn without the badge a single card carries.
 - **Studio: a closed session summary comes back from a tab in its corner,** as the plan box does.
 - **Studio: a folded project stays folded.** Folding every project opened the one you stand in again a second later.
+- **CI: the verify job has 45 minutes, not 30.** It ran 20 to 28 minutes, and a run with every step passing was cancelled at 30.
 - **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
 - **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
 - **The mid-session update warning is said once,** and a compaction ends it.
