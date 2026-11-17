@@ -88,6 +88,9 @@ Otherwise `normal`.
   outranks it, and the gate reads it from there when it is set.
 - **Use a tier ALIAS** (`haiku`/`sonnet`/`opus`), not a dated model ID. `fable` is refused for a crew agent unless
   the user set `CREW_ALLOW_FABLE=1`. `CREW_MODEL_ROUTING=off` turns all of this off.
+- **`omitClaudeMd: true`** only for a read-only agent whose file cites nothing from CLAUDE.md (no `## Stack`,
+  `## Verify`, `## Conventions`, §4): it then starts without any CLAUDE.md, and SubagentStart gives it the project's own
+  `./CLAUDE.md` with the short rule block. Every agent that writes, or reads a CLAUDE.md section, loads it.
 - **A frontmatter `model` is the exception**, for an agent whose every task is the same tier (`crew-commit-agent`:
   `haiku`). The call's own `model` is still required and is what runs.
 - **The last line of every report is exactly `confidence: high` or exactly `confidence: low`** (lower case, nothing
