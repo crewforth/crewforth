@@ -332,6 +332,13 @@ body.resizing .cv-root { pointer-events: none; }
 .proj-head[aria-expanded="true"] .proj-caret { transform: rotate(90deg); }
 .proj-name { min-width: 0; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proj-head.gone .proj-name { color: var(--ink-faint); text-decoration: line-through; }
+.proj-total {
+  flex: none; padding: 0 4px; border: 0; border-radius: var(--radius-sm); background: none;
+  font: inherit; font-size: 11px; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--ink-faint); white-space: nowrap; cursor: pointer;
+}
+.proj-total:hover { color: var(--ink); background: var(--surface-raised); }
+.proj-total-line { display: flex; padding: 0 0 2px 22px; }
 .row-fill { flex: 1; min-width: 4px; }
 
 /* The version badge. Grey when there is nothing to do; orange, and a button,
@@ -1380,6 +1387,13 @@ button.tl-lab { cursor: pointer; }
 .cv-legend[hidden] { display: none; }
 /* The session's summary is the same kind of box, in the opposite corner. */
 .cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 240px; }
+/* A project's all-time totals: the same box, beside the session's. */
+.cv-left-col {
+  position: absolute; left: var(--space-6); top: var(--space-6); z-index: 20; pointer-events: none;
+  display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100% - 2 * var(--space-6)); overflow: auto;
+}
+.cv-left-col > .cv-legend { position: static; pointer-events: auto; width: 260px; }
+.cv-left-col > .cv-spend-chip { position: static; pointer-events: auto; align-self: flex-start; }
 .cv-spend-rows { display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
 .cv-spend-row {
   display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; width: 100%;
@@ -1409,6 +1423,7 @@ button.tl-lab { cursor: pointer; }
 }
 .cv-todo-chip:hover { color: var(--ink); background: var(--surface-raised); }
 .cv-todo-chip[hidden] { display: none; }
+.cv-spend-chip { right: auto; left: var(--space-6); }
 .cv-todo-grip { position: absolute; left: 0; bottom: 0; width: 14px; height: 14px; cursor: nesw-resize; touch-action: none;
   background: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%, var(--ink-faint) 58%, transparent 58%, transparent 74%, var(--ink-faint) 74%, var(--ink-faint) 82%, transparent 82%);
   transform: scaleX(-1); border-bottom-left-radius: var(--radius-md); opacity: .7; }

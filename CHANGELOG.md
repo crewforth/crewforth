@@ -67,6 +67,12 @@ versioning follows [SemVer](https://semver.org/).
 - **A project sets how long an agent's verify may run.** A line `verify-timeout <seconds>` in
   `.claude/crew-model-rules`, the file only the user writes, raises the 120 s limit, up to 560. A verify stopped at a
   lower limit runs again once the limit is raised. When a verify is stopped, the session is told the line.
+- **Studio shows a project's all-time total.** Beside each project's name the navigator shows the time and
+  estimated cost of all its sessions, the unlisted older ones too. Clicking it opens **Project · all time** on the
+  canvas, with the same rows as the session summary and the number of sessions. The time is either the turns Claude
+  Code timed or, when it timed none, an estimate that does not count pauses of over five minutes; the label says
+  which. The sessions are read in the background, one at a time, and a session is read again only when its files
+  change.
 
 ### Changed
 
@@ -81,7 +87,8 @@ versioning follows [SemVer](https://semver.org/).
   (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
   with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,
   and under the light profile it no longer asks for a commit the gate lets through. A shared install also asks
-  whether `docs/` is committed (`--share-docs`); an update keeps both answers. A crew agent is told the same where it starts, so a reviewer
+  whether `docs/` is committed (`--share-docs`); an update keeps both answers, and for an install with no record
+  reads `docs/` from git (tracked and not ignored: shared). A crew agent is told the same where it starts, so a reviewer
   does not report a shared `docs/` as a leak.
 - **An `rm` that runs inside a container is judged as one.** `docker|podman exec|run`, `docker compose` and
   `kubectl exec` removing a relative path, or an absolute one two or more levels deep, inside the container
@@ -109,6 +116,9 @@ versioning follows [SemVer](https://semver.org/).
 - **An update no longer gitignores a `docs/` the project tracks.**
 - **Studio: an agent in a group shows its model and effort.** Once the picture grew, agents of one type folded into a
   group, and its members were drawn without the badge a single card carries.
+- **Studio: a closed session summary comes back from a tab in its corner,** as the plan box does.
+- **Studio: a folded project stays folded.** Folding every project opened the one you stand in again a second later.
+- **CI: the verify job has 45 minutes, not 30.** It ran 20 to 28 minutes, and a run with every step passing was cancelled at 30.
 - **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
 - **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
 - **The mid-session update warning is said once,** and a compaction ends it.

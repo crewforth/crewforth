@@ -16,7 +16,7 @@ import {
 } from './nav.js';
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
-import { summaryRows, usageLine, costNote } from './usage.js';
+import { summaryRows, usageLine, costNote, projectRows, projectLine } from './usage.js';
 import { agentSpendRows } from './agent-spend.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
@@ -1710,6 +1710,9 @@ async function offerTerminal(anchor, sessionId) {
 let projectsData = null;
 let fleetData = null;
 let expanded = new Set();
+// The project you stand in starts open the first time the list arrives, and only then: a test of "nothing is open"
+// on every refresh (about once a second) opened it again a moment after the viewer folded it (measured in Chrome).
+let projectsDefaulted = false;
 let filterText = '';
 let showMissing = false;
 let showBare = false;          // projects without Crewforth files stay folded away until asked for
@@ -1743,7 +1746,8 @@ function renderSessions(data) {
   projectsData = data;
   // The project you are standing in starts open; the rest stay folded, or a
   // machine with 175 projects buries the one you are working in.
-  if (!expanded.size) {
+  if (!projectsDefaulted) {
+    projectsDefaulted = true;
     const cur = data.projects.find((p) => p.current) ?? data.projects[0];
     if (cur) expanded.add(cur.key);
   }
@@ -1911,6 +1915,19 @@ async function pullUsage() {
   }
 }
 
+/* A project's all-time total on the canvas. The server reads it behind the panel and answers with what it has, so
+   this asks again while sessions are still being read, and stops when the box is closed or shows another project. */
+let projectTotalTimer = null;
+async function openProjectTotal(key) {
+  clearTimeout(projectTotalTimer);
+  if (view !== 'graph') setView('graph');
+  let got;
+  try { got = await getJson(`/api/project-usage?project=${encodeURIComponent(key)}`); } catch { return; }
+  const rows = projectRows(got);
+  canvas.setProject(key, rows.length ? rows : [{ label: t('Still reading'), value: t('{n} sessions', { n: got.pending ?? 0 }), note: t('Read one at a time, behind the panel; the totals below grow until it is done') }]);
+  if (got.pending || got.computing) projectTotalTimer = setTimeout(() => { if (canvas.projectKey === key) openProjectTotal(key); }, 3000);
+}
+
 function paintProjects() {
   const data = projectsData;
   if (!data || renaming && document.activeElement?.classList?.contains('srow-rename')) return;
@@ -1973,6 +1990,20 @@ function paintProjects() {
     // Where a project lives is part of its identity once more than one machine
     // is in view.
     if (p.origin && p.local === false) head.append(node('span', 'origin', p.origin));
+    // The project's all-time total, once the server has read any of it; a click opens the whole of it on the canvas.
+    // On a line of its own under the name: beside it, with the version badge, it left the name no room at all
+    // (measured in Chrome: name 0 px wide in a 236 px row).
+    const total = p.local !== false ? projectLine(p.allTime) : null;
+    let totalLine = null;
+    if (total) {
+      const b = node('button', 'proj-total', total);
+      b.type = 'button';
+      b.title = `${t('All sessions of the project: time · estimated cost. Click for the summary')}${p.allTime.pending ? `\n${t('Still reading {n} session(s)', { n: p.allTime.pending })}` : ''}\n${costNote(p.allTime)}`;
+      b.addEventListener('click', (e) => { e.stopPropagation(); openProjectTotal(p.key); });
+      b.addEventListener('keydown', (e) => e.stopPropagation());
+      totalLine = node('div', 'proj-total-line');
+      totalLine.append(b);
+    }
     head.append(node('span', 'row-fill'), versionBadge(p.kit));
     head.title = (p.cwd ?? p.dir) + (p.exists ? '' : ' — directory no longer exists');
     const toggle = () => {
@@ -1985,6 +2016,7 @@ function paintProjects() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
     group.append(head);
+    if (totalLine) group.append(totalLine);
 
     if (open) {
       // Under the project, its map (spec §11): the orange number is how many findings it shows unasked.

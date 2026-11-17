@@ -29,27 +29,33 @@ export function fmtCost(usd) {
 }
 
 /** "40s", "12m", "3h 5m", "2d 4h": coarse, for a line with no room. */
-export function fmtSpan(ms) {
+export function fmtSpan(ms, { hours = false } = {}) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
   const s = Math.round(ms / 1000);
   if (s < 60) return t('{n}s', { n: s });
   const m = Math.floor(s / 60);
   if (m < 60) return t('{n}m', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return t('{h}h {m}m', { h, m: m % 60 });
+  // A project's total is working time, not a calendar: "1d 17h" read as a day and seventeen hours of it.
+  if (h < 24 || hours) return t('{h}h {m}m', { h, m: m % 60 });
   return t('{d}d {h}h', { d: Math.floor(h / 24), h: h % 24 });
 }
 
 /**
  * How long a session took. The time Claude Code itself timed its turns at, when it recorded any; otherwise the
- * time from the first record to the last, which counts every pause as well.
- * @returns { ms, kind: 'worked' | 'elapsed', note } or null
+ * time from the first record to the last, which counts every pause as well. A project's total has no first-to-last
+ * span (months of pauses are no one's time): with no timed turn it carries `activeMs`, an estimate that leaves
+ * every pause of over five minutes out, and says it is one.
+ * @returns { ms, kind: 'worked' | 'elapsed' | 'active', note } or null
  */
 export function timeOf(u) {
   if (u?.workedMs) return { ms: u.workedMs, kind: 'worked', note: t('The turns Claude Code timed, added up; a turn still running is not in it yet') };
   if (u?.durationMs != null) return { ms: u.durationMs, kind: 'elapsed', note: t('From the first record to the last, pauses included: no turn was timed') };
+  if (u?.activeMs != null) return { ms: u.activeMs, kind: 'active', note: t('No turn was timed: the gaps between records added up, a gap of over five minutes left out as a pause') };
   return null;
 }
+
+const TIME_LABEL = { worked: () => t('Working time'), elapsed: () => t('First to last record'), active: () => t('Active time (estimate)') };
 
 /** Why there is no estimate, when there is none. */
 export function costNote(u) {
@@ -95,7 +101,7 @@ const kinds = (k, cached = true) => [
  * @param opts.agentRows  [name, value] pairs, one per kind of agent (agent-spend.js): what the Agents row opens on
  *                        instead of the token kinds, as the Cost row opens on its models. Without any, the kinds.
  */
-export function summaryRows(u, { live = false, now = null, agentRows = [] } = {}) {
+export function summaryRows(u, { live = false, now = null, agentRows = [], hours = false, sessionLabel = null } = {}) {
   if (!u) return [];
   const k = u.tokens ?? {};
   const rows = [];
@@ -103,7 +109,7 @@ export function summaryRows(u, { live = false, now = null, agentRows = [] } = {}
   if (live && u.startedAt != null && now != null) {
     rows.push({ label: t('Running for'), value: fmtRunning(now - u.startedAt), note: t('From the session\'s first record to now') });
   } else if (took) {
-    rows.push({ label: took.kind === 'worked' ? t('Working time') : t('First to last record'), value: fmtSpan(took.ms), note: took.note });
+    rows.push({ label: TIME_LABEL[took.kind](), value: fmtSpan(took.ms, { hours }), note: took.note });
     if (took.kind === 'worked' && u.durationMs != null) rows.push({ label: t('First to last record'), value: fmtSpan(u.durationMs), note: t('Pauses included; the agents\' transcripts too') });
   }
   rows.push({ label: t('Tokens'), value: fmtCount(k.fresh ?? 0), note: t('New tokens: input, output and cache writes. Agents included, each response counted once'), detail: kinds(k, false) });
@@ -113,7 +119,7 @@ export function summaryRows(u, { live = false, now = null, agentRows = [] } = {}
     rows.push({ label, value: `${fmtCount(p.tokens.fresh)} · ${fmtCost(p.cost)}`, note: `${t('{what}: new tokens and estimated cost', { what: note })}
 ${costNote(p)}`, detail: detail ?? kinds(p.tokens) });
   };
-  part(t('Session'), u.parts?.session, t('The session\'s own transcript'));
+  part(sessionLabel ?? t('Session'), u.parts?.session, t('The session\'s own transcript'));
   part(t('Agents'), u.parts?.agents, t('Everything its agents did'), agentRows.length ? agentRows : null);
   // The advisor: a second model the main one consulted mid-response. Its tokens are in the rows above already; this
   // says how much of them it was. No call recorded, no row: a session that never consulted it shows no zero.
@@ -131,4 +137,22 @@ ${costNote(p)}`, detail: detail ?? kinds(p.tokens) });
   const perModel = Object.entries(u.byModel ?? {}).map(([model, m]) => [modelName(model), `${fmtCount(m.tokens.fresh)} \u00b7 ${fmtCost(m.cost)}`]);
   rows.push({ label: t('Cost'), value: k.total ? fmtCost(u.cost) : NO_COST, note: costNote(u), detail: perModel.length ? perModel : undefined });
   return rows;
+}
+
+/**
+ * The project box's rows: the summary box's, over every session of the project (server/lib/project-usage.js), with
+ * how many sessions that is first, and how many are still being read when some are.
+ */
+export function projectRows(u) {
+  if (!u?.measured) return [];
+  const rows = [{ label: t('Sessions'), value: String(u.sessions ?? 0), note: t('Every transcript of the project on this machine, listed or not') }];
+  if (u.pending) rows.push({ label: t('Still reading'), value: u.pending === 1 ? t('{n} session', { n: 1 }) : t('{n} sessions', { n: u.pending }), note: t('Read one at a time, behind the panel; the totals below grow until it is done') });
+  return [...rows, ...summaryRows(u, { hours: true, sessionLabel: t('Main sessions') })];
+}
+
+/** The navigator's short total beside a project's name: time · ~cost. Null until any of it was read. */
+export function projectLine(a) {
+  if (!a) return null;
+  const took = timeOf(a);
+  return [took ? fmtSpan(took.ms, { hours: true }) : null, a.tokens ? fmtCost(a.cost) : null].filter(Boolean).join(' · ') || null;
 }
