@@ -79,6 +79,12 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Changed
 
+- **Two read-only agents start without CLAUDE.md.** `crew-refuter` and `crew-performance-expert` cite nothing from it and
+  write nothing, so their definitions set `omitClaudeMd` (Claude Code 2.1.271 and later; older versions load it as
+  before). At their start Crewforth gives them the project's own `CLAUDE.md`, without the rule file it imports, which
+  the short rule block every crew agent gets stands for; a file too long to pass is named for the agent to read.
+  Measured with the same task: the refuter's first request fell from 27,871 to 20,450 tokens.
+
 - **The approval question offers what the state allows.** Nothing staged asks about a push only; no remote asks about
   a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
 - **The approval question offers "Commit + push" first,** the answer given nearly every time.

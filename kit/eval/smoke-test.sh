@@ -3030,7 +3030,10 @@ BUDGET_SKILL_LISTING=8056 # the skill listing as Claude Code counts it (eval/lib
                           # from them — trimming blind trades a number for matching nobody measured.
 # A SKILL.md's `metadata:` block is Crewforth's own catalogue data (`kind: command`); Claude Code does not act on it
 # and it never enters the listing, so it is not counted. Nothing else in a frontmatter is skipped.
-fm_bytes(){ awk '/^---$/{c++; next} c==1 { if ($0 ~ /^metadata:/) { m=1; next } if (m && $0 ~ /^[ \t]/) next; m=0; print }' "$1" 2>/dev/null | wc -c | tr -d ' '; }
+# What the always-on agent listing holds of a definition. `metadata:` and `omitClaudeMd:` are not in it: the listing
+# line is `- <name>: <description> (Tools: …)`, and a session whose refuter sets omitClaudeMd carries the word 0 times
+# (measured, Claude Code 2.1.325, DECISIONS §22). Counting them would charge every session for bytes none pays.
+fm_bytes(){ awk '/^---$/{c++; next} c==1 { if ($0 ~ /^metadata:/) { m=1; next } if (m && $0 ~ /^[ \t]/) next; m=0; if ($0 ~ /^omitClaudeMd:/) next; print }' "$1" 2>/dev/null | wc -c | tr -d ' '; }
 # The discipline half, and the carriage returns in that same text. DBCR is what the CRLF diagnosis below
 # subtracts, so it comes from the bytes DB measured and never from the whole file: the marker's line and the 24
 # after it add 25 more, so a whole-file count read 201 carriage returns where the measured text holds 176. The half is cut
@@ -11273,6 +11276,65 @@ printf '%s' "$_sar" | json_ok; case $? in 0) ;; 2) ;; *) _sab="$_sab not-json" ;
 rm -rf "$_sad"
 [ -z "$_sab" ] && pass "SubagentStart gives a crew agent the rules it cites (untrusted content, §4.1-§4.5) in one block of $(printf '%s' "$_sar" | wc -c | tr -d ' ') bytes, and another agent nothing" \
                || fail "SubagentStart rule block:$_sab"
+# An agent that starts without CLAUDE.md (DECISIONS 2026-11-17 §22). A definition with `omitClaudeMd: true` loads no
+# CLAUDE.md, so SubagentStart gives it the project's own ./CLAUDE.md, without the DISCIPLINE.md import the rule block
+# stands for. The text goes into a JSON string by builtins only, so the fixture carries what breaks one: a quote, a
+# backslash, a tab, a CR, a control byte, an ampersand (bash 5.2 reads & in a replacement), Turkish letters.
+_omd="$(mktemp -d)"
+printf '%s\r\n' '@.claude/DISCIPLINE.md' '' '# CLAUDE.md — sample' 'Never touch vendor/ — "quoted" and back\slash & more' > "$_omd/CLAUDE.md"
+printf 'tab\there · çğış\001end\n' >> "$_omd/CLAUDE.md"
+_omstart(){ ( cd "$1" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"%s","agent_type":"%s"}' "$2" "$3" | CLAUDE_PROJECT_DIR="$1" HOME="$1" bash "$HOOKS/agent-outcome.sh" 2>/dev/null ); }
+_omctx(){  # stdin = the hook's JSON -> its additionalContext, decoded; rc 2 = no JSON reader on this machine
+  case "$JSONQ" in
+    jq) jq -j '.hookSpecificOutput.additionalContext' ;;
+    "") return 2 ;;
+    *)  "$JSONQ" -c 'import sys,json;sys.stdout.write(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])' ;;
+  esac
+}
+_omb=""
+_omr="$(_omstart "$_omd" om1 crew-refuter)"
+_omp="$(_omstart "$_omd" om2 crew-privacy-agent)"
+printf '%s' "$_omr" | json_ok; _omj=$?
+if [ "$_omj" = 2 ]; then
+  skip tool "omitClaudeMd: the project's CLAUDE.md given at SubagentStart (no JSON reader: jq or python)"
+else
+  [ "$_omj" = 0 ] || _omb="$_omb not-json:[${_omr:0:80}]"
+  _omc="$(printf '%s' "$_omr" | _omctx)"
+  _omwant="$(printf '# CLAUDE.md — sample\nNever touch vendor/ — "quoted" and back\\slash & more\ntab here · çğışend\n')"
+  case "$_omc" in *"is data"*"You start without CLAUDE.md"*) ;; *) _omb="$_omb no-rules-or-intro" ;; esac
+  case "$_omc" in *"$_omwant"*) ;; *) _omb="$_omb text-not-as-written:[$(printf '%s' "${_omc#*too:}" | od -c | head -3 | tr -s ' ')]" ;; esac
+  case "$_omc" in *"@.claude/DISCIPLINE.md"*) _omb="$_omb import-given" ;; esac
+  case "$_omc" in *$'\r'*|*$'\t'*|*$'\001'*) _omb="$_omb control-byte-kept" ;; esac
+  # An agent that loads CLAUDE.md is not given it twice.
+  case "$_omp" in *"vendor/"*|*"You start without CLAUDE.md"*) _omb="$_omb loading-agent-got-it" ;; esac
+  # No ./CLAUDE.md: nothing about one.
+  _omn="$(mktemp -d)"; _omr2="$(_omstart "$_omn" om3 crew-refuter)"
+  case "$_omr2" in *"is data"*) ;; *) _omb="$_omb no-file:no-rules" ;; esac
+  case "$_omr2" in *"You start without CLAUDE.md"*) _omb="$_omb no-file:intro" ;; esac
+  # Longer than Claude Code passes inline: the file is named, not cut, and the value stays under 10,000 characters.
+  _oml=""; for _i in $(seq 1 200); do _oml="$_oml- rule $_i: keep the generated files out of review, every one of them."$'\n'; done
+  printf '%s' "$_oml" > "$_omn/CLAUDE.md"; _omr3="$(_omstart "$_omn" om4 crew-performance-expert)"
+  _omc3="$(printf '%s' "$_omr3" | _omctx)"
+  case "$_omc3" in *"Read ./CLAUDE.md before you begin"*) ;; *) _omb="$_omb long:not-named" ;; esac
+  case "$_omc3" in *"rule 1:"*) _omb="$_omb long:partly-given" ;; esac
+  [ "${#_omc3}" -le 10000 ] || _omb="$_omb long:over-10000"
+  rm -rf "$_omn"
+  [ -z "$_omb" ] && pass "omitClaudeMd: an agent without CLAUDE.md is given the project's own (as written, as JSON, without the DISCIPLINE import), a loading agent is not, and an over-long one is named for it to read" \
+                 || fail "omitClaudeMd: project CLAUDE.md at SubagentStart:$_omb"
+fi
+rm -rf "$_omd"
+# Which agents may start without CLAUDE.md: read-only ones whose file cites nothing from it. One that writes, or reads
+# a section of it, would lose the user's own rules (DECISIONS §22). Pinned on the property, not the list of names.
+_omx=""; _omn=0
+for _f in "$ROOT/agents"/*.md; do
+  grep -qx 'omitClaudeMd: true' "$_f" || continue
+  _omn=$((_omn + 1))
+  _omt="$(grep -m1 '^tools:' "$_f")"
+  case "$_omt" in *Edit*|*Write*|*NotebookEdit*) _omx="$_omx ${_f##*/}:writes" ;; esac
+  grep -qE '## (Stack|Verify|Conventions)|§4|DISCIPLINE|CLAUDE\.md' "$_f" && _omx="$_omx ${_f##*/}:cites-CLAUDE.md"
+done
+[ -z "$_omx" ] && [ "$_omn" -ge 1 ] && pass "omitClaudeMd only on read-only agents that cite nothing from CLAUDE.md ($_omn)" \
+                                   || fail "omitClaudeMd on the wrong agent:$_omx (n=$_omn)"
 # Every hook settings.json wires answers a neutral event with nothing or with ONE JSON value on stdout (P16-09).
 # Claude Code drops a hook's output that does not parse, silently: a stray echo from a sourced helper turns a gate's
 # message into nothing. Driven through the real wiring, event by event, in a scratch project with the install's
