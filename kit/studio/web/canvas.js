@@ -164,7 +164,7 @@ export class Canvas {
     this.tipEl.setAttribute('role', 'tooltip');
     this.tipEl.hidden = true;
 
-    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.spendEl, this.tipEl);
+    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.spendEl, this.spendChip, this.tipEl);
   }
 
   /** What the session spent: time, tokens and an estimate of the cost. Closed, it stays closed until asked for. */
@@ -183,6 +183,14 @@ export class Canvas {
     box.append(head, this.spendRows);
     this.spendOpen = readFlag('crewforth-studio-spend') !== 'closed';
     box.hidden = true;                       // until there is a session's usage to show
+    // Closed, a small "Session" tab stays in its corner and brings it back, as the plan box's does: the only way back
+    // was an entry in View options, which a viewer did not find. It carries the plan tab's class, so the pane's pan
+    // leaves a press on it alone (PAN_SKIP), and its look.
+    this.spendChip = mk('button', 'cv-todo-chip cv-spend-chip', t('Session'));
+    this.spendChip.type = 'button';
+    this.spendChip.title = t('Show time, tokens and cost');
+    this.spendChip.addEventListener('click', () => this.showSpend(true));
+    this.spendChip.hidden = true;
     return box;
   }
 
@@ -190,6 +198,7 @@ export class Canvas {
     this.spendOpen = Boolean(on);
     writeFlag('crewforth-studio-spend', on ? 'open' : 'closed');
     this.spendEl.hidden = !on || !this.spendCount;
+    this.spendChip.hidden = Boolean(on) || !this.spendCount;
   }
 
   /**
@@ -248,6 +257,7 @@ export class Canvas {
       this.spendRows.replaceChildren(...list.flatMap((r) => { const p = this.spendParts.get(r.label); return [p.row, p.detail]; }));
     }
     this.spendEl.hidden = !this.spendOpen || !this.spendCount;
+    this.spendChip.hidden = this.spendOpen || !this.spendCount;
   }
 
   /** What the lines and the two marks mean. Shown until it is closed, and then not again unless asked for. */
@@ -1002,8 +1012,11 @@ export class Canvas {
         q.name = mk('span', 'cv-name');
         c.append(q.order, q.name);
         if (!it.grid) { c.append(mk('span', 'cv-fill')); q.dot = mk('span', 'dot'); c.append(q.dot); }
+        // The model and effort it ran on, as a card says them: a member of a folded group was the only agent drawn
+        // without them, and an agent landed in one as soon as the picture grew (field, 3.6.0-rc.4).
+        q.model = mk('span', 'cv-model');
         q.word = mk('span', 'cv-word');
-        c.append(q.word);
+        c.append(q.model, q.word);
         c.parts = q;
         el.append(c);
         this.cellEls.set(cell.id, c);
@@ -1024,7 +1037,9 @@ export class Canvas {
       const dim = this.dimmed(n);
       const ctag = orderTag(n, it.grid ? null : clock);
       const cshell = shellLine(n.shellNow);
-      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title]);
+      const cmdl = modelOf(n);
+      const cbadge = modelBadge(n);
+      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title, cbadge]);
       if (c.sig === csig) continue;
       c.sig = csig;
       c.dataset.state = st.state;
@@ -1037,6 +1052,10 @@ export class Canvas {
       c.title = [hoverOf(n), [modelOf(n).label, factsOf(n)].filter(Boolean).join(' \u00b7 '), cshell?.title].filter(Boolean).join('\n');
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
+      c.parts.model.textContent = cbadge;
+      c.parts.model.hidden = !cmdl.ran;
+      c.parts.model.title = cmdl.title;
+      c.parts.model.dataset.differs = String(cmdl.differs);
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
     }
   }
