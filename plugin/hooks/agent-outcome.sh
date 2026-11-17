@@ -684,6 +684,28 @@ case "$EV" in
       if [ "$_AOPM" = auto ]; then
         declare -F _crew_q_open >/dev/null 2>&1 || . "$_ao_here/prompt-approval.sh"
         _json_slice "$INPUT" cwd >/dev/null; _json_unescape "$_JS" >/dev/null
+        # THE LIGHT PROFILE (field, 3.6.0-rc.4): the gate lets a clean commit through, and a push to a branch that is
+        # not main, master, origin's default or the CLAUDE.md base; handing the session the question anyway made it ask
+        # the user for every commit and push the gate would not have asked about. Same reader as the gate.
+        CREW_PROFILE=standard
+        [ -f "$_ao_here/../eval/lib/profile.sh" ] && . "$_ao_here/../eval/lib/profile.sh" && crew_profile "${CLAUDE_PROJECT_DIR:-${_JU:-.}}"
+        if [ "$CREW_PROFILE" = light ]; then
+          _aob="$(git -C "${_JU:-.}" symbolic-ref --short -q HEAD 2>/dev/null)"; case "$_aob" in *[!A-Za-z0-9._/-]*) _aob="" ;; esac
+          _aoc="$(cd "${_JU:-.}" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null)"
+          case "$_aoc" in ''|/*|[A-Za-z]:*) ;; *) _aoc="${_JU:-.}/$_aoc" ;; esac
+          if [ -n "$_aob" ] && [ -n "$_aoc" ] && ! crew_push_asked "$_aoc" "${CLAUDE_PROJECT_DIR:-${_JU:-.}}" "$_aob"; then
+            _ao_json "Crewforth (light profile): on $_aob a commit and its push go through without a question once every gate is clean. Show the user the message this agent proposes, then commit, and push with git push <remote> $_aob. Do not ask the user to approve them."
+            printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+            exit 0
+          fi
+          # A branch whose push is asked: the commit is not, so the question is the push's alone, after the commit.
+          if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto; then
+            _crew_q_json push
+            _ao_json "Crewforth (light profile): a commit goes through without a question once every gate is clean, and a push to ${_aob:-this branch} is asked. Show the user the message this agent proposes and commit; then, before the push, ask with one click, exactly: {\"questions\":[$_CREW_QJ]}"
+            printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+            exit 0
+          fi
+        fi
         if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto && _crew_q_variant "${_JU:-.}" && [ "$_QV" != none ]; then
           _crew_q_json "$_QV"
           _ao_json "Crewforth: when you show the user the commit message this agent proposes, ask with one click before anything else. $_CREW_Q_ASK {\"questions\":[$_CREW_QJ]} Their answer is recorded by Crewforth itself (the line it adds says so); then run the commit it names. If that question is refused, the user can type /crew-approve instead, as the refusal says."

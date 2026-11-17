@@ -15,7 +15,8 @@ Closure flow — in order:
 2. If clean, @agent-crew-commit-agent (commit-message) **proposes** an atomic Conventional Commit from the staged diff.
 3. Commit runs ONLY if the user says "commit" (§4.4). "Done" is not approval, and neither is a hedged "looks reasonable" / "probably fine". In `auto`, Crewforth hands the session the
    one-click approval question when crew-commit-agent is called: ask it with the message; the typed `/crew-approve` is
-   for when no question is offered.
+   for when no question is offered. Under the light profile Crewforth says instead whether anything is asked: when it
+   says nothing is, commit and push without asking.
    A pull request after the commit is `/crew-pr open`: it keeps the repository's template and pushes only on "push".
 4. **Close the board item too** (`teamboard`), when one is held. Closing work is one movement: ask what shipped,
    run `board.sh done <id> "<note>"`, name the items it unblocked, and offer the next one as options. Do not

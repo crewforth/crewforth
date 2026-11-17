@@ -84,6 +84,10 @@ versioning follows [SemVer](https://semver.org/).
   `kubectl exec` removing a relative path, or an absolute one two or more levels deep, inside the container
   pass; `/`, `~`, `.`, `..`, a top-level folder, an expansion and any host `rm` in the same call stay refused.
   `docker exec app rm -rf .`, free before, is refused now.
+- **The light profile no longer asks for a commit through the commit agent.** When the commit message was asked for,
+  the session was handed the approval question whatever the profile, and asked the user for every commit and push the
+  gate would have let through. Under light it is now told that nothing is asked on a work branch, and on main, master,
+  origin's default or the base branch only the push is asked, after the commit.
 - **Every agent description is one line.** The always-on agent list went from 5,827 to 4,019 bytes (about 760 tokens a
   session); routing is unchanged.
 - **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with

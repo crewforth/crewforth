@@ -24,6 +24,22 @@ crew_profile(){  # $1 = project root -> CREW_PROFILE
   fi
   CREW_PROFILE="$p"
 }
+# $1 = the repository's common git directory, $2 = the project root, $3 = a branch -> 0 when a push to it is asked even
+# under the light profile: main, master, origin's default branch as the last fetch recorded it, or the CLAUDE.md
+# `Base branch:`. Builtins only (the push gate is at its process ceiling). One reader for the gate (guard-bash.sh) and
+# for what the session is told when a commit message is asked for (agent-outcome.sh).
+crew_push_asked(){
+  local t="$3" ob="" b="" l=""
+  case "$t" in main|master) return 0 ;; esac
+  if [ -f "$1/refs/remotes/origin/HEAD" ]; then
+    IFS= read -r ob < "$1/refs/remotes/origin/HEAD"; ob="${ob%$'\r'}"; ob="${ob#ref: refs/remotes/origin/}"; [ "$t" = "$ob" ] && return 0
+  fi
+  if [ -f "$2/CLAUDE.md" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do case "$l" in *"Base branch:"*) b="${l#*Base branch:}"; b="${b//[\` $'\r'$'\t']/}"; break ;; esac; done < "$2/CLAUDE.md"
+    [ -n "$b" ] && [ "$t" = "$b" ] && return 0
+  fi
+  return 1
+}
 crew_profile_rank(){ case "$1" in light) echo 1 ;; standard) echo 2 ;; strict) echo 3 ;; *) echo 0 ;; esac; }
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   case "${1:-}" in
