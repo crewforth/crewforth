@@ -1,8 +1,8 @@
 ---
 name: confidence-check
 description: |
-  Readiness gate BEFORE writing implementation code: does this already exist, does it fit the project's
-  architecture, is the API claim actually checked, is there a working reference, is the root cause known.
+  Readiness check before writing implementation code: does it already exist, does it fit the architecture, is the
+  API claim checked, is the root cause known.
 ---
 
 # Confidence Check — earn the right to start

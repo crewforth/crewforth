@@ -1,6 +1,9 @@
 # Written by packaging/skill-eval/run.mjs; read by check.mjs. One line per case: does the description pick the
 # skill (kind is) or keep away from a neighbour's request (kind not). claude 2.1.322 · model sonnet ·
 # cost ~$0.18 at list price · complete
+# The six skills shortened for DECISIONS §21 step 3 (automode-policy, confidence-check, dependency-upgrade, eval-grader,
+# reflect, sonarqube-check): measured 2026-11-17, claude 2.1.325 · model sonnet · that run cost ~$5.02 and stopped at
+# its ceiling after 21 of 55 cases; the nine skills it did not finish kept their measured text.
 case	skill	kind	source	description	score	worst	runs
 holdout-is-a11y-5f4c0d38	a11y	is	holdout	d4531a946ead2a11	1.000	1.000	3
 holdout-is-adr-46301897	adr	is	holdout	46cfbae699cb4b02	1.000	1.000	3
@@ -25,7 +28,7 @@ working-is-a11y-71d3bfd4	a11y	is	working	d4531a946ead2a11	1.000	1.000	3
 working-is-a11y-f2fa0aef	a11y	is	working	d4531a946ead2a11	1.000	1.000	3
 working-is-adr-d8d93313	adr	is	working	46cfbae699cb4b02	1.000	1.000	3
 working-is-api-design-ab3e144b	api-design	is	working	798d613fa49625d4	1.000	1.000	3
-working-is-automode-policy-94dc5b94	automode-policy	is	working	80b7012236eddf44	1.000	1.000	3
+working-is-automode-policy-94dc5b94	automode-policy	is	working	562267d993311de0	1.000	1.000	3
 working-is-backend-architecture-51767401	backend-architecture	is	working	b4cda17c9ea8df0b	1.000	1.000	3
 working-is-backend-architecture-52f5b7cf	backend-architecture	is	working	b4cda17c9ea8df0b	1.000	1.000	3
 working-is-backend-architecture-a5f85bc6	backend-architecture	is	working	b4cda17c9ea8df0b	1.000	1.000	3
@@ -33,17 +36,17 @@ working-is-backend-architecture-f8fecd51	backend-architecture	is	working	b4cda17
 working-is-brainstorm-7707f09c	brainstorm	is	working	5b5fbaf6a5bb645d	1.000	1.000	3
 working-is-ci-pipeline-c3af3bfd	ci-pipeline	is	working	33ae669b1dfb555d	0.000	0.000	3
 working-is-commit-message-3ca58872	commit-message	is	working	02761b54040a1408	1.000	1.000	3
-working-is-confidence-check-dee759c9	confidence-check	is	working	59d87922a98635e8	1.000	1.000	3
+working-is-confidence-check-dee759c9	confidence-check	is	working	38ee5fcf64f0c1f5	1.000	1.000	3
 working-is-crew-code-review-35f66095	crew-code-review	is	working	8b6418ddbbe9ea48	1.000	1.000	3
 working-is-crew-code-review-57a6eab5	crew-code-review	is	working	8b6418ddbbe9ea48	1.000	1.000	3
 working-is-db-migration-c589a917	db-migration	is	working	f7f1563b304e8434	1.000	1.000	3
 working-is-dependency-audit-7eb4a1f6	dependency-audit	is	working	d388060d126956a5	1.000	1.000	3
 working-is-dependency-audit-ab240ff6	dependency-audit	is	working	d388060d126956a5	1.000	1.000	3
 working-is-dependency-audit-dda3a667	dependency-audit	is	working	d388060d126956a5	1.000	1.000	3
-working-is-dependency-upgrade-c864bd08	dependency-upgrade	is	working	c03ba9913d61e5b9	1.000	1.000	3
+working-is-dependency-upgrade-c864bd08	dependency-upgrade	is	working	0bf0d0df956670d8	1.000	1.000	3
 working-is-deploy-c405b339	deploy	is	working	b499fc55f7c0148c	0.000	0.000	3
 working-is-docs-writer-2ef8e8a9	docs-writer	is	working	0de328419eeec084	0.000	0.000	3
-working-is-eval-grader-a8dfd6cb	eval-grader	is	working	6834d6676bbe281b	1.000	1.000	3
+working-is-eval-grader-a8dfd6cb	eval-grader	is	working	fc8e75784db3f005	1.000	1.000	3
 working-is-frontend-0d054b4b	frontend	is	working	596207192cef6b38	1.000	1.000	3
 working-is-frontend-37b24a91	frontend	is	working	596207192cef6b38	0.000	0.000	3
 working-is-frontend-4ce50ba3	frontend	is	working	596207192cef6b38	1.000	1.000	3
@@ -66,11 +69,11 @@ working-is-observability-c05d5beb	observability	is	working	aa5b5741a56ae2fa	1.00
 working-is-performance-7990223c	performance	is	working	30498a83f3e9d21a	1.000	1.000	3
 working-is-privacy-compliance-1250954b	privacy-compliance	is	working	a523717bbbfb8d11	0.000	0.000	3
 working-is-red-team-0b85c880	red-team	is	working	1ba34f1e8a342768	1.000	1.000	3
-working-is-reflect-a9d0d855	reflect	is	working	f2ddcc5ade53489a	1.000	1.000	3
+working-is-reflect-a9d0d855	reflect	is	working	20014b64f24fa283	1.000	1.000	3
 working-is-release-60c0852c	release	is	working	6011f266710b54ca	1.000	1.000	3
 working-is-release-ce0afd66	release	is	working	6011f266710b54ca	1.000	1.000	3
 working-is-security-scan-78d744ca	security-scan	is	working	da43825fbf508967	1.000	1.000	3
-working-is-sonarqube-check-65f231f5	sonarqube-check	is	working	7e95177885d115c2	1.000	1.000	3
+working-is-sonarqube-check-65f231f5	sonarqube-check	is	working	bbafa53f75213220	1.000	1.000	3
 working-is-spec-planning-252419ae	spec-planning	is	working	b2e437d62b3fb1cb	0.333	0.000	3
 working-is-systematic-debugging-25ff8b56	systematic-debugging	is	working	2a791ebbe948de3d	1.000	1.000	3
 working-is-systematic-debugging-2c0b5208	systematic-debugging	is	working	2a791ebbe948de3d	1.000	1.000	3
@@ -165,3 +168,4 @@ working-not-testing-d2f939e1	testing	not	working	29e9cfaf7f173cf6	1.000	1.000	3
 working-not-testing-ea26bae1	testing	not	working	29e9cfaf7f173cf6	1.000	1.000	3
 working-not-token-budget-7d1eade3	token-budget	not	working	61cca6afc29e5c04	1.000	1.000	3
 working-not-token-budget-a706699d	token-budget	not	working	61cca6afc29e5c04	1.000	1.000	3
+working-is-dependency-upgrade-3125ddbd	dependency-upgrade	is	working	0bf0d0df956670d8	1.000	1.000	3

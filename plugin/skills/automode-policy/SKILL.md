@@ -1,8 +1,8 @@
 ---
 name: automode-policy
 description: |
-  Auto-mode classifier config: inspect what the classifier that answers permission prompts is configured
-  with, and catch the silent case where a custom autoMode block drops the built-in block rules.
+  Audit the auto-mode classifier's config, and catch a custom autoMode block that silently drops the built-in block
+  rules.
 allowed-tools: Bash(bash ${CLAUDE_SKILL_DIR}/scripts/*.sh *)
 ---
 
