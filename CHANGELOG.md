@@ -104,6 +104,8 @@ versioning follows [SemVer](https://semver.org/).
 ### Fixed
 
 - **An update no longer gitignores a `docs/` the project tracks.**
+- **Studio: a closed session summary comes back from a tab in its corner,** as the plan box does.
+- **Studio: a folded project stays folded.** Folding every project opened the one you stand in again a second later.
 - **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
 - **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
 - **The mid-session update warning is said once,** and a compaction ends it.
