@@ -104,6 +104,8 @@ versioning follows [SemVer](https://semver.org/).
 ### Fixed
 
 - **An update no longer gitignores a `docs/` the project tracks.**
+- **Studio: an agent in a group shows its model and effort.** Once the picture grew, agents of one type folded into a
+  group, and its members were drawn without the badge a single card carries.
 - **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
 - **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
 - **The mid-session update warning is said once,** and a compaction ends it.
