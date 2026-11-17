@@ -456,7 +456,8 @@ _crew_q_json(){  # $1 = the variant (full | commit | push) -> _CREW_QJ: the ques
     merge)  _CREW_QJ='{"question":"'"$_CREW_Q_TEXT_M"'","header":"Approval","options":['"$_CREW_Q_O_M,$_CREW_Q_O_MN"'],"multiSelect":false}'; return 0 ;;
     commit) o="$_CREW_Q_O_C,$_CREW_Q_O_N" ;;
     push)   o="$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
-    *)      o="$_CREW_Q_O_C,$_CREW_Q_O_CP,$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
+    # "Commit + push" first: the answer given nearly every time (Barış, DECISIONS 2026-11-17). Only the order changes.
+    *)      o="$_CREW_Q_O_CP,$_CREW_Q_O_C,$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
   esac
   _CREW_QJ='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":['"$o"'],"multiSelect":false}'
 }

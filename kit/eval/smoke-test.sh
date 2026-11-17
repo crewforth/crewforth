@@ -10582,7 +10582,7 @@ _paq_gate auto 'git commit -m x';                         _paq_is 'the recorded 
 _pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu2; _paq_post auto 'Commit + push' tu2; _paq_is 'commit + push' "$(_paq_rec)" commit+push
 # Claude Code may hand the answered question back with its keys sorted and multiSelect gone: 7 of 7 such answers were
 # refused on a byte match (real `auto` sessions, 2026-10-18). This is that shape, as it was handed back.
-_paq_sorted="{\"header\":\"Approval\",\"options\":[{\"description\":\"Commit exactly what is staged now. No push.\",\"label\":\"Commit only\"},{\"description\":\"Commit what is staged now, then push that commit on this branch.\",\"label\":\"Commit + push\"},{\"description\":\"Push this branch as it is now. No new commit.\",\"label\":\"Push only\"},{\"description\":\"Neither commit nor push.\",\"label\":\"No\"}],\"question\":\"$_paq_text\"}"
+_paq_sorted="{\"header\":\"Approval\",\"options\":[{\"description\":\"Commit what is staged now, then push that commit on this branch.\",\"label\":\"Commit + push\"},{\"description\":\"Commit exactly what is staged now. No push.\",\"label\":\"Commit only\"},{\"description\":\"Push this branch as it is now. No new commit.\",\"label\":\"Push only\"},{\"description\":\"Neither commit nor push.\",\"label\":\"No\"}],\"question\":\"$_paq_text\"}"
 _pa_new; : > "$_pa_rec"; _paq_pre auto "$_paq_canon" '' tu10; _paq_post auto 'Commit + push' tu10 "$_paq_sorted"
                                                           _paq_is 'the answered question handed back with its keys sorted' "$(_paq_rec)" commit+push
 # must-fail twins: each differs from the round trip in one thing
