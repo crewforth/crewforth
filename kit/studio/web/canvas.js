@@ -1002,8 +1002,11 @@ export class Canvas {
         q.name = mk('span', 'cv-name');
         c.append(q.order, q.name);
         if (!it.grid) { c.append(mk('span', 'cv-fill')); q.dot = mk('span', 'dot'); c.append(q.dot); }
+        // The model and effort it ran on, as a card says them: a member of a folded group was the only agent drawn
+        // without them, and an agent landed in one as soon as the picture grew (field, 3.6.0-rc.4).
+        q.model = mk('span', 'cv-model');
         q.word = mk('span', 'cv-word');
-        c.append(q.word);
+        c.append(q.model, q.word);
         c.parts = q;
         el.append(c);
         this.cellEls.set(cell.id, c);
@@ -1024,7 +1027,9 @@ export class Canvas {
       const dim = this.dimmed(n);
       const ctag = orderTag(n, it.grid ? null : clock);
       const cshell = shellLine(n.shellNow);
-      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title]);
+      const cmdl = modelOf(n);
+      const cbadge = modelBadge(n);
+      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title, cbadge]);
       if (c.sig === csig) continue;
       c.sig = csig;
       c.dataset.state = st.state;
@@ -1037,6 +1042,10 @@ export class Canvas {
       c.title = [hoverOf(n), [modelOf(n).label, factsOf(n)].filter(Boolean).join(' \u00b7 '), cshell?.title].filter(Boolean).join('\n');
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
+      c.parts.model.textContent = cbadge;
+      c.parts.model.hidden = !cmdl.ran;
+      c.parts.model.title = cmdl.title;
+      c.parts.model.dataset.differs = String(cmdl.differs);
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
     }
   }
