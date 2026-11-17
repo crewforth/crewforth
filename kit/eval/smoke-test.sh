@@ -4809,6 +4809,15 @@ gj auto "sed -i 's/x/y/' .claude/DISCIPLINE.md" | bash "$HOOKS/guard-bash.sh" >/
 gj auto 'rm .claude/DISCIPLINE.md'              | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "rm of DISCIPLINE.md BLOCKED (§4.5)" || fail "rm of the discipline document PASSED (§4.5 hole)"
 gj auto 'echo x > .claude/DISCIPLINE.md'        | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "redirect over DISCIPLINE.md BLOCKED (§4.5)" || fail "redirect over the discipline document PASSED (§4.5 hole)"
 gj auto 'cat .claude/DISCIPLINE.md'             | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1 && pass "READING DISCIPLINE.md is not blocked" || fail "reading the discipline document wrongly blocked"
+# The install's settings (N45): the session start and the reviewer read them; a session changed docs= with sed in the
+# field (rc.4). Writing is refused in both shells' forms the field used; reading stays free.
+_kcb=""
+for _kc in "sed -i '' 's/^docs=private\$/docs=shared/' .claude/kit.conf" "printf docs=shared >> .claude/kit.conf" 'echo x > .claude/kit.conf' 'rm .claude/kit.conf'; do
+  gj auto "$_kc" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1; [ "$?" = 2 ] || _kcb="$_kcb [not refused: $_kc]"
+done
+gj auto 'cat .claude/kit.conf' | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1 || _kcb="$_kcb [reading refused]"
+[ -z "$_kcb" ] && pass "the install's settings (.claude/kit.conf) are refused to a session's shell (sed -i, append, redirect, rm); reading them is free" \
+               || fail "kit.conf protection, shell:$_kcb"
 # Two-step tampering: step one names no gate path at all. `ln -sfn .claude cfg` passed every rule here, and
 # then `echo x > cfg/hooks/guard-bash.sh` is an ordinary-looking redirect that lands on the real gate script.
 # Measured: both steps rc=0 and the file was overwritten. Linking to something INSIDE the tree stays this
@@ -4896,6 +4905,9 @@ wjn '/p/.claude/hooks/guard-bash.sh'       | bash "$HOOKS/guard-write.sh" >/dev/
 wj Edit  '/p/.claude/DISCIPLINE.md'        | bash "$HOOKS/guard-write.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "Edit of DISCIPLINE.md BLOCKED (§4.5)" || fail "the discipline document is writable (§4.5 hole)"
 wj Write '/p/.claude/skills/../DISCIPLINE.md' | bash "$HOOKS/guard-write.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "DISCIPLINE.md via a traversal BLOCKED" || fail "DISCIPLINE.md reachable by traversal (§4.5 hole)"
 wj Write '/p/.claude/DISCIPLINE.md.bak'    | bash "$HOOKS/guard-write.sh" >/dev/null 2>&1 && pass "a file merely PREFIXED DISCIPLINE.md is not the gate file" || fail "DISCIPLINE.md.bak wrongly blocked"
+# ...and the install's settings to the file tools (wj is defined above this line, not before the shell half)
+wj Edit '/p/.claude/kit.conf' | bash "$HOOKS/guard-write.sh" >/dev/null 2>&1; [ "$?" = 2 ] && pass "Edit of .claude/kit.conf BLOCKED" || fail "the install's settings are writable by Edit"
+wj Write '/p/.claude/kit.conf.bak' | bash "$HOOKS/guard-write.sh" >/dev/null 2>&1 && pass "a file merely PREFIXED kit.conf is not the gate file" || fail "kit.conf.bak wrongly blocked"
 # Unparsed payload: exiting 0 unconditionally is what a future field rename turns into a silent bypass. The rule
 # is narrowed to "the raw text names a gate tree" so a rename costs a false block, never a free pass — and a
 # payload that names nothing still passes, which is what keeps a rename from locking the user out of all work.

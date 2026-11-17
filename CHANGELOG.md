@@ -75,6 +75,8 @@ versioning follows [SemVer](https://semver.org/).
 - **The approval question offers "Commit + push" first,** the answer given nearly every time.
 - **`/crew-approve` is an internal fallback,** named by the gate where no question can be asked, and no longer listed.
   With `/crew-profile` the command count is 18.
+- **A session cannot change the install's settings** (`.claude/kit.conf`): its shell and file tools are refused, as for
+  the model rules. A session had rewritten `docs=` itself; the reviewer reads it.
 - **A session is told what its install shares and how strict it is.** The installer records the choice
   (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
   with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,
