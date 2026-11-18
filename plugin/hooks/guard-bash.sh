@@ -1257,6 +1257,11 @@ _rm_temp_only(){
     case "$first" in
       [A-Za-z_]*=*) if [ "${#W[@]}" = 1 ]; then n="${first%%=*}"; v="${first#*=}"; v="${v//\"/}"; v="${v//\'/}"
                       assigns="$(_rmt_unset "$assigns" "$n")"
+                      # a value that starts with a name this call already set plainly (`S=/tmp/x; P=$S/perf`, field N51:
+                      # `rm -rf $P/t50000` was refused while the same call's `$S/…` was not)
+                      if [[ $v =~ ^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?(.*)$ ]] && [ "$noassign" = 0 ]; then
+                        case "$assigns" in *" ${BASH_REMATCH[1]}="*) a="${assigns#*" ${BASH_REMATCH[1]}="}"; v="${a%% *}${BASH_REMATCH[2]}" ;; esac
+                      fi
                       case "$v" in *'$'*|*'*'*|*'?'*|*'`'*|'') ;; *) assigns="$assigns$n=$v " ;; esac; fi; continue ;;
       export) continue ;;
       rm) ;;

@@ -4483,6 +4483,9 @@ _pvrun "git reset --hard"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: it would disc
 _pvrun "git reset --hard HEAD~1"; grep -q 'and drop 1 commit(s) from the branch' "$PVE" || _pvb="$_pvb [reset HEAD~1: $(grep Preview "$PVE")]"
 _pvrun "git clean -fd"; { [ "$_pvrc" = 2 ] && grep -q 'lists 2 path(s) it would delete' "$PVE"; } || _pvb="$_pvb [clean: $(grep Preview "$PVE")]"
 _pvrun "rm -rf out/"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: out/: 2 file(s)' "$PVE"; } || _pvb="$_pvb [rm inside: $(grep Preview "$PVE")]"
+# after a leading `cd DIR &&` a relative target is DIR's (field N51: "android/…/com: not there" for a folder that was)
+_pvrun "cd out && rm -rf sub/"; { [ "$_pvrc" = 2 ] && grep -q 'Preview: sub/: 1 file(s)' "$PVE"; } || _pvb="$_pvb [rm after cd: rc $_pvrc · $(grep Preview "$PVE")]"
+_pvrun "cd out && cd .. && rm -rf sub/"; grep -q 'Preview: sub/: not there' "$PVE" || _pvb="$_pvb [rm after two cds read the first: $(grep Preview "$PVE")]"
 # outside the project and outside a temp directory (a temp target passes the rule since it is not the project)
 _pvrun "rm -rf $HOME/"; { [ "$_pvrc" = 2 ] && grep -q 'outside the project, not counted' "$PVE"; } || _pvb="$_pvb [rm outside: $(grep Preview "$PVE")]"
 # The asked ones: a commit (past §4.6, with the review record) and a push to a remote of its own.
@@ -4507,7 +4510,7 @@ printf 'crew_preview(){ exit 0; }\n' > "$_pvh/eval/lib/preview.sh"; _pvrun "git 
 { [ "$_pvrc" = 2 ] && ! grep -q Preview "$PVE"; } || _pvb="$_pvb [a preview that exits changed the decision: rc $_pvrc]"
 printf 'crew_preview(){ ( \n' > "$_pvh/eval/lib/preview.sh"; _pvrun "rm -rf out/" "$_pvh/hooks"
 [ "$_pvrc" = 2 ] || _pvb="$_pvb [a preview that does not parse changed the decision: rc $_pvrc]"
-[ -z "$_pvb" ] && pass "a stopped command says what it would have touched: reset (2 changes, and 1 commit for HEAD~1), clean (2 paths, dry run), rm (2 files inside the project; a target outside it not counted); an asked commit and push say what they take and send (a push that names a new branch says it would create it, one of another local branch counts that branch's commits); a pattern is said, not expanded; a preview library that exits or does not parse leaves the decision at rc 2" \
+[ -z "$_pvb" ] && pass "a stopped command says what it would have touched: reset (2 changes, and 1 commit for HEAD~1), clean (2 paths, dry run), rm (2 files inside the project, a relative target after a leading cd counted there; a target outside it not counted); an asked commit and push say what they take and send (a push that names a new branch says it would create it, one of another local branch counts that branch's commits); a pattern is said, not expanded; a preview library that exits or does not parse leaves the decision at rc 2" \
   || fail "risk preview:$_pvb"
 rm -rf "$PVR" "$PVX" "$_pvh"; rm -f "$PVO" "$PVE"
 # §4.5 whole-tree revert. `reset --hard` was gated from the start; `git checkout -- .` does the same damage and
@@ -8952,6 +8955,12 @@ done <<'RMT'
 2|S=@T@/x; rm -rf $S/sub; bash -c 'rm -rf /etc/crew-nope'
 2|S=@T@/x; rm -rf $S/sub; echo `rm -rf /etc/crew-nope`
 2|S=@T@/x; rm -rf $S/sub; echo $(rm -rf /etc/crew-nope)
+0|S=@T@; P=$S/x; rm -rf $P/sub
+0|S=@T@; P=${S}/x; rm -rf $S/x/sub && cp -R /etc/hosts $S/after; rm -rf $P/sub
+2|P=$CREW_UNSET_S/x; rm -rf $P/sub
+2|S=/etc; P=$S/crew; rm -rf $P/nope
+2|S=@T@; P=$S/../..; rm -rf $P/etc/crew-nope
+2|S=@T@; P=$S; S=/etc; rm -rf $S/crew-nope
 RMT
 # a link to the home: the link itself may go, its target may not (a trailing / or a glob follows it)
 ln -s "$HOME" "$_rmtd/home" 2>/dev/null
@@ -8963,7 +8972,7 @@ if [ -L "$_rmtd/home" ]; then
 else skip platform "a recursive rm through a symbolic link (ln -s made no link here)" 3; fi
 [ -d "$_rmtd/x/sub" ] || _rmtb="$_rmtb FIXTURE:the-hook-removed-something"
 if [ "$_rmtn" -lt 26 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 26"
-elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call, an rm inside quotes, backticks or $( ) and a link followed through / or a glob stay refused; a here-document, loop, export or substitution AFTER the last rm does not stop a name set before it from being read (field N32) ($_rmtn rows)"
+elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call, an rm inside quotes, backticks or $( ) and a link followed through / or a glob stay refused; a here-document, loop, export or substitution AFTER the last rm does not stop a name set before it from being read (field N32); a name set from one set plainly before it is read too (`S=<tmp>; P=$S/x`, field N51) ($_rmtn rows)"
 else fail "recursive rm and temp directories:$_rmtb"; fi
 # A BARE NAME AS THE TARGET (N37): `S=/Users/me; rm -rf $S` carried none of / * ~ and passed. Refused unless the call
 # sets the name to a fresh mktemp, a plain relative name, or a path inside a temp root; a here-document body is text.
