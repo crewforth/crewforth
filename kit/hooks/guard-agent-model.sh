@@ -442,20 +442,39 @@ _am_prose(){  # $1 = a path or a glob -> 0 when it is prose a person reads (the 
   case "$1" in *.md|*.MD|*.markdown|*.txt|*.TXT|*.rst|*.adoc) return 0 ;; esac
   return 1
 }
+# What the card lacks, said with the line it stopped at (field, Tur 11: three cards with no files: line were told
+# "line 3 is not one of …", which names the line after the card, not the one missing from it).
+_am_card_missing(){  # $1 = the fields seen so far (" files  change ") -> _AMCM: ", and the card has no files: line" or ""
+  local k m=""
+  for k in files change verify; do case "$1" in *" $k "*) ;; *) m="${m:+$m, }$k:" ;; esac; done
+  _AMCM=""; [ -z "$m" ] || _AMCM=", and the card has no $m line"
+}
 # The files of a card without what is written in parentheses: `files: staged diff (branch docs/widget-privacy-texts)`
 # read the branch name as a path and `privacy` as a critical one, and `files: legal/x.md (only if needed)` read `(only`,
 # `if`, `needed)` as three files that are not prose (measured in the field on rc.4: 2 of 6 critical-path refusals, and
 # a legal note raised to opus). A note in parentheses is a note; a path is written outside them.
-_am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an unclosed ( dropping the rest
-  local x="$1" re='\([^()]*\)'
-  while [[ $x =~ $re ]]; do x="${x/"${BASH_REMATCH[0]}"/ }"; done
+# ...but a PATH in parentheses is still a path (field, Tur 11: `files: staged diff (29 files: src/x/**, src/store/**,
+# migrations 0063, …)` hid every path of a migration review, and opus asked for it was lowered to sonnet). _AMPP holds
+# the words in parentheses that can only be paths: a glob, or a file name with an extension. A branch name
+# (`docs/widget-privacy-texts`) and a note (`only if needed`) are neither. Read where it raises, never where it lowers.
+_am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an unclosed ( dropping the rest; _AMPP as above
+  local x="$1" re='\([^()]*\)' in="" w og=0
+  while [[ $x =~ $re ]]; do in="$in ${BASH_REMATCH[0]}"; x="${x/"${BASH_REMATCH[0]}"/ }"; done
   _AMUP="${x%%(*}"
+  case "$x" in *'('*) in="$in ${x#*(}" ;; esac
+  _AMPP=""; in="${in//[(),;:]/ }"
+  case "$-" in *f*) og=1 ;; *) set -f ;; esac
+  for w in $in; do
+    case "$w" in *[\*?[]*) ;; */*.[A-Za-z0-9]*|[A-Za-z0-9_]*.[A-Za-z0-9]*) case "${w##*.}" in *[!A-Za-z0-9]*|?????????*) continue ;; esac ;; *) continue ;; esac
+    _AMPP="${_AMPP:+$_AMPP }$w"
+  done
+  [ "$og" = 1 ] || set +f
 }
 _am_card_glob(){  # after _am_card -> 0 when a file of the card is a glob (*, ? or [): what it reaches is known only at write time
   local f r=1 unglob=0
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
   _am_unparen "$CARD_FILES"
-  for f in ${_AMUP//,/ }; do case "$f" in *[\*?[]*) r=0; break ;; esac; done
+  for f in ${_AMUP//,/ } $_AMPP; do case "$f" in *[\*?[]*) r=0; break ;; esac; done
   [ "$unglob" = 1 ] && set +f
   return "$r"
 }
@@ -521,7 +540,7 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
       case "$k" in [Cc][Aa][Rr][Dd]|[Kk][Aa][Rr][Tt]|[Tt][Aa][Ss][Kk][' -'][Cc][Aa][Rr][Dd]) continue ;; esac
     fi
     ln=$((ln+1))
-    case "$l" in *:*) ;; *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;; esac
+    case "$l" in *:*) ;; *) _am_card_missing "$seen"; CARD_WHY="line $ln of the task is not one of files:, change:, verify:$_AMCM"; return 1 ;; esac
     k="${l%%:*}"; v="${l#*:}"
     while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done
     while :; do case "$v" in *[$' \t']) v="${v%?}" ;; *) break ;; esac; done
@@ -532,7 +551,7 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
       files)  CARD_FILES="$v" ;;
       change) CARD_CHANGE="$v" ;;
       verify) CARD_VERIFY="$v" ;;
-      *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;;
+      *) _am_card_missing "$seen"; CARD_WHY="line $ln of the task is not one of files:, change:, verify:$_AMCM"; return 1 ;;
     esac
     n=$((n+1))
     case "$seen" in *" $k "*) CARD_WHY="the card names $k twice"; return 1 ;; esac
@@ -611,7 +630,7 @@ _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
   case " migration security architecture fix-unknown " in *" $CARD_CHANGE "*) CARD_RISK=critical; CARD_RISKWHY="change: $CARD_CHANGE" ;; esac
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
   _am_unparen "$CARD_FILES"
-  for f in ${_AMUP//,/ }; do
+  for f in ${_AMUP//,/ } $_AMPP; do
     if _am_crit_path "$f"; then CARD_RISK=critical; [ -n "$CARD_RISKWHY" ] || CARD_RISKWHY="$f is on a critical path: $_AMW"; fi
   done
   [ "$unglob" = 1 ] && set +f
@@ -765,7 +784,7 @@ _AM_HERE="${BASH_SOURCE//\\//}"; _AM_HERE="${_AM_HERE%/*}"; [ "$_AM_HERE" = "${B
 [ -f "$_AM_HERE/../eval/lib/gate-log.sh" ] && . "$_AM_HERE/../eval/lib/gate-log.sh"   # where the gate log goes
 # CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
 _AM_RUNNERS=('npm test' 'npm t' 'pnpm test' 'yarn test' 'bun test' 'deno test'
-  'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
+  'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'flutter build' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
   'cargo test' 'cargo build' 'cargo check' 'cargo clippy' 'pytest' 'python -m pytest' 'python3 -m pytest'
   'python -m unittest' 'python3 -m unittest' 'mvn test' 'mvn verify' './mvnw test' './mvnw verify' 'gradle test'
   'gradle check' 'gradle build' './gradlew test' './gradlew check' './gradlew build' 'make test' 'make check'

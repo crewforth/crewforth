@@ -11654,6 +11654,18 @@ _v2call crew-commit-agent haiku 'staged diff (branch docs/widget-privacy-texts)'
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*deny*|2\|*) _v2b="$_v2b [a branch name in parentheses was read as a critical path: rc=$_v2rc]" ;; esac
 _v2call crew-docs-agent sonnet 'legal/privacy.md (only if needed)' text none
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*deny*|2\|*) _v2b="$_v2b [a prose file with a note in parentheses lost the text exception: rc=$_v2rc]" ;; esac
+# ...but a PATH in parentheses is a path (field, Tur 11): a glob there keeps opus, and a file there is judged for risk.
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent opus "staged diff (29 files: src/x/**, src/store/**, migrations 0063, .env.example)" audit none
+case "$(cat "$_v2/out" 2>/dev/null)" in *'"updatedInput":'*'"model":'*'"sonnet"'*) _v2b="$_v2b [a glob in parentheses did not keep opus: rc=$_v2rc]" ;; esac
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+_v2call crew-review-agent sonnet 'staged diff (db/migrations/0063_add.sql)' audit none
+[ "$_v2rc" = 2 ] || _v2b="$_v2b [a .sql file in parentheses was not a critical path: rc=$_v2rc]"
+# A card with no files: line is told which line it lacks, not only the line after it (field, Tur 11: "line 3 is not one of").
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"change: audit\\nverify: none\\nReview it.","subagent_type":"crew-review-agent","model":"sonnet"},"tool_use_id":"tunf"}' > "$_v2/c.json"
+( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >"$_v2/out" 2>"$_v2/err" ); _v2rc=$?
+case "$_v2rc|$(cat "$_v2/err" "$_v2/out" 2>/dev/null)" in 2\|*'the card has no files: line'*) ;; *) _v2b="$_v2b [a card with no files: was not told it lacks files:: rc=$_v2rc $(head -c 120 "$_v2/err")]" ;; esac
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2call crew-review-agent sonnet 'src/ui/a.ts' audit 'none. main checkout, nothing to run'
 grep -q '^verify=none$' "$(_v2last)" 2>/dev/null || _v2b="$_v2b [none. followed by prose was not none: $(grep '^verify=' "$(_v2last)" 2>/dev/null)]"
