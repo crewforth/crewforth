@@ -11352,7 +11352,9 @@ _omctx(){  # stdin = the hook's JSON -> its additionalContext, decoded; rc 2 = n
   case "$JSONQ" in
     jq) jq -j '.hookSpecificOutput.additionalContext' ;;
     "") return 2 ;;
-    *)  "$JSONQ" -c 'import sys,json;sys.stdout.write(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])' ;;
+    # bytes in and out: python on Windows reads stdin as cp1252 and writes \n as \r\n (windows-latest read the text with
+    # a CR before every line break, a fault of this reader and not of the hook: measured, ci.yml on next, 2026-11-17)
+    *)  "$JSONQ" -c 'import sys,json;sys.stdout.buffer.write(json.loads(sys.stdin.buffer.read())["hookSpecificOutput"]["additionalContext"].encode("utf-8"))' ;;
   esac
 }
 _omb=""
