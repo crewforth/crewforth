@@ -2675,6 +2675,15 @@ check('prose without a notice yields nothing', none.size === 0);
     /projectLine\(p\.allTime\)/.test(appJs) && /\/api\/project-usage\?project=/.test(appJs) && /canvas\.setProject\(key, /.test(appJs)
     && /PROJECT_USAGE\.note\(/.test(idxJs) && /p\.allTime = PROJECT_USAGE\.short\(p\.key\)/.test(idxJs)
     && /listProjects\(\{[^}]*groups \}\)/.test(idxJs));
+  // Open on project A, a session of project B on the canvas: the box shows B's total, or shuts — never A's on B's
+  // canvas (field, 2026-11-18). It follows, it does not open itself, and it leaves the view alone.
+  const sel = appJs.slice(appJs.indexOf('function selectSession('), appJs.indexOf('function selectSession(') + 2000);
+  const fol = appJs.slice(appJs.indexOf('function followProjectTotal('), appJs.indexOf('function followProjectTotal(') + 400);
+  check('the project box follows the session on the canvas: another project\'s session shows that project\'s total or shuts the box, it does not open a closed box, and it does not change the view',
+    /followProjectTotal\(home\?\.project \?\? null\)/.test(sel)
+    && /if \(!canvas\.projectKey \|\| canvas\.projectKey === project\?\.key\) return;/.test(fol)
+    && /openProjectTotal\(project\.key, \{ follow: true \}\)/.test(fol) && /canvas\.setProject\(null, \[\]\)/.test(fol)
+    && /if \(!follow && view !== 'graph'\) setView\('graph'\);/.test(appJs));
 }
 
 /* -- a project's install settings (DECISIONS 2026-11-17, N45) ------------------------------------------------------

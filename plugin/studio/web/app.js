@@ -2020,14 +2020,20 @@ async function openProjectSettings(p) {
   paint(last);
 }
 
-async function openProjectTotal(key) {
+async function openProjectTotal(key, { follow = false } = {}) {
   clearTimeout(projectTotalTimer);
-  if (view !== 'graph') setView('graph');
+  if (!follow && view !== 'graph') setView('graph');
   let got;
   try { got = await getJson(`/api/project-usage?project=${encodeURIComponent(key)}`); } catch { return; }
   const rows = projectRows(got);
   canvas.setProject(key, rows.length ? rows : [{ label: t('Still reading'), value: t('{n} sessions', { n: got.pending ?? 0 }), note: t('Read one at a time, behind the panel; the totals below grow until it is done') }]);
   if (got.pending || got.computing) projectTotalTimer = setTimeout(() => { if (canvas.projectKey === key) openProjectTotal(key); }, 3000);
+}
+
+function followProjectTotal(project) {
+  if (!canvas.projectKey || canvas.projectKey === project?.key) return;
+  if (project && project.local !== false) openProjectTotal(project.key, { follow: true });
+  else { clearTimeout(projectTotalTimer); canvas.setProject(null, []); }
 }
 
 function paintProjects() {
@@ -2714,6 +2720,9 @@ function selectSession(sessionId) {
   // says "you are here" has to be on screen.
   const home = findSessionRow(sessionId);
   if (home && !expanded.has(home.project.key)) { expanded.add(home.project.key); paintProjects(); }
+  // The project box shows the project of the session on the canvas: open on A's total, a session of B shows B's, or
+  // shuts where B has no total here (it showed A's total on B's canvas). It does not open itself, nor change the view.
+  followProjectTotal(home?.project ?? null);
   for (const r of document.querySelectorAll('.srow[data-id]')) {
     r.setAttribute('aria-current', String(r.dataset.id === sessionId));
   }
