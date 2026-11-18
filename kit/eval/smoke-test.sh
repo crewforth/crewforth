@@ -3599,7 +3599,8 @@ _fb_miss=""; _fb_n=0
 for c in 'git branch -D x' 'git branch -d -f x' 'git branch --delete --force x' 'git branch -Df x' \
          'git branch -f x HEAD~3' 'git branch --force x HEAD~3' 'git branch -M old new' 'git branch -C old new' \
          'git -C repo branch -D x' 'git branch --force --delete x' 'git branch --force -d x' 'git branch -qD x' \
-         'git branch -Dq x' 'git branch --force --move a b' 'git branch --copy --force a b'; do
+         'git branch -Dq x' 'git branch --force --move a b' 'git branch --copy --force a b' \
+         'echo $(git branch -D x)' 'echo `git branch -D x`' 'git branch -D $(echo x)'; do
   _fb_n=$((_fb_n+1)); gj auto "$c" | CLAUDE_GIT_OK=1 bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1
   [ "$?" = 2 ] || _fb_miss="$_fb_miss [$c]"
 done
@@ -3608,7 +3609,8 @@ done
 _fb_over=""; _fb_n=0
 for c in 'git branch' 'git branch -a' 'git branch --list feat' 'git branch feature' 'git branch -c old new' \
          'git branch -m old new' 'git branch -d x' 'git branch -vv' 'git branch --sort=-committerdate' \
-         'git branch -u origin/feature' 'git branch x && rm -f y' 'git branch --contains HEAD' 'git branch -r' 'git branch -v'; do
+         'git branch -u origin/feature' 'git branch x && rm -f y' 'git branch --contains HEAD' 'git branch -r' 'git branch -v' \
+         'git branch -r --contains $(git -C w rev-parse HEAD)' 'git branch --contains `git -C w rev-parse HEAD`'; do
   _fb_n=$((_fb_n+1)); gj default "$c" | bash "$HOOKS/guard-bash.sh" >/dev/null 2>&1
   [ "$?" = 2 ] && _fb_over="$_fb_over [$c]"
 done
@@ -3908,6 +3910,27 @@ for _pair in \
       || fail "§4.6 shape: '$_cmd' wrongly blocked (out=$o)"
   fi
 done
+# WHERE THE COMMIT RUNS (field, Tur 11): `git -C <this repository> commit` was refused every time, and from a shell
+# outside any repository (a notes folder) `cd <project> && git commit` was refused as "not the repository this session
+# is in". One plain -C is resolved like a cd; a shell in no repository takes the project's (CLAUDE_PROJECT_DIR), and
+# the record is read where the commit runs. Another repository, two -C, --git-dir, a quoted or missing target, and a
+# shell sitting in ANOTHER repository stay refused.
+_c46o="$(mktemp -d)"; _c46n="$(mktemp -d)"; _c46n="$(cd -P "$_c46n" && pwd)"
+( cd "$_c46o" && git init -q . && git config user.email t@example.com && git config user.name t && echo z > z && git add z && git commit -qm z ) >/dev/null 2>&1
+_r46p(){ gj46cwd "$1" default "$3" | ( cd "$1" && CLAUDE_PROJECT_DIR="$2" bash "$HOOKS/guard-bash.sh" 2>/dev/null ); echo " rc=$?"; }
+_c46b=""
+for _cc in "ask|$R46|$R46|git -C $R46 commit -m c" "ask|$R46|$R46|git -C sub commit -m c" "BLOCK|$R46|$R46|git -C $_c46o commit -m c" \
+           "BLOCK|$R46|$R46|git -C $R46 -C sub commit -m c" "BLOCK|$R46|$R46|git --git-dir=$R46/.git commit -m c" \
+           "BLOCK|$R46|$R46|git -C \\\"$R46\\\" commit -m c" "BLOCK|$R46|$R46|git -C /nonexistent-crew commit -m c" \
+           "ask|$_c46n|$R46|cd $R46 && git commit -m c" "ask|$_c46n|$R46|git -C $R46 commit -m c" "BLOCK|$_c46n|$R46|cd $_c46o && git commit -m c" \
+           "BLOCK|$_c46n||cd $R46 && git commit -m c" "BLOCK|$_c46o|$R46|cd $R46 && git commit -m c"; do
+  _ce="${_cc%%|*}"; _cr="${_cc#*|}"; _cw="${_cr%%|*}"; _cr="${_cr#*|}"; _cp="${_cr%%|*}"; _cx="${_cr#*|}"
+  _co="$(_r46p "$_cw" "$_cp" "$_cx")"
+  case "$_ce|$_co" in ask\|*'"ask"'*' rc=0') ;; BLOCK\|*' rc=2') ;; *) _c46b="$_c46b [$_ce: $_cx (shell ${_cw##*/}, project ${_cp##*/}) →${_co##* }]" ;; esac
+done
+rm -rf "$_c46o" "$_c46n"
+[ -z "$_c46b" ] && pass "§4.6 where the commit runs: one plain -C into this repository is read like a cd, and from a shell in no repository a cd or -C into the project commits there with the record read there; another repository, two -C, --git-dir, a quoted or missing target, no project, and a shell in another repository stay refused" \
+                || fail "§4.6 where the commit runs:$_c46b"
 # TEXT-MODE LINE ENDINGS — the dimension this suite never asked about, and CI was the only machine that could
 # answer it. A commit was refused on `windows-latest` while the same case passed on macOS and on a real Windows
 # desktop. The cause was the TIER: GitHub's image has jq, so the command arrived DECODED, and a Windows-native
@@ -7193,6 +7216,30 @@ if [ -x "$HOOKS/guard-commit-scan.sh" ]; then
 
 $TRFX\""; then pass "multi-line AI trace in the commit message BLOCKED (§4.1)"
   else fail "multi-line AI trace in the message not blocked with rc=2 (§4.1 hole or the hook died)"; fi
+  # `-F -` reads standard input (field, Tur 11: `git commit -F - <<EOF` was refused as "could not be parsed").
+  # A here-document on the commit's own line IS the message: a clean one passes, one with a trace is refused
+  # (`<<-` with tabs too); input from anything else cannot be read and stays refused, saying so.
+  _hdb=""
+  csrun "git commit -F - <<'EOF'
+feat: add b
+
+Body line.
+EOF" || _hdb="$_hdb [a clean here-document message was refused]"
+  csblk "git commit -F - <<'EOF'
+feat: x
+
+$TRFX
+EOF" || _hdb="$_hdb [a trace in the here-document message was not refused]"
+  csblk "git commit -F - <<-EOF
+	feat: x
+
+	$TRFX
+	EOF" || _hdb="$_hdb [a trace in a <<- here-document was not refused]"
+  csblk 'printf "feat: x" | git commit -F -' || _hdb="$_hdb [-F - from a pipe was not refused]"
+  _hde="$( cd "$CS" && printf '%s' "$(csj 'printf "x" | git commit -F -')" | bash .claude/hooks/guard-commit-scan.sh 2>&1 >/dev/null )"
+  case "$_hde" in *'standard input'*) ;; *) _hdb="$_hdb [the refusal does not say the message comes from standard input: ${_hde:0:90}]" ;; esac
+  [ -z "$_hdb" ] && pass "§4.1: -F - with a here-document on the commit's line scans that body (clean passes, a trace in << or <<- is refused); input from elsewhere is refused and says it is standard input" \
+                 || fail "§4.1 -F - here-document:$_hdb"
   # `git commit -a` stages at commit time: ahead of the commit the content is still unstaged, so a --cached-only
   # scan would wave it through. This is the gap the git-hook path never had.
   # Assembled at RUN time, never written here as one literal. This file ships as .claude/eval/smoke-test.sh, the

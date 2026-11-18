@@ -118,6 +118,8 @@ _crew_preview(){
       t="${t%%[;&|]*}"; t="${t%%$'\n'*}"; t="${t//\"/}"; t="${t//\'/}"
       for w in $t; do
         case "$w" in -*|'') continue ;; [0-9]'>'*|'>'*|'<'*|'&>'*) continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
+        # `find … -exec rm -rf {} +`: `{}` stands for each file find names, `+` and `;` end the -exec (field, Tur 11)
+        case "$w" in '{}') out="${out:+$out; }{}: each file find names, not counted"; continue ;; '+'|'\;'|';') continue ;; esac
         # A drive-letter path (D:/x, as Git Bash passes it) is absolute too: measured on Windows, it read as relative
         # and the line said "not there" for a folder that was.
         one="$w"; case "$one" in /*|[A-Za-z]:[/\\]*) ;; *) one="$base/$one" ;; esac
