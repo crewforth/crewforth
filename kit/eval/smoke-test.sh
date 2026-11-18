@@ -11350,9 +11350,12 @@ printf 'tab\there · çğış\001end\n' >> "$_omd/CLAUDE.md"
 _omstart(){ ( cd "$1" && printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"%s","agent_type":"%s"}' "$2" "$3" | CLAUDE_PROJECT_DIR="$1" HOME="$1" bash "$HOOKS/agent-outcome.sh" 2>/dev/null ); }
 _omctx(){  # stdin = the hook's JSON -> its additionalContext, decoded; rc 2 = no JSON reader on this machine
   case "$JSONQ" in
-    jq) jq -j '.hookSpecificOutput.additionalContext' ;;
+    jq) jq -b -j '.hookSpecificOutput.additionalContext' ;;   # -b: jq.exe writes \n as \r\n otherwise (jq's manual)
     "") return 2 ;;
-    *)  "$JSONQ" -c 'import sys,json;sys.stdout.write(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])' ;;
+    # bytes in and out: python on Windows reads stdin as cp1252 and writes \n as \r\n (windows-latest read the text with
+    # a CR before every line break, a fault of this reader and not of the hook: measured, ci.yml on next, 2026-11-17;
+    # the installed-project legs, which use the real jq, failed the same way until jq was given -b)
+    *)  "$JSONQ" -c 'import sys,json;sys.stdout.buffer.write(json.loads(sys.stdin.buffer.read())["hookSpecificOutput"]["additionalContext"].encode("utf-8"))' ;;
   esac
 }
 _omb=""
