@@ -11454,7 +11454,7 @@ _v2e(){ env -u CREW_MODEL_ROUTING -u CREW_ALLOW_FABLE -u CLAUDE_CODE_EFFORT_LEVE
 _v2call(){ printf '{"session_id":"s","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"d","prompt":"files: %s\\nchange: %s\\nverify: %s\\n\\nDo the work.","subagent_type":"%s","model":"%s"%s},"tool_use_id":"tu%s"}' "$3" "$4" "$5" "$1" "$2" "${6:-}" "$RANDOM$RANDOM" > "$_v2/c.json"
   ( cd "$_v2p" && _v2e bash "$_V2G" < "$_v2/c.json" >"$_v2/out" 2>"$_v2/err" ); _v2rc=$?; }
 _v2start(){ printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"%s","agent_type":"%s"}' "$1" "${2:-crew-backend-expert}" | ( cd "$_v2p" && _v2e bash "$_V2O" >/dev/null 2>&1 ); }
-_v2stop(){ printf '{"session_id":"s","permission_mode":"%s","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/none.jsonl","last_assistant_message":"did it\\n%s"}' "${_V2PM:-auto}" "$1" "$_v2" "${2:-confidence: high}" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
+_v2stop(){ printf '{"session_id":"s","permission_mode":"%s","hook_event_name":"SubagentStop","agent_id":"%s","agent_type":"x","stop_hook_active":false,"agent_transcript_path":"%s/none.jsonl","last_assistant_message":"did it\\n%s"}' "${_V2PM:-auto}" "$1" "$_v2" "${2:-confidence: high}" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>"${_V2ERR:-/dev/null}" ); }
 _v2post(){ printf '{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"prompt":"p"},"tool_response":{"status":"completed","agentId":"%s","content":"x"}}' "$1" | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ); }
 _v2row(){ awk -F'\t' -v a="$1" '$2 == a { print $7 "/" $8 "/" $9 "/" $10 "/" $12 }' "$_v2p/.claude/state/model-outcomes.tsv" 2>/dev/null; }
 # $1 = a file, $2 = extra payload fields (an agent's) -> rc of guard-write.sh
@@ -12188,7 +12188,9 @@ for _way in jobcontrol setsid; do
   if [ "$_way" = setsid ] && ! command -v setsid >/dev/null 2>&1; then continue; fi
   _v2ways="$_v2ways $_way"; rm -f "$_v2p/child.pid" "$_v2p/.claude/state/verify-slow"; _v2plant "t-$_way" './slow.sh'   # remembered, it would not run again
   _te="CREW_VERIFY_TIMEOUT=2"; [ "$_way" = jobcontrol ] && _te="$_te CREW_VERIFY_NO_SETSID=1"
-  _t0=$SECONDS; _o="$(_V2ENV="$_te" _v2stop "t-$_way")"; _t1=$((SECONDS - _t0))
+  _t0=$SECONDS; _o="$(_V2ERR="$_v2/err-$_way" _V2ENV="$_te" _v2stop "t-$_way")"; _t1=$((SECONDS - _t0))
+  # Job control reports the stopped job on the hook's stderr, and Claude Code shows it (field, rc.5: "Terminated: 15")
+  grep -q 'Terminated' "$_v2/err-$_way" 2>/dev/null && _v2b="$_v2b [$_way: the stopped job was reported on the hook's stderr: $(grep -m1 Terminated "$_v2/err-$_way" | head -c 80)]"
   [ "$(_v2res "t-$_way")" = timeout ] || _v2b="$_v2b [$_way: result $(_v2res "t-$_way")]"
   [ -z "$_o" ] || _v2b="$_v2b $_way:kept-the-agent-running"
   [ "$_t1" -le 20 ] || _v2b="$_v2b [$_way: took ${_t1}s]"
@@ -12516,7 +12518,11 @@ _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/.claude
 _v2plantr ra1 crew-security-expert; _v2stopr ra1 'src/a.ts:3 · low · naming\nconfidence: high'
 _v2plantr ra2 crew-backend-expert; _v2stopr ra2 'Fixed it.\nconfidence: high'
 _v2plantr ra3 crew-review-agent; _v2stopr ra3 'src/a.ts:9 · high · bug: a null path\nreview: blocked\nconfidence: high'
-case "$(tr '\n' '|' < "$_rl" 2>/dev/null)" in 'crew-security-expert NONE lo|crew-backend-expert NONE lo|crew-review-agent NONE hi|') ;; *) _v2b="$_v2b [the stop hook's ledger: $(tr '\n' '|' < "$_rl" 2>/dev/null)]" ;; esac
+# a report in Turkish names its severity in Turkish (field, rc.4: "YÜKSEK" was written lo)
+_v2plantr ra4 crew-security-expert; _v2stopr ra4 'src/a.ts:3 · YÜKSEK · açık\nconfidence: high'
+_v2plantr ra5 crew-performance-expert; _v2stopr ra5 'src/a.ts:4 · kritik · yavaş sorgu\nconfidence: high'
+_v2plantr ra6 crew-security-expert; _v2stopr ra6 'src/a.ts:5 · düşük · ad\nconfidence: high'
+case "$(tr '\n' '|' < "$_rl" 2>/dev/null)" in 'crew-security-expert NONE lo|crew-backend-expert NONE lo|crew-review-agent NONE hi|crew-security-expert NONE hi|crew-performance-expert NONE hi|crew-security-expert NONE lo|') ;; *) _v2b="$_v2b [the stop hook's ledger: $(tr '\n' '|' < "$_rl" 2>/dev/null)]" ;; esac
 _rnote='already audited this work'
 _rcase(){ printf "$2" > "$_rl"; _v2call "$1" sonnet 'src/ui/a.ts' audit none; _ro="$(cat "$_v2/out" 2>/dev/null)"
   [ "$_v2rc" = 0 ] || { _v2b="$_v2b [$4: the call was refused rc=$_v2rc]"; return; }
@@ -12901,7 +12907,8 @@ for _pp in standard strict; do
 done
 grep -q 'strict profile' "$_v2/err" 2>/dev/null || _v2b="$_v2b [the strict refusal does not say why: $(head -c 80 "$_v2/err")]"
 # light: guard-bash lets a commit and a work-branch push through once the review record matches; main and the
-# forms it cannot read go to the question; plan never lets it through; standard asks (the twin)
+# forms it cannot read go to the question; plan never lets it through; standard asks (the twin). A redirection
+# (`2>&1 | tail -3`, field rc.5) is no third word: its `&` cut the push short and left `2>` behind, and the push was asked
 _LP="$(mktemp -d)"
 ( cd "$_LP" && git init -q -b feat . && git config user.email t@example.com && git config user.name t && git remote add origin https://example.invalid/r.git \
   && echo a > a && git add a && git commit -qm i && git tag v1 && git branch side && git branch main && git branch master && echo b >> a && git add a && mkdir -p .claude \
@@ -12911,7 +12918,9 @@ _lpq(){ printf '{"session_id":"s","cwd":"%s","permission_mode":"%s","tool_name":
 printf 'profile light\n' > "$_LP/.claude/crew-model-rules"
 for _c in 'auto|git commit -m x|y' 'default|git commit -m x|y' 'auto|git push|y' 'auto|git push -u origin feat|y' 'auto|git commit -m x && git push origin feat|y' \
           'auto|git push origin main|n' 'auto|git push origin HEAD:master|n' 'auto|git push --tags|n' 'auto|git push origin feat:other|n' 'plan|git commit -m x|n' 'bypassPermissions|git push|n' \
-          'auto|git push origin v1|n' 'auto|git push origin nosuch|n' 'auto|git push origin side|y'; do
+          'auto|git push origin v1|n' 'auto|git push origin nosuch|n' 'auto|git push origin side|y' \
+          'auto|git push origin feat 2>&1 | tail -3|y' 'auto|git push 2>&1|y' 'auto|git push origin feat >/dev/null 2>&1|y' 'auto|git push origin feat 2> e.txt|y' \
+          'auto|git push origin feat &> e.txt|y' 'auto|git push origin main 2>&1 | tail -3|n' 'auto|git push origin feat 2>&1 main|n'; do
   _m="${_c%%|*}"; _r="${_c#*|}"; _cmd="${_r%|*}"; _y="${_r##*|}"; _o="$(_lpq "$_m" "$_cmd")"
   case "$_y|$_o" in y\|*'light profile'*) ;; n\|*'light profile'*) _v2b="$_v2b [light let '$_cmd' ($_m) through]" ;; n\|*) ;; *) _v2b="$_v2b [light asked about '$_cmd' ($_m): ${_o:0:60}]" ;; esac
 done

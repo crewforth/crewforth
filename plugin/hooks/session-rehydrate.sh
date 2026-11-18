@@ -140,7 +140,7 @@ if [ -n "$_vis$_docs" ]; then
   fi
 fi
 case "$_prof" in
-  light) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile light: once every gate is clean, a commit and a push to a branch that is not main, master, origin's default or the CLAUDE.md Base branch go through without a question, so do not ask the user for them yourself; the gate asks when it must. A push to such a branch and a tag are still asked." ;;
+  light) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile light: once every gate is clean, a commit and a push to a branch that is not main, master, origin's default or the CLAUDE.md Base branch go through without a question, so do not ask the user for them yourself; the gate asks when it must. A push to one of those named branches and a push of a tag are still asked." ;;
   strict) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile strict: a verify that runs the whole suite, an auditor called again on the same work and a model above the card's floor with no above: line are refused." ;;
 esac
 [ -n "$INSTMSG" ] && MSG="${MSG:+$MSG }$INSTMSG"
