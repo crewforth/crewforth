@@ -173,6 +173,28 @@ _ao_cut(){  # $1 = text, $2 = bytes -> _AOC: at most that many bytes, never endi
 
 # What the session is told about a finished agent, from its result file: _AOT, or 1 when there is nothing to tell (a
 # pass with no low confidence). One text, said in PostToolUse for a foreground call and at Stop for a background one.
+# A SIBLING EDITING THE SAME FOLDER (field N55, Tur 9; DECISIONS 2026-11-18): two crew agents in one folder, one
+# half-way through an edit, and the other's verify failed on it (in the field: 240/240 and 712/712 when run again, and
+# a question opened for the user). 0 and _AOSIB (its type and id) when another crew agent, not in a worktree of its
+# own and not judged yet, was WORKING while this one's verify ran: its own transcript, beside this agent's, was written
+# after the verify began. A record alone is not enough: an agent whose session was killed leaves one behind.
+# Read only on a failed verify: one find, off the hot path.
+_ao_sibling(){  # $1 = this agent's id, $2 = its record; uses ATP (this agent's transcript)
+  local f id a="" iso="" mk="$_AMD/tries/$1.vstart" tr
+  _AOSIB=""
+  [ -f "$mk" ] && [ -f "${ATP:-}" ] || return 1
+  _am_rec_get "$2" iso && [ "$_AMV" = worktree ] && return 1
+  for f in $(find "$_AMD/agents" -maxdepth 1 -type f -mmin -180 ! -name '*.*' 2>/dev/null); do
+    id="${f##*/}"
+    [ "$id" = "$1" ] && continue
+    [ -f "$_AMD/results/$id" ] && continue
+    _am_rec_get "$f" iso && [ "$_AMV" = worktree ] && continue
+    tr="${ATP%/*}/agent-$id.jsonl"; [ -f "$tr" ] && [ "$tr" -nt "$mk" ] || continue
+    _am_rec_get "$f" agent && a="$_AMV"
+    case "$a" in crew-*) _AOSIB="$a $id"; return 0 ;; esac
+  done
+  return 1
+}
 _ao_tellmsg(){  # $1 = the result file -> _AOT
   local R="$1" RES CONF TI ESC VCMD EF WN UP ESCL MSG TAILM SKM FX SKT D="${CREW_VERIFY_SLOW_DAYS:-7}"
   case "$D" in ''|*[!0-9]*) D=7 ;; esac
@@ -183,6 +205,11 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
   # Not "check it with the Skill tool": the field answer to that was the session loading the skill after the work was
   # done and writing a checklist (3 of 4 main-thread Skill calls, 3.6.0-rc.3). A review that carries the skill is a check.
   SKT=""; [ -n "$SKM" ] && SKT=" It did not apply the skills its card named ($SKM)$( [ -f "${R%/results/*}/tries/${R##*/}.skills" ] && echo ', even when sent back once' || echo ': it ran in the background and was not sent back'). Loading them yourself now does not change the work; to have the work checked against them, put them on crew-review-agent's card as its skills: line."
+  if [ "$RES" = inconclusive ]; then
+    _am_rec_get "$R" whynot
+    _AOT="Crewforth: the agent's verify command failed ($VCMD), but $_AMV, so the failure says nothing about this work. Nothing is escalated and nothing is asked of the user. When that agent has finished, run the tests this change touches yourself with the Bash tool and judge them.${SKT}"
+    return 0
+  fi
   case "$RES" in fail|blocked|timeout) ;; *) if [ "$CONF" != low ]; then [ -n "$SKT" ] || return 1; _AOT="Crewforth:${SKT}"; return 0; fi ;; esac
   if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then
     # Nothing is known about the work, so nothing is escalated: the session runs the command where a gate sees it.
@@ -548,6 +575,7 @@ case "$EV" in
         # The limit is _am_verify_limit's: CREW_VERIFY_TIMEOUT, else a `verify-timeout` line, else 120; at most 560.
         LIM="$_AMVL"
         VF="$_AMD/tries/$AID.out"
+        : > "$_AMD/tries/$AID.vstart" 2>/dev/null     # when the verify began: a sibling must be seen working after it (N55)
         # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
         # server a test left behind. `setsid` where there is one (CREW_VERIFY_NO_SETSID=1 skips it); otherwise job
         # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
@@ -600,6 +628,9 @@ case "$EV" in
         # Tests written to fail first: red is what the card asked for, not a failure of the work. Recorded as red,
         # never sent back, never escalated, never counted against the model.
         RES=red
+      elif _ao_sibling "$AID" "$REC"; then
+        # Not this agent's failure to fix, nor a model's: nothing is sent back, escalated or counted (N55).
+        RES=inconclusive; WHYNOT="another crew agent ($_AOSIB) was editing files in the same folder while it ran"
       elif [ -f "$_AMD/bg/$AID" ]; then
         # A BACKGROUND agent is not sent back: measured in the field (8 such stops in three projects), an agent that
         # ended with a handback took no turn after the block in 4 of them, and its result, its outcome line and the

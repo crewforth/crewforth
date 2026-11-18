@@ -1102,6 +1102,36 @@ case "$CMD" in *[Nn][Oo]-[Vv][Ee][Rr][Ii]*) : ;; *) false ;; esac               
 git_has "$CMD" 'rebase'                                    && block "git rebase" "4.5" history
 git_has "$CMD" 'filter-branch|filter-repo'                && block "git filter-branch/filter-repo" "4.5" history
 { git_has "$CMD" 'commit' && has '--amend'; }                                              && block "git commit --amend" "4.5" history
+# A FOLDER THIS CALL MAKES ITSELF (field N51, Tur 9): `mkdir -p test/tmp && cat > test/tmp/x_test.dart … ; rm -rf
+# test/tmp` removes only what the same call created, and was refused ("test/tmp: not there"). 0 only when every rm -r
+# target is a plain path (no expansion, pattern, ~ or ..), is not there now, is made by a `mkdir` earlier in the call,
+# and the call moves nothing (no mv anywhere: a moved file would be lost with the folder).
+_rm_own_new(){  # $1 = command -> 0 when it removes only folders it makes
+  local s="$1" seg w k first n=0 made=" " IFS
+  local -a W
+  case "$s" in *'`'*|*'$'*|*'<('*|*'eval '*|*xargs*|*'-exec'*) return 1 ;; esac
+  [[ $s =~ (^|[^A-Za-z0-9_./-])(mv|rsync)([[:space:]]|$) ]] && return 1
+  # a here-document's body is text written to a file, not commands: only the lines before it and after its end are read
+  _gsub "$s" '&&' ';'; s="$_GS"; _gsub "$s" '||' ';'; s="$_GS"; _gsub "$s" '|' ';'; s="$_GS"
+  IFS=$'\n;'
+  for seg in $s; do
+    IFS=$' \t'; read -r -a W <<< "$seg"; IFS=$'\n;'
+    [ "${#W[@]}" -gt 0 ] || continue
+    first="${W[0]}"
+    case "$first" in
+      mkdir) for ((k=1; k<${#W[@]}; k++)); do w="${W[k]}"; case "$w" in -*) ;; *) made="$made${w%/} " ;; esac; done ;;
+      rm)    for ((k=1; k<${#W[@]}; k++)); do w="${W[k]}"
+               case "$w" in -*) continue ;; [0-9]'>'*|'>'*|'2>&1') continue ;; esac
+               case "$w" in *[\*?[~\\]*|/*|*..*|'') return 1 ;; esac
+               [[ $w =~ ^[A-Za-z0-9._/-]+$ ]] || return 1
+               [ -e "${_CWD:-.}/$w" ] && return 1
+               case "$made" in *" ${w%/} "*) n=$((n+1)) ;; *) return 1 ;; esac
+             done ;;
+      *) case "$seg" in *[[:space:]]rm[[:space:]]*) return 1 ;; esac ;;
+    esac
+  done
+  [ "$n" -gt 0 ]
+}
 # §4.5 forced branch surgery. Measured before this rule: in default mode the hook made NO decision for any
 # `git branch` form, and four of them lose work: -D deletes an UNMERGED branch and its own reflog with it, -f
 # moves a branch (`-f x HEAD~3` orphans the commits it pointed past), -M / -C overwrite an existing branch.
@@ -1115,7 +1145,30 @@ git_has "$CMD" 'filter-branch|filter-repo'                && block "git filter-b
 # Known over-block, accepted: `--force` with a harmless verb (`--force --list`) is refused too; nobody needs it.
 # The `case` is a fork-free precondition: without it every git command paid this grep's process.
 case "$CMD" in *branch*) _HAS_BRANCH=1 ;; *) _HAS_BRANCH=0 ;; esac
-[ "$_HAS_BRANCH" = 1 ] && _grep "$CMD" -qE '(^|[^A-Za-z0-9_-])git[[:space:]]+((-[Cc][[:space:]]+[^[:space:];&|]+|--(git-dir|work-tree|namespace|config-env|super-prefix|exec-path)[[:space:]=]+[^[:space:];&|]+|-[^[:space:];&|]+)[[:space:]]+)*branch([[:space:]]+[^[:space:];&|]+)*[[:space:]]+(-[a-zA-Z]*[DMCf][a-zA-Z]*|--force)([[:space:]=]|$)' \
+# A BRANCH ALREADY MERGED (field N53, Tur 9): `git branch -D` on a branch whose every commit is in HEAD loses nothing,
+# as git's own -d knows, and the refusal said it "discards committed work". Taken out only in its plainest shape: the
+# part of the call is `git branch -D <name>…` (optionally -q) and nothing else, and each name is an ancestor of HEAD
+# where the shell stands, not main or master, and not the branch checked out there. Anything else is read by the rule below as before.
+_branch_d_merged(){  # $1 = command -> 0 when every forced branch part deletes only branches merged into HEAD
+  local s="$1" seg w n=0 re='^[[:space:]]*git[[:space:]]+branch[[:space:]]+(-q[[:space:]]+)?-(D|Dq|qD)[[:space:]]+([A-Za-z0-9._/-]+([[:space:]]+[A-Za-z0-9._/-]+)*)[[:space:]]*$'
+  case "$s" in *'`'*|*'$'*|*'<'*|*'>'*) return 1 ;; esac
+  _gsub "$s" $'\n' ';'; s="$_GS"; _gsub "$s" '&&' ';'; s="$_GS"; _gsub "$s" '||' ';'; s="$_GS"; _gsub "$s" '|' ';'; s="$_GS"; _gsub "$s" '&' ';'; s="$_GS"
+  local IFS=';'
+  for seg in $s; do
+    case "$seg" in *branch*) ;; *) continue ;; esac
+    [[ $seg =~ $re ]] || return 1
+    IFS=$' \t'
+    for w in ${BASH_REMATCH[3]}; do
+      case "$w" in -*|main|master) return 1 ;; esac
+      [ "$w" = "$(git -C "${_CWD:-.}" symbolic-ref --short -q HEAD 2>/dev/null)" ] && return 1
+      git -C "${_CWD:-.}" merge-base --is-ancestor "refs/heads/$w" HEAD 2>/dev/null || return 1
+      n=$((n+1))
+    done
+    IFS=';'
+  done
+  [ "$n" -gt 0 ]
+}
+[ "$_HAS_BRANCH" = 1 ] && ! _branch_d_merged "$CMD" && _grep "$CMD" -qE '(^|[^A-Za-z0-9_-])git[[:space:]]+((-[Cc][[:space:]]+[^[:space:];&|]+|--(git-dir|work-tree|namespace|config-env|super-prefix|exec-path)[[:space:]=]+[^[:space:];&|]+|-[^[:space:];&|]+)[[:space:]]+)*branch([[:space:]]+[^[:space:];&|]+)*[[:space:]]+(-[a-zA-Z]*[DMCf][a-zA-Z]*|--force)([[:space:]=]|$)' \
   && block "forced git branch (-D / -f / -M / -C)" "4.5" history
 # A TEMP DIRECTORY IS NOT THE PROJECT. A session's own scratch work lives under the machine's temp roots (/tmp,
 # /private/tmp, $TMPDIR, macOS's /var/folders/…/T), and `rm -rf` there was refused like any other path: 90 times in
@@ -1291,7 +1344,7 @@ _rm_container_only(){
 # short cluster, so `rm -Rf /`, `rm -fR /`, `rm -f -r /` and `rm --recursive --force /` all walked past while
 # `rm -rf /` was blocked. Same class as the chmod hole found in evals/permission-pressure: one spelling gated,
 # another reaching the identical state. Case, flag order and the long form are all the same command.
-case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && ! _rm_temp_only "$CMD" && ! _rm_container_only "$CMD" && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
+case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac && _grep "$CMD" -qE 'rm +(-[A-Za-z]* +|--[a-z-]+ +)*(-[A-Za-z]*[rR][A-Za-z]*|--recursive)( +(-[A-Za-z]+|--[a-z-]+))* +.*(/|\*|~)' && ! _rm_temp_only "$CMD" && ! _rm_container_only "$CMD" && ! _rm_own_new "$CMD" && { _PV_KIND=rm; _PV_CMD="$CMD"; block "destructive rm -rf" "4.5" loss; }
 # ADDED (3.1.0): `.` and `..` as a target carry none of those three characters and are the widest targets there are —
 # `rm -rf .` at a project root takes the whole tree, `..` its parent (both passed). Narrower than the test above on
 # purpose, so that it adds no noise: `rm` must stand at a command position, `sudo` or not (`git rm -r --cached .`, `npm rm`,
@@ -1437,9 +1490,14 @@ _pipe_py_data(){  # $1 = command -> _PPD: it with the data-only python pipes rep
   done
   _PPD="$out$s"
 }
+# A python program that holds a shell expansion (field N52, Tur 9: `… | python3 -c "…print('$p', …)"` in a for loop) is
+# not the program written in the call, so it stays refused; the refusal says the shape that passes.
+_PTS=""
+case "$CMD" in *[Pp][Yy][Tt][Hh][Oo][Nn]*-c*'"'*'$'*) [[ $CMD =~ \|[[:space:]]*python[0-9.]*[[:space:]]+-c[[:space:]]+\"[^\"]*\$ ]] \
+  && _PTS="The python program holds a shell expansion, so it is not the program the call shows: single-quote the program and pass the value as an argument (python3 -c '...' \"\$x\"), read from sys.argv." ;; esac
 case "$CMD" in *[Cc][Uu][Rr][Ll]*|*[Ww][Gg][Ee][Tt]*|*[Ff][Ee][Tt][Cc][Hh]*) : ;; *) false ;; esac \
   && { _PPD="$CMD"; case "$CMD" in *[Pp][Yy][Tt][Hh][Oo][Nn]*) _pipe_py_data "$CMD" ;; esac; _grep "$_PPD" -qE '(curl|wget|fetch)([^|]|\|\|)*\|[[:space:]]*(sudo[[:space:]]+)?(bash|sh|zsh|python[0-9.]*|node|perl|ruby)([[:space:]]|$)'; } \
-  && block "pipe-to-shell (curl|bash RCE)" "4.5" exec
+  && { [ -z "$_PTS" ] || echo "$_PTS" >&2; block "pipe-to-shell (curl|bash RCE)" "4.5" exec; }
 # /CREW-NOT-A-RUNG
 case "$CMD" in *[Dd][Dd]*) : ;; *) false ;; esac && _grep "$CMD" -qE '(^|[^a-zA-Z])dd[[:space:]]+([^|]*[[:space:]])?of='  && block "dd of= (disk overwrite)" "4.5" loss
 
@@ -2485,7 +2543,7 @@ _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
 # Reading one is open through the Read tool, which no gate here matches: the rule is about a command, which cannot be
 # told reading from writing by its text. Said in the refusal, since a session that did not know it told the user it
 # could not even show them the file (field report, 3.2.1).
-_mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it; to show it to the user, read it with the Read tool)" "4.5" tamper
+_mr_named && block "a model routing record named in a command (the user and Crewforth's hooks write it; to show it to the user, read it with the Read tool; to write text that names it into another file, use the Write or Edit tool)" "4.5" tamper
 # The refuter ledger (hooks/refuter-ledger.sh) by its file name: the agent's name alone is not refused, so a command
 # that greps for crew-refuter still runs. The same honest scope as the rule above.
 _rf_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
@@ -3990,11 +4048,16 @@ if [[ $'\n'"${_gm_txt//$'\n'/;}" =~ $_GM_RE ]]; then
     exit 2
   fi
   _gm_base=""
+  # The base is asked of gh where the shell stands; outside any repository (field N49: `cd <repo> && gh pr merge` from a
+  # notes folder) gh answered nothing, the base was "unknown", and the approval did not match the second try. There
+  # the project's own folder is asked.
+  _gm_cwd="${_CWD:-.}"; _crew_appr_path "$_gm_cwd"
+  [ -z "$_AP" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ] && _gm_cwd="${CLAUDE_PROJECT_DIR//\\//}"
   if command -v gh >/dev/null 2>&1; then
     if command -v timeout >/dev/null 2>&1; then
-      _gm_base="$(cd "${_CWD:-.}" 2>/dev/null && timeout 15 gh pr view ${_gm_sel:+"$_gm_sel"} --json baseRefName -q .baseRefName 2>/dev/null)"
+      _gm_base="$(cd "$_gm_cwd" 2>/dev/null && timeout 15 gh pr view ${_gm_sel:+"$_gm_sel"} --json baseRefName -q .baseRefName 2>/dev/null)"
     else
-      _gm_base="$(cd "${_CWD:-.}" 2>/dev/null && gh pr view ${_gm_sel:+"$_gm_sel"} --json baseRefName -q .baseRefName 2>/dev/null)"
+      _gm_base="$(cd "$_gm_cwd" 2>/dev/null && gh pr view ${_gm_sel:+"$_gm_sel"} --json baseRefName -q .baseRefName 2>/dev/null)"
     fi
   fi
   case "$_gm_base" in *[!A-Za-z0-9._/-]*) _gm_base="" ;; esac
@@ -4002,7 +4065,7 @@ if [[ $'\n'"${_gm_txt//$'\n'/;}" =~ $_GM_RE ]]; then
     main|master|'') _gm_into="${_gm_base:-an unknown base (read as main)}"
       [ "${CLAUDE_GIT_OK:-}" = 1 ] && allow_preauthorised
       # The user's approval on record: a merge of THIS pull request into THIS base, in this session, within 30 minutes.
-      _gm_ok=1; _crew_appr_path "${_CWD:-.}"
+      _gm_ok=1; _crew_appr_path "$_gm_cwd"
       if [ -n "$_AP" ] && [ -s "$_AP" ]; then
         _gm_op=""; _gm_pr=""; _gm_b=""; _gm_sid=""; _gm_ts=""
         while IFS='=' read -r _gm_k _gm_v || [ -n "$_gm_k" ]; do
