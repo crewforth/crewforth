@@ -636,7 +636,43 @@ $(bash "$DIR/commit-msg" "$MF" 2>&1)" || FAILED=1
     # commit the traced one — a §4.1 hole, found in review. And when the tokenizer cannot parse the line (a shape
     # it does not model, e.g. ANSI-C `$'…'` quoting later in the command), a -F is still there: fall back to the
     # greedy extraction (last match), and if even that names no readable file, refuse rather than skip.
-    if MFILE="$(crew_opt_values "$CMD" -F --file)"; then
+    # `-F -` READS STANDARD INPUT (field, Tur 11: `git commit -F - <<EOF` was refused as "could not be parsed", and the
+    # refusal was in no log). Where the commit's own line hands it a here-document, the message is that body: scan it.
+    # Where the input comes from anything else (a pipe, a file), it cannot be read from here: refuse, and say why.
+    _cs_stdin=0
+    while IFS= read -r _cs_l; do
+      case "$_cs_l" in *'git'*'commit'*) ;; *) continue ;; esac
+      [[ $_cs_l =~ (^|[[:space:]])(-F|--file)([[:space:]]+|=)-([[:space:]]|$) ]] || continue
+      _cs_stdin=1
+      [[ $_cs_l =~ \<\<(-?)[[:space:]]*[\"\']?([A-Za-z_][A-Za-z0-9_]*) ]] && { _cs_hdt="${BASH_REMATCH[1]}"; _cs_hdw="${BASH_REMATCH[2]}"; }
+      break
+    done <<< "$CMD"
+    if [ "$_cs_stdin" = 1 ]; then
+      if [ -n "${_cs_hdw:-}" ]; then
+        _cs_in=0; _cs_body=""
+        while IFS= read -r _cs_l; do
+          if [ "$_cs_in" = 0 ]; then case "$_cs_l" in *"<<"*"$_cs_hdw"*) _cs_in=1 ;; esac; continue; fi
+          _cs_t="$_cs_l"; [ "$_cs_hdt" = - ] && while case "$_cs_t" in $'\t'*) true ;; *) false ;; esac; do _cs_t="${_cs_t#?}"; done
+          [ "$_cs_t" = "$_cs_hdw" ] && { _cs_in=2; break; }
+          _cs_body="$_cs_body$_cs_l"$'\n'
+        done <<< "$CMD"
+        if [ "$_cs_in" = 2 ]; then
+          MF="$(mktemp "${TMPDIR:-/tmp}/crew-msg.XXXXXX")"; printf '%s' "$_cs_body" > "$MF"
+          OUT="$OUT
+$(bash "$DIR/commit-msg" "$MF" 2>&1)" || FAILED=1
+          rm -f "$MF"
+          _cs_done=1
+        fi
+      fi
+      [ "${_cs_done:-0}" = 1 ] || {
+      declare -F gatelog >/dev/null 2>&1 && gatelog BLOCK 4.1 "commit message from standard input, not a here-document of the call"
+      echo "GUARD (§4.1): this commit reads its message from standard input (-F -), and nothing in the command says what" >&2
+      echo "that input is, so it cannot be scanned and the commit is refused. Give the message in a here-document on the" >&2
+      echo "commit's own line (git commit -F - <<'EOF' … EOF), or with -m, or -F <path>." >&2
+      exit 2; }
+    fi
+    if [ "${_cs_done:-0}" = 1 ]; then :
+    elif MFILE="$(crew_opt_values "$CMD" -F --file)"; then
       MFILE="${MFILE##*$'\n'}"
     else
       MFILE="$(printf '%s' "$CMD" \
@@ -644,13 +680,15 @@ $(bash "$DIR/commit-msg" "$MF" 2>&1)" || FAILED=1
       MFILE="${MFILE%\"}"; MFILE="${MFILE#\"}"; MFILE="${MFILE%\'}"; MFILE="${MFILE#\'}"
       if _grep "$CMD" -qE '(^|[[:space:]])(-F|--file)([[:space:]=]|$)' && { [ -z "$MFILE" ] || [ ! -f "$MFILE" ]; }; then
         [ "$FAILED" = 1 ] && printf '%s\n' "$OUT" >&2
+        declare -F gatelog >/dev/null 2>&1 && gatelog BLOCK 4.1 "a -F the command does not let this hook read"
         echo "GUARD (§4.1): this commit reads its message from a file (-F), and the command could not be parsed" >&2
         echo "well enough to know which file. Scan cannot run, so the commit is refused. Commit with a plain" >&2
         echo "-F <path> (or -m) in a command of its own." >&2
         exit 2
       fi
     fi
-    if [ -n "$MFILE" ] && [ -f "$MFILE" ]; then
+    if [ "${_cs_done:-0}" = 1 ]; then :
+    elif [ -n "${MFILE:-}" ] && [ -f "$MFILE" ]; then
       OUT="$OUT
 $(bash "$DIR/commit-msg" "$MFILE" 2>&1)" || FAILED=1
     else

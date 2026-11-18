@@ -727,6 +727,23 @@ _unquoted "$CMD"; CMD_UQ="$_GS"      # read by the name rules below (hooksPath s
 #
 # An unclassified call is LOUD rather than silent: it prints (unclassified) and the suite pins that every
 # call site passes a class. A default that reads plausibly is how the old single sentence survived.
+# _rm_all_named: $1 = command -> 0 when every rm in it names its targets as plain paths: no glob, no variable, no ~,
+# no `.`/`..`/`/` alone, no find -exec stand-in. Only the wording of the refusal reads it; nothing passes because of it.
+_rm_all_named(){
+  local s="$1" t w n=0 og=0 re='(^|[;&|({[:space:]])rm[[:space:]]+(.*)$'
+  case "$s" in *'`'*|*'$('*) return 1 ;; esac
+  case "$-" in *f*) og=1 ;; *) set -f ;; esac   # a glob is a word to judge here, never the files it would match
+  while [[ $s =~ $re ]]; do
+    t="${BASH_REMATCH[2]}"; s="$t"
+    t="${t%%[;&|]*}"; t="${t%%$'\n'*}"; t="${t//\"/}"; t="${t//\'/}"
+    for w in $t; do
+      case "$w" in -*|[0-9]'>'*|'>'*|'<'*) continue ;; esac
+      case "$w" in *'*'*|*'?'*|*'['*|*'$'*|'~'*|'.'|'..'|'/'|'{}'|'+'|'\;') [ "$og" = 1 ] || set +f; return 1 ;; esac
+      n=$((n+1))
+    done
+  done
+  [ "$og" = 1 ] || set +f
+  [ "$n" -gt 0 ]; }
 block(){
   gatelog BLOCK "$2" "$1"
   echo "GUARD (§$2): '$1' stopped AT THE TOOL LEVEL." >&2
@@ -734,7 +751,12 @@ block(){
   # What it would have touched, when the rule names a kind (_PV_KIND): read only, after the decision is made.
   if [ -n "${_PV_KIND:-}" ]; then _pvo="$(_pv_line "$_PV_KIND" "${_PV_CMD:-$CMD}")"; [ -n "$_pvo" ] && echo "$_pvo" >&2; fi
   case "${3:-}" in
-    loss)     echo "Nothing here is undone by retrying — but the refusal is not the end of the task. Do the same job the reversible way: name the paths instead of sweeping, and look first (git clean -n, ls) so you act on what you can see. Only if the broad form is genuinely required does the user run it in their own terminal." >&2 ;;
+    loss)     if [ "${_PV_KIND:-}" = rm ] && _rm_all_named "${_PV_CMD:-$CMD}"; then
+                # Every target is already a named path (field, Tur 11: "name the paths" was said to a call that named them).
+                echo "Nothing here is undone by retrying. The paths are named, and a recursive delete of named paths is still §4.5: this gate takes no approval for it. List what is there (ls) and tell the user; the user deletes it in their own terminal. A folder inside a temp directory, or one this same call made, passes." >&2
+              else
+                echo "Nothing here is undone by retrying — but the refusal is not the end of the task. Do the same job the reversible way: name the paths instead of sweeping, and look first (git clean -n, ls) so you act on what you can see. Only if the broad form is genuinely required does the user run it in their own terminal." >&2
+              fi ;;
     history)  echo "This rewrites or discards work that is already committed. Ask the person who shares the branch; a new commit usually reaches the same end without rewriting." >&2 ;;
     tamper)   echo "Turning a gate off is not a step in any task, and DOING IT BY HAND IS NOT THE ANSWER EITHER — a gate disarmed by hand stays off for every later session. If a rule is wrong, change the rule and say so." >&2 ;;
     secret)   echo "The value does not belong in a transcript, so printing it by hand is the same leak with an extra step. If the task truly needs it, the user supplies it out of band." >&2 ;;
@@ -1168,7 +1190,11 @@ _branch_d_merged(){  # $1 = command -> 0 when every forced branch part deletes o
   done
   [ "$n" -gt 0 ]
 }
-[ "$_HAS_BRANCH" = 1 ] && ! _branch_d_merged "$CMD" && _grep "$CMD" -qE '(^|[^A-Za-z0-9_-])git[[:space:]]+((-[Cc][[:space:]]+[^[:space:];&|]+|--(git-dir|work-tree|namespace|config-env|super-prefix|exec-path)[[:space:]=]+[^[:space:];&|]+|-[^[:space:];&|]+)[[:space:]]+)*branch([[:space:]]+[^[:space:];&|]+)*[[:space:]]+(-[a-zA-Z]*[DMCf][a-zA-Z]*|--force)([[:space:]=]|$)' \
+# A command substitution is a command of its own: read it as one, so `git branch -r --contains $(git -C $w rev-parse
+# HEAD)` does not lend the inner `-C` to the branch (field, Tur 11, a false "forced") while `$(git branch -D x)` is
+# still a branch command of its own.
+_BRC="$CMD"; _gsub "$_BRC" '$(' ' ; '; _BRC="$_GS"; _gsub "$_BRC" ')' ' ; '; _BRC="$_GS"; _gsub "$_BRC" '`' ' ; '; _BRC="$_GS"
+[ "$_HAS_BRANCH" = 1 ] && ! _branch_d_merged "$CMD" && _grep "$_BRC" -qE '(^|[^A-Za-z0-9_-])git[[:space:]]+((-[Cc][[:space:]]+[^[:space:];&|]+|--(git-dir|work-tree|namespace|config-env|super-prefix|exec-path)[[:space:]=]+[^[:space:];&|]+|-[^[:space:];&|]+)[[:space:]]+)*branch([[:space:]]+[^[:space:];&|]+)*[[:space:]]+(-[a-zA-Z]*[DMCf][a-zA-Z]*|--force)([[:space:]=]|$)' \
   && block "forced git branch (-D / -f / -M / -C)" "4.5" history
 # A TEMP DIRECTORY IS NOT THE PROJECT. A session's own scratch work lives under the machine's temp roots (/tmp,
 # /private/tmp, $TMPDIR, macOS's /var/folders/…/T), and `rm -rf` there was refused like any other path: 90 times in
@@ -4180,7 +4206,7 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     # rule. It has to be a function because it uses `set --` to split, which would otherwise eat the script's own
     # arguments.
     _c46_scan() {
-      _C46_REDIR=0; _C46_WT=""
+      _C46_REDIR=0; _C46_WT=""; _C46_CT=""
       # ONE READER. This scan used to pair the quotes itself (double quotes first, then single, an escaped quote
       # neutralised by hand, a newline turned into `;`), and so did the approval reader; three readings of the same
       # text could disagree, and one of them did: `git commit -m 'a"' -a ; echo 'b"'` hid `-a` inside quotes paired
@@ -4207,7 +4233,12 @@ if git_has "$CMD_SEEN" 'commit|push'; then
             *[\;\&\|]*) seen=0 ;;
             git|git.exe|*/git|*/git.exe) seen=1 ;;
             commit) [ "$seen" = 1 ] && incommit=1 ;;
-            -C|--git-dir|--work-tree) [ "$seen" = 1 ] && _C46_REDIR=1; shift ;;
+            # ONE `-C <dir>` is read like a `cd` below (2 = a target to resolve); a second one, or git pointed at a
+            # git dir or a work tree, is not (field, Tur 11: `git -C <this repo> commit` was refused every time).
+            -C) if [ "$seen" = 1 ]; then
+                  if [ "$_C46_REDIR" = 0 ]; then _C46_REDIR=2; _C46_CT="${1:-}"; else _C46_REDIR=1; fi
+                fi; shift ;;
+            --git-dir|--work-tree) [ "$seen" = 1 ] && _C46_REDIR=1; shift ;;
             --git-dir=*|--work-tree=*) [ "$seen" = 1 ] && _C46_REDIR=1 ;;
             -c|--namespace|--config-env|--super-prefix|--exec-path) [ "$seen" = 1 ] && shift ;;
             -*) ;;
@@ -4278,6 +4309,26 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     _c46_scan "$CMD"
     # ...and the same question asked of the reading above (_c47_scan, already run for this call). Either answer refuses.
     [ -z "$_C46_WT" ] && [ -n "$_C47_WT" ] && _C46_WT="$_C47_WT"
+    # THE SESSION'S REPOSITORY: the one the shell is in; where the shell is in none (a notes folder beside the project,
+    # field N49 and Tur 11: `cd <project> && git commit` from it was refused as "not the repository this session is
+    # in"), the project's. _C46_OUT=1 then: the record and the staged diff are read where the commit runs.
+    _c46_sess(){
+      _C46_SG="$(git -C "${_CWD:-.}" rev-parse --absolute-git-dir 2>/dev/null)"; _C46_OUT=0
+      if [ -z "$_C46_SG" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+        _C46_SG="$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --absolute-git-dir 2>/dev/null)"; _C46_OUT=1
+      fi; }
+    # $1 = a target folder (one plain word) -> 0 when git puts it in the session's repository; _C46_TD = the folder
+    _c46_same(){
+      local t="$1" g
+      case "$t" in ''|Q|*'$'*|*'~'*|*'`'*) return 1 ;; esac
+      case "$t" in /*|[A-Za-z]:*) ;; *) t="${_CWD:-.}/$t" ;; esac
+      _c46_sess; [ -n "$_C46_SG" ] || return 1
+      g="$(git -C "$t" rev-parse --absolute-git-dir 2>/dev/null)"
+      [ "$g" = "$_C46_SG" ] || return 1
+      _C46_TD="$t"; }
+    if [ "$_C46_REDIR" = 2 ]; then
+      if _c46_same "$_C46_CT"; then _C46_REDIR=0; [ "$_C46_OUT" = 1 ] && _CWD="$_C46_TD"; else _C46_REDIR=1; fi
+    fi
     # The record describes THIS worktree. A command that points git at another one would have us hash the wrong
     # repository and pass it off as verified, so the ambiguous form fails closed instead.
     if [ "$_C46_REDIR" = 1 ]; then
@@ -4302,11 +4353,8 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     # its spelling; a target that cannot be read (a variable, `cd -`, two of them, `env -C`) is refused.
     if [ "$_C47_CD" != 0 ]; then
       _cdok=0
-      if [ "$_C47_CD" = 1 ]; then
-        case "$_C47_CDT" in /*|[A-Za-z]:*) _cdt="$_C47_CDT" ;; *) _cdt="${_CWD:-.}/$_C47_CDT" ;; esac
-        _g1="$(git -C "${_CWD:-.}" rev-parse --absolute-git-dir 2>/dev/null)"
-        _g2="$(git -C "$_cdt" rev-parse --absolute-git-dir 2>/dev/null)"
-        [ -n "$_g1" ] && [ "$_g1" = "$_g2" ] && _cdok=1
+      if [ "$_C47_CD" = 1 ] && _c46_same "$_C47_CDT"; then
+        _cdok=1; [ "$_C46_OUT" = 1 ] && _CWD="$_C46_TD"
       fi
       if [ "$_cdok" != 1 ]; then
         gatelog BLOCK 4.6 "commit after a change of directory"
