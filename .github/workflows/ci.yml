@@ -211,8 +211,9 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     # Windows: the smoke job ran 35 and 42 min on next (2026-11-04) and was cancelled at 45 with every check passing
-    # (a slower runner: 945 s slower spread over 1,402 steps, not one case). 60 leaves room for runner variance.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
+    # (a slower runner: 945 s slower spread over 1,402 steps, not one case). On 2026-11-18 Windows ran 58 of its 60 min and
+    # macOS was cancelled at 20 (14.7 min the run before; locally the change cost 8 s of 805). 80 and 30 leave room.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 80 || 30 }}
     defaults:
       run:
         shell: bash
@@ -301,8 +302,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     # macOS runs the whole e2e in one job, ~14 min on a normal runner. On 2026-10-21 a slow runner (every block 1.5-2.5x
     # its usual time, GitHub reporting macOS capacity constraints) reached the last block at 20 min, twice in a row.
-    # On 2026-11-09 the 30 min limit cancelled it twice more (#350, #352), so macOS gets 45.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 45 }}
+    # On 2026-11-09 the 30 min limit cancelled it twice more (#350, #352), so macOS gets 45. A Windows shard ran 32 min
+    # on next and was cancelled at 35 on 2026-11-18 with every check passing, so Windows gets 45 too.
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash

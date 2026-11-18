@@ -894,17 +894,51 @@ _am_whole_suite(){  # $1 = verify command -> 0 when it runs a whole suite; _AMWS
 _am_slow_line(){  # $1 = a line of verify-slow -> _AMSLC (the command), _AMSLT (the epoch it was stopped, "" unknown)
   local r="${1#*$'\t'}"; _AMSLC="${r%%$'\t'*}"; _AMSLT=""
   [ "$_AMSLC" = "$r" ] || { _AMSLT="${r#*$'\t'}"; case "$_AMSLT" in ''|*[!0-9]*) _AMSLT="" ;; esac; }; }
-_am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given) and _AMST (the epoch, "" unknown) when it
-  # ran out of time here before
-  local f="$_AMS/verify-slow" l
+# A command that runs every test of a remembered one and more (field N67, Tur 10: the next card added one test file to
+# a command stopped at 240 s and went through unwarned): it holds every word of the remembered command, which names at
+# least one path, and adds only paths. A flag can narrow the run (`-k`), and a path added to a whole-suite command
+# narrows it, so neither counts. Order is not looked at: the field's cards listed the same files in another order.
+_am_slow_step(){  # $1 = a step of the card's command, $2 = the same step of a remembered one -> 0 when $1 holds every
+  # word of $2 and adds only paths, and adds none to a step that named no path (a whole suite: a path narrows it)
+  local w i j kp=0 n x=0
+  local -a CW=() KW=()   # set, not only declared: bash 5 reads a declared-only array as unbound under set -u
+  read -r -a CW <<< "$1"; read -r -a KW <<< "$2"
+  [ "${#KW[@]}" -gt 0 ] && [ "${#CW[@]}" -ge "${#KW[@]}" ] || return 1
+  [ "${CW[0]}" = "${KW[0]}" ] || return 1   # the program, and it is no path the run is given
+  for ((j=1; j<${#KW[@]}; j++)); do
+    w="${KW[j]}"
+    case "$w" in -*) ;; */*|*.*) kp=$((kp+1)) ;; esac
+    n=""; for i in "${!CW[@]}"; do [ "$i" = 0 ] && continue; [ "${CW[i]}" = "$w" ] && { n="$i"; break; }; done
+    [ -n "$n" ] || return 1
+    unset 'CW[n]'
+  done
+  unset 'CW[0]'
+  for w in ${CW[@]+"${CW[@]}"}; do case "$w" in -*|*'$'*|*'`'*) return 1 ;; */*|*.*) x=$((x+1)) ;; *) return 1 ;; esac; done
+  [ "$x" = 0 ] || [ "$kp" -gt 0 ]; }
+_am_slow_sup(){  # $1 = key of the card's command, $2 = key of a remembered one -> 0 when $1 runs all of $2 and more
+  local c="$1" k="$2" cs ks
+  [ -n "$c" ] && [ -n "$k" ] || return 1
+  while :; do
+    cs="${c%% && *}"; ks="${k%% && *}"
+    _am_slow_step "$cs" "$ks" || return 1
+    case "$c|$k" in *' && '*'|'*' && '*) c="${c#* && }"; k="${k#* && }" ;; *' && '*'|'*|*'|'*' && '*) return 1 ;; *) return 0 ;; esac
+  done; }
+_am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given), _AMST (the epoch, "" unknown) and _AMSWHO
+  # (how to name it) when it, or a command it runs all of (_am_slow_sup), ran out of time here before
+  local f="$_AMS/verify-slow" l pass
+  _AMSWHO="this card's verify command"
   _am_slow_key "$1"; [ -n "$_AMSK" ] && [ -f "$f" ] && [ ! -L "$f" ] || return 1
-  while IFS= read -r l || [ -n "$l" ]; do
-    case "$l" in *$'\t'*) ;; *) continue ;; esac
-    _am_slow_line "$l"; [ "$_AMSLC" = "$_AMSK" ] || continue
-    _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
-    _AMST="$_AMSLT"
-    return 0
-  done < "$f"
+  for pass in same sup; do
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in *$'\t'*) ;; *) continue ;; esac
+      _am_slow_line "$l"
+      if [ "$pass" = same ]; then [ "$_AMSLC" = "$_AMSK" ] || continue
+      else _am_slow_sup "$_AMSK" "$_AMSLC" || continue; _AMSWHO="this card's verify command runs every test of one that"; fi
+      _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
+      _AMST="$_AMSLT"
+      return 0
+    done < "$f"
+  done
   return 1; }
 # THE TIME AN AGENT'S VERIFY IS GIVEN: 120 s by default (3.2: an agent's verify is the tests of what it changed). A
 # project whose tests of one change take longer raises it with a line `verify-timeout <seconds>` in
@@ -1294,13 +1328,13 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
   elif _am_verify_limit; _am_slow_get "$CARD_VERIFY" && ! _am_slow_below; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
-    vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
+    vnote="Crewforth: $_AMSWHO did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
     # DECIDED BY ITS MEASURED TIME (field N56, Tur 9; DECISIONS 2026-11-18): while the stop hook leaves this command
     # unrun, a card carrying it ends unverified whatever the agent does, so it is refused here, before the agent
     # starts, with the way that works. A fast suite never lands here; after the days pass it is measured again.
     if _am_slow_fresh; then
-      echo "GUARD (agent model): this card's verify command ($CARD_VERIFY) did not finish in $_AMSS the last time an agent ran it here, and for $_AMSD days the hook does not run it again, so the agent would end unverified. Write the tests this change touches into the verify: line (the same runner with their paths), or verify: none and say so in the report. The whole suite is a check for the end of the work." >&2
+      echo "GUARD (agent model): ${_AMSWHO/verify command/verify command ($CARD_VERIFY)} did not finish in $_AMSS the last time an agent ran it here, and for $_AMSD days the hook does not run it again, so the agent would end unverified. Write the tests this change touches into the verify: line (the same runner with their paths), or verify: none and say so in the report. The whole suite is a check for the end of the work." >&2
       _am_log "a verify command known to run past the limit here"; exit 2
     fi
   elif _am_whole_suite "$CARD_VERIFY"; then

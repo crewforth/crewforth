@@ -565,7 +565,8 @@ case "$EV" in
         # Stopped at the limit here within the last days: run again it would only wait the limit out once more
         # (measured: the next agent's stop hook ran the same suite into the same 540 s). Recorded as what it is
         # known to be, timeout, with why it did not run; the PreToolUse note told the card's writer this up front.
-        RES=timeout; VRC=0; WHYNOT="not run: it did not finish in $_AMSS when it last ran here, within the last $_AMSD days"
+        RES=timeout; VRC=0; _ao_it=it; [ "$_AMSWHO" = "this card's verify command" ] || _ao_it="it runs every test of a command that"
+        WHYNOT="not run: $_ao_it did not finish in $_AMSS when it last ran here, within the last $_AMSD days"
       else
         # A time limit of its own, below the hook's: a hook killed at its timeout records nothing, and a verify
         # that hangs must not read as a pass or as a fail.
