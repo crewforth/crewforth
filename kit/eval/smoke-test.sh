@@ -1170,10 +1170,19 @@ o1="$(CONTEXT_WINDOW=1000000 bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null)"
 # The whole tail, in the discipline's own form (`→ <level> fill · Recommendation: <…>`): a bare `continue` or
 # `medium` after the arrow is the shape that left the model to derive the level word itself.
 case "$o1" in *"→ high fill · Recommendation: handoff+clear"*) pass "threshold: ~80% → high fill · Recommendation: handoff+clear" ;; *) fail "threshold(high) not 'high fill · Recommendation: handoff+clear': $o1" ;; esac
-o2="$(CONTEXT_WINDOW=2000000 bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null)"
-case "$o2" in *"→ low fill · Recommendation: continue"*) pass "threshold: CONTEXT_WINDOW=2M → low fill · Recommendation: continue" ;; *) fail "threshold(window) not 'low fill · Recommendation: continue': $o2" ;; esac
-o3="$(CONTEXT_WINDOW=1300000 bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null)"
-case "$o3" in *"→ medium fill · Recommendation: continue"*) pass "threshold: ~62% → medium fill · Recommendation: continue" ;; *) fail "threshold(medium) not 'medium fill · Recommendation: continue': $o3" ;; esac
+# The recommendation follows the handoff thresholds the Stop hook asks at (field N57: "continue" here while the Stop
+# said "start no new work"): standard 25/50/75/95, light 50/75/95, CREW_HANDOFF_TIERS over both. The level is the band.
+_cuq(){ ( cd "$1" && env -u CREW_HANDOFF_TIERS CLAUDE_PROJECT_DIR="$1" CONTEXT_WINDOW="$2" ${3:+CREW_HANDOFF_TIERS="$3"} bash "$HOOKS/context-usage.sh" "$FX" 2>/dev/null ); }
+_cup="$(mktemp -d)"; mkdir -p "$_cup/.claude"; _cub=""
+for _cc in '4000000||low fill · Recommendation: continue' '2000000||low fill · Recommendation: handoff+clear' '1300000||medium fill · Recommendation: handoff+clear' \
+           '1300000|90|medium fill · Recommendation: continue' 'light:2000000||low fill · Recommendation: continue' 'light:1300000||medium fill · Recommendation: handoff+clear'; do
+  _cw="${_cc%%|*}"; _cr="${_cc#*|}"; _ct="${_cr%%|*}"; _ce="${_cr#*|}"; rm -f "$_cup/.claude/crew-model-rules"
+  case "$_cw" in light:*) _cw="${_cw#light:}"; printf 'profile light\n' > "$_cup/.claude/crew-model-rules" ;; esac
+  case "$(_cuq "$_cup" "$_cw" "$_ct")" in *"→ $_ce"*) ;; *) _cub="$_cub [$_cc: $(_cuq "$_cup" "$_cw" "$_ct")]" ;; esac
+done
+rm -rf "$_cup"
+[ -z "$_cub" ] && pass "threshold: the recommendation is handoff+clear once a handoff threshold is crossed (20 % continue, 40 % and 62 % handoff+clear on standard; light continues at 40 %; CREW_HANDOFF_TIERS=90 continues at 62 %), the level word is the band" \
+               || fail "threshold: the line's recommendation is not the Stop hook's thresholds:$_cub"
 if bash "$HOOKS/context-usage.sh" "/no/such.jsonl" >/dev/null 2>&1; then fail "malformed transcript returned exit 0"; else pass "malformed transcript exit!=0"; fi
 # huge single-line paste as the LAST record: the usage record sits behind it. A line-based tail would drag the
 # whole blob through the scanner (timeout risk on Windows); the byte-bounded tail + guarded fallback must still
@@ -12885,8 +12894,9 @@ for _p in light standard; do ( cd "$_v2p" && bash "$_PRL" --set "$_p" >/dev/null
 _v2write "$_v2p/.claude/crew-model-rules"; [ "$_v2wrc" = 2 ] || _v2b="$_v2b [the file tools may write the rules]"
 _v2write "$_v2p/.claude/eval/lib/profile.sh"; [ "$_v2wrc" = 2 ] || _v2b="$_v2b [the file tools may write profile.sh]"
 _pff="$(bash --norc --noprofile -c '. "$1"; declare -F' _ "$_PRL" 2>/dev/null | tr '\n' ' ')"
-# crew_push_asked is a reader too (two files read, nothing written): the gate and the commit agent's hand-over share it.
-[ "$_pff" = "declare -f crew_profile declare -f crew_profile_rank declare -f crew_push_asked " ] || _v2b="$_v2b [profile.sh defines more than the readers: $_pff]"
+# crew_push_asked is a reader too (two files read, nothing written): the gate and the commit agent's hand-over share it;
+# so is crew_handoff_tiers (the profile and one variable read): the Stop hook and the per-turn line share it.
+[ "$_pff" = "declare -f crew_handoff_tiers declare -f crew_profile declare -f crew_profile_rank declare -f crew_push_asked " ] || _v2b="$_v2b [profile.sh defines more than the readers: $_pff]"
 # the user's command: needs a person (a transcript, an attended session); then it sets either way, and says so
 _o="$(_v2say '/crew-profile light' "")"; case "$_o" in *"profile NOT changed"*) ;; *) _v2b="$_v2b [a first message loosened: ${_o:0:80}]" ;; esac
 _o="$(_V2SAYENV=CLAUDE_CODE_SESSION_ATTENDED=0 _v2say '/crew-profile light')"; case "$_o" in *"profile NOT changed"*) ;; *) _v2b="$_v2b [a headless session loosened: ${_o:0:80}]" ;; esac

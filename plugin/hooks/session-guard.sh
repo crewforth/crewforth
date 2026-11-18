@@ -189,11 +189,10 @@ fi
 # the thresholds are whole numbers, so truncating is exact, with no awk and no locale.
 INT="${PCT%%.*}"; INT="${INT:-0}"
 case "$INT" in ''|*[!0-9]*) bye ;; esac
-TIERS="${CREW_HANDOFF_TIERS:-25 50 75 95}"
-case "$TIERS" in *[!0-9\ ]*|'') TIERS="25 50 75 95" ;; esac
-# The light profile (4.1) hands off at 50 / 75 / 95; CREW_HANDOFF_TIERS, when set, wins over every profile.
-if [ -z "${CREW_HANDOFF_TIERS:-}" ] && [ -f "$HERE/../eval/lib/profile.sh" ]; then
-  . "$HERE/../eval/lib/profile.sh"; crew_profile "${CLAUDE_PROJECT_DIR:-$PWD}"; [ "$CREW_PROFILE" = light ] && TIERS="50 75 95"
+# The list is profile.sh's (crew_handoff_tiers): the per-turn line recommends from the same one.
+TIERS="25 50 75 95"
+if [ -f "$HERE/../eval/lib/profile.sh" ]; then
+  . "$HERE/../eval/lib/profile.sh"; crew_handoff_tiers "${CLAUDE_PROJECT_DIR:-$PWD}"; TIERS="$CREW_TIERS"
 fi
 TIER=""
 for t in $TIERS; do [ "$INT" -ge "$t" ] && TIER="$t"; done

@@ -40,6 +40,16 @@ crew_push_asked(){
   fi
   return 1
 }
+# THE HANDOFF THRESHOLDS, one reader for the Stop hook that asks for the handoff (session-guard.sh) and the per-turn
+# line that recommends it (context-usage.sh): field N57 (Tur 10) saw the Stop hook say "start no new work" at 50 %
+# while the line said "Recommendation: continue", because each kept its own list. CREW_HANDOFF_TIERS (an ascending
+# list of whole numbers) wins over every profile; else light hands off at 50 / 75 / 95, the others at 25 / 50 / 75 / 95.
+crew_handoff_tiers(){  # $1 = project root -> CREW_TIERS
+  local t="${CREW_HANDOFF_TIERS:-}"
+  case "$t" in *[!0-9\ ]*) t="" ;; esac
+  case "$t" in *[0-9]*) ;; *) crew_profile "$1"; t="25 50 75 95"; [ "$CREW_PROFILE" = light ] && t="50 75 95" ;; esac
+  CREW_TIERS="$t"
+}
 crew_profile_rank(){ case "$1" in light) echo 1 ;; standard) echo 2 ;; strict) echo 3 ;; *) echo 0 ;; esac; }
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   case "${1:-}" in

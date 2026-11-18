@@ -56,7 +56,7 @@ text → **crew-docs-agent** · what to build →
    finding never starts a round; after 3 rounds with medium+ open, stop and ask (`/crew-review` § Rounds).
 4. **Close — only once 3 is clean.** DoD → **crew-review-agent** (LAST, never first) clean → **crew-commit-agent**
    writes the message, not you; waits for approval (`/crew-ship`); held items close here.
-5. **Hand off** — phase boundary or 🔋 ≥ medium → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
+5. **Hand off** — phase boundary or 🔋 handoff+clear → **crew-session-manager** → `handoff` → `/clear` (`/crew-handoff`).
 
 **Model per call — RISK decides, not size.** A `crew-*` task opens with its card, and the call names `model`:
 `files:` files/globs · `change:` text|feature|fix-known|fix-unknown|refactor|migration|security|architecture|test-run|test-write|audit
@@ -143,7 +143,7 @@ reading: `bash .claude/hooks/context-usage.sh --verbose` (Bash tool, not PowerSh
 once; if it also fails, say so ONCE and drop the 🔋 line for the rest of the session.** Repeating "could not
 measure" every turn is noise that reads as a fault.
 
-- `<50%` continue · `50–75%` medium (hand off at the next phase boundary) · `>75%` handoff+clear · `>90%` hand off NOW
+- Copy its level and recommendation word for word: `handoff+clear` → hand off at this phase boundary · `>90%` NOW
 - Topic changed fundamentally, whatever the fill → new session
 
 Thresholds apply to the main session (a subagent has its own window). At 25/50/75/95% the `Stop` hook sends
