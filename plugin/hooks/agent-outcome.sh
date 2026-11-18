@@ -592,6 +592,9 @@ case "$EV" in
         WAITED=0; VRC=""
         while kill -0 "$VPID" 2>/dev/null; do
           if [ "$WAITED" -ge "$LIM" ]; then
+            # The job's end is reported on this hook's stderr under job control ("line N: PID Terminated: 15 ( cd …"),
+            # which Claude Code shows with the hook's output (field, rc.5). Quiet from the first signal to the wait.
+            exec 4>&2 2>/dev/null
             case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*)
               WP=""; [ -r "/proc/$VPID/winpid" ] && IFS= read -r WP < "/proc/$VPID/winpid"
               case "$WP" in ''|*[!0-9]*) ;; *) taskkill //T //F //PID "$WP" >/dev/null 2>&1 ;; esac ;;
@@ -603,7 +606,7 @@ case "$EV" in
           fi
           sleep 1; WAITED=$((WAITED+1))
         done
-        if [ "$VRC" = timeout ]; then wait "$VPID" 2>/dev/null; RES=timeout; WHYNOT="it did not finish in ${LIM}s"; VRC=0
+        if [ "$VRC" = timeout ]; then wait "$VPID" 2>/dev/null; exec 2>&4 4>&-; RES=timeout; WHYNOT="it did not finish in ${LIM}s"; VRC=0
           _am_slow_put "$VCMD" "$LIM"   # the next card that carries it is told (guard-agent-model.sh)
         else wait "$VPID" 2>/dev/null; VRC=$?; [ "$VRC" = 0 ] && _am_slow_put "$VCMD" ""; fi
         VSEC="$WAITED"
@@ -653,7 +656,9 @@ case "$EV" in
     # otherwise. Read as words, with the confidence line taken out first (every report ends `confidence: high`); a stray
     # "high" elsewhere reads as `hi`, and that errs toward silence: the re-audit note is only ever said after a `lo`.
     _sevt="${LAST//onfidence: high/}"; _sevt="${_sevt//onfidence: High/}"
-    case "$_sevt" in *[Cc]ritical*|*CRITICAL*|*[Hh]igh*|*HIGH*|*[Bb]locker*|*BLOCKER*) SEV=hi ;; *) SEV=lo ;; esac
+    # The words in Turkish too: a crew agent reports in the project's language (field, rc.4: a security round that
+    # raised "YÜKSEK" was written `lo`, and the next round was told it had raised nothing above low).
+    case "$_sevt" in *[Cc]ritical*|*CRITICAL*|*[Hh]igh*|*HIGH*|*[Bb]locker*|*BLOCKER*|*[Kk]ritik*|*KRİTİK*|*KRITIK*|*[Yy]üksek*|*YÜKSEK*) SEV=hi ;; *) SEV=lo ;; esac
     [ "${#LAST}" -gt 400 ] && LAST="${LAST:${#LAST}-400}"
     _json_unescape "$LAST" >/dev/null; LAST="$_JU"
     while :; do case "$LAST" in *[$' \t\n\r']) LAST="${LAST%?}" ;; *) break ;; esac; done

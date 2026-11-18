@@ -4536,13 +4536,18 @@ if git_has "$CMD_SEEN" 'commit|push'; then
     rest="$CMD_SEEN"
     while :; do case "$rest" in *"git push"*) n=$((n+1)); rest="${rest#*git push}"; seg="$rest" ;; *) break ;; esac; done
     [ "$n" = 1 ] || return 1
-    seg="${seg%%[;&|]*}"
+    # A redirection is no word of the push: `2>&1`, `>&2` and `&>` lose their `&` before the cut (or the cut stops at
+    # it and leaves `2>` as a third word), and a bare `2>` takes the next word as its file.
+    seg="${seg//>&/>}"; seg="${seg//&>/>}"; seg="${seg%%[;&|]*}"
     _hb=""; if declare -F crew_git_dir >/dev/null 2>&1 && crew_git_dir "${_CWD:-.}" && [ -f "$_CREW_GD/HEAD" ]; then
       IFS= read -r _hb < "$_CREW_GD/HEAD"; _hb="${_hb%$'\r'}"; case "$_hb" in "ref: refs/heads/"*) _hb="${_hb#ref: refs/heads/}" ;; *) _hb="" ;; esac
     fi
     case "$-" in *f*) og=1 ;; *) set -f ;; esac
     for w in $seg; do
+      [ -n "$b" ] && { b=""; continue; }
       case "$w" in
+        '>'|'>>'|'<'|[0-9]'>'|[0-9]'>>') b=1 ;;
+        '>'*|'<'*|[0-9]'>'*) ;;
         -u|--set-upstream) ;;
         -*) n=0 ;;
         *) if [ -z "$r" ]; then r="$w"; elif [ -z "$t" ]; then t="$w"; else n=0; fi ;;
