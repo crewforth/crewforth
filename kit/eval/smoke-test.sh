@@ -12260,7 +12260,20 @@ case "$_v2rc|$(cat "$_v2/err")" in 2\|*'did not finish in 540s the last time'*'f
 printf '540\t./mark.sh\t%s\n' "$((_now - 8*86400))" > "$_vs"; rm -f "$_v2p/.claude/state/crew-model/pending/"*
 _v2call crew-review-agent sonnet 'src/ui/a.ts' audit './mark.sh'
 case "$(cat "$_v2/out")" in *'does not run it again'*) _v2b="$_v2b [an expired line still says it will not run]" ;; *'did not finish in 540s the last time'*) ;; *) _v2b="$_v2b [an expired line is not told at all]" ;; esac
-[ -z "$_v2b" ] && pass "a verify command stopped at its limit here is not run again for 7 days (CREW_VERIFY_SLOW_DAYS): the line says timeout and why, the session is told it was not run, the remembered line is kept as it was, and the card's writer is told up front; after the days, a line with no epoch (3.5.0-rc.5) and CREW_VERIFY_SLOW_DAYS=0 run it again, and a pass forgets it" \
+# a card that runs every test of the remembered command and more files is that command too (field N67, Tur 10: one
+# test file added, the card went through unwarned and ran into the same limit); a flag, a path added to a command that
+# named none (it narrows a whole suite) or another file is a new command
+printf 'verify ./mark.sh\n' > "$_v2p/.claude/crew-model-rules"
+for _sc in '2|./mark.sh t/a.py|./mark.sh t/b.py t/a.py' '0|./mark.sh t/a.py|./mark.sh -k x t/a.py' '0|./mark.sh|./mark.sh t/a.py' '0|./mark.sh t/a.py|./mark.sh t/c.py' '0|./mark.sh t/a.py|./mark.sh t/a.py && ./mark.sh t/b.py'; do
+  _sw="${_sc%%|*}"; _sr="${_sc#*|}"; _sk="${_sr%%|*}"; _scv="${_sr#*|}"
+  printf '540\t%s\t%s\n' "$_sk" "$_now" > "$_vs"; rm -f "$_v2p/.claude/state/crew-model/pending/"*
+  _v2call crew-review-agent sonnet 'src/ui/a.ts' audit "$_scv"
+  case "$_sw|$_v2rc|$(cat "$_v2/err")" in 2\|2\|*"verify command ($_scv) runs every test of one that did not finish in 540s"*) ;; 0\|0\|*) ;; *) _v2b="$_v2b [superset '$_scv' over '$_sk': rc=$_v2rc, want $_sw: $(head -c 90 "$_v2/err")]" ;; esac
+done
+printf '540\t./mark.sh t/a.py\t%s\n' "$_now" > "$_vs"; rm -f "$_v2p/ran.mark"; _v2plant sk-sup './mark.sh t/b.py t/a.py'; _v2stop sk-sup >/dev/null
+{ [ "$(_v2res sk-sup)" = timeout ] && [ ! -f "$_v2p/ran.mark" ]; } || _v2b="$_v2b [a superset card's verify was run at the stop: $(_v2res sk-sup)]"
+case "$(awk -F'\t' '$2 == "sk-sup" { print $15 }' "$_v2p/.claude/state/model-outcomes.tsv")" in 'not run: it runs every test of a command that did not finish in 540s'*) ;; *) _v2b="$_v2b [the superset's why_not does not say so]" ;; esac
+[ -z "$_v2b" ] && pass "a verify command stopped at its limit here is not run again for 7 days (CREW_VERIFY_SLOW_DAYS): the line says timeout and why, the session is told it was not run, the remembered line is kept as it was, and the card's writer is told up front, also for a card that runs all of its tests and more files (not one that adds a flag or narrows a whole suite); after the days, a line with no epoch (3.5.0-rc.5) and CREW_VERIFY_SLOW_DAYS=0 run it again, and a pass forgets it" \
                || fail "a remembered slow verify:$_v2b"
 # THE LIMIT IS THE PROJECT'S (field N1): three named test files that ran 146 s were stopped at 120 three times, and
 # CREW_VERIFY_TIMEOUT was an environment variable nobody had set. A `verify-timeout <seconds>` line in
