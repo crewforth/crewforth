@@ -76,13 +76,14 @@ export function skillsAndCommands(root) {
   return { skills, commands };
 }
 
-// Handoff thresholds, read from the hook that enforces them: `TIERS="${CREW_HANDOFF_TIERS:-25 50 75 95}"`.
+// Handoff thresholds, read from the one reader both hooks use (profile.sh, crew_handoff_tiers):
+// `crew_profile "$1"; t="25 50 75 95"; [ "$CREW_PROFILE" = light ] && …` — the default, not the light profile's.
 export function fillThresholds(root) {
-  const src = read(path.join(root, 'kit/hooks/session-guard.sh'));
-  const m = src.match(/^TIERS="\$\{CREW_HANDOFF_TIERS:-([0-9 ]+)\}"$/m);
-  if (!m) fail('session-guard.sh: no TIERS="${CREW_HANDOFF_TIERS:-…}" line — the hook changed shape');
+  const src = read(path.join(root, 'kit/eval/lib/profile.sh'));
+  const m = src.match(/crew_profile "\$1"; t="([0-9 ]+)"; \[ "\$CREW_PROFILE" = light \]/);
+  if (!m) fail('profile.sh: no default handoff thresholds in crew_handoff_tiers — the reader changed shape');
   const tiers = m[1].trim().split(/\s+/).map(Number);
-  if (tiers.length < 2 || tiers.some((t, i) => i && t <= tiers[i - 1])) fail(`session-guard.sh: handoff thresholds not ascending: ${m[1]}`);
+  if (tiers.length < 2 || tiers.some((t, i) => i && t <= tiers[i - 1])) fail(`profile.sh: handoff thresholds not ascending: ${m[1]}`);
   return { tiers };
 }
 

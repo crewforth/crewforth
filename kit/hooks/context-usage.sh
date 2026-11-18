@@ -265,9 +265,15 @@ PCTI="${PCT%%.*}"; case "$PCTI" in ''|*[!0-9]*) PCTI=0 ;; esac
 # The form the discipline's status line uses, word for word: `→ <low|medium|high> fill · Recommendation: <…>`.
 # It used to print the recommendation alone for two bands and the level for the third (`continue`, `medium`,
 # `handoff+clear`), which left the model to work the level word out of the thresholds itself.
-if   [ "$PCTI" -lt 50 ]; then LEVEL="low fill · Recommendation: continue"
-elif [ "$PCTI" -lt 75 ]; then LEVEL="medium fill · Recommendation: continue"
-else                          LEVEL="high fill · Recommendation: handoff+clear"
+# The recommendation follows the handoff thresholds the Stop hook asks at (profile.sh, crew_handoff_tiers): once one
+# is crossed it is handoff+clear, as session-guard.sh says at that Stop (field N57: "continue" here, "start no new
+# work" there, in the same turn). The level word stays the fill's own band.
+REC=continue; TIERS="25 50 75 95"
+if [ -f "$HERE/../eval/lib/profile.sh" ]; then . "$HERE/../eval/lib/profile.sh"; crew_handoff_tiers "${CLAUDE_PROJECT_DIR:-$PWD}"; TIERS="$CREW_TIERS"; fi
+for _t in $TIERS; do [ "$PCTI" -ge "$_t" ] && REC=handoff+clear; done
+if   [ "$PCTI" -lt 50 ]; then LEVEL="low fill · Recommendation: $REC"
+elif [ "$PCTI" -lt 75 ]; then LEVEL="medium fill · Recommendation: $REC"
+else                          LEVEL="high fill · Recommendation: $REC"
 fi
 # The '%<number>' shape is a contract: session-guard.sh reads the percentage back out of this line.
 if [ "$VERBOSE" = 1 ]; then
