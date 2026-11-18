@@ -866,4 +866,5 @@ export const TR = {
   "Strict": "Sıkı",
   "Verify limit": "Doğrulama süresi",
   "How long an agent's verify command may run, in seconds, from 1 to {max}. Takes effect at once.": "Bir ajanın doğrulama komutu kaç saniye çalışabilir (1–{max}). Hemen geçerli olur.",
+  "{n} inconclusive: another agent edited the same folder": "{n} sonuçsuz: aynı klasörde başka bir ajan düzenleme yapıyordu",
 };

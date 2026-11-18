@@ -716,6 +716,12 @@ _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no de
   [ -n "$CWD" ] || CWD="${CLAUDE_PROJECT_DIR:-.}"
   CWD="${CWD//\\//}"
   _crew_appr_path "$CWD"; REC="$_AP"
+  # A SHELL STANDING OUTSIDE ANY REPOSITORY (field N49, Tur 9): a session that had cd'd into a notes folder or the
+  # projects folder asked the question there; nothing staged could be read and it was refused ("nothing is staged",
+  # "git could not write the tree"), and a user approved one merge three times. The question is the project's then.
+  if [ -z "$REC" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    CWD="${CLAUDE_PROJECT_DIR//\\//}"; CWD="${CWD%/}"; _crew_appr_path "$CWD"; REC="$_AP"
+  fi
   _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
   _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
   _json_slice "$INPUT" tool_use_id >/dev/null; _QTU="$_JS"
@@ -741,6 +747,12 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   _crew_q_merge_pending "$SID" && _QV=merge
   case "$_QV" in
     none) qno "nothing is staged and there is nowhere to push (or nothing to push), so there is nothing to approve. To commit, stage the change with git add, show the commit message, then ask again." nohint ;;
+  esac
+  # A MERGE QUESTION BEFORE THE MERGE (field N48, Tur 9: 3 of 3 projects). Its approval is bound to the pull request
+  # and base the gate named when it refused the merge command; asked first, there is nothing to bind it to, and the
+  # state's own question (Push only) was named instead, a detour every time. Say the way that works.
+  case "$_QV:$INPUT" in merge:*) ;; *"$_CREW_Q_TEXT_M"*)
+    qno "a merge is approved for the pull request the gate names, and none is named yet. Run the merge command (gh pr merge <number>) first: its refusal names the pull request and the base, then ask the merge question it gives." nohint ;;
   esac
   _crew_q_json "$_QV"
   case "$INPUT" in *'"questions":['"$_CREW_QJ"']'*) ;;

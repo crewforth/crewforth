@@ -134,6 +134,25 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A verify that failed while another crew agent edited the same folder is inconclusive.** The agent is not sent back,
+  nothing is escalated or counted against its model, and the session is told to run the touched tests once that agent
+  has finished. An agent in a worktree of its own does not count. Studio shows such runs apart.
+- **A card whose verify command is known to run past the limit here is refused before the agent starts.** While the
+  hook leaves that command unrun the agent would end unverified; the refusal says to name the touched tests instead.
+  A fast whole suite is not touched.
+
+- **A merge question asked before the merge is told to run the merge first.** Its approval is bound to the pull request
+  the gate names when it refuses the merge command; asked earlier, the gate named the state's push question instead.
+- **A shell standing outside the repository no longer makes the approval fail.** Where the session had moved to a
+  notes folder or the projects folder, the approval question read nothing staged and a merge read an unknown base; both
+  are now read from the project.
+- **Opus asked for a card whose files are a glob is kept.** What a glob such as `site/**` writes is known only at write
+  time, and a critical path under it is written only on opus; the call was lowered and its writes then refused.
+- **Two refusals that lost nothing are narrowed.** `git branch -D` of a branch merged into HEAD (not main, master or
+  the branch checked out), and `rm -rf` of a folder the same call makes with `mkdir` and moves nothing into, pass.
+  A python program fed by a download that holds a shell expansion, and a command naming a model routing record, are
+  still refused, and now say the way that works.
+
 - **An update no longer gitignores a `docs/` the project tracks.**
 - **Studio: an agent in a group shows its model and effort.** Once the picture grew, agents of one type folded into a
   group, and its members were drawn without the badge a single card carries.

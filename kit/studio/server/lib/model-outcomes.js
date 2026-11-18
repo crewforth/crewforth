@@ -11,8 +11,9 @@
 //   class            agent x change x risk
 //   verified         verify is pass or fail: the command ran and gave a verdict
 //   first try        verify = pass and fixes = 0
-//   not verified     verify is none (no command), blocked (the command was not allowed to run) or timeout: no
-//                    verdict about the work, so these are shown apart and are in no rate
+//   not verified     verify is none (no command), blocked (the command was not allowed to run), timeout, red (a
+//                    test-write card's tests failing first, as asked) or inconclusive (it failed while another crew
+//                    agent edited the same folder): no verdict about the work, so these are shown apart and are in no rate
 //   escalated        escalated_from is not "-": this call repeats a card that failed one model down
 //
 // Crewforth also writes `.claude/state/crew-model-floors.auto`: a class held one model up because its first try
@@ -34,7 +35,7 @@ export const LATER_COLUMNS = ['risk_why', 'verify_s', 'why_not'];
 const VERIFIED = new Set(['pass', 'fail']);
 // What the hooks write, and nothing else is a row. The words are hooks/guard-agent-model.sh's and
 // hooks/agent-outcome.sh's; a word they do not use is a line this file cannot read, not a new kind of work.
-export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout', 'red'];
+export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout', 'red', 'inconclusive'];
 export const CHANGES = ['text', 'feature', 'fix-known', 'fix-unknown', 'refactor', 'migration', 'security', 'architecture', 'test-run', 'test-write', 'audit'];
 export const RISKS = ['critical', 'normal'];
 const TIERS = ['haiku', 'sonnet', 'opus', 'fable'];
@@ -65,7 +66,7 @@ function rowProblem(f) {
   if (!CHANGES.includes(f[3])) return 'change is not one of the eleven';
   if (!RISKS.includes(f[4])) return 'risk is not critical or normal';
   if (f[6] !== '-' && !TIERS.includes(f[6])) return 'model is not a tier';
-  if (!VERIFY.includes(f[7])) return 'verify is not one of the six';
+  if (!VERIFY.includes(f[7])) return 'verify is not one of the seven';
   if (!/^\d{1,4}$/.test(f[8])) return 'fixes is not a count';
   if (f[9] !== '-' && !TIERS.includes(f[9])) return 'escalated_from is not a tier';
   return null;
@@ -196,7 +197,7 @@ export function classesOf(rows, floors = [], loosened = []) {
     if (!by.has(k)) {
       by.set(k, {
         key: k, agent: r.agent, change: r.change, risk: r.risk, runs: 0, verified: 0, firstTry: 0, fixed: 0, failed: 0, escalated: 0,
-        notVerified: { none: 0, blocked: 0, timeout: 0 }, models: {}, ranOn: {}, lastAt: null, floor: null,
+        notVerified: { none: 0, blocked: 0, timeout: 0, red: 0, inconclusive: 0 }, models: {}, ranOn: {}, lastAt: null, floor: null,
       });
     }
     const c = by.get(k);

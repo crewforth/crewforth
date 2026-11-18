@@ -451,6 +451,14 @@ _am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an uncl
   while [[ $x =~ $re ]]; do x="${x/"${BASH_REMATCH[0]}"/ }"; done
   _AMUP="${x%%(*}"
 }
+_am_card_glob(){  # after _am_card -> 0 when a file of the card is a glob (*, ? or [): what it reaches is known only at write time
+  local f r=1 unglob=0
+  case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+  _am_unparen "$CARD_FILES"
+  for f in ${_AMUP//,/ }; do case "$f" in *[\*?[]*) r=0; break ;; esac; done
+  [ "$unglob" = 1 ] && set +f
+  return "$r"
+}
 _am_all_prose(){  # after _am_card -> 0 when every file of the card is prose
   local f r=0 unglob=0
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
@@ -1241,7 +1249,13 @@ fi
 # 2.1.299: a call asking for opus ran on haiku alone). The rewrite is one awk over the payload, on this path only.
 lowered=""
 low=$floor; [ "$low" -lt 1 ] && low=1
-if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ] && [ -z "$_AMFORCE" ]; then
+# OPUS ASKED FOR A GLOB (field N50, Tur 9): `files: site/**` named no critical path, so opus was lowered to the
+# floor, and the privacy and terms pages under it were then refused at write time for not being written on opus;
+# the call ran again with 'above:'. Where the card's files are a glob, what it writes is known only then, and only
+# opus may write a critical path: an opus asked for stays. Every other lowering is as before.
+_am_rank opus; _am_op="$_AMR"
+_am_keep=""; [ "$rank" -ge "$_am_op" ] && [ "$low" -lt "$_am_op" ] && _am_card_glob && _am_keep=1
+if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ] && [ -z "$_AMFORCE" ] && [ -z "$_am_keep" ]; then
   _am_name "$low"; to="$_AMN"
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || ui=""
   case "$ui" in '{'*'}') ;; *) ui="" ;; esac
@@ -1282,6 +1296,13 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
     vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
+    # DECIDED BY ITS MEASURED TIME (field N56, Tur 9; DECISIONS 2026-11-18): while the stop hook leaves this command
+    # unrun, a card carrying it ends unverified whatever the agent does, so it is refused here, before the agent
+    # starts, with the way that works. A fast suite never lands here; after the days pass it is measured again.
+    if _am_slow_fresh; then
+      echo "GUARD (agent model): this card's verify command ($CARD_VERIFY) did not finish in $_AMSS the last time an agent ran it here, and for $_AMSD days the hook does not run it again, so the agent would end unverified. Write the tests this change touches into the verify: line (the same runner with their paths), or verify: none and say so in the report. The whole suite is a check for the end of the work." >&2
+      _am_log "a verify command known to run past the limit here"; exit 2
+    fi
   elif _am_whole_suite "$CARD_VERIFY"; then
     _AMWSF=1
     vnote="Crewforth: this card's verify command runs the whole test suite ($_AMWS). An agent's verify is the tests of what it changed: name them in the card's verify: line (the test file or package this change touches, e.g. pytest <its test file>, npm test -- <its test file>, go test ./<its package>/...). The whole suite runs once at the end of the work, and in CI. The hook stops a verify after ${_AMVL:-120} s."
@@ -1354,7 +1375,9 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
   # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
-  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\nskills=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" "${CARD_SKILLS:--}" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  # Where it edits (field N55): an agent in a worktree of its own cannot break a sibling's verify, one in this folder can.
+  iso=-; case "$ti" in *'"isolation":"worktree"'*|*'"isolation": "worktree"'*) iso=worktree ;; esac
+  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\nskills=%s\niso=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" "${CARD_SKILLS:--}" "$iso" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
 # The call, on the floor: the same input with `model` replaced, and allowed; and the verify notice, when there is one.
 # The verify notice rides along as additionalContext: with no permissionDecision it changes nothing about the call

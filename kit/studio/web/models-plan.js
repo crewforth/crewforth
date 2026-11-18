@@ -184,6 +184,7 @@ export function classRow(c, cost = null) {
     c.notVerified?.none ? t('{n} with no verify command', { n: c.notVerified.none }) : null,
     c.notVerified?.blocked ? t('{n} not run', { n: c.notVerified.blocked }) : null,
     c.notVerified?.timeout ? t('{n} timed out', { n: c.notVerified.timeout }) : null,
+    c.notVerified?.inconclusive ? t('{n} inconclusive: another agent edited the same folder', { n: c.notVerified.inconclusive }) : null,
   ].filter(Boolean);
   return {
     key: c.key,
