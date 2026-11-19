@@ -645,10 +645,12 @@ if [ -z "$PROFILE" ]; then
   case "$s" in 2) PROFILE=light ;; 3) PROFILE=strict ;; *) PROFILE=standard ;; esac
 fi
 # The exact lines this install will append, resolved once so the summary and the writer cannot disagree.
+# The review's own working files (.crewforth/review.json, review-prepass.json) are this run's findings, not the
+# project's: field (Tur 12) they sat in the user's changes list and the user asked why nothing was committed.
 if [ "$VISIBILITY" = "shared" ]; then
-  GI_PLAN='docs/ .private-terms.txt .claude/.state/'   # .state is runtime state (update cache, snapshot), never shared
+  GI_PLAN='docs/ .private-terms.txt .claude/.state/ .crewforth/review.json .crewforth/review-prepass.json'   # .state is runtime state (update cache, snapshot), never shared
 else
-  GI_PLAN='docs/ .claude/ CLAUDE.md .private-terms.txt'
+  GI_PLAN='docs/ .claude/ CLAUDE.md .private-terms.txt .crewforth/review.json .crewforth/review-prepass.json'
 fi
 [ "$DOCS" = shared ] && GI_PLAN="${GI_PLAN#docs/ }"
 # K12: where those lines go. .gitignore is the default and is tracked in most repos; --ignore-local (or answer 3)

@@ -2135,8 +2135,9 @@ fi
 GI_FILE=.gitignore
 [ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
 # A docs/ the install shares (kit.conf docs=shared) is not hidden again by an update.
-if [ "$KIT_DOCS" = shared ]; then gi_add '.claude/review-pass.json' '.claude/.state/'
-else gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'; fi
+# ...and the review's working files under .crewforth/ (start.sh says why).
+if [ "$KIT_DOCS" = shared ]; then gi_add '.claude/review-pass.json' '.claude/.state/' '.crewforth/review.json' '.crewforth/review-prepass.json'
+else gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/' '.crewforth/review.json' '.crewforth/review-prepass.json'; fi
 # Said too when docs= was read from git as shared: the same docs/, tracked, and left out of .gitignore for that reason.
 { [ -n "${GI_TRACKED:-}" ] || [ "${_DOCS_FROM_GIT:-0}" = 1 ]; } && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it

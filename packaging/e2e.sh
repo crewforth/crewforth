@@ -281,6 +281,10 @@ run_adopt "$_K" --yes --here --ignore-local
 _k12 default; cp start.sh "$_K/"; cp -R kit "$_K/"
 _slog; ( cd "$_K" && printf 'yes\n' | bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $_K" "$_L" $?
 ( cd "$_K" && grep -qx '.claude/' .gitignore ) || { echo "FAIL [ignore-local/default]: without the flag .gitignore was not written — the default moved"; exit 1; }
+# The review's working files are ignored by an install, whatever .claude/ is (field, Tur 12: they sat in the changes list).
+for _rf in review.json review-prepass.json; do
+  ( cd "$_K" && grep -qx ".crewforth/$_rf" .gitignore ) || { echo "FAIL [ignore-local/default]: start.sh did not gitignore .crewforth/$_rf"; exit 1; }
+done
 echo "[ignore-local] init and adopt leave .gitignore alone and ignore through .git/info/exclude; without the flag .gitignore is written"
 fi
 # ---- adopt.sh: a brownfield .NET project (solution under ./backend) + agent-overlap takeover ----
@@ -304,6 +308,9 @@ grep -qx 'stack=generic' "$P/.claude/kit.conf"          || die "a .NET brownfiel
 # A project that TRACKS docs/ keeps its .gitignore (field, N26: an update added docs/ over 30 tracked files and staged
 # it). The twin is the fixture above, which tracks no docs/: there docs/ is added, so the check is not silent by default.
 grep -qx 'docs/' "$P/.gitignore" || die "adopt did not gitignore docs/ in a repo that does not track it" adopt-brownfield "$P"
+for _rf in review.json review-prepass.json; do
+  grep -qx ".crewforth/$_rf" "$P/.gitignore" || die "adopt did not gitignore .crewforth/$_rf" adopt-brownfield "$P"
+done
 P2="$WORK/adopt-tracked-docs"; rm -rf "$P2"; mkdir -p "$P2/docs"
 cp adopt.sh "$P2/"; cp -R kit "$P2/"; cp VERSION "$P2/"
 printf 'notes\n' > "$P2/docs/notes.md"; printf 'node_modules/\n' > "$P2/.gitignore"

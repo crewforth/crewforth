@@ -10872,6 +10872,27 @@ case "$_n49o" in *'merge pull request 42 into main'*) ;; *) _n49="$_n49 [merge b
 rm -rf "$_n49d" "$_n49b"
 [ -z "$_n49" ] && pass "a shell outside any repository: the approval question and the merge base are read from the project (field N49)" \
                || fail "outside-the-repository approval:$_n49"
+# Field Tur 12 (light profile): 5 of 5 approval questions in a light project were not needed, the gate let each
+# commit and push to the work branch through on its own, and one was sent there by the Stop half. Under light the
+# question is refused with the reason, and the Stop half says no approval is needed; a push to main, and any other
+# profile, still ask. Each row sets the profile itself.
+_t2=""; _t2w='{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}],"PreToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/guard-question.sh"}]}],"PostToolUse":[{"matcher":"AskUserQuestion","hooks":[{"type":"command","command":"bash .claude/hooks/prompt-approval.sh"}]}]}}'
+_t2p(){ _pa_new; printf 'profile %s\n' "$1" > "$_paw/.claude/crew-model-rules"; [ -n "${2:-}" ] && ( cd "$_paw" && eval "$2" ) >/dev/null 2>&1; true; }
+_t2stop(){ mkdir -p "$_paw/.claude/hooks"; cp "$HOOKS/guard-question.sh" "$HOOKS/prompt-approval.sh" "$_paw/.claude/hooks/"; printf '%s' "$_t2w" > "$_paw/.claude/settings.json"
+  printf '{"session_id":"t2s","cwd":"%s","permission_mode":"auto","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"Type /crew-approve to commit."}' "$_paw" \
+    | ( cd "$_paw" && env -u CLAUDE_CODE_SESSION_ATTENDED $_PAQ_ENV bash "$HOOKS/prompt-approval.sh" 2>/dev/null ); }
+_t2p light;                                 _paq_pre auto "$_paq_canon"
+case "$_par/$(cat "$_PA/qerr")" in 2/*'light profile'*) ;; *) _t2="$_t2 [light, work branch: rc=$_par $(head -c 120 "$_PA/qerr")]" ;; esac
+_t2p light 'git remote remove origin';      _paq_pre auto "$_paq_canon"
+case "$_par/$(cat "$_PA/qerr")" in 2/*'light profile'*) ;; *) _t2="$_t2 [light, a commit alone: rc=$_par $(head -c 120 "$_PA/qerr")]" ;; esac
+_t2p light 'git checkout -q -b main';       _paq_pre auto "$_paq_canon"
+[ "$_par/$(gdec "$_pao")" = 0/ask ] || _t2="$_t2 [light, on main (a push to it is asked): rc=$_par $(head -c 120 "$_PA/qerr")]"
+_t2p standard;                              _paq_pre auto "$_paq_canon"
+[ "$_par/$(gdec "$_pao")" = 0/ask ] || _t2="$_t2 [standard, work branch: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_t2p light;    _t2o="$(_t2stop)"; case "$_t2o" in *'none is needed'*) ;; *) _t2="$_t2 [Stop, light: ${_t2o:0:140}]" ;; esac
+_t2p standard; _t2o="$(_t2stop)"; case "$_t2o" in *'ask with one click now'*) ;; *) _t2="$_t2 [Stop, standard: ${_t2o:0:140}]" ;; esac
+[ -z "$_t2" ] && pass "light profile: the approval question is refused for a commit and a push to a work branch, and the Stop half says no approval is needed; a push to main, and the standard profile, still ask (6 cases)" \
+              || fail "light profile and the approval question:$_t2"
 # Field N51–N54 (Tur 9): four refusals that lost nothing to the call they stopped, each narrowed to its own shape.
 _n5x=""; _n5d="$(mktemp -d)"
 ( cd "$_n5d" && git init -q && git config user.email t@example.com && git config user.name t && git config core.hooksPath /dev/null \
@@ -11574,6 +11595,8 @@ done <<'V2'
 0|crew-backend-expert|haiku|src/ui/a.ts|text|none|
 2|crew-backend-expert|haiku|src/ui/a.ts|fix-known|none|
 0|crew-commit-agent|haiku|src/ui/a.ts|fix-known|none|
+0|crew-commit-agent|haiku|site/privacy/index.html, src/payments/deposit.ts|text|none|
+2|crew-backend-expert|haiku|site/privacy/index.html, src/payments/deposit.ts|text|none|
 0|crew-backend-expert|sonnet|src/ui/a.ts|text|none|
 0|crew-backend-expert|haiku|src/ui/a.ts|text|true|
 0|crew-test-expert|haiku|src/ui/**|test-run|true|
@@ -11610,8 +11633,8 @@ done <<'V2'
 0|crew-backend-expert|haiku|src/ui/a.ts|test-run|true|
 0|crew-commit-agent|haiku|src/ui/a.ts|refactor|true|
 V2
-if [ "$_v2n" != 74 ]; then fail "FIXTURE: the card table has $_v2n rows, not 74"
-elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; a text change whose every file is prose (legal, privacy, terms, a store listing) passes on sonnet and is refused on haiku, and one card file that is not prose holds it to opus; verify none is refused on haiku, except for a text change and the commit agent; test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) ($_v2n rows)"
+if [ "$_v2n" != 76 ]; then fail "FIXTURE: the card table has $_v2n rows, not 76"
+elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; a text change whose every file is prose (legal, privacy, terms, a store listing) passes on sonnet and is refused on haiku, and one card file that is not prose holds it to opus; verify none is refused on haiku, except for a text change and the commit agent, which no critical path raises either (its work is the message); test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) ($_v2n rows)"
 else fail "card table:$_v2b"; fi
 # The card's floor is also the default: a call above it runs ON it (the gate hands back the same input with `model`
 # replaced, PreToolUse updatedInput), unless the card's next line says `above: <why>`. Measured on a real project:
@@ -12602,7 +12625,7 @@ _v2plantr rv6 crew-backend-expert; _v2stopr rv6 'review: clean\nconfidence: high
 [ -z "$_v2b" ] && pass "crew-review-agent closing with review: clean has the stop hook write .claude/review-pass.json by its own recipe (the same diff and head), at the top of the work tree from a sub-folder, and the commit gate accepts it; review: blocked removes a record of that diff and no other; no line, or another agent, writes nothing" \
                || fail "the review-pass record by the stop hook:$_v2b"
 # THE AUDIT-ROUND NOTE (3.5). Each crew agent's stop adds `agent head severity` to the session's ledger; an auditor
-# called again on the same work — it raised nothing above low, a producer ran since, no auditor since raised critical
+# called again on the same work — it raised nothing critical or high, a producer ran since, no auditor since raised critical
 # or high, HEAD did not move — is TOLD, never refused (Barış: a note). Each of the five conditions alone silences it.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2p/.claude/state/crew-model/rounds"; _rl="$_v2p/.claude/state/crew-model/rounds/s"
 _v2plantr ra1 crew-security-expert; _v2stopr ra1 'src/a.ts:3 · low · naming\nconfidence: high'
@@ -12618,13 +12641,15 @@ _rcase(){ printf "$2" > "$_rl"; _v2call "$1" sonnet 'src/ui/a.ts' audit none; _r
   [ "$_v2rc" = 0 ] || { _v2b="$_v2b [$4: the call was refused rc=$_v2rc]"; return; }
   case "$3|$_ro" in yes\|*'"additionalContext":"'*"$_rnote"*'all do'*) ;; no\|*"$_rnote"*) _v2b="$_v2b [$4: told]" ;; no\|*) ;; *) _v2b="$_v2b [$4: not told: ${_ro:0:80}]" ;; esac; }
 _rcase crew-review-agent 'crew-review-agent NONE lo\ncrew-backend-expert NONE lo\n' yes 'the same work'
+# field, Tur 12: a round that raised a medium was told it had raised "nothing above low"
+case "$_ro" in *'nothing above low'*) _v2b="$_v2b [the note says 'nothing above low', and lo holds a medium too]" ;; *'nothing critical or high'*) ;; *) _v2b="$_v2b [the note does not say what lo means: ${_ro:0:80}]" ;; esac
 _rcase crew-review-agent 'crew-review-agent NONE hi\ncrew-backend-expert NONE lo\n' no 'it raised a high'
 _rcase crew-review-agent 'crew-backend-expert NONE lo\ncrew-review-agent NONE lo\n' no 'no producer since'
 _rcase crew-review-agent 'crew-review-agent NONE lo\ncrew-backend-expert NONE lo\ncrew-security-expert NONE hi\n' no 'another auditor raised a high since'
 _rcase crew-review-agent 'crew-review-agent 0123456789abcdef0123456789abcdef01234567 lo\ncrew-backend-expert NONE lo\n' no 'HEAD moved'
 _rcase crew-frontend-expert 'crew-frontend-expert NONE lo\ncrew-backend-expert NONE lo\n' no 'not an auditor'
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
-[ -z "$_v2b" ] && pass "an auditor called again on the same work (it raised nothing above low, a fix ran since, no critical or high since, HEAD unmoved) is told the re-run rule and the call goes on; each condition alone silences it; the stop hook writes agent, head and severity to the ledger" \
+[ -z "$_v2b" ] && pass "an auditor called again on the same work (it raised nothing critical or high, a fix ran since, no critical or high since, HEAD unmoved) is told the re-run rule in words that do not hide a medium and the call goes on; each condition alone silences it; the stop hook writes agent, head and severity to the ledger" \
                || fail "the audit-round note:$_v2b"
 # The one fix is asked ONCE, and only where that can be counted.
 _v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents"
@@ -13828,7 +13853,9 @@ for _cfp2 in 'cat <<'"$_cfq"'EOF'"$_cfq"' | bash' 'tee >(sh) <<'"$_cfq"'EOF'"$_c
 done
 # 3b-iii) the same at any size, for §4.4 and §4.6: a note `cat` or `tee` writes that says "git commit" or "git push"
 #     commits and pushes nothing (it was refused by §4.6, or asked about by §4.4, in default and in auto). A body
-#     handed to a shell still is a commit or a push. Each row: default rc/decision, auto rc/decision.
+#     handed to a shell still is a commit or a push. A python body that names git as text is text too (field, Tur 12:
+#     two session notes refused); one that holds a word able to start a process (subprocess, os.system, getattr(…)
+#     on an import) or is piped to a shell is a program, and a push after the body is still a push. Each row: default rc/decision, auto rc/decision.
 _cfq3="$_cfq"
 while IFS= read -r _hl; do [ -n "$_hl" ] || continue
   _hw="${_hl%% @@ *}"; _hc="${_hl#* @@ }"; _hc="${_hc//@Q@/$_cfq3}"
@@ -13840,6 +13867,13 @@ done <<'HDT'
 0/ask 2/ @@ bash <<@Q@EOF@Q@\ngit push origin main\nEOF
 0/ask 2/ @@ cat <<@Q@EOF@Q@ | sh\ngit push origin main\nEOF
 0/ask 2/ @@ tee >(bash) <<@Q@EOF@Q@\ngit push origin main\nEOF
+0/ 0/ @@ python3 - <<@Q@EOF@Q@\nopen(@Q@n.md@Q@,@Q@w@Q@).write(@Q@then git checkout main && git pull; git commit -m x; git push@Q@)\nEOF
+0/ 0/ @@ python3 <<EOF\ns=@Q@(vars. 7) run git push origin main@Q@\nEOF
+0/ask 2/ @@ python3 - <<@Q@EOF@Q@\nimport subprocess\nsubprocess.run(@Q@git push origin main@Q@, shell=True)\nEOF
+0/ask 2/ @@ python3 <<@Q@EOF@Q@\nimport os\nos.system(@Q@git push origin main@Q@)\nEOF
+0/ask 2/ @@ python3 - <<@Q@EOF@Q@\ngetattr(__import__(@Q@o@Q@+@Q@s@Q@),@Q@sys@Q@+@Q@tem@Q@)(@Q@git push origin main@Q@)\nEOF
+0/ask 2/ @@ python3 - <<@Q@EOF@Q@ | sh\nprint(@Q@git push origin main@Q@)\nEOF
+0/ask 2/ @@ python3 - <<@Q@EOF@Q@\nprint(1)\nEOF\ngit push origin main
 HDT
 _cf_big 'cat > notes.md <<'"$_cfq"'EOF'"$_cfq"'\n'"$_cfa"'\nEOF\ngit -C \"$PWD\" status'
 { [ "$_cfr" = 2 ] && grep -q 'words the shell fills in' "$_CF/err"; } \

@@ -1230,7 +1230,10 @@ fi
 # ---- the floor of THIS card: the highest of what applies, and the reason that set it ----
 if [ "$CARD_VERIFY" = none ] && [ "$CARD_CHANGE" != text ] && [ "$st" != crew-commit-agent ] && [ "$floor" -lt 2 ]; then floor=2; why="no verify command, so nothing checks the work but a reader"; fi
 _am_change_floor "$CARD_CHANGE" "$st"
-if [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" = text ] && _am_all_prose; then
+# The commit agent is left out (field, Tur 12): its work is the message; it commits what is staged, the review record
+# has already judged that, and it writes no file a critical path guards. Raised to opus, it only cost more.
+if [ "$st" = crew-commit-agent ]; then :
+elif [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" = text ] && _am_all_prose; then
   if [ "$floor" -lt 2 ]; then floor=2; why="a text change on a critical path: $CARD_RISKWHY"; fi
 elif [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" != test-run ] && [ "$floor" -lt 3 ]; then floor=3; why="critical work: $CARD_RISKWHY"; fi
 # A class the user's rules or the record of outcomes hold higher. Neither can lower anything here.
@@ -1366,7 +1369,7 @@ fi
 # Field: of 2,557 auditor calls in three projects, 36-40% of the repeat rounds re-audited the same work. The rule is
 # "after a small fix only the auditor that raised the finding re-runs; after a critical or high one, all do". The
 # ledger agent-outcome.sh writes at each crew agent's stop (`agent head severity`) answers it: this auditor ran before
-# in this session, raised nothing above low (`lo`), a producer ran since, no auditor since raised critical or high, and
+# in this session, raised nothing critical or high (`lo`; a medium is `lo` too), a producer ran since, no auditor since raised critical or high, and
 # HEAD did not move (a commit closes the work). All five, or nothing is said. Chosen as a NOTE (Barış, 2026-11-15): the
 # split was right in 4 of 5 hand-read pairs, which is not enough to refuse a call on.
 _am_rerun(){  # $1 = agent -> 0 when the call re-audits the same work
@@ -1388,9 +1391,9 @@ _am_rerun(){  # $1 = agent -> 0 when the call re-audits the same work
 }
 if _am_rerun "$st"; then
   _AMRR=1
-  _rn="Crewforth: $st already audited this work in this session (the same HEAD) and raised nothing above low, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again; after a critical or high one, all do. If this is new work, go on."
+  _rn="Crewforth: $st already audited this work in this session (the same HEAD) and raised nothing critical or high, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again; after a critical or high one, all do. If this is new work, go on."
   if [ -n "$vnote" ]; then vnote="$vnote $_rn"; else vnote="$_rn"; fi
-  _am_log "note: $st called again on the same work after it raised nothing above low"
+  _am_log "note: $st called again on the same work after it raised nothing critical or high"
 fi
 # ---- the strict profile: what is a note elsewhere refuses (4.1, Barış 2026-11-15) ----
 # eval/lib/profile.sh reads `profile <name>` from .claude/crew-model-rules, the file the session cannot write. Three
@@ -1404,7 +1407,7 @@ if [ "$CREW_PROFILE" = strict ]; then
     _am_log "strict: a verify that runs the whole suite"; exit 2
   fi
   if [ "${_AMRR:-0}" = 1 ]; then
-    echo "GUARD (agent model, strict profile): $st already audited this work in this session (the same HEAD) and raised nothing above low, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again. If this is new work, commit what is done first." >&2
+    echo "GUARD (agent model, strict profile): $st already audited this work in this session (the same HEAD) and raised nothing critical or high, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again. If this is new work, commit what is done first." >&2
     _am_log "strict: an auditor called again on the same work"; exit 2
   fi
   if [ -n "$lowered" ]; then

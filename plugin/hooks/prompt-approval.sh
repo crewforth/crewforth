@@ -707,6 +707,25 @@ _crew_q_dir(){  # $1 = cwd -> _QAD (the state folder), ASKED (the call PreToolUs
   _QAD="${CLAUDE_PROJECT_DIR:-$1}"; _QAD="${_QAD//\\//}"; _QAD="${_QAD%/}/.claude/state"
   ASKED="$_QAD/crew-approval-asked"; TRIED="$_QAD/crew-approval-tried"
 }
+# A LIGHT PROFILE ON A WORK BRANCH ASKS NOTHING (field, Tur 12: in a light project 5 of 5 approval questions were not
+# needed; guard-bash.sh let each commit and push through on its own, and one question was sent there by _pa_stop). The
+# same reader as the gate: eval/lib/profile.sh for the profile and for the branches a push to is still asked.
+# The gate lets a commit through on any branch, and a push only to a work branch: so a question about a commit alone
+# (`commit`, no remote) is never needed, and one that carries a push (`full`, `push`) is needed for a protected branch.
+_crew_q_light_free(){  # $1 = cwd, $2 = branch (or -), $3 = variant -> 0 when the light profile lets all of it through unasked
+  local lh="${BASH_SOURCE[0]//\\//}" root gd
+  root="${CLAUDE_PROJECT_DIR:-$1}"; root="${root//\\//}"
+  case "$lh" in */*) lh="${lh%/*}" ;; *) lh=. ;; esac
+  [ -f "$lh/../eval/lib/profile.sh" ] || return 1
+  . "$lh/../eval/lib/profile.sh" 2>/dev/null || return 1
+  crew_profile "$root"; [ "$CREW_PROFILE" = light ] || return 1
+  [ "$3" = commit ] && return 0
+  case "$2" in -|'') return 1 ;; esac
+  gd="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  case "$gd" in /*|[A-Za-z]:*) ;; *) gd="$1/$gd" ;; esac
+  crew_push_asked "$gd" "$root" "$2" && return 1
+  return 0
+}
 _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no decision) when the call is not the approval question
   _json_keycount "$INPUT" hook_event_name; [ "$_KC" = 1 ] || exit 0
   _json_keycount "$INPUT" tool_name; [ "$_KC" = 1 ] || exit 0
@@ -753,6 +772,9 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # state's own question (Push only) was named instead, a detour every time. Say the way that works.
   case "$_QV:$INPUT" in merge:*) ;; *"$_CREW_Q_TEXT_M"*)
     qno "a merge is approved for the pull request the gate names, and none is named yet. Run the merge command (gh pr merge <number>) first: its refusal names the pull request and the base, then ask the merge question it gives." nohint ;;
+  esac
+  case "$_QV" in commit|full|push) _crew_q_light_free "$CWD" "$_QVB" "$_QV" && \
+    qno "this project runs the light profile, and a commit, and a push to the work branch $_QVB, are not asked about: run git commit or git push directly, the gates still check them. Only a push to main, master, the default or the base branch, and a merge, are asked." nohint ;;
   esac
   _crew_q_json "$_QV"
   case "$INPUT" in *'"questions":['"$_CREW_QJ"']'*) ;;
@@ -985,7 +1007,12 @@ _pa_stop(){
   _crew_q_open auto || exit 0
   _al=""; [ -f "$TRIED" ] && { IFS= read -r _al < "$TRIED"; } 2>/dev/null
   [ "$_al" = "sid=$SID" ] && exit 0
-  _crew_q_variant "${_JU:-.}"; [ "$_QV" = none ] && exit 0; _crew_q_json "$_QV"
+  _pcw="${_JU:-.}"; _crew_q_variant "$_pcw"; [ "$_QV" = none ] && exit 0
+  case "$_QV" in commit|full|push) if _crew_q_light_free "$_pcw" "$_QVB" "$_QV"; then
+    printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "Crewforth: your reply asks for an approval, and none is needed: this project runs the light profile, and a commit, and a push to this work branch, are not asked about. If a commit or a push is waiting, run it directly; the gates still check it."
+    exit 0; fi ;;
+  esac
+  _crew_q_json "$_QV"
   _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_QJ]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
   _ao="${_ao//\\/\\\\}"; _ao="${_ao//\"/\\\"}"     # fixed ASCII text on one line: a backslash and a quote are all it holds
   printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$_ao"
