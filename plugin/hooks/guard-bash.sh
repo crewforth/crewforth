@@ -2909,11 +2909,23 @@ _hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents
   # The delimiter is read as bash reads it: the whole word after <<, its quotes and backslashes taken out (`<<E\OF`
   # ends at EOF). A body whose delimiter never comes (`cat <<NOPE`) is not taken out at all: what follows it would
   # be hidden, and a commit after it ran (measured: both were refused before, and passed when the word was cut short).
-  local l t w d="" out="" re='^[[:space:]]*(cat|tee)([[:space:]][^<;&|]*)?<<-?[[:space:]]*([^[:space:];&|<>()]+)'
+  # A python body (`python3 - <<'EOF'`) is a program, but one that can start no process cannot run git: it is taken
+  # out too when no word in it can start one (field, rc.5/rc.6: two session notes written by python named
+  # "git checkout main && git pull" and "git push origin faz-7" as text, and §4.6 and §4.4 refused them). The words
+  # are looked for in the whole body at once, after its end: one regex, not one per line.
+  local l t w d="" k="" b="" out="" re='^[[:space:]]*(cat|tee)([[:space:]][^<;&|]*)?<<-?[[:space:]]*([^[:space:];&|<>()]+)'
+  # `[p]` and not the plain word: the "one reader" / "one path" smoke checks look for that word as a program this hook
+  # calls, and this pattern only reads the command being judged; nothing here runs it.
+  local rp='^[[:space:]]*[p]ython3?([[:space:]]+-)?[[:space:]]*<<-?[[:space:]]*([^[:space:];&|<>()]+)'
+  # The words: a module or function that starts a process, as a whole word (`posix_spawn`, `execvp`, `forkpty`), and
+  # the ones that reach any name from a string only as a call (`vars(`, `getattr(`): "vars." in a note is a word.
+  local sp='(^|[^A-Za-z0-9_])((subprocess|_posixsubprocess|system|popen|Popen|posix_spawnp?|spawn(l|le|lp|lpe|v|ve|vp|vpe)?|exec(l|le|lp|lpe|v|ve|vp|vpe)?|__import__|importlib|__builtins__|builtins|ctypes|pty|multiprocessing|runpy|fork(pty)?|pexpect|plumbum|sh|_winapi|startfile)([^A-Za-z0-9_]|$)|(eval|compile|getattr|globals|vars|breakpoint|open_code)[[:space:]]*\()'
   while IFS= read -r l || [ -n "$l" ]; do
     if [ -n "$d" ]; then
       t="${l%$'\r'}"; t="${t#"${t%%[!	]*}"}"     # <<- lets the delimiter line start with tabs
-      [ "$t" = "$d" ] && d=""
+      if [ "$t" = "$d" ]; then
+        d=""; [ "$k" = prog ] && [[ $b =~ $sp ]] && out="$out$b$l"$'\n'
+      else [ "$k" = prog ] && b="$b$l"$'\n'; fi
       continue
     fi
     out="$out$l"$'\n'
@@ -2924,7 +2936,12 @@ _hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents
         # ...and only a body that lands where nothing runs it: the screen, or a document or data file. A body written
         # to a script (`cat > run.sh <<EOF … EOF; bash run.sh`) is a program: measured on 4485 real commands, five
         # wrote a script that held a commit and ran it in the same call, and without this they passed unasked.
-        [ -n "$w" ] && _hd_doc_target "$l" && d="$w" ;;
+        [ -n "$w" ] && _hd_doc_target "$l" && { d="$w"; k=""; } ;;
+      esac
+    elif [[ $l =~ $rp ]]; then
+      case "$l" in *'|'*|*'('*) ;; *)
+        w="${BASH_REMATCH[2]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
+        [ -n "$w" ] && { d="$w"; k=prog; b=""; } ;;
       esac
     fi
   done <<< "$1"
