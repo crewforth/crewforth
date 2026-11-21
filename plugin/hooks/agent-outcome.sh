@@ -285,9 +285,9 @@ _ao_review_pass(){  # $1 = clean | blocked
     # tree: the staged tree this review cleared, so the next review reads only what changed since (3.3)
     T="$(git -C "$top" -c core.fsmonitor= write-tree 2>/dev/null)" || T=""
     mkdir -p "$top/.claude" 2>/dev/null && printf '{"diff_oid":"%s","head":"%s","tree":"%s","ts":"%s"}\n' "$D" "$H" "$T" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$rp" 2>/dev/null
-    _am_log "review-pass written for the staged diff"
+    _am_log "note: review-pass written for the staged diff"
   elif [ -f "$rp" ] && grep -q "\"diff_oid\":\"$D\"" "$rp" 2>/dev/null; then
-    rm -f "$rp" 2>/dev/null; _am_log "review-pass removed: the review of this diff is blocked"
+    rm -f "$rp" 2>/dev/null; _am_log "note: review-pass removed: the review of this diff is blocked"
   fi
   return 0
 }
