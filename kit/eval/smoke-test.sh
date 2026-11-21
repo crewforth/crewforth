@@ -9017,6 +9017,12 @@ done <<'RMT'
 2|S=/etc; P=$S/crew; rm -rf $P/nope
 2|S=@T@; P=$S/../..; rm -rf $P/etc/crew-nope
 2|S=@T@; P=$S; S=/etc; rm -rf $S/crew-nope
+0|rm -f web/node_modules; rm -rf @T@/x/sub
+0|cd @T@ && rm -f a.txt && git status; rm -rf @T@/x/sub
+2|rm -r web; rm -rf @T@/x/sub
+2|rm -fR web; rm -rf @T@/x/sub
+2|rm --recursive web; rm -rf @T@/x/sub
+2|rm -f web/x; rm -rf ./web
 RMT
 # a link to the home: the link itself may go, its target may not (a trailing / or a glob follows it)
 ln -s "$HOME" "$_rmtd/home" 2>/dev/null
@@ -9028,7 +9034,7 @@ if [ -L "$_rmtd/home" ]; then
 else skip platform "a recursive rm through a symbolic link (ln -s made no link here)" 3; fi
 [ -d "$_rmtd/x/sub" ] || _rmtb="$_rmtb FIXTURE:the-hook-removed-something"
 if [ "$_rmtn" -lt 26 ]; then fail "FIXTURE: the temp-target table ran $_rmtn rows, not 26"
-elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call, an rm inside quotes, backticks or $( ) and a link followed through / or a glob stay refused; a here-document, loop, export or substitution AFTER the last rm does not stop a name set before it from being read (field N32); a name set from one set plainly before it is read too (`S=<tmp>; P=$S/x`, field N51) ($_rmtn rows)"
+elif [ -z "$_rmtb" ]; then pass "a recursive rm inside a temp directory passes; the root, its first level, .., outside targets, an unset or reassigned name, a name set only inside a here-document, a reassigned TMPDIR, a wrapper anywhere in the call, an rm inside quotes, backticks or $( ) and a link followed through / or a glob stay refused; a here-document, loop, export or substitution AFTER the last rm does not stop a name set before it from being read (field N32); a name set from one set plainly before it is read too (`S=<tmp>; P=$S/x`, field N51); an rm with no recursive flag beside it is not this rule's (field Tur 13), a recursive one is ($_rmtn rows)"
 else fail "recursive rm and temp directories:$_rmtb"; fi
 # A BARE NAME AS THE TARGET (N37): `S=/Users/me; rm -rf $S` carried none of / * ~ and passed. Refused unless the call
 # sets the name to a fresh mktemp, a plain relative name, or a path inside a temp root; a here-document body is text.
@@ -10893,6 +10899,23 @@ _t2p light;    _t2o="$(_t2stop)"; case "$_t2o" in *'none is needed'*) ;; *) _t2=
 _t2p standard; _t2o="$(_t2stop)"; case "$_t2o" in *'ask with one click now'*) ;; *) _t2="$_t2 [Stop, standard: ${_t2o:0:140}]" ;; esac
 [ -z "$_t2" ] && pass "light profile: the approval question is refused for a commit and a push to a work branch, and the Stop half says no approval is needed; a push to main, and the standard profile, still ask (6 cases)" \
               || fail "light profile and the approval question:$_t2"
+# Field Tur 13 (U4): the change was staged in a second worktree, the session's folder had nothing staged, "Push
+# only" was offered and the answer recorded for the session's branch. With nothing staged here and exactly one other
+# worktree of the repository holding a staged change, the question is refused and names that worktree; a worktree
+# with nothing staged, two that hold one, and a change staged here are asked as before.
+_u4=""; _u4c='git commit -qm two && git worktree add -q '"$_PA"'/wt -b feat/y'
+_t2p standard "$_u4c"' && echo z > '"$_PA"'/wt/b.txt && git -C '"$_PA"'/wt add b.txt'; _paq_pre auto "$_paq_push"
+case "$_par/$(cat "$_PA/qerr")" in 2/*'staged in another worktree'*"$(cd "$_PA/wt" 2>/dev/null && pwd -P)"*'feat/y'*) ;; *) _u4="$_u4 [staged in one other worktree: rc=$_par $(head -c 160 "$_PA/qerr")]" ;; esac
+_t2p standard "$_u4c";                                                          _paq_pre auto "$_paq_push"
+[ "$_par/$(gdec "$_pao")" = 0/ask ] || _u4="$_u4 [a worktree with nothing staged: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_t2p standard "$_u4c"' && echo z > '"$_PA"'/wt/b.txt && git -C '"$_PA"'/wt add b.txt && git worktree add -q '"$_PA"'/wt2 -b feat/z && echo q > '"$_PA"'/wt2/c.txt && git -C '"$_PA"'/wt2 add c.txt'
+_paq_pre auto "$_paq_push"
+[ "$_par/$(gdec "$_pao")" = 0/ask ] || _u4="$_u4 [two worktrees with a staged change: rc=$_par $(head -c 120 "$_PA/qerr")]"
+_t2p standard 'git worktree add -q '"$_PA"'/wt -b feat/y && echo z > '"$_PA"'/wt/b.txt && git -C '"$_PA"'/wt add b.txt'; _paq_pre auto "$_paq_canon"
+[ "$_par/$(gdec "$_pao")" = 0/ask ] || _u4="$_u4 [a change staged here too: rc=$_par $(head -c 120 "$_PA/qerr")]"
+rm -rf "$_PA/wt2"
+[ -z "$_u4" ] && pass "field Tur 13 (U4): with nothing staged in the session's folder and a change staged in exactly one other worktree, the approval question is refused and names that worktree and its branch; no staged change there, two such worktrees, or one staged here are asked as before (4 cases)" \
+              || fail "a change staged in another worktree:$_u4"
 # Field N51–N54 (Tur 9): four refusals that lost nothing to the call they stopped, each narrowed to its own shape.
 _n5x=""; _n5d="$(mktemp -d)"
 ( cd "$_n5d" && git init -q && git config user.email t@example.com && git config user.name t && git config core.hooksPath /dev/null \
@@ -10923,6 +10946,34 @@ _n5run 'cat .claude/crew-model-rules'
 rm -rf "$_n5d" "$_n5d.json" "$_n5d.err"
 [ -z "$_n5x" ] && pass "field N51–N54: a merged branch's -D and a folder the call makes itself pass; their unsafe twins stay refused; a python program with a shell expansion and a routing-record name are refused with the way that works" \
                || fail "field N51–N54:$_n5x"
+# Field Tur 13 (U2): a here-document that only writes text may name the routing record. A session note written with
+# `python3 - <<'EOF'` said where the rules live and was refused. Text: a cat or tee body written to a document, and a
+# python body that can start no process and names the record only inside a triple-quoted string of more than one
+# word. A name in a plain string, a triple-quoted string that is only the path, a body that starts a process, a body
+# written to a script, and the command line itself are read as before.
+_u2x=""; _u2n=0; _u2q="'"; _u2d="$(mktemp -d)"; ( cd "$_u2d" && git init -q ) >/dev/null 2>&1
+while IFS= read -r _u2l; do [ -n "$_u2l" ] || continue
+  _u2w="${_u2l%% @@ *}"; _u2c="${_u2l#* @@ }"; _u2c="${_u2c//@Q@/$_u2q}"; _u2n=$((_u2n+1))
+  printf '{"session_id":"s","cwd":"%s","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"%s"}}' "$_u2d" "$_u2c" > "$_u2d.json"
+  ( cd "$_u2d" && CREW_GATE_LOG=/dev/null bash "$HOOKS/guard-bash.sh" < "$_u2d.json" >/dev/null 2>&1 ); _u2r=$?
+  [ "$_u2r" = "$_u2w" ] || _u2x="$_u2x [$_u2c → $_u2r, want $_u2w]"
+done <<'U2T'
+0 @@ cat > docs/n.md <<@Q@EOF@Q@\nthe user edits .claude/crew-model-rules\nEOF
+0 @@ python3 - <<@Q@EOF@Q@\nopen(@Q@docs/n.md@Q@,@Q@w@Q@).write(@Q@@Q@@Q@rules live in .claude/crew-model-rules@Q@@Q@@Q@)\nEOF
+0 @@ python3 - <<@Q@EOF@Q@\nopen(@Q@docs/n.md@Q@,@Q@w@Q@).write(\"\"\"see .claude/crew-model-rules, written by the user\"\"\")\nEOF
+2 @@ cat > .claude/crew-model-rules <<@Q@EOF@Q@\nverify x\nEOF
+2 @@ cat > run.sh <<@Q@EOF@Q@\nrm .claude/crew-model-rules\nEOF
+2 @@ python3 - <<@Q@EOF@Q@\nopen(@Q@.claude/crew-model-rules@Q@,@Q@w@Q@).write(@Q@x@Q@)\nEOF
+2 @@ python3 - <<@Q@EOF@Q@\np=@Q@.claude/crew-model-rules@Q@\nopen(p,@Q@w@Q@).write(@Q@@Q@@Q@a note@Q@@Q@@Q@)\nEOF
+2 @@ python3 - <<@Q@EOF@Q@\nopen(\"\"\".claude/crew-model-rules\"\"\",@Q@w@Q@)\nEOF
+2 @@ python3 - <<@Q@EOF@Q@\nimport os\nos.system(@Q@@Q@@Q@rm .claude/crew-model-rules now@Q@@Q@@Q@)\nEOF
+2 @@ python3 - <<@Q@EOF@Q@\nx=@Q@@Q@@Q@never closed .claude/crew-model-rules\nEOF
+2 @@ python3 - <<@Q@EOF@Q@\nx=@Q@@Q@@Q@a note@Q@@Q@@Q@\nEOF\necho hi > .claude/crew-model-rules
+U2T
+rm -rf "$_u2d" "$_u2d.json"
+if [ "$_u2n" != 11 ]; then fail "FIXTURE: the U2 table ran $_u2n rows, not 11"
+elif [ -z "$_u2x" ]; then pass "field Tur 13 (U2): a here-document that only writes text may name the routing record (a cat body to a document, a python body that starts no process and names it only in prose); a plain string, a path-only triple-quoted string, a process, a script body and the command line stay refused ($_u2n rows)"
+else fail "field Tur 13 (U2):$_u2x"; fi
 # ...and the way to it. B-2 (a real `auto` session, 2026-10-17): /crew-ship asked for /crew-approve before any commit
 # was refused, so the refusal that prints the question never came and the click was never offered; telling the agent
 # to try the commit first did not help either (§4.4 says not to, and it did not). agent-outcome.sh now hands the
@@ -11636,6 +11687,26 @@ V2
 if [ "$_v2n" != 76 ]; then fail "FIXTURE: the card table has $_v2n rows, not 76"
 elif [ -z "$_v2b" ]; then pass "the card decides the model: critical work (payments/, migrations, a .sql file, AuthController, userAuth, schema.prisma, and the four critical kinds of change) is refused below opus and passes on opus; a text change whose every file is prose (legal, privacy, terms, a store listing) passes on sonnet and is refused on haiku, and one card file that is not prose holds it to opus; verify none is refused on haiku, except for a text change and the commit agent, which no critical path raises either (its work is the message); test-run passes on haiku, also on a critical path; test-write, audit and review are held to sonnet in normal work and to opus in critical work; critical work with a verify command is refused when the call says run_in_background true, and passes with false and with the field left out (a session whose Agent tool has no such field cannot send it); a card that is not one is refused; a verify command never refuses the call, whatever it is (the hook decides whether to run it) ($_v2n rows)"
 else fail "card table:$_v2b"; fi
+# Field Tur 13 (T6): a review card whose files are "the staged diff" named no path. A migration staged in a worktree
+# left the review on sonnet; a branch name on the line ("…-privacy-lows") raised it to opus. The staged files are read
+# instead: in the worktree the line names, or in the project; the line's words are a description then.
+_v2new; _v2b=""
+( cd "$_v2p" && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m i && git worktree add -q "$_v2/wt6" -b wt6 \
+  && mkdir -p "$_v2/wt6/db/migrate" && echo m > "$_v2/wt6/db/migrate/0065_x.rb" && git -C "$_v2/wt6" add db/migrate/0065_x.rb ) >/dev/null 2>&1
+[ -n "$(git -C "$_v2/wt6" diff --cached --name-only 2>/dev/null)" ] || _v2b="$_v2b FIXTURE:nothing-staged-in-the-worktree"
+_v2call crew-review-agent sonnet "staged diff in worktree $_v2/wt6" audit none
+[ "$_v2rc" = 2 ] || _v2b="$_v2b [a migration staged in the named worktree: rc=$_v2rc, want 2 (critical)]"
+( cd "$_v2p" && git add src/ui/a.ts ) >/dev/null 2>&1
+_v2call crew-review-agent sonnet 'staged diff on fix/x-privacy-lows' audit none
+[ "$_v2rc" = 0 ] || _v2b="$_v2b [a branch name beside a staged ui file: rc=$_v2rc, want 0 — $(head -c 120 "$_v2/err")]"
+_v2call crew-review-agent sonnet 'staged diff (src/payments/p.ts)' audit none
+[ "$_v2rc" = 2 ] || _v2b="$_v2b [a critical path in parentheses is still read: rc=$_v2rc]"
+( cd "$_v2p" && git reset -q ) >/dev/null 2>&1
+_v2call crew-review-agent sonnet 'staged diff on fix/x-privacy-lows' audit none
+[ "$_v2rc" = 2 ] || _v2b="$_v2b [nothing staged: the line's words are read as before: rc=$_v2rc]"
+( cd "$_v2p" && git worktree remove --force "$_v2/wt6" ) >/dev/null 2>&1
+[ -z "$_v2b" ] && pass "field Tur 13 (T6): a card whose files are the staged diff is judged by the files staged (in the worktree the line names, or the project): a migration there raises it, a branch name on the line does not; a path in parentheses is still read; with nothing staged the line is read as before (4 cards)" \
+               || fail "a card whose files are the staged diff:$_v2b"
 # The card's floor is also the default: a call above it runs ON it (the gate hands back the same input with `model`
 # replaced, PreToolUse updatedInput), unless the card's next line says `above: <why>`. Measured on a real project:
 # 73 of 186 crew tasks ran above their floor and none on haiku; measured on Claude Code 2.1.299: the rewrite holds.
@@ -12500,6 +12571,30 @@ for _pv in 'pytest <the test files you add or touch>|placeholder that was never 
 done
 [ -z "$_v2b" ] && pass "a verify that tested nothing (exit 126/127, pytest's 4 or 5) is recorded as not run with why, not kept, not counted, and told as having tested nothing; a test-write card's exit 4 is not its red; exit 4 of another runner is still a failure; a placeholder left in the verify is named as one, a real redirect as a redirect" \
                || fail "a verify that tested nothing:$_v2b"
+# AN AGENT IN A WORKTREE IS VERIFIED THERE (field Tur 13, U3: five stops in one day said "tested nothing", pytest's
+# exit 4, for a test file that existed only in the agent's worktree; the verify ran in the project folder). The last
+# working folder in the agent's transcript is used when it is a worktree of this repository; another repository, a
+# missing folder or no transcript leave the project folder. pytest's reason says where it ran.
+_v2new; _v2b=""; mkdir -p "$_v2p/.claude/state/crew-model/agents" "$_v2/other"
+( cd "$_v2p" && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m i && git worktree add -q "$_v2/wt" -b wt ) >/dev/null 2>&1
+( cd "$_v2/other" && git init -q . && echo x > only-wt.txt ) >/dev/null 2>&1
+echo x > "$_v2/wt/only-wt.txt"; mkdir -p "$_v2/wt/t4"; printf '#!/bin/sh\nexit 4\n' > "$_v2/wt/t4/pytest"; chmod +x "$_v2/wt/t4/pytest"
+mkdir -p "$_v2p/t4"; printf '#!/bin/sh\nexit 4\n' > "$_v2p/t4/pytest"; chmod +x "$_v2p/t4/pytest"
+[ -f "$_v2/wt/.git" ] || _v2b="$_v2b FIXTURE:no-worktree"
+printf 'verify test -f only-wt.txt\nverify t4/pytest\n' > "$_v2p/.claude/crew-model-rules"
+_v2cwd(){ if [ -n "$1" ]; then printf '{"type":"user","cwd":"%s"}\n{"type":"assistant","cwd":"%s"}\n' "$_v2p" "$1"; else : ; fi > "$_v2/none.jsonl"; }
+for _wc in "wtp|$_v2/wt|pass" "wtsub|$_v2/wt/t4|pass" "oth|$_v2/other|fail" "gone|$_v2/nope|fail" "none||fail" "proj|$_v2p|fail"; do
+  _wi="${_wc%%|*}"; _wr="${_wc#*|}"; _wd="${_wr%%|*}"; _ww="${_wr#*|}"
+  _v2cwd "$_wd"; _v2plant "$_wi" 'test -f only-wt.txt'; _v2launch "$_wi" async_launched >/dev/null; _v2stop "$_wi" >/dev/null
+  [ "$(_v2res "$_wi")" = "$_ww" ] || _v2b="$_v2b [$_wi (cwd ${_wd:-none}): $(_v2res "$_wi"), want $_ww]"
+done
+_v2cwd "$_v2/wt"; _v2plant w4 't4/pytest -q'; _v2launch w4 async_launched >/dev/null; _v2stop w4 >/dev/null
+case "$(_v2post w4)$(awk -F'\t' '$2 == "w4" { print $15 }' "$_v2p/.claude/state/model-outcomes.tsv")" in *"it ran in the agent's worktree $_v2/wt"*) ;; *) _v2b="$_v2b [pytest's reason does not name the worktree]" ;; esac
+_v2cwd ""; _v2plant p4 't4/pytest -q'; _v2launch p4 async_launched >/dev/null; _v2stop p4 >/dev/null
+case "$(awk -F'\t' '$2 == "p4" { print $15 }' "$_v2p/.claude/state/model-outcomes.tsv")" in *'it ran in the project folder'*) ;; *) _v2b="$_v2b [pytest's reason does not say the project folder]" ;; esac
+rm -f "$_v2/none.jsonl"; ( cd "$_v2p" && git worktree remove --force "$_v2/wt" ) >/dev/null 2>&1
+[ -z "$_v2b" ] && pass "an agent that worked in a worktree of this repository is verified there (its transcript's last working folder, a subfolder too); another repository, a missing folder, no transcript or the project itself leave the project folder; pytest's tested-nothing reason says where it ran" \
+               || fail "an agent's verify in its worktree:$_v2b"
 # THE CARD'S SKILLS. Field (2026-11-13): of 4,326 crew agent runs, 14 read their own skill and none called the Skill
 # tool (`metadata: skills:` is not a field Claude Code reads, and no agent had the tool). A card may name `skills:`;
 # the gate refuses a name that is not an installed skill, and the agent's stop is held to calling each one (or reading
@@ -12748,7 +12843,18 @@ _v2plant k9 "cd $(cd -P "$_v2p" && pwd -P)/sub && env CREW_VX=1 printenv CREW_VX
 [ "$(_v2row k9 | cut -d/ -f2)" = pass ] || _v2b="$_v2b [an absolute folder inside the project with a setting in front: $(_v2row k9)]"
 _v2plant k10 'env PATH=/nowhere test -f sub/ok.flag'; _v2stop k10 >/dev/null
 [ "$(_v2row k10 | cut -d/ -f2)" = blocked ] || _v2b="$_v2b [PATH= in front of a verify step was not refused: $(_v2row k10)]"
-[ -z "$_v2b" ] && pass "a verify command of steps joined by && runs step by step, a cd moving inside the project; a failing step stops the rest; a step no rule allows refuses the whole command before anything runs, is recorded, and is told to the user once with /crew-allow-verify and the rule, never for a rule that would run anything; ;, || and a cd out of the project stay refused; an absolute folder inside the project and NAME=value settings in front of a step are read (the settings reach the command), a PATH= setting stays refused" \
+# A package manager told its folder (field Tur 13: `npm --prefix web run lint` was refused, `verify npm run lint`
+# allowed `cd web && npm run lint`): run as that command in that folder. A folder outside the project or missing,
+# and the option anywhere but first, stay the command as written. A stand-in npm records where it ran.
+mkdir -p "$_v2/fbin"; printf '#!/bin/sh\npwd -P > "%s/npm-ran"\n' "$_v2" > "$_v2/fbin/npm"; chmod +x "$_v2/fbin/npm"
+printf 'verify npm run lint\n' > "$_v2p/.claude/crew-model-rules"
+for _pc in "k11|npm --prefix sub run lint|pass|sub" "k12|npm --prefix=sub/ run lint|pass|sub" "k13|npm --prefix ../x run lint|blocked|" "k14|npm --prefix nope run lint|blocked|" "k15|npm run --prefix sub lint|blocked|"; do
+  IFS='|' read -r _pi _pv _pw _pd <<< "$_pc"; rm -f "$_v2/npm-ran"
+  _v2plant "$_pi" "$_pv"; ( PATH="$_v2/fbin:$PATH"; _v2stop "$_pi" >/dev/null )
+  [ "$(_v2row "$_pi" | cut -d/ -f2)" = "$_pw" ] || _v2b="$_v2b [$_pv: $(_v2row "$_pi"), want $_pw]"
+  if [ -n "$_pd" ]; then case "$(cat "$_v2/npm-ran" 2>/dev/null)" in */"$_pd") ;; *) _v2b="$_v2b [$_pv ran in '$(cat "$_v2/npm-ran" 2>/dev/null)', not $_pd]" ;; esac; fi
+done
+[ -z "$_v2b" ] && pass "a verify command of steps joined by && runs step by step, a cd moving inside the project; a failing step stops the rest; a step no rule allows refuses the whole command before anything runs, is recorded, and is told to the user once with /crew-allow-verify and the rule, never for a rule that would run anything; ;, || and a cd out of the project stay refused; an absolute folder inside the project and NAME=value settings in front of a step are read (the settings reach the command), a PATH= setting stays refused; npm --prefix <folder> runs as the command in that folder, a folder outside or missing stays refused" \
                || fail "verify steps:$_v2b"
 # The installer reads the project's own commands and adds them as verify lines, once: a line the user deleted is not
 # put back by the next update, and a project that declares none gets no file.

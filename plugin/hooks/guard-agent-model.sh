@@ -630,11 +630,34 @@ _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
   case " migration security architecture fix-unknown " in *" $CARD_CHANGE "*) CARD_RISK=critical; CARD_RISKWHY="change: $CARD_CHANGE" ;; esac
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
   _am_unparen "$CARD_FILES"
-  for f in ${_AMUP//,/ } $_AMPP; do
+  local words="${_AMUP//,/ }"
+  _am_staged_files && words="$_AMSF"
+  for f in $words $_AMPP; do
     if _am_crit_path "$f"; then CARD_RISK=critical; [ -n "$CARD_RISKWHY" ] || CARD_RISKWHY="$f is on a critical path: $_AMW"; fi
   done
   [ "$unglob" = 1 ] && set +f
   return 0
+}
+# A CARD WHOSE FILES ARE "THE STAGED DIFF" (field Tur 13, T6: `files: staged diff in worktree <path>` on a review card
+# named no path, so a migration in that diff left the review on sonnet; and `files: staged diff … fix/x-privacy-lows`
+# read the branch name as a critical path). Its files are the ones staged: in the worktree of this repository the
+# line names by its folder, or in the project. Read only when the line says "staged" and git lists some; the words
+# of the line are then a description, not paths. Paths in parentheses are still read (_AMPP).
+_am_staged_files(){  # after _am_unparen -> 0 and _AMSF (the staged files, one per word) when the card's files are the staged diff
+  local w d="${_AMP:-${CLAUDE_PROJECT_DIR:-.}}" pc wc l
+  _AMSF=""
+  case "$CARD_FILES" in *[Ss]taged*) ;; *) return 1 ;; esac
+  pc="$(cd "$d" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)" || return 1
+  for w in ${CARD_FILES//[(),;]/ }; do
+    w="${w%[.:]}"; w="${w//\\//}"
+    case "$w" in /*|[A-Za-z]:/*|../*|./*) ;; *) continue ;; esac
+    case "$w" in /*|[A-Za-z]:/*) ;; *) w="$d/$w" ;; esac
+    [ -d "$w" ] || continue
+    wc="$(cd "$w" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)" || continue
+    [ "$wc" = "$pc" ] && { d="$w"; break; }
+  done
+  while IFS= read -r l; do [ -n "$l" ] && _AMSF="$_AMSF $l"; done <<< "$(git -C "$d" -c core.fsmonitor= diff --cached --name-only 2>/dev/null)"
+  [ -n "$_AMSF" ]
 }
 _am_digest(){  # after _am_card -> CARD_ID: 12 hex of what the card says, so "the same card" is the same value
   local t

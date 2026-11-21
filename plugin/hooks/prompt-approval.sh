@@ -492,6 +492,31 @@ _crew_q_variant(){  # $1 = cwd -> _QV (full | commit | push | none), _QVT (stage
   fi
   return 0
 }
+# THE CHANGE IS STAGED IN ANOTHER WORKTREE (field Tur 13, U4: the diff was staged in a second worktree of the
+# repository, the session's own folder had nothing staged, the question offered "Push only", and the user's answer
+# was recorded for the session's branch, which had nothing to push; then the question was asked again from the
+# worktree). An approval is bound to the folder it is asked in, so the question is not asked for this folder: the
+# session is told where the change is. 0 and _QEW (the worktree), _QEB (its branch) when this folder has nothing staged
+# and exactly one other worktree of its repository has.
+_crew_q_elsewhere(){  # $1 = cwd
+  local d="${1:-.}" l w me n=0 rc
+  _QEW=""; _QEB=""
+  git -C "$d" -c core.fsmonitor= diff --cached --quiet 2>/dev/null || return 1
+  me="$(cd "$d" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && me="$(cd "$me" 2>/dev/null && pwd -P)" || return 1
+  while IFS= read -r l; do
+    case "$l" in "worktree "*) ;; *) continue ;; esac
+    w="${l#worktree }"; w="$(cd "$w" 2>/dev/null && pwd -P)" || continue
+    [ "$w" != "$me" ] || continue
+    git -C "$w" -c core.fsmonitor= diff --cached --quiet 2>/dev/null; [ "$?" = 1 ] || continue   # 1 = staged; 0 none, 128 an error
+    n=$((n+1)); _QEW="$w"
+  done <<< "$(git -C "$d" worktree list --porcelain 2>/dev/null)"
+  [ "$n" = 1 ] || { _QEW=""; return 1; }
+  _QEB="$(git -C "$_QEW" symbolic-ref --short -q HEAD 2>/dev/null)" || _QEB=""; [ -n "$_QEB" ] || _QEB="a detached HEAD"
+  return 0
+}
+_CREW_Q_ELSEWHERE_MSG(){  # -> _QEM, the sentence for the session
+  _QEM="the change is staged in another worktree of this repository, $_QEW (on $_QEB), and nothing is staged in this session's folder. An approval is bound to the folder it is asked in, so it is not asked here: move the session into that worktree (EnterWorktree, or work from that folder), then ask there, or commit it in your own terminal."
+}
 # THE ANSWERED QUESTION, IN ANY KEY ORDER. Claude Code hands PostToolUse the question back either as it was asked or
 # re-serialised with its keys sorted (`header,options[description,label],question`, sometimes without multiSelect):
 # 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused, on a byte match (real sessions,
@@ -764,6 +789,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # The question that fits what is staged and where it can go: asked exactly, or not at all.
   _crew_q_variant "$CWD"
   _crew_q_merge_pending "$SID" && _QV=merge
+  case "$_QV" in push|none) _crew_q_elsewhere "$CWD" && { _CREW_Q_ELSEWHERE_MSG; qno "$_QEM" nohint; } ;; esac
   case "$_QV" in
     none) qno "nothing is staged and there is nowhere to push (or nothing to push), so there is nothing to approve. To commit, stage the change with git add, show the commit message, then ask again." nohint ;;
   esac
