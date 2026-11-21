@@ -772,12 +772,22 @@ _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no de
   _crew_q_dir "$CWD"
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _QNOW '%(%s)T' -1; else _QNOW="$(date +%s)"; fi
 }
+# A refused question is a refusal like any gate's, in the same log (field, a project that tracks .claude/: two refused
+# questions and no line in its gate log). Same file and line shape as guard-bash.sh; the call's text is never recorded.
+_crew_q_log(){  # $1 = the rule
+  [ -f "$_CREW_Q_HERE/../eval/lib/gate-log.sh" ] || return 0
+  . "$_CREW_Q_HERE/../eval/lib/gate-log.sh" 2>/dev/null || return 0
+  crew_gate_log_write; [ -n "$_CREW_GL" ] || return 0
+  crew_gate_log_ts "$_CREW_GL"
+  printf 'BLOCK\t§4.4\t%s\t\t%s\n' "$1" "$_CREW_TS" >> "$_CREW_GL" 2>/dev/null || true
+}
 _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that says why
   _crew_q_ctx
   # Asked at all, whatever the decision below: a question refused here, or dismissed by the user, leaves the typed
   # way as the one that is left, and the Stop half (_pa_stop) must not send the session back to ask it again.
   [ -n "$SID" ] && [ -d "$_QAD" ] && { printf 'sid=%s\n' "$SID" > "$TRIED"; } 2>/dev/null
   qno(){  # $1 = why, for the model. The call does not run; where it applies, the typed approval is named as the way left.
+    _crew_q_log "approval question refused"
     echo "GUARD (§4.4): the approval question was not asked: $1" >&2
     [ "${2:-}" = nohint ] || echo "The way that always works is the user's own: the user can type /crew-approve (or /crew-approve commit, push, commit+push) as their whole message." >&2
     exit 2

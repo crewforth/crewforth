@@ -51,9 +51,25 @@ if [ -f "$LIB/gate-log.sh" ]; then
     last=""; while IFS= read -r l; do case "$l" in BLOCK$'\t'*) last="$l" ;; esac; done < "$_CREW_GL"
     # Head AND tail of a long reason: the cause of a refusal is often the last words of it (the path, the value), and
     # a head-only cut dropped exactly that part.
+    # WHEN, beside it (field: a refusal seven hours old came back after a compaction as "the last refusal", read as
+    # the one just met). One older than the session's first transcript line belongs to another session: left out.
+    # The time is the LAST column: a tab is whitespace to `read`, so the empty command column before it collapses.
     if [ -n "$last" ]; then IFS=$'\t' read -r _ rule why _ <<< "$last"
-      [ "${#why}" -gt 120 ] && why="${why:0:70} … ${why: -45}"
-      LINES+=("the last refusal in the gate log: ${rule} ${why}"); fi
+      at="${last##*$'\t'}"; at="${at%$'\r'}"; s0=""
+      TP0="$(field transcript_path)" || TP0=""; TP0="${TP0//\\\\//}"; TP0="${TP0//\\//}"
+      if [ -n "$TP0" ] && [ -f "$TP0" ]; then
+        s0="$(grep -o -m1 '"timestamp":"[0-9][^"]*"' "$TP0" 2>/dev/null)"; s0="${s0#\"timestamp\":\"}"; s0="${s0:0:19}"
+      fi
+      case "$at" in [0-9][0-9][0-9][0-9]-*Z) ;; *) at="" ;; esac
+      if [ -z "$s0" ] || { [ -n "$at" ] && [[ ! "${at:0:19}" < "$s0" ]]; }; then
+        [ "${#why}" -gt 120 ] && why="${why:0:70} … ${why: -45}"
+        crew_gate_log_ts ""
+        cd0=""; [ -n "$_CREW_TS" ] && [ "${_CREW_TS:0:10}" != "${at:0:10}" ] && cd0=" on ${_CREW_TS:0:10}"
+        if [ -n "$at" ]; then when=" (at ${at:11:5} UTC on ${at:0:10}${_CREW_TS:+; the compaction ran at ${_CREW_TS:11:5} UTC$cd0})"
+        else when=" (time not recorded)"; fi
+        LINES+=("the last refusal in the gate log: ${rule} ${why}${when}")
+      fi
+    fi
   fi
 fi
 fnd=""
