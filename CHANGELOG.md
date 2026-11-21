@@ -192,6 +192,61 @@ versioning follows [SemVer](https://semver.org/).
 - **A merge approved with the question no longer holds the next approval question.** The merge stayed on record as
   waiting for 30 minutes, so the commit question asked after the merge was refused as "not the question this state
   asks". The answer now uses the waiting merge up, and a commit refused on a merge approval says it was a merge.
+- **The light profile no longer asks for a push followed by a redirection.** `git push origin feat 2>&1 | tail -3`
+  was asked because `2>` was read as a third word of the push; a push to `main` with a redirection is still asked.
+- **Under the light profile the approval question is not asked where nothing needs approving.** For a commit, and
+  for a push to a work branch, the question is refused with the reason, and the end of the turn says no approval
+  is needed instead of sending the session to ask. A push to `main` or the base branch, a merge, and the other
+  profiles still ask.
+- **The fill line recommends a handoff at the thresholds the Stop hook asks at** (25 / 50 / 75 / 95 %, light from
+  50 %, `CREW_HANDOFF_TIERS` over both). It said "continue" up to 75 % in the same turn that asked for a handoff.
+- **A Turkish audit report that raises a high is counted as one** (`kritik`, `yüksek`); it was written as low and the
+  re-run rule treated the next audit as a repeat. The re-run note says "nothing critical or high", since a medium
+  counts there too.
+- **A verify stopped at its limit no longer leaves a shell job report** ("Terminated: 15") on the hook's output.
+- **A python here-document that can start no process is text.** Session notes written with `python3 - <<'EOF'` that
+  named `git push origin …` were refused as a push. A body that can start a process (`subprocess`, `os.system`,
+  `exec*`, `spawn*`, `__import__`, …) or is piped to a shell is still read as a program.
+- **A here-document that only writes text may name the routing record:** a `cat` or `tee` body written to a file,
+  and a python body that starts no process and names it only in prose inside a triple-quoted string. A path in a
+  string, a process and the command line are read as before.
+- **An `rm` with no recursive flag is not read by the recursive-rm rule.** `rm -f <link>` beside a temp-folder
+  `rm -rf` refused the call.
+- **A recursive `rm` inside a temp folder may name its target through another name set in the same call**
+  (`S=<tmp>; P=$S/x; rm -rf $P/y`). `/etc`, `..` and an unset name stay refused. The preview of a refused `rm`
+  reads a relative target from the folder of a leading `cd DIR &&`.
+- **An `rm` refusal says what applies.** When every target is a named path it no longer asks to name the paths; it
+  says the delete is the user's, in their own terminal. A `find -exec rm {} +` preview says what `{}` stands for.
+- **`git -C <dir> commit` into this repository is a commit here.** From a shell outside any repository, a `cd` or
+  `-C` into the project commits there and the review record is read there. Another repository, two `-C`,
+  `--git-dir` and a missing target stay refused.
+- **A command substitution is read as a command of its own:** `git branch -r --contains $(git rev-parse HEAD)` is
+  not a forced branch, `$(git branch -D x)` still is.
+- **`git commit -F - <<'EOF'` scans the here-document as the message.** `-F -` from anything else is refused and
+  says the message comes from standard input.
+- **The install's review working files are gitignored** (`.crewforth/review.json`, `review-prepass.json`).
+- **An agent that worked in a worktree has its verify run there.** It ran in the project folder, where the test
+  file did not exist, and the stop said "tested nothing". A verify that tests nothing now says where it ran.
+- **With nothing staged here and a change staged in exactly one other worktree, the approval question is not
+  asked for this folder.** The session is told which worktree and branch hold the change. An answer had been
+  recorded for a branch with nothing to push.
+- **A card's model follows the files it names, not its prose.** Paths in parentheses ("staged diff (29 files:
+  src/x/**, …)") count for the glob and critical-path rules; a card whose files are "the staged diff" is judged by
+  the files staged, so a migration there raises it and a branch name on the line does not. The commit agent is not
+  raised by a critical path: it commits what the review record judged. A card refused at a line that is not a
+  field says which field it lacks.
+- **A card that runs every test of a slow verify, and more, is slow too.** The memory of a verify that ran past its
+  limit matched only the same command word for word.
+- **A verify step `npm --prefix DIR …`, `pnpm -C DIR …` or `yarn --cwd DIR …` is read as the same command run in DIR**,
+  so the line that allows it there allows it. `flutter build` may begin a verify line.
+- **A refused approval question is in the gate log,** one line like any gate's refusal, never the call's text. A
+  project that tracks `.claude/` had refused questions and no line for them.
+- **The last refusal brought back after a compaction says when it was met.** One older than the session is left
+  out; a refusal seven hours old had come back as the one just met.
+- **Studio: the project box follows the session.** Opened on one project's total, it stayed when a session of
+  another project was opened, showing the wrong total.
+- **CI: the cross-platform jobs have room for a slow runner.** Windows smoke ran 58 of its 60 minutes and passing
+  jobs were cancelled; Windows smoke has 80 minutes, macOS smoke 30, every e2e job 45.
 
 ## [3.5.0] — 2026-11-13
 

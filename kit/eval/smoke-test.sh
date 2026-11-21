@@ -5757,6 +5757,22 @@ else
   _lsb=""; [ -f "$_snap" ] && IFS= read -r _lsb < "$_snap"
   case "$_lsb" in *"§4.5 HEADMARK"*"…"*"TAILMARK"*) pass "a long gate refusal is trimmed to its head AND its tail (a 300-character reason keeps both ends)" ;;
     *) fail "a long gate refusal lost one of its ends in the snapshot: $(printf '%s' "$_lsb" | grep -o 'last refusal[^"]*' | cut -c1-160)" ;; esac
+  # The refusal carries WHEN (field: one seven hours old came back as "the last refusal"), and one older than the
+  # session's first transcript line is another session's: left out. A line with no time and no transcript is said
+  # as such. Three logs against one transcript that starts at 2026-01-02T10:00.
+  _pct="$PCD/t.jsonl"; printf '{"type":"x"}\n{"type":"user","timestamp":"2026-01-02T10:00:00.000Z"}\n' > "$_pct"; _tb=""
+  _pcs(){ printf '%b' "$1" > "$PCD/.git/crewforth-gate-log.tsv"
+    printf '{"session_id":"s-4","cwd":"%s","transcript_path":"%s","trigger":"auto"}' "$PCD" "$2" | CLAUDE_PROJECT_DIR="$PCD" bash "$PCS" >/dev/null 2>&1
+    _tsb=""; [ -f "$_snap" ] && IFS= read -r _tsb < "$_snap"; }
+  _pcs 'BLOCK\t§4.5\told rule\t\t2026-01-02T03:00:00Z\n' "$_pct"
+  case "$_tsb" in *'last refusal'*) _tb="$_tb [a refusal before the session was given: $(printf '%s' "$_tsb" | grep -o 'last refusal[^"]*')]" ;; esac
+  _pcs 'BLOCK\t§4.5\told rule\t\t2026-01-02T03:00:00Z\nBLOCK\t§4.6\tnew rule\t\t2026-01-02T10:41:07Z\n' "$_pct"
+  case "$_tsb" in *'last refusal in the gate log: §4.6 new rule (at 10:41 UTC on 2026-01-02; the compaction ran at '*) ;;
+    *) _tb="$_tb [this session's refusal, with its time: $(printf '%s' "$_tsb" | grep -o 'last refusal[^"]*')]" ;; esac
+  _pcs 'BLOCK\t§4.2\tvendor name\t\n' ""
+  case "$_tsb" in *'§4.2 vendor name (time not recorded)'*) ;; *) _tb="$_tb [no time, no transcript: $(printf '%s' "$_tsb" | grep -o 'last refusal[^"]*')]" ;; esac
+  [ -z "$_tb" ] && pass "the snapshot's last refusal says when it was met, and one older than the session's start is left out (3 logs)" \
+                || fail "the snapshot's last refusal and its time:$_tb"
   printf 'BLOCK\t§4.2\tvendor name\t\n' > "$PCD/.git/crewforth-gate-log.tsv"
   # From the transcript: the skills in use and the user's own words. A transcript prompt is already a JSON string,
   # so the cut at ~300 bytes is checked byte for byte where it can break the string: a two-byte character cut in
@@ -10694,6 +10710,19 @@ _paq_pre auto '{"question":"Which colour?","header":"Colour","options":[{"label"
 if [ "$_paqn" != 20 ]; then fail "FIXTURE: the approval-question table ran $_paqn cases, not 20"
 elif [ -z "$_paqbad" ]; then pass "the approval question: asked (ask) only as the fixed text, in auto, attended, with no answers; its answer recorded only for the call that was asked, once, and only as one of the four, in whatever key order Claude Code hands it back; the record allows the commit (20 cases, 14 must-fail)"
 else fail "the approval question:$_paqbad"; fi
+# A REFUSED QUESTION IS IN THE GATE LOG (field: a project that tracks .claude/ had two refused questions and no line).
+# One line per refusal, the gate log's shape, never the call's text; a question that is asked writes none.
+_paqbad=""; _pagl="$_PA/qlog.tsv"; : > "$_pagl"
+_PAQ_X="CREW_GATE_LOG=$_pagl"; _paq_pre auto "$_paq_canon" ',"answers":{"x":"Commit only"}'; unset _PAQ_X
+[ "$_par" = 2 ] || _paqbad="$_paqbad [refusal rc $_par]"
+_patab=$'\t'
+_pagla="$(grep -cF "BLOCK$_patab§4.4${_patab}approval question refused$_patab$_patab" "$_pagl")"; [ "$_pagla" = 1 ] || _paqbad="$_paqbad [refused: $_pagla lines, want 1]"
+grep -q 'Commit only' "$_pagl" && _paqbad="$_paqbad [the call's text was logged]"
+: > "$_pagl"; _pa_new; : > "$_pa_rec"; _PAQ_X="CREW_GATE_LOG=$_pagl"; _paq_pre auto "$_paq_canon" '' tu40; unset _PAQ_X
+[ "$_par/$(gdec "$_pao")" = 0/ask ] || _paqbad="$_paqbad [asked: $_par/$(gdec "$_pao")]"
+[ -s "$_pagl" ] && _paqbad="$_paqbad [an asked question wrote $(wc -l < "$_pagl" | tr -d ' ') line(s)]"
+[ -z "$_paqbad" ] && pass "a refused approval question is one gate-log line (§4.4, no call text); an asked one writes none" \
+                  || fail "the approval question's gate log:$_paqbad"
 # A BACKGROUND SESSION (claude --bg, the agent view, the phone) is unattended to Claude Code, like `claude -p`; what
 # tells it apart is Claude Code's own record, ~/.claude/sessions/<pid>.json with "kind":"bg" and a job folder (shape
 # measured on 2.1.319). There the click is asked and recorded; the typed approval stays closed; every way the record
