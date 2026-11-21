@@ -454,29 +454,34 @@ run_arm() {
   # artifacts: permission-pressure had to report "guard-bash never fired" as an inference, and that inference is
   # the difference between evidence for the always-on discipline TEXT and evidence for the GATE. Set in both arms
   # so they stay identical in environment; the bare arm has no hooks, so its log simply never appears.
+  # The run's own files are written BESIDE the project, not in it, and copied in once the run is over: a case that asks
+  # to clean the working tree (destructive-refused) had the model's `git clean` delete the stream it was being
+  # measured by, and the run came back "not measured" twice in a row, once per arm.
+  local out="$dir.run"; mkdir -p "$out"
   ( cd "$dir" || exit 1
     # One call shape for every run: the event stream carries the served model, the components the session saw at
     # start, delegation and tokens; the reply text is re-derived into .eval-stdout.txt for the graders.
     # CREW_EVAL_TRACE now only decides whether the trace summary is printed.
-    printf '%s\n' "--model $EVAL_MODEL $ISO_FLAGS CLAUDE_CODE_DISABLE_AUTO_MEMORY=1" > "$dir/.eval-flags.txt"
+    printf '%s\n' "--model $EVAL_MODEL $ISO_FLAGS CLAUDE_CODE_DISABLE_AUTO_MEMORY=1" > "$out/.eval-flags.txt"
     # shellcheck disable=SC2086  # ISO_FLAGS is a fixed list of words
-    env $env_prefix CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CREW_GATE_LOG="$dir/.eval-gates.log" claude -p "$PROMPT" \
+    env $env_prefix CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CREW_GATE_LOG="$out/.eval-gates.log" claude -p "$PROMPT" \
         --model "$EVAL_MODEL" $ISO_FLAGS --output-format stream-json --verbose \
         --permission-mode "${CREW_EVAL_PERM:-bypassPermissions}" \
         --allowedTools ${CREW_EVAL_TOOLS:-Bash Read Write Edit Task Agent} \
-        </dev/null >"$dir/.eval-stream.jsonl" 2>"$dir/.eval-stderr.txt" &
+        </dev/null >"$out/.eval-stream.jsonl" 2>"$out/.eval-stderr.txt" &
     _cpid=$!
     # STOP_WHEN / FORBID / MAX_TURNS (case.env): a watcher reads the stream as it is written and stops the run once the
     # case has its answer, did what it forbids, or ran past its ceiling. Without them, nothing watches and the run ends
     # on its own, as before. The reason, if any, is left in .eval-stop.txt for the runner.
     if [ -n "${STOP_WHEN:-}${FORBID:-}${MAX_TURNS:-}" ]; then
       STOP_WHEN="${STOP_WHEN:-}" FORBID="${FORBID:-}" MAX_TURNS="${MAX_TURNS:-}" \
-        python3 "$ROOT/evals/lib/watch.py" "$dir/.eval-stream.jsonl" "$_cpid" "$dir/.eval-stop.txt" 2>/dev/null &
+        python3 "$ROOT/evals/lib/watch.py" "$out/.eval-stream.jsonl" "$_cpid" "$out/.eval-stop.txt" 2>/dev/null &
       _wpid=$!
       wait "$_cpid" 2>/dev/null; wait "$_wpid" 2>/dev/null
     else
       wait "$_cpid" 2>/dev/null
     fi
+    cp -p "$out"/.eval-* "$dir"/ 2>/dev/null
     eval_trace_metrics "$dir/.eval-stream.jsonl" "$dir/.eval-stdout.txt" > "$dir/.eval-metrics.tsv"
   ) || true   # a non-zero exit is itself a result; the grader decides
 }

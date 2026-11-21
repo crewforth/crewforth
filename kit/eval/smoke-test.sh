@@ -12727,7 +12727,9 @@ _rpget(){ sed -n 's/.*"diff_oid":"\([0-9a-f]*\)","head":"\([0-9a-fNOE]*\)".*/\1 
 ( cd "$_v2p" && awk '/# CREW-REVIEW-PASS/{f=1;next} f&&/^```/{exit} f' "$AGENTS/crew-review-agent.md" > "$_v2/rcp.sh" && bash "$_v2/rcp.sh" ) >/dev/null 2>&1
 _rpwant="$(_rpget "$_rpf")"; rm -f "$_rpf"
 [ -n "$_rpwant" ] || _v2b="$_v2b FIXTURE:the-recipe-wrote-nothing"
-_v2plantr rv1 crew-review-agent; _v2stopr rv1 'review: clean\nconfidence: high' "$_v2p/sub-does-not-exist"
+_v2plantr rv1 crew-review-agent; : > "$_v2/rvgl"; _V2ENV="CREW_GATE_LOG=$_v2/rvgl"; _v2stopr rv1 'review: clean\nconfidence: high' "$_v2p/sub-does-not-exist"; unset _V2ENV
+# Writing the record refuses nothing: a NOTE in the gate log, never a BLOCK (an eval run's log read it as a refusal).
+grep -q '^NOTE.*review-pass written' "$_v2/rvgl" && ! grep -q '^BLOCK' "$_v2/rvgl" || _v2b="$_v2b [the record's log line is not a note: $(head -c 120 "$_v2/rvgl")]"
 [ "$(_rpget "$_rpf")" = "$_rpwant" ] || _v2b="$_v2b [clean: the hook wrote '$(_rpget "$_rpf")', the recipe '$_rpwant']"
 _rptree="$(sed -n 's/.*"tree":"\([0-9a-f]*\)".*/\1/p' "$_rpf" 2>/dev/null)"
 [ -n "$_rptree" ] && [ "$_rptree" = "$( cd "$_v2p" && git write-tree 2>/dev/null )" ] || _v2b="$_v2b [clean: the record does not name the staged tree: '$_rptree']"

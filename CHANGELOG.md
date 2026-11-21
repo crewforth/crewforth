@@ -243,6 +243,8 @@ versioning follows [SemVer](https://semver.org/).
   project that tracks `.claude/` had refused questions and no line for them.
 - **The last refusal brought back after a compaction says when it was met.** One older than the session is left
   out; a refusal seven hours old had come back as the one just met.
+- **A review-pass record written or removed by the stop hook is a note in the gate log, not a refusal.** It was
+  logged as `BLOCK` and counted with the refusals.
 - **Studio: the project box follows the session.** Opened on one project's total, it stayed when a session of
   another project was opened, showing the wrong total.
 - **CI: the cross-platform jobs have room for a slow runner.** Windows smoke ran 58 of its 60 minutes and passing
