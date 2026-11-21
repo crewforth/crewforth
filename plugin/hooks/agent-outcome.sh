@@ -247,6 +247,26 @@ _ao_tellmsg(){  # $1 = the result file -> _AOT
   return 0
 }
 
+# WHERE THE AGENT WORKED -> _AOR. An agent in a worktree of this repository (`isolation: worktree`, or one it was
+# started in) wrote its files there, and its verify names them: run in the project folder, pytest found no such
+# file and the stop said "tested nothing" (field, 5 stops in one day). The agent's own transcript records its
+# working folder on every line; the last one is taken when it is a worktree of THIS repository (the same git common
+# dir), and the project folder otherwise.
+_ao_agent_root(){
+  local c pc wc
+  _AOR="$_AMP"; _AORW=""
+  [ -n "${ATP:-}" ] && [ -f "$ATP" ] || return 0
+  c="$(tail -n 40 "$ATP" 2>/dev/null | grep -o '"cwd":"[^"]*"' | tail -n 1)"; c="${c#\"cwd\":\"}"; c="${c%\"}"; c="${c//\\\\//}"
+  [ -n "$c" ] && [ -d "$c" ] && [ "$c" != "$_AMP" ] || return 0
+  c="$(git -C "$c" -c core.fsmonitor= rev-parse --show-toplevel 2>/dev/null)" && [ -n "$c" ] && c="$(cd "$c" 2>/dev/null && pwd -P)" || return 0
+  # Compared as the file system sees them, not as spelled (C:/… and /c/… are one folder on Windows).
+  [ "$c" != "$(cd "$_AMP" 2>/dev/null && pwd -P)" ] || return 0
+  pc="$(cd "$_AMP" 2>/dev/null && cd "$(git -c core.fsmonitor= rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)" || return 0
+  wc="$(cd "$c" 2>/dev/null && cd "$(git -c core.fsmonitor= rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)" || return 0
+  [ -n "$pc" ] && [ "$pc" = "$wc" ] || return 0
+  _AOR="$c"; _AORW="$c"
+}
+
 # THE REVIEW-PASS RECORD (§4.6), written here when crew-review-agent ends its report with `review: clean`, by the
 # recipe in its own file (# CREW-REVIEW-PASS; smoke pins the three). Field (3.5.0): the auto-mode classifier refused
 # the agent's own write of it, and the commit was left to the user's hand. `review: blocked` removes a record that
@@ -530,7 +550,7 @@ case "$EV" in
     mkdir -p "$_AMD/results" "$_AMD/tries" "$_AMD/fails" 2>/dev/null || exit 0
     TRIES=0; [ -f "$_AMD/tries/$AID" ] && IFS= read -r TRIES < "$_AMD/tries/$AID"; case "$TRIES" in ''|*[!0-9]*) TRIES=0 ;; esac
     SHA=0; case "$INPUT" in *'"stop_hook_active":true'*|*'"stop_hook_active": true'*) SHA=1 ;; esac
-    RES=none; WHYNOT=""; VSTEP=""; VSEC=-
+    RES=none; WHYNOT=""; VSTEP=""; VSEC=-; _AORW=""
     # THE CARD'S SKILLS: each one the agent called with the Skill tool, or read (its SKILL.md), in its own transcript.
     # Measured (field, 2026-11-13): 14 of 4,326 crew agent runs read their own skill, the Skill tool 0. Not judged
     # without a transcript. A foreground agent that missed one is sent back once, before its verify is run; a
@@ -575,6 +595,7 @@ case "$EV" in
         # in the field and held every agent for the full 540 s it had, is for the end of the work and for CI.
         # The limit is _am_verify_limit's: CREW_VERIFY_TIMEOUT, else a `verify-timeout` line, else 120; at most 560.
         LIM="$_AMVL"
+        _ao_agent_root; VR="$_AOR"
         VF="$_AMD/tries/$AID.out"
         : > "$_AMD/tries/$AID.vstart" 2>/dev/null     # when the verify began: a sibling must be seen working after it (N55)
         # IN A PROCESS GROUP OF ITS OWN, so that stopping it stops what it started: a test runner's workers, a
@@ -582,11 +603,11 @@ case "$EV" in
         # control, which gives a background job its own group in bash (macOS ships no setsid). On Windows the tree
         # is ended by its Windows process id.
         if [ -z "${CREW_VERIFY_NO_SETSID:-}" ] && command -v setsid >/dev/null 2>&1; then
-          ( cd "$_AMP/$VDIR" 2>/dev/null && CREW_VR="$_AMP" exec setsid bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$VR/$VDIR" 2>/dev/null && CREW_VR="$VR" exec setsid bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
         else
           set -m
-          ( cd "$_AMP/$VDIR" 2>/dev/null && CREW_VR="$_AMP" exec bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
+          ( cd "$VR/$VDIR" 2>/dev/null && CREW_VR="$VR" exec bash -c "$VRUN" ) > "$VF" 2>&1 </dev/null &
           VPID=$!
           set +m
         fi
@@ -623,7 +644,10 @@ case "$EV" in
           4|5) case " $VCMD " in *[[:space:]/]pytest[[:space:]]*|*'-m pytest '*|*py.test*)
                  RES=blocked
                  if [ "$VRC" = 4 ]; then WHYNOT="pytest could not run what the verify names (exit 4: a path or option it does not know)"
-                 else WHYNOT="pytest collected no test (exit 5): the verify names no test of this change"; fi ;; esac ;;
+                 else WHYNOT="pytest collected no test (exit 5): the verify names no test of this change"; fi
+                 # Where it ran, so "check the path" is checked in the right folder.
+                 if [ -n "$_AORW" ]; then WHYNOT="$WHYNOT; it ran in the agent's worktree $_AORW"
+                 else WHYNOT="$WHYNOT; it ran in the project folder, not in a worktree"; fi ;; esac ;;
         esac
       fi
       if [ "$RES" = blocked ] || [ "$RES" = timeout ]; then :
@@ -772,6 +796,13 @@ case "$EV" in
             printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
             exit 0
           fi
+        fi
+        if declare -F _crew_q_elsewhere >/dev/null 2>&1 && _crew_q_variant "${_JU:-.}" && { [ "$_QV" = push ] || [ "$_QV" = none ]; } \
+           && _crew_q_elsewhere "${_JU:-.}"; then
+          _CREW_Q_ELSEWHERE_MSG
+          _ao_json "Crewforth: before you show the user the commit message this agent proposes: $_QEM"
+          printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_AOJ"
+          exit 0
         fi
         if declare -F _crew_q_open >/dev/null 2>&1 && _crew_q_open auto && _crew_q_variant "${_JU:-.}" && [ "$_QV" != none ]; then
           _crew_q_json "$_QV"

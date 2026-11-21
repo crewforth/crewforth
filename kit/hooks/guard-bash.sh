@@ -1293,6 +1293,14 @@ _rm_temp_only(){
       rm) ;;
       *) case "$seg" in *[$sep]rm[[:space:]]*|rm[[:space:]]*) return 1 ;; esac; continue ;;   # rm behind sudo, env, a wrapper, a quote (bash -c "rm …")
     esac
+    # An rm with no recursive flag deletes no folder, so it is not what this rule is asked about (field Tur 13:
+    # `rm -f web/node_modules`, a link, beside a temp-only `rm -rf` refused the call). Its own rules still read it.
+    local rec=0
+    for ((k=1; k<${#W[@]}; k++)); do
+      w="${W[k]}"; w="${w//\"/}"; w="${w//\'/}"
+      case "$w" in --) break ;; --recursive) rec=1; break ;; --*) ;; -*[rR]*) rec=1; break ;; esac
+    done
+    [ "$rec" = 1 ] || continue
     rmseen=1; local dd=0 cnt=0
     for ((k=1; k<${#W[@]}; k++)); do
       w="${W[k]}"; w="${w//\"/}"; w="${w//\'/}"
@@ -2554,7 +2562,7 @@ _mr_glob_safe(){  # $1 = a word holding .claude/state and a wildcard -> 0 = no f
   case "/$rest" in *[/\\].*) return 1 ;; esac
   return 0
 }
-_mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
+_mr_named_in(){ local nc=0 rc=1 CMD_UQ="$1"; shopt -q nocasematch && nc=1; shopt -s nocasematch
   case "$CMD_UQ" in *crew-model*|*crew-critical-paths*) rc=0 ;; esac
   # ...and by a glob that could reach one, or the folder itself in a command that moves, copies or removes: a word
   # that holds `.claude/state` and a wildcard, or that IS that folder beside rm, mv, cp, rmdir, rsync, tar or ln.
@@ -2571,6 +2579,100 @@ _mr_named(){ local nc=0 rc=1; shopt -q nocasematch && nc=1; shopt -s nocasematch
     [ "$unglob" = 1 ] && set +f
   fi
   [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"; }
+# The here-document readers (used by the record rule below and by the commit/push question further down).
+_hd_doc_target(){  # $1 = the line holding `cat … <<` or `tee … <<` -> 0 when what it writes is the screen or a document
+  local l="$1" w rest t=""
+  l="${l#"${l%%[![:space:]]*}"}"
+  case "$l" in
+    tee*)   # every file argument of tee is written, whatever its own stdout is redirected to
+      rest="${l#tee}"; rest="${rest%%<<*}"
+      for w in $rest; do
+        case "$w" in -*) continue ;; esac
+        w="${w//\"/}"; w="${w//\'/}"
+        _hd_doc_name "$w" || return 1
+        t=1
+      done
+      return 0 ;;
+    *)
+      if [[ $l =~ \>\>?[[:space:]]*([^[:space:];&|<>]+) ]]; then t="${BASH_REMATCH[1]}"; t="${t//\"/}"; t="${t//\'/}"; _hd_doc_name "$t"; return $?; fi
+      return 0 ;;   # cat to the screen
+  esac
+}
+_hd_doc_name(){  # $1 = a file name -> 0 for a document or data file (or a null/std device)
+  case "$1" in /dev/null|/dev/stdout|/dev/stderr) return 0 ;; esac
+  case "${1##*/}" in *.md|*.MD|*.markdown|*.txt|*.json|*.jsonl|*.tsv|*.csv|*.log|*.yml|*.yaml|*.toml|*.html|*.xml|*.rst|*.adoc) return 0 ;; esac
+  return 1
+}
+_hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents written by cat or tee
+  # The delimiter is read as bash reads it: the whole word after <<, its quotes and backslashes taken out (`<<E\OF`
+  # ends at EOF). A body whose delimiter never comes (`cat <<NOPE`) is not taken out at all: what follows it would
+  # be hidden, and a commit after it ran (measured: both were refused before, and passed when the word was cut short).
+  # A python body (`python3 - <<'EOF'`) is a program, but one that can start no process cannot run git: it is taken
+  # out too when no word in it can start one (field, rc.5/rc.6: two session notes written by python named
+  # "git checkout main && git pull" and "git push origin faz-7" as text, and §4.6 and §4.4 refused them). The words
+  # are looked for in the whole body at once, after its end: one regex, not one per line.
+  local l t w d="" k="" b="" out="" re='^[[:space:]]*(cat|tee)([[:space:]][^<;&|]*)?<<-?[[:space:]]*([^[:space:];&|<>()]+)'
+  # `[p]` and not the plain word: the "one reader" / "one path" smoke checks look for that word as a program this hook
+  # calls, and this pattern only reads the command being judged; nothing here runs it.
+  local rp='^[[:space:]]*[p]ython3?([[:space:]]+-)?[[:space:]]*<<-?[[:space:]]*([^[:space:];&|<>()]+)'
+  # The words: a module or function that starts a process, as a whole word (`posix_spawn`, `execvp`, `forkpty`), and
+  # the ones that reach any name from a string only as a call (`vars(`, `getattr(`): "vars." in a note is a word.
+  local sp='(^|[^A-Za-z0-9_])((subprocess|_posixsubprocess|system|popen|Popen|posix_spawnp?|spawn(l|le|lp|lpe|v|ve|vp|vpe)?|exec(l|le|lp|lpe|v|ve|vp|vpe)?|__import__|importlib|__builtins__|builtins|ctypes|pty|multiprocessing|runpy|fork(pty)?|pexpect|plumbum|sh|_winapi|startfile)([^A-Za-z0-9_]|$)|(eval|compile|getattr|globals|vars|breakpoint|open_code)[[:space:]]*\()'
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ -n "$d" ]; then
+      t="${l%$'\r'}"; t="${t#"${t%%[!	]*}"}"     # <<- lets the delimiter line start with tabs
+      if [ "$t" = "$d" ]; then
+        d=""; [ "$k" = prog ] && { [[ $b =~ $sp ]] || { [ -n "${_HD_PYCHK:-}" ] && ! "$_HD_PYCHK" "$b"; }; } && out="$out$b$l"$'\n'
+      else [ "$k" = prog ] && b="$b$l"$'\n'; fi
+      continue
+    fi
+    out="$out$l"$'\n'
+    # ...and only a body that stays text: `cat <<EOF | bash` and `tee >(sh) <<EOF` hand it to a shell on the same line.
+    if [[ $l =~ $re ]]; then
+      case "$l" in *'|'*|*'('*) ;; *)
+        w="${BASH_REMATCH[3]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
+        # ...and only a body that lands where nothing runs it: the screen, or a document or data file. A body written
+        # to a script (`cat > run.sh <<EOF … EOF; bash run.sh`) is a program: measured on 4485 real commands, five
+        # wrote a script that held a commit and ran it in the same call, and without this they passed unasked.
+        [ -n "$w" ] && _hd_doc_target "$l" && { d="$w"; k=""; } ;;
+      esac
+    elif [[ $l =~ $rp ]]; then
+      case "$l" in *'|'*|*'('*) ;; *)
+        w="${BASH_REMATCH[2]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
+        [ -n "$w" ] && { d="$w"; k=prog; b=""; } ;;
+      esac
+    fi
+  done <<< "$1"
+  if [ -n "$d" ]; then _HDT="$1"; else _HDT="$out"; fi
+}
+# A here-document that is only text names the record without touching it (field Tur 13: a session note written with
+# `python3 - <<'EOF'` said where the rules live, and was refused). Read without the bodies that stay text: a cat or tee
+# body written to a document, and a python body that can start no process and names the record only inside a
+# triple-quoted string, prose by its shape. A name in a plain string (`p='.claude/crew-model-rules'`) can be opened,
+# so that body is read as before; the command line itself always is.
+_mr_py_text(){  # $1 = a program here-document body -> 0 when no routing-record name is left outside its triple-quoted strings
+  local b="$1" rest q a2 a3 seg segs="" nc=0 rc=0
+  while :; do
+    a2="${b%%\'\'\'*}"; a3="${b%%\"\"\"*}"
+    if [ "$a2" = "$b" ] && [ "$a3" = "$b" ]; then break; fi
+    if [ "${#a2}" -le "${#a3}" ]; then q="'''"; else q='"""'; fi
+    rest="${b#*"$q"}"; case "$rest" in *"$q"*) ;; *) return 1 ;; esac
+    seg="${rest%%"$q"*}"; seg="${seg#"${seg%%[![:space:]]*}"}"; seg="${seg%"${seg##*[![:space:]]}"}"
+    # prose holds more than one word: a string that is only the path (`""".claude/crew-model-rules"""`) is one
+    case "$seg" in *[[:space:]]*) ;; *) segs="$segs $seg" ;; esac
+    b="${b%%"$q"*} ${rest#*"$q"}"
+  done
+  shopt -q nocasematch && nc=1; shopt -s nocasematch
+  case "$b$segs" in *crew-model*|*crew-critical-paths*) rc=1 ;; esac
+  [ "$nc" = 0 ] && shopt -u nocasematch; return "$rc"
+}
+_mr_named(){
+  _mr_named_in "$CMD_UQ" || return 1
+  case "$CMD" in *'<<'*) ;; *) return 0 ;; esac
+  _HD_PYCHK=_mr_py_text _hd_text_out "$CMD"
+  [ "$_HDT" = "$CMD" ] && return 0
+  _unquoted "$_HDT"; _mr_named_in "$_GS"
+}
 # Reading one is open through the Read tool, which no gate here matches: the rule is about a command, which cannot be
 # told reading from writing by its text. Said in the refusal, since a session that did not know it told the user it
 # could not even show them the file (field report, 3.2.1).
@@ -2881,72 +2983,8 @@ case "$CMD" in *[Rr][Mm]*) : ;; *) false ;; esac \
 # ...and not in the body of a here-document that `cat` or `tee` writes: a note that says "run git commit -m x" or
 # "git push origin main" is a file's text, and it was refused by §4.6 or asked about by §4.4 at any size (measured).
 # A body handed to a shell (`bash <<EOF`, `cat <<EOF | sh`, `tee >(sh)`) is a program and stays in. Only this question
-# reads the shortened text: the rules above, the destructive ones included, read the whole call.
-_hd_doc_target(){  # $1 = the line holding `cat … <<` or `tee … <<` -> 0 when what it writes is the screen or a document
-  local l="$1" w rest t=""
-  l="${l#"${l%%[![:space:]]*}"}"
-  case "$l" in
-    tee*)   # every file argument of tee is written, whatever its own stdout is redirected to
-      rest="${l#tee}"; rest="${rest%%<<*}"
-      for w in $rest; do
-        case "$w" in -*) continue ;; esac
-        w="${w//\"/}"; w="${w//\'/}"
-        _hd_doc_name "$w" || return 1
-        t=1
-      done
-      return 0 ;;
-    *)
-      if [[ $l =~ \>\>?[[:space:]]*([^[:space:];&|<>]+) ]]; then t="${BASH_REMATCH[1]}"; t="${t//\"/}"; t="${t//\'/}"; _hd_doc_name "$t"; return $?; fi
-      return 0 ;;   # cat to the screen
-  esac
-}
-_hd_doc_name(){  # $1 = a file name -> 0 for a document or data file (or a null/std device)
-  case "$1" in /dev/null|/dev/stdout|/dev/stderr) return 0 ;; esac
-  case "${1##*/}" in *.md|*.MD|*.markdown|*.txt|*.json|*.jsonl|*.tsv|*.csv|*.log|*.yml|*.yaml|*.toml|*.html|*.xml|*.rst|*.adoc) return 0 ;; esac
-  return 1
-}
-_hd_text_out(){  # $1 = command -> _HDT: it without the bodies of here-documents written by cat or tee
-  # The delimiter is read as bash reads it: the whole word after <<, its quotes and backslashes taken out (`<<E\OF`
-  # ends at EOF). A body whose delimiter never comes (`cat <<NOPE`) is not taken out at all: what follows it would
-  # be hidden, and a commit after it ran (measured: both were refused before, and passed when the word was cut short).
-  # A python body (`python3 - <<'EOF'`) is a program, but one that can start no process cannot run git: it is taken
-  # out too when no word in it can start one (field, rc.5/rc.6: two session notes written by python named
-  # "git checkout main && git pull" and "git push origin faz-7" as text, and §4.6 and §4.4 refused them). The words
-  # are looked for in the whole body at once, after its end: one regex, not one per line.
-  local l t w d="" k="" b="" out="" re='^[[:space:]]*(cat|tee)([[:space:]][^<;&|]*)?<<-?[[:space:]]*([^[:space:];&|<>()]+)'
-  # `[p]` and not the plain word: the "one reader" / "one path" smoke checks look for that word as a program this hook
-  # calls, and this pattern only reads the command being judged; nothing here runs it.
-  local rp='^[[:space:]]*[p]ython3?([[:space:]]+-)?[[:space:]]*<<-?[[:space:]]*([^[:space:];&|<>()]+)'
-  # The words: a module or function that starts a process, as a whole word (`posix_spawn`, `execvp`, `forkpty`), and
-  # the ones that reach any name from a string only as a call (`vars(`, `getattr(`): "vars." in a note is a word.
-  local sp='(^|[^A-Za-z0-9_])((subprocess|_posixsubprocess|system|popen|Popen|posix_spawnp?|spawn(l|le|lp|lpe|v|ve|vp|vpe)?|exec(l|le|lp|lpe|v|ve|vp|vpe)?|__import__|importlib|__builtins__|builtins|ctypes|pty|multiprocessing|runpy|fork(pty)?|pexpect|plumbum|sh|_winapi|startfile)([^A-Za-z0-9_]|$)|(eval|compile|getattr|globals|vars|breakpoint|open_code)[[:space:]]*\()'
-  while IFS= read -r l || [ -n "$l" ]; do
-    if [ -n "$d" ]; then
-      t="${l%$'\r'}"; t="${t#"${t%%[!	]*}"}"     # <<- lets the delimiter line start with tabs
-      if [ "$t" = "$d" ]; then
-        d=""; [ "$k" = prog ] && [[ $b =~ $sp ]] && out="$out$b$l"$'\n'
-      else [ "$k" = prog ] && b="$b$l"$'\n'; fi
-      continue
-    fi
-    out="$out$l"$'\n'
-    # ...and only a body that stays text: `cat <<EOF | bash` and `tee >(sh) <<EOF` hand it to a shell on the same line.
-    if [[ $l =~ $re ]]; then
-      case "$l" in *'|'*|*'('*) ;; *)
-        w="${BASH_REMATCH[3]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
-        # ...and only a body that lands where nothing runs it: the screen, or a document or data file. A body written
-        # to a script (`cat > run.sh <<EOF … EOF; bash run.sh`) is a program: measured on 4485 real commands, five
-        # wrote a script that held a commit and ran it in the same call, and without this they passed unasked.
-        [ -n "$w" ] && _hd_doc_target "$l" && { d="$w"; k=""; } ;;
-      esac
-    elif [[ $l =~ $rp ]]; then
-      case "$l" in *'|'*|*'('*) ;; *)
-        w="${BASH_REMATCH[2]}"; w="${w//\'/}"; w="${w//\"/}"; w="${w//\\/}"
-        [ -n "$w" ] && { d="$w"; k=prog; b=""; } ;;
-      esac
-    fi
-  done <<< "$1"
-  if [ -n "$d" ]; then _HDT="$1"; else _HDT="$out"; fi
-}
+# reads the shortened text, and the routing-record rule; the other rules above, the destructive ones included, read
+# the whole call. The readers are defined above the record rule.
 CMD_SEEN="$CMD"
 case "$CMD" in *"<<"*) case "$CMD" in *[Cc][Oo][Mm][Mm][Ii][Tt]*|*[Pp][Uu][Ss][Hh]*) _hd_text_out "$CMD"; CMD_SEEN="$_HDT" ;; esac ;; esac
 CMD="$CMD_REAL"; CMD_UQ="$CMD_UQ_REAL"
