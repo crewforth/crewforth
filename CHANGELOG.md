@@ -134,6 +134,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A new project is planned before it is designed.** A request in Turkish that asked to settle the decisions first
+  routed to no one, because the planner and brainstorm triggers were English only; they now carry Turkish phrases,
+  each with a negative twin in the routing set. And a project with no code yet (only the install, documents and git
+  files) is told at the start of a conversation to send the user's description of what to build to `crew-planner`
+  first, whatever its wording.
 - **A verify that failed while another crew agent edited the same folder is inconclusive.** The agent is not sent back,
   nothing is escalated or counted against its model, and the session is told to run the touched tests once that agent
   has finished. An agent in a worktree of its own does not count. Studio shows such runs apart.

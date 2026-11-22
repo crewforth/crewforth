@@ -62,6 +62,28 @@ MSG="A session handover from before this context boundary exists at docs/SESSION
 fi
 [ -n "$LANGMSG" ] && MSG="${MSG:+$MSG }$LANGMSG"
 
+# A PROJECT WITH NO CODE YET. Its first request is a description of what to build, and that is planning whatever its
+# wording. A field project installed on an empty folder described a whole game in Turkish ("first settle the
+# decisions, then design the screens"); no trigger phrase matched, route-hint said nothing, and the main thread
+# took every product decision itself with crew-planner never called (3.6.0-rc.8). A trigger list cannot cover every
+# way a person describes a new product, so the state of the folder says it instead: nothing at the top level but the
+# install, git's files, the docs and the readme. Builtins only (a glob and a case), so it costs no process; only at
+# the start of a conversation (startup, clear), and only where Crewforth is installed.
+case "$SRC" in startup|clear|'')
+  if [ -d "$ROOT/.claude" ]; then
+    _code=0
+    for _e in "$ROOT"/* "$ROOT"/.[!.]*; do
+      [ -e "$_e" ] || continue
+      case "${_e##*/}" in
+        .claude|.crewforth|.git|.gitattributes|.gitignore|.gitmodules|.DS_Store|.editorconfig|.mcp.json|.vscode|.idea\
+        |CLAUDE.md|CLAUDE.local.md|AGENTS.md|docs|README*|readme*|LICENSE*|LICENCE*|.*allowlist.txt|.private-terms.txt) ;;
+        *) _code=1; break ;;
+      esac
+    done
+    [ "$_code" = 0 ] && MSG="${MSG:+$MSG }This project has no code yet: only the Crewforth install, documents and git files. When the user describes what to build, treat it as a planning request whatever its wording: use the crew-planner subagent first, to settle the decisions, the scope and the acceptance criteria, and design or write code only after that. A narrow request (one question, one file) is not planning."
+  fi ;;
+esac
+
 # THE GIT HOOKS ARE NOT CONNECTED. pre-commit and commit-msg run only when core.hooksPath points at them (or at
 # .claude/git-shim, which runs them and then the project's own). An install made before `git init`, and every clone of
 # a repository that shares .claude/, starts without that setting (measured: a field project, and v3.0.0 again in three

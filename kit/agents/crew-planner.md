@@ -11,7 +11,7 @@ metadata:
 # Planning Specialist
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "plan", "produce a spec", "task breakdown", "acceptance criteria", "sprint plan", "plan first", "break it down", "have not thought", "not thought it through", "before we code", "split this up"
+Trigger phrases: "plan", "produce a spec", "task breakdown", "acceptance criteria", "sprint plan", "plan first", "break it down", "have not thought", "not thought it through", "before we code", "split this up", "decide first", "settle the decisions", "kararları netleştir", "kararları netleştirip", "kararları netleştirelim", "önce plan", "önce planla", "planlayalım"
 
 The stop before diving into code. The "how" lives in the spec-planning skill.
 
