@@ -43,6 +43,10 @@ commit the changes|crew-commit-agent
 run tests and give me a coverage report|crew-test-expert
 do a PR review and look at the diff|crew-review-agent
 plan first and produce a task breakdown|crew-planner
+# Turkish planning requests: a new project described in Turkish named no owner (field, 3.6.0-rc.8).
+önce kararları netleştirip sonra ekran tasarımlarını yapalım|crew-planner
+önce planlayalım, sonra kodlarız|crew-planner
+let us decide first and then design the screens|crew-planner
 deploy this and go to production on the VPS|deploy
 prepare the changelog and cut a tag|release
 set up a ci pipeline with github actions|ci-pipeline
@@ -93,6 +97,8 @@ the context is full, check the token budget before we continue|token-budget
 # component whose reachability is assumed, which is exactly how crew-frontend-expert went unreachable for a whole
 # class of request while every gate stayed green.
 i am not sure what we want here yet, help me scope it|brainstorm
+bu özellik için beyin fırtınası yapalım|brainstorm
+oyun modu için seçenekleri tartışalım|brainstorm
 review the code I just wrote before I push|crew-code-review
 # Staged work goes to the agent, which carries commit-message: skill-eval measured it 0 of 6 as a main-thread
 # Skill call (Sonnet, old and new description alike), all six delegated. The skill's own row is the one that
@@ -117,6 +123,10 @@ set up the project structure for a new API|backend-architecture
 choose a database for this service|backend-architecture
 
 # --- Negative: prompt must NOT route to target (over-broad-trigger guard) ---
+# Negative twins of the Turkish planning rows: a rewrite, a read and a screen that names a plan are not planning.
+bu fonksiyonu sıfırdan yaz|!crew-planner
+planı oku ve özetle|!crew-planner
+uçuş planı ekranındaki butonu düzelt|!crew-planner
 flutter ekranı ekle|!frontend-rn-expo
 add a SwiftUI view for the profile|!frontend-rn-expo
 build a Jetpack Compose screen for settings|!frontend-rn-expo

@@ -8,7 +8,7 @@ description: |
 # Brainstorm — diverge before you converge
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "brainstorm", "explore options", "not sure what we want", "help me scope", "ideate"
+Trigger phrases: "brainstorm", "explore options", "not sure what we want", "help me scope", "ideate", "beyin fırtınası", "fikir alışverişi", "seçenekleri tartış", "seçenekleri tartışalım"
 
 ## When
 The ask is **under-defined**: the goal, the users, or the shape of the solution aren't clear yet, so jumping

@@ -2994,7 +2994,7 @@ BUDGET_DISC=16544    # Discipline rules: 17394 → 16544 (−850, the measured s
                      # and the wrong one winning silently. The only rule in this file that is about the OTHER
                      # rules, so it cannot live in the README the way the compaction note does. Plus the Audit
                      # row naming crew-performance-expert — an agent nothing routes to is an idle component.)
-BUDGET_AGENT_BODIES=78883 # 78681 → 78883 (+202), the measured sum: crew-review-agent records the staged tree and reads only the change since its last review (3.3). every crew agent's body, after its frontmatter, summed: a subagent pays its own body in full on
+BUDGET_AGENT_BODIES=79035 # 78883 → 79035 (+152), the measured sum: crew-planner and brainstorm take Turkish planning phrases (field, 3.6.0-rc.8: a new project described in Turkish routed to no one; the user's decision, 2026-11-22). 78681 → 78883 (+202), the measured sum: crew-review-agent records the staged tree and reads only the change since its last review (3.3). every crew agent's body, after its frontmatter, summed: a subagent pays its own body in full on
                           # every call, so it is a per-delegation cost the description budget does not see. The measured sum
                           # (14 agents, 2026-11-11); raise it on a decision, never to make room.
 BUDGET_AGENTS=4019   # 5827 → 4019 (−1808), the measured sum: every agent description is one line (Faz 7, routing held at 117 of 119). 5746 → 5827 (+81) before that: every crew agent's tools gain `Skill`, so a card's `skills:` can be called (the user's decision, 2026-11-13: in the field 14 of 4,326 agent runs read their own skill and none could call one). 3.2.0: 5596 → 5746 (+150), the measured sum: crew-docs-agent is a 14th agent (195 B, its description cut to one line first; the other 13 sum to 5551). Raised on the user's decision, not to make room. 5d.2: tightened to the measured sum (was 5800 with 204 B of slack). Before that: sum of agent frontmatter; currently 5582, measured 2026-09-23 (3.0: the backend and database
@@ -3283,7 +3283,9 @@ if [ "$IS_KIT" != 1 ]; then
 elif ! command -v git >/dev/null 2>&1; then
   skip tool "the injection budget (the fixture is a git repository; git is not on PATH)" 6
 else
-  _hj="$(mktemp -d)"; mkdir -p "$_hj/p/.claude/eval"
+  # src/: the fixture is a project with code. An empty one is also told to plan first (session-rehydrate), once per
+  # start until code exists; that line is not part of the floor this measures.
+  _hj="$(mktemp -d)"; mkdir -p "$_hj/p/.claude/eval" "$_hj/p/src"
   cp -R "$HOOKS" "$_hj/p/.claude/hooks"; cp -R "$ROOT/eval/lib" "$_hj/p/.claude/eval/lib"
   cp -R "$AGENTS" "$_hj/p/.claude/agents"; cp -R "$SKILLS" "$_hj/p/.claude/skills"; cp "$ROOT/settings.json" "$_hj/p/.claude/"
   # Hermetic: no global or system git config reaches the fixture (a runner's core.hooksPath would change the answer).
@@ -5657,6 +5659,19 @@ case "$_r1" in *handover*) [ "$_r1" = "$_r2" ] && pass "SessionStart: two resume
     || fail "SessionStart: two resumes over the same handover printed different bytes — each resume would re-pay the cache" ;;
   *) fail "SessionStart: a resume with a handover present offered no handover: '$_r1'" ;; esac
 rm -f "$RHD/docs/SESSION_STATE.md"
+# A PROJECT WITH NO CODE YET sends its first request to crew-planner (field, 3.6.0-rc.8: a new game described in
+# Turkish matched no trigger and no planner ran). Five states, read from what the hook printed: only the install,
+# docs and git files on startup · the same on clear · the same after a compaction (not a new conversation) · one
+# source folder beside them · no Crewforth install at all. Then the same empty project with an empty PATH: builtins only.
+_gp="$(mktemp -d)"; mkdir -p "$_gp/e/.claude" "$_gp/e/docs" "$_gp/s/.claude" "$_gp/s/src" "$_gp/n/docs"
+: > "$_gp/e/CLAUDE.md"; : > "$_gp/e/.gitignore"; : > "$_gp/e/README.md"
+_gb="$(command -v bash)"
+_gr(){ printf '{"hook_event_name":"SessionStart","source":"%s"}' "$2" | CLAUDE_PROJECT_DIR="$_gp/$1" PATH="${3-$PATH}" "$_gb" "$HOOKS/session-rehydrate.sh" 2>/dev/null; }
+_gk(){ case "$1" in *'has no code yet'*'crew-planner subagent first'*) printf 'P' ;; *) printf -- '-' ;; esac; }
+_got="$(_gk "$(_gr e startup)")$(_gk "$(_gr e clear)")$(_gk "$(_gr e compact)")$(_gk "$(_gr s startup)")$(_gk "$(_gr n startup)")$(_gk "$(_gr e startup '')")"
+[ "$_got" = "PP---P" ] && pass "SessionStart: a project with no code yet routes its first request to crew-planner; code, a compaction or no install says nothing (6 states)" \
+  || fail "session-rehydrate no-code states read '$_got', want 'PP---P' (empty startup · empty clear · empty compact · src/ · no install · empty PATH)"
+rm -rf "$_gp"
 # THE GIT HOOKS LINE. pre-commit and commit-msg run only when core.hooksPath points at them, or at .claude/git-shim.
 # An install made before `git init`, and every clone of a repository that shares .claude/, starts without it, and a
 # commit typed in a terminal is then scanned by nothing. Crewforth does not change git's configuration by itself:
