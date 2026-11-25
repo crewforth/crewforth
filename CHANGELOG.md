@@ -134,6 +134,8 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A note in parentheses on a card's `skills:` line is not a skill name.** `skills: db-migration (only if the schema
+  changes)` was refused because "(only" is not installed; each parenthesised note is now left out.
 - **A commit stopped by git's own hook is in the gate log.** The trace, secret, size, private-path and floor scans
   that stop a commit, and the commit-message scan, leave one `BLOCK §4.1` line naming the rules that fired, never
   what they matched. One helper, `crew_gate_log_add`, writes such lines for these and the approval question.

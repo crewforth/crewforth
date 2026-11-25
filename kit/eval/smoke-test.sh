@@ -12716,6 +12716,11 @@ _o="$(printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"sk
 case "$_o" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"Crewforth rules'*'Your task card names skills: api-design observability. Before you change anything, call each one with the Skill tool'*'"}}') ;; *) _v2b="$_v2b [the starting agent was not told its card's skills: ${_o:0:80}…${_o: -160}]" ;; esac
 printf '%s' "$_o" | json_ok; case $? in 0|2) ;; *) _v2b="$_v2b [the start block with skills is not JSON]" ;; esac
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
+# A note in parentheses is not a name (field, Tur 14: "(only" was refused as a skill that is not installed)
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'true · skills: api-design (only if the API changes), observability'
+[ "$_v2rc" = 0 ] && grep -q '^skills=api-design observability$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null \
+  || _v2b="$_v2b [a note in parentheses: rc $_v2rc $(head -c 100 "$_v2/err") $(_v2skrec x)]"
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
 for _bad in 'no-such-skill' 'Api/design'; do
   _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature "true · skills: $_bad"
   case "$_v2rc|$(cat "$_v2/err")" in "2|"*"skills: names"*"not an installed skill"*"api-design"*) ;; *) _v2b="$_v2b [$_bad: rc $_v2rc $(head -c 100 "$_v2/err")]" ;; esac
