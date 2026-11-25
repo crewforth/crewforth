@@ -134,6 +134,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **Text is no longer refused as a destructive command.** A file name holding the letters `rm` (`platform.dart`)
+  beside a read of a lockfile; `python3 -I -c` reading a download as JSON; a `.claude` folder named in a quoted `grep`
+  pattern beside a here-document; `()` in a python body and `{` in a quoted program; a handover note written by
+  `cat` (also to a `$B` the same call assigned) that mentioned `-r`, `-f` and `rm`. Each now passes and has a twin that
+  stays refused. The same reading closes one gap: `python3 -c "shutil.rmtree(\".claude\")"` is now refused.
 - **A new project is planned before it is designed.** A request in Turkish that asked to settle the decisions first
   routed to no one, because the planner and brainstorm triggers were English only; they now carry Turkish phrases,
   each with a negative twin in the routing set. And a project with no code yet (only the install, documents and git
