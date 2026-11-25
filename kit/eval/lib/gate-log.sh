@@ -56,6 +56,13 @@ crew_gate_log_ts(){  # $1 = where the line goes
   _CREW_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || _CREW_TS=""
   case "$_CREW_TS" in [0-9][0-9][0-9][0-9]-*Z) ;; *) _CREW_TS="" ;; esac
 }
+# One line without a command column: $1 verdict, $2 §section, $3 rule. For a gate whose refusal must not copy what it
+# matched (a secret, a trace) or that has no command to show (an approval question, a commit stopped by git's hook).
+crew_gate_log_add(){
+  crew_gate_log_write; [ -n "$_CREW_GL" ] || return 0
+  crew_gate_log_ts "$_CREW_GL"
+  printf '%s\t%s\t%s\t\t%s\n' "$1" "$2" "$3" "$_CREW_TS" >> "$_CREW_GL" 2>/dev/null || true
+}
 crew_utc_of(){  # $1 = seconds since 1970 -> _CREW_TS, 2026-11-09T08:27:54Z (days to a civil date: H. Hinnant's algorithm)
   local s="$1" z t y m d doe yoe doy mp era
   case "$s" in ''|*[!0-9]*) _CREW_TS=""; return 0 ;; esac

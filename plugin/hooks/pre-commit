@@ -64,6 +64,16 @@ _crew_looked(){  # $1 = what a pipeline collects for the scans · the rest = the
 _crew_d="${BASH_SOURCE%/*}"; [ "$_crew_d" = "${BASH_SOURCE}" ] && _crew_d=.
 [ -f "$_crew_d/../eval/lib/crew-env.sh" ] && . "$_crew_d/../eval/lib/crew-env.sh"; unset _crew_d
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# WHAT STOPPED THE COMMIT goes to the gate log too, one BLOCK line per commit with the rules that fired (field, Tur 14:
+# eleven of these refusals across two projects left no line, while every hook refusal did). The rule names only: the
+# matched text can be the secret or the trace itself, so it is never written. No library, no line; never a failure.
+HIT=0; _HITK=""
+_crew_hit(){ HIT=1; case ",$_HITK," in *",$1,"*) ;; *) _HITK="${_HITK:+$_HITK, }$1" ;; esac; }
+_crew_hit_log(){
+  [ -f "$HERE/../eval/lib/gate-log.sh" ] || return 0
+  . "$HERE/../eval/lib/gate-log.sh" 2>/dev/null || return 0
+  crew_gate_log_add BLOCK §4.1 "commit content: $_HITK"
+}
 BL="$HERE/trace-blocklist.txt"
 SL="$HERE/secret-blocklist.txt"
 
@@ -182,7 +192,7 @@ while IFS= read -r f; do
   shopt -u nocasematch 2>/dev/null || true
   if [ "$is_secret_file" = 1 ] && ! { [ -n "$SAL" ] && grep -qxF -- "$f" "$SAL"; }; then
     echo "SECRET-FILE: '$f' is a secrets / credentials / private-key file — never commit it (gitignore it; ship a .env.example instead)."
-    HIT=1; continue
+    _crew_hit "secret file"; continue
   fi
   # The PATTERN half only judges files that are NEW to the repository. A path already in HEAD is one the project
   # decided to keep, and refusing it means that file can never be edited again without --no-verify — the exact
@@ -206,7 +216,7 @@ if [ -n "$BLOAT_CANDIDATES" ]; then
     [ -z "$f" ] && continue
     case "$verdict" in *missing*)
       echo "REPO-BLOAT: '$f' is a build/vendored artifact — gitignore it, don't commit it."
-      HIT=1 ;;
+      _crew_hit "repository bloat" ;;
     esac
   done < <(printf '%s\n' "${BLOAT_QUERY#$NL}" | git cat-file --batch-check 2>/dev/null \
              | paste -d'\t' <(printf '%s' "$BLOAT_CANDIDATES") - 2>/dev/null)
@@ -219,7 +229,7 @@ if [ -n "$SIZE_TARGETS" ]; then
     case "$sz" in ''|*[!0-9]*) sz=0;; esac
     if [ "$sz" -gt "$MAXBYTES" ]; then
       echo "REPO-BLOAT: '$f' is $((sz/1024)) KiB (> $((MAXBYTES/1024)) KiB) — large blobs bloat history; use Git LFS or gitignore."
-      HIT=1
+      _crew_hit "repository bloat"
     fi
   done < <(printf '%s\n' "${SIZE_QUERY#$NL}" | git cat-file --batch-check 2>/dev/null \
              | paste -d'\t' <(printf '%s' "$SIZE_TARGETS") - 2>/dev/null)
@@ -252,7 +262,7 @@ _fal_unreasoned(){ # $1 = the bare line: reported once per commit, and the commi
   case "$_FAL_SAID" in *"|$1|"*) return 0 ;; esac
   _FAL_SAID="$_FAL_SAID$1|"
   echo "FLOOR-ALLOWLIST: '$1' exempts nothing without a reason — write it as: $1  # <why, at least 20 characters>"
-  HIT=1
+  _crew_hit "floor allowlist"
 }
 _floor_allowed(){ # $1 = rule, $2 = pattern (may be empty), $3 = path
   [ -n "$FAL" ] || return 1
@@ -285,7 +295,7 @@ if [ -n "$FAL" ] && ! git diff --cached --quiet -- "$FAL" 2>/dev/null; then
     if [ "${#FAL_R}" -lt 20 ]; then _fal_unreasoned "$FAL_E"; continue; fi
     case "$_fal_reasons" in *"
 $FAL_R
-"*) echo "FLOOR-ALLOWLIST: '$FAL_E' repeats the reason of another entry word for word — say why THIS exception is needed"; HIT=1 ;; esac
+"*) echo "FLOOR-ALLOWLIST: '$FAL_E' repeats the reason of another entry word for word — say why THIS exception is needed"; _crew_hit "floor allowlist" ;; esac
     _fal_reasons="$_fal_reasons$FAL_R
 "
   done < "$FAL"
@@ -332,11 +342,11 @@ while IFS=$'\t' read -r kind f r a; do
   case "$kind" in
     D) _floor_allowed "test-deleted" "" "$f" && continue
        echo "FLOOR-GUARD [test-deleted]: $f is a test file this commit removes"
-       HIT=1 ;;
+       _crew_hit "floor guard (test deleted)" ;;
     M) [ "$r" -gt "$a" ] || continue
        _floor_allowed "assertion-removed" "" "$f" && continue
        echo "FLOOR-GUARD [assertion-removed]: $f loses $((r - a)) assertion(s) and stays in the tree (removed $r, added $a)"
-       HIT=1 ;;
+       _crew_hit "floor guard (assertion removed)" ;;
   esac
 done < <({ _floor_diff --cached; [ "${CREW_SCAN_UNSTAGED:-0}" = 1 ] && _floor_diff; } \
   | LC_ALL=C awk -v F="$FLOOR_F" -v P="$FLOOR_P" '
@@ -462,12 +472,12 @@ if [ -f "$BL" ] && [ -s "$TRACE_F" ] && [ "$_dec" != 1 ]; then
     _gr=0; _crew_scan iE "$pat" "$TRACE_F" || _gr=$?
     if [ "$_gr" = 0 ]; then
       echo "TRACE-SCANNER: forbidden expression in added code -> '$pat' (§4.1/§4.2)"
-      HIT=1
+      _crew_hit "trace"
     elif [ "$_gr" = 2 ]; then
       echo "TRACE-SCANNER: /$pat/ in $BL is not a valid regular expression, so it matches NOTHING. Every other pattern still ran; fix or remove this line."
     elif [ "$_gr" -ge 3 ]; then
       echo "TRACE-SCANNER: the look for '$pat' could not run, so the added lines are not known to be clean and the commit is stopped (§4.1/§4.2)."
-      HIT=1
+      _crew_hit "trace"
     fi
   done < "$BL"
 fi
@@ -481,10 +491,10 @@ if [ -f "$SL" ] && [ -s "$SECRET_F" ] && [ "$_dec" != 1 ]; then
     _gr=0; _crew_scan E "$pat" "$SECRET_F" || _gr=$?
     if [ "$_gr" = 0 ]; then
       echo "SECRET-SCANNER: a staged line matches a secret pattern -> /$pat/"
-      HIT=1
+      _crew_hit "secret"
     elif [ "$_gr" -ge 3 ]; then
       echo "SECRET-SCANNER: the look for /$pat/ could not run, so the staged lines are not known to be clean and the commit is stopped."
-      HIT=1
+      _crew_hit "secret"
     elif [ "$_gr" = 2 ]; then
       # Same reasoning as the trace loop above; the comment there is the long form.
       echo "SECRET-SCANNER: /$pat/ in $SL is not a valid regular expression, so it matches NOTHING. Every other pattern still ran; fix or remove this line."
@@ -560,12 +570,12 @@ if [ -s "$PTERM_F" ] && [ -s "$SECRET_F" ] && [ "$_dec" != 1 ]; then
       # The term is echoed back deliberately: unlike a secret, the author has to see WHICH private string to
       # replace, and it is already sitting in their own working tree.
       echo "PRIVATE-PATH SCANNER: a staged line contains a machine-private string -> '$term' (§4.3)"
-      HIT=1
+      _crew_hit "private path"
     elif [ "$_gr" -ge 2 ]; then
       # This loop used to read every exit status but 0 as "no match": where grep aborted (134) for each term the
       # commit went through with both private strings in it (measured).
       echo "PRIVATE-PATH SCANNER: the look for a machine-private string could not run, so the staged lines are not known to be clean and the commit is stopped (§4.3)."
-      HIT=1
+      _crew_hit "private path"
     fi
   done < "$PTERM_F"
 fi
@@ -691,7 +701,7 @@ EOF_FLOOR_CAND2
           echo "FLOOR-GUARD: /$pat/ in $FL is not a valid regular expression, so it matches NOTHING. Every other pattern still ran; fix or remove this line."
         else
           echo "FLOOR-GUARD: the look for /$pat/ could not run, so the staged lines are not known to be clean and the commit is stopped."
-          HIT=1
+          _crew_hit "floor guard"
         fi
         continue
       fi
@@ -713,7 +723,7 @@ $n:"}"; loc="${loc%%
         _floor_allowed "$rule" "$pat" "$fpath" && continue
         _floor_generated "$fpath" && continue
         echo "FLOOR-GUARD [$rule]: $loc adds a move that lowers the bar -> /$pat/"
-        HIT=1
+        _crew_hit "floor guard"
       done <<EOF_FLOOR_HITS
 $hits
 EOF_FLOOR_HITS
@@ -722,6 +732,7 @@ EOF_FLOOR_HITS
 fi
 
 if [ "$HIT" -ne 0 ]; then
+  _crew_hit_log
   echo "-----------------------------------------------------------"
   echo "Commit stopped. Remove the AI-authorship trace / vendor name / secret / bloated file / bar-lowering move from the staged changes."
   echo "A bar-lowering move that is genuinely warranted? record it in .floor-allowlist.txt at the repo root (path:<glob>, rule:<name>, or the exact pattern line, each followed by '  # <reason, 20+ characters>') — in the same commit, where review sees it. A path: glob's * also crosses directories: write the narrowest path."

@@ -777,9 +777,7 @@ _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no de
 _crew_q_log(){  # $1 = the rule
   [ -f "$_CREW_Q_HERE/../eval/lib/gate-log.sh" ] || return 0
   . "$_CREW_Q_HERE/../eval/lib/gate-log.sh" 2>/dev/null || return 0
-  crew_gate_log_write; [ -n "$_CREW_GL" ] || return 0
-  crew_gate_log_ts "$_CREW_GL"
-  printf 'BLOCK\t§4.4\t%s\t\t%s\n' "$1" "$_CREW_TS" >> "$_CREW_GL" 2>/dev/null || true
+  crew_gate_log_add BLOCK §4.4 "$1"
 }
 _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that says why
   _crew_q_ctx

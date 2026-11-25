@@ -94,6 +94,10 @@ while IFS= read -r pat || [ -n "$pat" ]; do
 done < "$BL"
 
 if [ "$HIT" -ne 0 ]; then
+  # To the gate log too, the rule only: the matched text is the trace itself (field, Tur 14: such refusals left no line).
+  if [ -f "$HERE/../eval/lib/gate-log.sh" ] && . "$HERE/../eval/lib/gate-log.sh" 2>/dev/null; then
+    crew_gate_log_add BLOCK §4.1 "commit message: trace" 2>/dev/null || true
+  fi
   echo "Commit message rejected. Write a human, technical message; leave no trace/brand."
   exit 1
 fi
