@@ -2767,7 +2767,7 @@ if command -v git >/dev/null 2>&1 && ( cd "$PR" && git init -q && git config use
   _pgn="$(grep -c . "$_pgl")"; _pgline="$(head -1 "$_pgl")"
   if [ "$_pgr" != 1 ]; then fail "FIXTURE: the trace-and-secret commit was not stopped (rc=$_pgr), the gate-log line was not tested"
   elif [ "$_pgn" = 1 ] && case "$_pgline" in "BLOCK$_pt§4.1${_pt}commit content: "*secret*"$_pt$_pt"*) true ;; *) false ;; esac \
-       && case "$_pgline" in *trace*) true ;; *) false ;; esac && ! grep -qF -e "$JWTFX" -e "Co-Authored" "$_pgl"; then
+       && case "$_pgline" in *trace*) true ;; *) false ;; esac && ! grep -qF -e "$JWTFX" -e "$TRACEFX" "$_pgl"; then
     pass "a commit stopped by pre-commit leaves one gate-log line with the rules (trace, secret), not what they matched; a clean commit none"
   else fail "pre-commit gate-log: $_pgn line(s), first '$_pgline'"; fi
   rm -f "$_pgl"
