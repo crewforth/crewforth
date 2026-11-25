@@ -90,8 +90,9 @@ esac
 # orders). The tool-level gates still judge a commit made through Claude Code; a commit typed in a terminal is scanned
 # by nothing. Crewforth does not change git's configuration by itself, so the session is told, once at each start,
 # and the user decides. Only where the hooks are installed and this is a repository; two git calls, at session start.
-HOOKMSG=""
-if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+HOOKMSG=""; _grc=1
+[ -f "$ROOT/.claude/hooks/pre-commit" ] && { git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; _grc=$?; }
+if [ "$_grc" = 0 ]; then
   _hp="$(git -C "$ROOT" config --get core.hooksPath 2>/dev/null || true)"; _hp="${_hp%$'\r'}"; _hp="${_hp//\\//}"
   case "${_hp%/}" in
     .claude/hooks|.claude/git-shim) ;;
@@ -102,6 +103,13 @@ if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir
     '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update (npx crewforth update), which arms it and keeps any hooks the repository has of its own. /crew-doctor shows the state." ;;
     *)  HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at another hook directory, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update keeps that directory's hooks and runs Crewforth's before them. /crew-doctor shows the state." ;;
   esac
+# NOT A REPOSITORY AT ALL. Then no commit gate runs, and nothing said so: a field project worked eleven hours before
+# `git init` with the trace, secret and size scans, the review record and the commit question all idle (Tur 14). Said
+# only where git itself answers that this is no repository; with no git to ask nothing is known, so nothing is said.
+# git's own answer is read, not `command -v` (bash 3.2 with an empty PATH names a git it then cannot run): 128 is "not a
+# repository", 127 is no git at all.
+elif [ "$_grc" = 128 ]; then
+  HOOKMSG="This folder is not a git repository, so none of Crewforth's commit gates run here yet: no trace, secret or size scan, no review record, no commit question. Tell the user once in one line; it does not change your task. After git init, the Crewforth update (npx crewforth update) connects the hooks. /crew-doctor shows the state."
 fi
 [ -n "$HOOKMSG" ] && MSG="${MSG:+$MSG }$HOOKMSG"
 

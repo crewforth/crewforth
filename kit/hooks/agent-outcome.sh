@@ -277,6 +277,21 @@ _ao_review_pass(){  # $1 = clean | blocked
   [ -n "$cwd" ] && [ -d "$cwd" ] || cwd="$_AMP"
   top="$(git -C "$cwd" -c core.fsmonitor= rev-parse --show-toplevel 2>/dev/null)" || return 0
   [ -n "$top" ] && [ -d "$top" ] || return 0
+  # THE TREE THE REVIEW READ. The commit gate looks for the record in the work tree that commits, and a review of a
+  # worktree's staged diff wrote it in the project folder, hashing a diff nobody reviewed (field, Tur 14: the commit in
+  # the worktree was refused). The agent's own worktree when it worked in one; otherwise, when nothing is staged here,
+  # the ONE linked worktree that has a staged diff. Two such worktrees: not known which, so the project folder as before.
+  _ao_agent_root; [ -n "$_AORW" ] && top="$_AORW"
+  if [ -z "$_AORW" ] && git -C "$top" -c core.fsmonitor= diff --cached --quiet 2>/dev/null; then
+    local w one="" n=0
+    while IFS= read -r w; do
+      case "$w" in "worktree "*) w="${w#worktree }" ;; *) continue ;; esac
+      [ -d "$w" ] && [ "$(cd "$w" 2>/dev/null && pwd -P)" != "$(cd "$top" 2>/dev/null && pwd -P)" ] || continue
+      git -C "$w" -c core.fsmonitor= diff --cached --quiet 2>/dev/null && continue
+      n=$((n+1)); one="$w"
+    done < <(git -C "$top" worktree list --porcelain 2>/dev/null)
+    [ "$n" = 1 ] && top="$one"
+  fi
   D="$(git -C "$top" -c core.fsmonitor= diff --cached --no-ext-diff --no-textconv 2>/dev/null | git hash-object --stdin 2>/dev/null)" || return 0
   case "$D" in ''|*[!0-9a-f]*) return 0 ;; esac
   H="$(git -C "$top" -c core.fsmonitor= rev-parse --verify --quiet HEAD 2>/dev/null)" || H=NONE; [ -n "$H" ] || H=NONE

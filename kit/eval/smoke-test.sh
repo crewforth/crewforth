@@ -2757,6 +2757,21 @@ if command -v git >/dev/null 2>&1 && ( cd "$PR" && git init -q && git config use
   pcreset; printf 'const a = 1;\n' > "$PR/src.js"
   pc && pass "a clean staged diff commits" || { fail "clean diff blocked"; sed -n 1,2p "$PCLOG"; }
 
+  # A stopped commit leaves one gate-log line naming the rules that fired, never what they matched (field, Tur 14:
+  # eleven such refusals had no line). A trace and a secret in one commit: one line, both rules; a clean commit: none.
+  _pgl="$(mktemp)"; _pt=$'\t'
+  pcreset; printf '%s\nk=%s\n' "$TRACEFX" "$JWTFX" > "$PR/src.js"
+  ( cd "$PR" && git add -A >/dev/null 2>&1 && CREW_GATE_LOG="$_pgl" bash "$HOOKS/pre-commit" ) >/dev/null 2>&1; _pgr=$?
+  pcreset; printf 'const b = 2;\n' > "$PR/src.js"
+  ( cd "$PR" && git add -A >/dev/null 2>&1 && CREW_GATE_LOG="$_pgl" bash "$HOOKS/pre-commit" ) >/dev/null 2>&1
+  _pgn="$(grep -c . "$_pgl")"; _pgline="$(head -1 "$_pgl")"
+  if [ "$_pgr" != 1 ]; then fail "FIXTURE: the trace-and-secret commit was not stopped (rc=$_pgr), the gate-log line was not tested"
+  elif [ "$_pgn" = 1 ] && case "$_pgline" in "BLOCK$_pt§4.1${_pt}commit content: "*secret*"$_pt$_pt"*) true ;; *) false ;; esac \
+       && case "$_pgline" in *trace*) true ;; *) false ;; esac && ! grep -qF -e "$JWTFX" -e "Co-Authored" "$_pgl"; then
+    pass "a commit stopped by pre-commit leaves one gate-log line with the rules (trace, secret), not what they matched; a clean commit none"
+  else fail "pre-commit gate-log: $_pgn line(s), first '$_pgline'"; fi
+  rm -f "$_pgl"
+
   # (C2) private-path gate — a path that exists only on the committing machine must not reach a shared artifact.
   # This is not a hypothetical class: a work project's absolute path, pasted from a terminal into a CHANGELOG
   # entry, shipped in eight consecutive releases of THIS repo before anyone read it back. The gate therefore
@@ -5711,13 +5726,16 @@ rm -rf "$_gp"
 # commit typed in a terminal is then scanned by nothing. Crewforth does not change git's configuration by itself:
 # the session is told at its start. Seven states, each read from what the hook printed: no hooks installed · not a
 # repository · unset · another directory · .claude/hooks · .claude/git-shim · an absolute path that ends in .claude/hooks.
-_rg(){ case "$1" in *"git hooks are not connected"*"core.hooksPath is not set"*) printf 'U' ;; *"git hooks are not connected"*"points at another hook directory"*) printf 'O' ;; *"git hooks are not connected"*"a directory that does not exist"*) printf 'G' ;; *"git hooks"*) printf '?' ;; *) printf -- '-' ;; esac; }
+_rg(){ case "$1" in *"not a git repository, so none of Crewforth's commit gates run"*) printf 'N' ;; *"git hooks are not connected"*"core.hooksPath is not set"*) printf 'U' ;; *"git hooks are not connected"*"points at another hook directory"*) printf 'O' ;; *"git hooks are not connected"*"a directory that does not exist"*) printf 'G' ;; *"git hooks"*) printf '?' ;; *) printf -- '-' ;; esac; }
 RHG="$(mktemp -d)"; RHG="$(cd -P "$RHG" && pwd)"; _rgj=1
 _rhg(){ local o; o="$(printf '{"hook_event_name":"SessionStart","cwd":"%s","source":"startup"}' "$RHG" | CLAUDE_PROJECT_DIR= bash "$HOOKS/session-rehydrate.sh" 2>/dev/null)"
   if [ -n "$o" ] && [ -n "$JSONQ" ]; then printf '%s' "$o" | json_ok || _rgj=0; fi; _rg "$o"; }
 ( cd "$RHG" && git init -q ) >/dev/null 2>&1; _g1="$(_rhg)"                                   # a repository, no Crewforth hooks in it
 mkdir -p "$RHG/.claude/hooks"; : > "$RHG/.claude/hooks/pre-commit"
-mv "$RHG/.git" "$RHG/.git-away"; _g2="$(_rhg)"; mv "$RHG/.git-away" "$RHG/.git"               # hooks installed, not a repository
+mv "$RHG/.git" "$RHG/.git-away"; _g2="$(_rhg)"                                                # hooks installed, not a repository
+# ...and with no git to ask, nothing is known about it: silent (builtins only, the hook's own empty-PATH answer)
+_g2b="$(_rg "$(printf '{"hook_event_name":"SessionStart","cwd":"%s","source":"startup"}' "$RHG" | env PATH= CLAUDE_PROJECT_DIR= "$BASH" "$HOOKS/session-rehydrate.sh" 2>/dev/null)")"
+_g2="$_g2$_g2b"; mv "$RHG/.git-away" "$RHG/.git"
 _g3="$(_rhg)"                                                                                  # unset
 ( cd "$RHG" && git config core.hooksPath .husky/_ ); _g4="$(_rhg)"
 ( cd "$RHG" && git config core.hooksPath .claude/hooks ); _g5="$(_rhg)"
@@ -5725,8 +5743,8 @@ _g3="$(_rhg)"                                                                   
 ( cd "$RHG" && git config core.hooksPath "$RHG/.claude/hooks" ); _g7="$(_rhg)"
 ( cd "$RHG" && git config core.hooksPath "$RHG/moved/.claude/hooks" ); _g8="$(_rhg)"            # absolute, and gone
 _got="$_g1$_g2$_g3$_g4$_g5$_g6$_g7$_g8"
-if [ "$_got" = "--UO---G" ] && [ "$_rgj" = 1 ]; then pass "SessionStart says when Crewforth's git hooks are not connected: core.hooksPath unset, pointing at another directory, or at an absolute path that is gone, each with its own line and valid JSON; silent with no hooks installed, outside a repository, and when it points at .claude/hooks, at .claude/git-shim or at an absolute path to the hooks (8 states)"
-else fail "session-rehydrate git-hooks states read '$_got' (want '--UO---G': no hooks · no repository · unset · another directory · .claude/hooks · .claude/git-shim · absolute · absolute and gone), valid JSON: $_rgj"; fi
+if [ "$_got" = "-N-UO---G" ] && [ "$_rgj" = 1 ]; then pass "SessionStart says when Crewforth's git hooks are not connected: no repository at all, core.hooksPath unset, pointing at another directory, or at an absolute path that is gone, each with its own line and valid JSON; silent with no hooks installed, with no git to ask, and when it points at .claude/hooks, at .claude/git-shim or at an absolute path to the hooks (9 states)"
+else fail "session-rehydrate git-hooks states read '$_got' (want '-N-UO---G': no hooks · no repository · no repository and no git · unset · another directory · .claude/hooks · .claude/git-shim · absolute · absolute and gone), valid JSON: $_rgj"; fi
 # WHAT THE INSTALL SHARES, AND THE PROFILE (DECISIONS, 2026-11-16). Field (rc.3): a shared install's session put
 # .claude/ and CLAUDE.md back into .gitignore, and asked for a commit the light profile would not have asked. The start
 # says the choice in kit.conf, checked against what git does, and the profile; nothing for a private, standard install.
@@ -12797,7 +12815,22 @@ _v2plantr rv4 crew-review-agent; _v2stopr rv4 'review: blocked\nconfidence: high
 rm -f "$_rpf"; _v2plantr rv5 crew-review-agent; _v2stopr rv5 'confidence: high'
 _v2plantr rv6 crew-backend-expert; _v2stopr rv6 'review: clean\nconfidence: high'
 [ -e "$_rpf" ] && _v2b="$_v2b [a record without the line, or from another agent]"
-[ -z "$_v2b" ] && pass "crew-review-agent closing with review: clean has the stop hook write .claude/review-pass.json by its own recipe (the same diff and head), at the top of the work tree from a sub-folder, and the commit gate accepts it; review: blocked removes a record of that diff and no other; no line, or another agent, writes nothing" \
+# A review of a worktree's staged diff (field, Tur 14): nothing staged in the project folder and one linked worktree
+# with a staged diff -> the record is written there, of that diff; a second such worktree -> not known which, so the
+# project folder, as before.
+_rpw="$_v2/wt1"; _rpw2="$_v2/wt2"
+( cd "$_v2p" && git reset -q && git worktree add -q "$_rpw" -b rpw1 && cd "$_rpw" && echo w >> r.txt && git add r.txt ) >/dev/null 2>&1
+if [ -f "$_rpw/.git" ]; then
+  _rpwd="$(cd "$_rpw" && git diff --cached --no-ext-diff --no-textconv | git hash-object --stdin)"
+  _v2plantr rv7 crew-review-agent; _v2stopr rv7 'review: clean\nconfidence: high'
+  { [ "$(_rpget "$_rpw/.claude/review-pass.json" | cut -d' ' -f1)" = "$_rpwd" ] && [ ! -e "$_rpf" ]; } \
+    || _v2b="$_v2b [a worktree's staged diff: record at the root=$([ -e "$_rpf" ] && echo yes || echo no), in the worktree '$(_rpget "$_rpw/.claude/review-pass.json")' want '$_rpwd']"
+  rm -f "$_rpw/.claude/review-pass.json"
+  ( cd "$_v2p" && git worktree add -q "$_rpw2" -b rpw2 && cd "$_rpw2" && echo v >> r.txt && git add r.txt ) >/dev/null 2>&1
+  _v2plantr rv8 crew-review-agent; _v2stopr rv8 'review: clean\nconfidence: high'
+  { [ -e "$_rpf" ] && [ ! -e "$_rpw/.claude/review-pass.json" ] && [ ! -e "$_rpw2/.claude/review-pass.json" ]; } || _v2b="$_v2b [two worktrees with a staged diff: the record was not left in the project folder]"
+else _v2b="$_v2b FIXTURE:git-worktree-add-failed"; fi
+[ -z "$_v2b" ] && pass "crew-review-agent closing with review: clean has the stop hook write .claude/review-pass.json by its own recipe (the same diff and head), at the top of the work tree from a sub-folder, in the one linked worktree with a staged diff when the project folder has none, and the commit gate accepts it; review: blocked removes a record of that diff and no other; no line, or another agent, writes nothing" \
                || fail "the review-pass record by the stop hook:$_v2b"
 # THE AUDIT-ROUND NOTE (3.5). Each crew agent's stop adds `agent head severity` to the session's ledger; an auditor
 # called again on the same work — it raised nothing critical or high, a producer ran since, no auditor since raised critical

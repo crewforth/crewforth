@@ -134,6 +134,14 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A commit stopped by git's own hook is in the gate log.** The trace, secret, size, private-path and floor scans
+  that stop a commit, and the commit-message scan, leave one `BLOCK §4.1` line naming the rules that fired, never
+  what they matched. One helper, `crew_gate_log_add`, writes such lines for these and the approval question.
+- **A folder that is not a git repository is named at session start.** With Crewforth installed and no repository,
+  no commit gate runs; the session is told once, and nothing is said where git cannot be asked.
+- **The review record lands where the commit is made.** A review of a worktree's staged diff, with nothing staged in
+  the project folder, writes `.claude/review-pass.json` in that worktree, of that diff; with two such worktrees it
+  stays in the project folder.
 - **Text is no longer refused as a destructive command.** A file name holding the letters `rm` (`platform.dart`)
   beside a read of a lockfile; `python3 -I -c` reading a download as JSON; a `.claude` folder named in a quoted `grep`
   pattern beside a here-document; `()` in a python body and `{` in a quoted program; a handover note written by
