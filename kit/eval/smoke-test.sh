@@ -11863,11 +11863,13 @@ grep -q '^verify=none$' "$(_v2last)" 2>/dev/null || _v2b="$_v2b [none. followed 
 # agent ends (_am_verify_plan), and the call goes on: a sentence and a chain are told, a runner and none are not, and on
 # a lowered call the notice rides in the same answer as the new model.
 _vnb=""
-for _vn in 'test -d src|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes'; do
+# A script as its verify is told that it makes what it should check (field, Tur 14); a sentence is not told so.
+for _vn in 'test -d src|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes' 'python3 tools/draw_a.py elma|It runs a script, which makes what a verify should check'; do
   _v2call crew-review-agent sonnet 'src/ui/a.ts' audit "${_vn%%|*}"; _vw="${_vn#*|}"; _vo="$(cat "$_v2/out" 2>/dev/null)"
   if [ "$_v2rc" != 0 ]; then _vnb="$_vnb ['${_vn%%|*}' refused the call: rc=$_v2rc]"
   elif [ -z "$_vw" ]; then [ -z "$_vo" ] || _vnb="$_vnb ['${_vn%%|*}' was told it will not run: ${_vo:0:80}]"
   else case "$_vo" in '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"'*"will not be run when the agent finishes"*"$_vw"*) ;; *) _vnb="$_vnb ['${_vn%%|*}' was not told it will not run: ${_vo:0:80}]" ;; esac; fi
+  case "${_vn%%|*}|$_vo" in python3*) ;; *'It runs a script'*) _vnb="$_vnb ['${_vn%%|*}' was told it runs a script]" ;; esac
 done
 _v2call crew-frontend-expert opus 'src/ui/a.ts' feature 'the build passes'
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"permissionDecision":"allow"'*'"updatedInput":'*'"model": "sonnet"'*'},"additionalContext":"Crewforth ran crew-frontend-expert on sonnet'*'Crewforth: this card'*) ;; *) _vnb="$_vnb [a lowered call with a sentence for verify did not carry both: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac

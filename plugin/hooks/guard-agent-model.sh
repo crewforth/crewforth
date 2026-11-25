@@ -1374,6 +1374,14 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
   _json_slice "$hd" permission_mode >/dev/null; pm="$_JS"
   if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
     vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
+    # CREW-NOT-A-RUNG: `python3` here is a word in the refusal and in the shape it recognises, not a program this hook runs.
+    # A verify that RUNS A SCRIPT produces what it should check (field, Tur 14: 17 of 33 refused verifies were the
+    # drawing script itself, `python3 v2_a.py`); run again by the hook it would make the files a second time.
+    case "$_AMVWHY" in *"not a test or build command on this hook's list"*)
+      [[ " ${_AMVSTEP:-$CARD_VERIFY}" =~ [[:space:]](python[0-9.]*|node|ruby|perl|bash|sh)[[:space:]]+[^-[:space:]][^[:space:]]*\.(py|js|mjs|cjs|rb|pl|sh)([[:space:]]|$) ]] \
+        && vnote="$vnote It runs a script, which makes what a verify should check: name a check that reads the result and changes nothing when run again (a test, a linter such as python3 -m pyflakes <file>, or test -f <the file it makes>)." ;;
+    esac
+    # /CREW-NOT-A-RUNG
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
   elif _am_verify_limit; _am_slow_get "$CARD_VERIFY" && ! _am_slow_below; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
