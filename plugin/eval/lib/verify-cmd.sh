@@ -33,7 +33,7 @@ crew_verify_split(){  # $1 = the command, $2 = the project root -> _AMVD the fol
 crew_verify_steps(){  # $1 = command, $2 = project root -> 0: _VS_N steps, _VS_D[i] the folder ("" = root), _VS_C[i]
                       # the command, _VS_E[i] its NAME=value settings ("" = none); 1: _VS_WHY says why the command is
                       # not steps a hook can run
-  local s="$1" root="${2:-.}" step cur="" d p last=0 env w rr nl='
+  local s="$1" root="${2:-.}" step cur="" d p f sd last=0 env w rr nl='
 '
   _VS_N=0; _VS_D=(); _VS_C=(); _VS_E=(); _VS_WHY=""
   rr="$(cd -P "$root" 2>/dev/null && pwd -P)"
@@ -74,7 +74,19 @@ crew_verify_steps(){  # $1 = command, $2 = project root -> 0: _VS_N steps, _VS_D
           case "${w#*=}" in *[!A-Za-z0-9._/:,=+@%-]*) _VS_WHY="the value of ${w%%=*} is not a plain word"; return 1 ;; esac
           env="${env:+$env }$w"; step="${step#"$w"}"; while :; do case "$step" in ' '*) step="${step# }" ;; *) break ;; esac; done
         done
-        _VS_D[_VS_N]="$cur"; _VS_C[_VS_N]="$step"; _VS_E[_VS_N]="$env"; _VS_N=$((_VS_N+1)) ;;
+        # A package manager told which folder to run in (`npm --prefix web run lint`, field Tur 13: refused, though
+        # `verify npm run lint` allowed `cd web && npm run lint`): the same step, run in that folder. Only npm
+        # --prefix, pnpm -C/--dir and yarn --cwd, right after the program's name, with a plain relative folder inside
+        # the project that exists; anything else stays the command as written.
+        sd="$cur"
+        case "$step" in npm\ --prefix\ *|npm\ --prefix=*|pnpm\ -C\ *|pnpm\ --dir\ *|pnpm\ --dir=*|yarn\ --cwd\ *|yarn\ --cwd=*)
+          w="${step%% *}"; p="${step#* }"; f="${p%% *}"; p="${p#"$f"}"
+          case "$f" in *=*) d="${f#*=}" ;; *) p="${p# }"; d="${p%% *}"; p="${p#"$d"}" ;; esac
+          p="${p# }"; d="${d%/}"
+          case "$d" in ''|.|/*|~*|-*|..|../*|*/..|*/../*|*[!A-Za-z0-9._/-]*) ;; *)
+            if [ -n "$p" ] && [ -d "$root/${cur:+$cur/}$d" ]; then sd="${cur:+$cur/}$d"; step="$w $p"; fi ;; esac ;;
+        esac
+        _VS_D[_VS_N]="$sd"; _VS_C[_VS_N]="$step"; _VS_E[_VS_N]="$env"; _VS_N=$((_VS_N+1)) ;;
     esac
   done
   [ "$_VS_N" -gt 0 ] || { _VS_WHY="it only changes folder"; return 1; }

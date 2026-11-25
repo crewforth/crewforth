@@ -1,12 +1,8 @@
 ---
 name: crew-database-expert
 color: cyan
-description: |
-  Stack-agnostic data-layer expert; engine and ORM come from CLAUDE.md ## Stack or the repo. Applies the
-  `db-migration` skill. **Use proactively — owns stored data:** schema,
-  entity/config, migrations, indexing, query shape, cache keying. Any request about it is yours whatever its
-  size or wording.
-tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell
+description: Use proactively — owns stored data in any engine (schema, migrations, indexes, query shape, cache keys); any request about it is yours.
+tools: Read, Grep, Glob, Edit, Write, Bash, PowerShell, Skill
 metadata:
   stage: produce
   skills: [backend-architecture, confidence-check, db-migration, sonarqube-check]

@@ -20,7 +20,9 @@ import { getFleet, measureSpawnCost } from './lib/fleet.js';
 import { withActivity } from './lib/activity.js';
 import { endForeignSession } from './lib/end-session.js';
 import { readPlanTodo } from './lib/plan-todo.js';
-import { projectDir, listSessions, findSession, listProjects, sessionCwd, agentMetaFiles } from './lib/projects.js';
+import { projectDir, listSessions, findSession, listProjects, projectGroups, sessionCwd, agentMetaFiles } from './lib/projects.js';
+import { ProjectUsage } from './lib/project-usage.js';
+import { readSettings, checkChange, writeSettings } from './lib/project-settings.js';
 import { agentOrigins } from './lib/agent-origin.js';
 import { buildGraph, agentDetail, conversation, STALE_MS } from './lib/graph.js';
 import { cachedUsage } from './lib/usage.js';
@@ -217,6 +219,9 @@ async function modelCosts(cwd) {
 }
 const MODELS_SESSIONS_MAX = 60;
 
+// Each project's all-time total, read behind the requests, one session at a time (lib/project-usage.js).
+const PROJECT_USAGE = new ProjectUsage();
+
 const MAX_BODY_BYTES = 1024 * 1024;
 
 /** The session events after which a subscriber is sent the session's summary again. */
@@ -321,6 +326,38 @@ export async function handle(req, res) {
     return sendJson(res, 200, { measured: true, usage });
   }
 
+  // A project's all-time total: what is kept of it, and how many of its sessions are still to be read. Never waits
+  // for the reading; the page asks again while `pending` is above zero.
+  if (url.pathname === '/api/project-usage') {
+    const key = url.searchParams.get('project') ?? '';
+    if (!key) return sendJson(res, 200, { measured: false, reason: 'no project named' });
+    if (!PROJECT_USAGE.groups.has(key)) PROJECT_USAGE.note(await projectGroups());
+    if (!PROJECT_USAGE.groups.has(key)) return sendJson(res, 200, { measured: false, reason: 'no such project on this machine' });
+    PROJECT_USAGE.want(key);
+    return sendJson(res, 200, { project: key, ...PROJECT_USAGE.summary(key) });
+  }
+
+  // A project's install settings (DECISIONS 2026-11-17, N45): sharing, docs/, profile, verify limit, with what git
+  // does beside them. The session cannot write these files; the panel is the user's process, so it can. Only a
+  // project this machine has sessions for is answered: the key is a path, and no other path is ever written.
+  if (url.pathname === '/api/project-settings') {
+    const key = req.method === 'POST' ? null : url.searchParams.get('project') ?? '';
+    const asked = req.method === 'POST' ? await readBody(req) : null;
+    if (req.method === 'POST') {
+      const gate = writeAllowed(req);
+      if (!gate.ok) return sendJson(res, 403, { ok: false, reason: gate.reason });
+      if (!asked) return sendJson(res, 400, { ok: false, reason: 'body was not JSON' });
+    } else if (req.method !== 'GET') return sendJson(res, 405, { ok: false, reason: 'GET or POST only' });
+    const name = key ?? String(asked.project ?? '');
+    const group = name ? (await projectGroups()).get(name) : null;
+    if (!group?.cwd || !fs.existsSync(group.cwd)) return sendJson(res, 404, { ok: false, reason: 'no such project on this machine' });
+    if (req.method === 'GET') return sendJson(res, 200, { ok: true, project: name, ...readSettings(group.cwd) });
+    const change = checkChange(asked.set);
+    if (!change.ok) return sendJson(res, 400, change);
+    const out = writeSettings(group.cwd, change.set);
+    return sendJson(res, out.ok ? 200 : 409, { project: name, ...out });
+  }
+
   if (url.pathname === '/api/fleet') {
     const local = await getFleet();
     // Each row with when it last did anything (lib/activity.js), and this machine's clock to read those against.
@@ -365,9 +402,13 @@ export async function handle(req, res) {
     // Cached, not awaited. The list is local data; making it wait on a registry cost 8.37 s of
     // dead time whenever the feed hung, measured. The refresh runs behind this response.
     const latest = latestVersionCached();
-    const projects = await listProjects({ currentCwd: cwd, kitOf: (c) => kitStatus(c, latest) });
+    const groups = await projectGroups();
+    const projects = await listProjects({ currentCwd: cwd, kitOf: (c) => kitStatus(c, latest), groups });
+    // The all-time totals are read behind this answer, in the order the list is drawn; it carries what is kept.
+    PROJECT_USAGE.note(new Map(projects.map((p) => [p.key, groups.get(p.key)])));
     for (const p of projects) {
       p.origin = SELF_NAME; p.local = true;
+      p.allTime = PROJECT_USAGE.short(p.key);
       // The navigator's Map entry and its count: the findings the map shows unasked. A stat per project; the map
       // is parsed again only when its file changes (crew-map.js).
       p.map = p.exists && p.cwd ? mapSummary(p.cwd) : null;

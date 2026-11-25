@@ -154,6 +154,15 @@ export async function sessionCwd(file, size) {
     const buf = Buffer.allocUnsafe(len);
     await fh.read(buf, 0, len, 0);
     cwd = buf.toString('utf8').match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1] ?? null;
+    // Not in the first 8 KB: a transcript can open with records that carry none. Measured on 990 transcripts, 43 had
+    // their first cwd past 8 KB, the furthest at 35 KB; those sessions were filed under a project of their own and
+    // left out of the project's total. Read up to 256 KB once (the answer is cached by size).
+    if (!cwd && size > len) {
+      const more = Math.min(size, 256 * 1024);
+      const big = Buffer.allocUnsafe(more);
+      await fh.read(big, 0, more, 0);
+      cwd = big.toString('utf8').match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1] ?? null;
+    }
     if (cwd) cwd = cwd.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
   } catch {
     cwd = null;
@@ -286,25 +295,9 @@ export async function headBranch(cwd) {
  * name is a lossy fold of the path, so two different projects can share one.
  * The folder is only the fallback when no record carried a cwd.
  */
-export async function listProjects({ currentCwd = null, limitPerProject = 60, kitOf = null } = {}) {
-  const groups = new Map();
-
-  const dirs = await allProjectDirs();
-  const perDir = await Promise.all(dirs.map(async (dir) => [dir, await listSessions(dir)]));
-
-  for (const [dir, sessions] of perDir) {
-    for (const s of sessions) {
-      const key = s.cwd ?? `dir:${path.basename(dir)}`;
-      if (!groups.has(key)) {
-        groups.set(key, { key, cwd: s.cwd, dir, label: labelFor(s.cwd, dir), sessions: [] });
-      }
-      groups.get(key).sessions.push(s);
-    }
-  }
-
+export async function listProjects({ currentCwd = null, limitPerProject = 60, kitOf = null, groups = null } = {}) {
   const out = [];
-  for (const g of groups.values()) {
-    g.sessions.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  for (const g of (groups ?? await projectGroups()).values()) {
     const kit = kitOf ? await kitOf(g.cwd) : null;
     out.push({
       ...g,
@@ -335,6 +328,25 @@ export async function listProjects({ currentCwd = null, limitPerProject = 60, ki
     Number(Boolean(b.kit?.outdated)) - Number(Boolean(a.kit?.outdated)) ||
     b.modifiedAt - a.modifiedAt);
   return out;
+}
+
+/**
+ * Every session on this machine by project key, none left out: the list `listProjects` shortens for the navigator,
+ * and what a project's all-time total is read from. A group is { key, cwd, dir, label, sessions }, newest first.
+ */
+export async function projectGroups() {
+  const groups = new Map();
+  const dirs = await allProjectDirs();
+  const perDir = await Promise.all(dirs.map(async (dir) => [dir, await listSessions(dir)]));
+  for (const [dir, sessions] of perDir) {
+    for (const s of sessions) {
+      const key = s.cwd ?? `dir:${path.basename(dir)}`;
+      if (!groups.has(key)) groups.set(key, { key, cwd: s.cwd, dir, label: labelFor(s.cwd, dir), sessions: [] });
+      groups.get(key).sessions.push(s);
+    }
+  }
+  for (const g of groups.values()) g.sessions.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  return groups;
 }
 
 function labelFor(cwd, dir) {

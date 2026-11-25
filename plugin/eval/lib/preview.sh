@@ -100,8 +100,15 @@ _crew_preview(){
       fi
       ;;
     rm)
-      local root out="" one c
-      root="$(pwd -P 2>/dev/null)"
+      local root out="" one c base cdre='^[[:space:]]*cd[[:space:]]+([^];&|[:space:]$`~*?(){}<>]+)[[:space:]]*(&&|;)(.*)$'
+      root="$(pwd -P 2>/dev/null)"; base="$root"
+      # A call that opens with `cd DIR &&` removes relative to DIR (field N51: `cd app && … && rm -r android/…/com`
+      # previewed "not there" from the project root). Only that one leading cd, and only when no other cd follows it.
+      if [[ $cmd =~ $cdre ]]; then
+        case "${BASH_REMATCH[3]}" in *cd[[:space:]]*) ;; *)
+          case "${BASH_REMATCH[1]}" in /*|[A-Za-z]:[/\\]*) c="${BASH_REMATCH[1]}" ;; *) c="$root/${BASH_REMATCH[1]}" ;; esac
+          c="$(cd "$c" 2>/dev/null && pwd -P)" && base="$c" ;; esac
+      fi
       # The words of the rm itself, up to the end of its own command. _pv_words is for git: it cut at the first "git"
       # in the call, so `rm -rf /tmp/x 2>/dev/null; git status` previewed "status: not there" (measured in the field,
       # 30 of 99 such refusals named a word of another command). A redirection is not a target either.
@@ -111,9 +118,11 @@ _crew_preview(){
       t="${t%%[;&|]*}"; t="${t%%$'\n'*}"; t="${t//\"/}"; t="${t//\'/}"
       for w in $t; do
         case "$w" in -*|'') continue ;; [0-9]'>'*|'>'*|'<'*|'&>'*) continue ;; *'*'*|*'?'*|'~'*|'$'*) out="${out:+$out; }$w: a pattern, not counted"; continue ;; esac
+        # `find … -exec rm -rf {} +`: `{}` stands for each file find names, `+` and `;` end the -exec (field, Tur 11)
+        case "$w" in '{}') out="${out:+$out; }{}: each file find names, not counted"; continue ;; '+'|'\;'|';') continue ;; esac
         # A drive-letter path (D:/x, as Git Bash passes it) is absolute too: measured on Windows, it read as relative
         # and the line said "not there" for a folder that was.
-        one="$w"; case "$one" in /*|[A-Za-z]:[/\\]*) ;; *) one="$root/$one" ;; esac
+        one="$w"; case "$one" in /*|[A-Za-z]:[/\\]*) ;; *) one="$base/$one" ;; esac
         if [ ! -e "$one" ]; then out="${out:+$out; }$w: not there"; continue; fi
         c="$(cd "$one" 2>/dev/null && pwd -P)" || c="$(cd "$(dirname "$one")" 2>/dev/null && pwd -P)/${one##*/}"
         case "$c/" in "$root"/*) ;; *) out="${out:+$out; }$w: outside the project, not counted"; continue ;; esac

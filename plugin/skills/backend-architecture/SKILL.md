@@ -79,6 +79,8 @@ A change of pattern is an architecture decision → design summary + ADR, never 
 - **Transaction boundaries are explicit**: one use case, one unit of work. No remote call inside an open DB transaction.
 - **Idempotency** for anything a client may retry (payments, webhooks, create-with-client-id): an idempotency key or a
   natural unique constraint.
+- **A shortcut is marked where it is taken:** `shortcut: <what was skipped> — remove when <condition>` in a comment,
+  so `grep -rn "shortcut:"` lists the debt and its exit. A shortcut with no condition is a decision (see `adr`).
 - **Secrets and personal data are never logged** — see `observability` for what to log and `privacy-compliance` for
   personal data.
 

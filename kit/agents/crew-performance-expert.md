@@ -1,10 +1,9 @@
 ---
 name: crew-performance-expert
 color: yellow
-description: |
-  Performance auditor. Use proactively when a change touches a hot path, a query/loop, a render path, a large
-  payload, or when something is reported slow. Produces measured findings via `performance`; writes no fix.
-tools: Read, Grep, Glob, Bash, PowerShell
+description: Use proactively when a change touches a hot path, a query, a render or a large payload, or something is slow; measured findings, no fix.
+tools: Read, Grep, Glob, Bash, PowerShell, Skill
+omitClaudeMd: true
 metadata:
   stage: audit
   skills: [performance]

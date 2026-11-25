@@ -32,7 +32,9 @@ Write your own findings in the same shape (`crewforth.findings/1`: `rule` `revie
 no hook runs the pre-pass or reads `review.json`.
 
 ## 1. Scope
-- **Review the lines this change adds or edits.** Deleted code is context for understanding them, not a target.
+- **Review the lines this change adds or edits, and what the deleted lines guarded:** a check, a branch or a call
+  that is gone is a finding when nothing took over its job. The rest of the deleted code is context.
+- **Read the diff before the description:** the PR text, plan and docs, read first, steer what the eye looks for.
 - Code that is correct, or that the change did not touch, gets no comment.
 - **Nothing staged and no range given: ask which change to review.** Never fall back to `HEAD~1`; that reviews a
   commit nobody named.
@@ -50,7 +52,8 @@ Then look at **every file in the group on its own** — a small or secondary fil
 Before the first finding, write two things down:
 - **What changed**, in one line.
 - **The risks**, ordered by severity, each with what you will read to confirm or dismiss it ("the callers of
-  `settle()`", "the migration's down step"). No risk worth checking → write `(none)` and say so.
+  `settle()`", "the migration's down step"). No risk worth checking → write `(none)` and say so. Look past the
+  files too: `references/beyond-the-diff.md` (dependents, the updating user, other platforms, the assumed load).
 
 The plan is what keeps the review on the change instead of on whatever the eye lands on first.
 
@@ -98,8 +101,12 @@ legitimate: say so in the diff and name what covers it now.
 type error the cast hides. **A replaced pattern left half-migrated** — the new way added beside the old one, with
 callers still on the old — is a finding too: name the call sites that did not move.
 
+**A mock or a stub left in production code, and a recorded decision undone**: `references/beyond-the-diff.md`.
+
 ## 8. Two-stage verdict (fact-check before you report)
 Finding a problem and confirming it are two acts. A first-pass "this looks wrong" is a **candidate**, not a verdict.
+Candidates are not filtered on the way here, by a reviewer's sense of what is worth saying: severity says that, and
+this pass is the one place a candidate is dropped.
 Before a finding is reported — especially a blocker — run a second pass that tries to *disprove* it:
 - Does it hold on the real code, or did the first read miss context (a guard upstream, a caller that never reaches
   this path, a framework default)? Re-read the surrounding code; do not rank on the snippet alone.

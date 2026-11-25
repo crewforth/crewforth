@@ -11,7 +11,7 @@ description: |
 Trigger phrases: "handoff", "hand off", "session summary", "session state", "clear context", "I'll continue", "next session", "where we left off", "run out of room", "continue tomorrow"
 
 ## When
-Session fill (the `🔋` line) > 75% · phase closure · topic change. Goal: the next session should **not start from scratch**.
+A handoff threshold (25, 50, 75, 95% fill: the Stop hook sends you back) · phase closure · topic change. Goal: the next session should **not start from scratch**.
 
 ## Output (docs/SESSION_STATE.md, local)
 ```

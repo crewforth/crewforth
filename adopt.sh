@@ -79,15 +79,18 @@ fi
 # --- flags (B5 — where a refresh lands) ---  --here: the current branch · --new-branch: a fresh review branch.
 # Left empty, Stage 2 picks a smart default (first adopt -> new; update + untracked .claude -> here; update +
 # tracked -> ask). Unknown flags are ignored here (start.sh owns --backend/--frontend/… ; adopt auto-detects shape).
-BRANCH_MODE=""; ASSUME_YES=0; PRESET=""; _preset_take=0
+BRANCH_MODE=""; ASSUME_YES=0; PRESET=""; _preset_take=0; PROFILE=""; _profile_take=0
 _lang_flag=""; _lang_take=0
 for _a in "$@"; do
   # `--lang` with no value must not swallow the next flag: `--lang --yes` is --yes with no language given.
   if [ "$_lang_take" = 1 ]; then _lang_take=0; case "$_a" in -*) ;; *) _lang_flag="$_a"; continue ;; esac; fi
   if [ "$_preset_take" = 1 ]; then _preset_take=0; PRESET="$_a"; continue; fi
+  if [ "$_profile_take" = 1 ]; then _profile_take=0; PROFILE="$_a"; continue; fi
   case "$_a" in
   --preset=*)   PRESET="${_a#--preset=}" ;;
   --preset)     _preset_take=1 ;;
+  --profile=*)  PROFILE="${_a#--profile=}" ;;
+  --profile)    _profile_take=1 ;;    # light | standard | strict (4.1); unset keeps the project's profile
   --here)       BRANCH_MODE=here ;;
   --new-branch) BRANCH_MODE=new  ;;
   --ignore-local) GI_LOCAL=1 ;;     # ignore lines go to .git/info/exclude, not the tracked .gitignore (K12)
@@ -96,6 +99,8 @@ for _a in "$@"; do
   --lang)       _lang_take=1 ;;
 esac; done
 [ "$_preset_take" = 1 ] && { echo "ERROR: --preset needs a name or a file (default, strict, solo, or ./org.json)."; exit 1; }
+case "$PROFILE" in ''|light|standard|strict) ;; *) echo "ERROR: --profile takes light, standard or strict."; exit 1 ;; esac
+[ "$_profile_take" = 1 ] && { echo "ERROR: --profile needs light, standard or strict."; exit 1; }
 # A preset is checked before anything is changed: one that is not valid stops the update here.
 if [ -n "$PRESET" ]; then bash "$SRC/eval/lib/preset.sh" --check "$PRESET" || exit 1; fi
 
@@ -220,6 +225,7 @@ _mt() {   # $1 = English text (the key); further args fill %s; result in _M
       ".claude/CLAUDE.md is tracked — keep sharing with the team") s=".claude/CLAUDE.md git'te izleniyor — ekiple paylaşmaya devam" ;;
       "untracked; Crewforth files are shared by default — pick hide to keep them local") s='izlenmiyor; Crewforth dosyaları varsayılan olarak paylaşılır — yerelde tutmak için hide seçin' ;;
       "hide") s='gizle' ;;
+      "docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.") s="docs/ bu depoda izleniyor, bu yüzden .gitignore'a eklenmedi; Crewforth'un oradaki çalışma belgeleri (PLAN.md, SESSION_STATE.md, …) git status'ta görünür: yerelde kalmaları gerekiyorsa adlarıyla yok sayın." ;;
       ".claude is already gitignored in this repo — Crewforth stays local (pick share and un-ignore it to share)") s="bu depoda .claude zaten gitignore'da — Crewforth yerelde kalır (paylaşmak için share seçip ignore kuralını kaldırın)" ;;
       "#4 hide -> this repo already ignores .claude — nothing to add; Crewforth stays local") s="#4 hide -> bu depo .claude'u zaten yok sayıyor — eklenecek bir şey yok; Crewforth yerelde kalır" ;;
       "docs/ is gitignored here (a private install): %s and %s are written but not staged — they stay on this machine") s="docs/ burada gitignore'da (kişisel kurulum): %s ve %s yazıldı ama stage edilmedi — bu makinede kalır" ;;
@@ -467,12 +473,16 @@ ask_yes(){ local a q w
 #     writes. Outside a repository there is nothing to ask, so the literal test stays as the fallback.
 gi_add() {   # $@ = entries to ensure in $GI_FILE (./.gitignore unless --ignore-local); sets GI_WROTE to what it added
   local e
-  GI_WROTE=""
+  GI_WROTE=""; GI_TRACKED=""
   local gf="${GI_FILE:-.gitignore}"
   mkdir -p "$(dirname "$gf")" 2>/dev/null; [ -e "$gf" ] || : > "$gf"
   for e in "$@"; do
     if git rev-parse --git-dir >/dev/null 2>&1; then
       git check-ignore -q --no-index "$e" 2>/dev/null && continue   # --no-index: a dir holding tracked files (docs/HANDOVER.md) still counts as ignored
+      # docs/ that the project already TRACKS is its own (field, N26: 30 tracked files): ignoring it hides nothing that
+      # is tracked and only changes a file the project owns. Asked of HEAD, not the index: this run's own staged
+      # docs/HANDOVER.md must not count as the project tracking docs/.
+      if [ "$e" = docs/ ] && [ -n "$(git ls-tree -d --name-only HEAD -- docs 2>/dev/null)" ]; then GI_TRACKED=docs/; continue; fi
     else
       grep -qxF "$e" "$gf" 2>/dev/null && continue
     fi
@@ -743,6 +753,18 @@ fi
 # migration question: was this a pre-3.0 .NET install? If so its pattern skill stays, as the project's own.
 # LEGACY_PROFILE is a pre-2.0 leftover of the same kind: it selects nothing, it only drives a notice.
 LEGACY_PROFILE="$(kit_conf_get profile)"; KIT_STACK="$(kit_conf_get stack)"; KIT_INSTALLER="$(kit_conf_get installer)"
+# What the install chose for git (start.sh writes them; DECISIONS 2026-11-16): kept by every update, read by the
+# session start and the reviewer. An install from before has none: visibility follows #4 below, docs/ stays private.
+KIT_VIS="$(kit_conf_get visibility)"; KIT_DOCS="$(kit_conf_get docs)"
+case "$KIT_VIS" in shared|private) ;; *) KIT_VIS="" ;; esac
+case "$KIT_DOCS" in shared|private) ;; *) KIT_DOCS="" ;; esac
+# NO RECORD (an install from before 3.6.0-rc.4): docs/ is asked of git, as visibility follows #4 (DECISIONS 2026-11-17,
+# N46). Tracked and not ignored is a docs/ the team commits; anything else is private. Field: a project that commits
+# its docs/ was recorded private by its first update and the session had to correct it. Two git calls, on update only.
+if [ -z "$KIT_DOCS" ]; then
+  if [ -n "$(git ls-files -- docs 2>/dev/null | head -1)" ] && ! git check-ignore -q docs/PLAN.md 2>/dev/null; then KIT_DOCS=shared; _DOCS_FROM_GIT=1
+  else KIT_DOCS=private; fi
+fi
 # No kit.conf means the project predates it (v1.0.x). Recover the pattern from the files themselves.
 INFERRED=0
 { [ "$KIT_PRESENT" = 1 ] && [ -z "$KIT_STACK" ]; } && kit_infer_shape
@@ -1287,7 +1309,7 @@ for kd in "$SRC"/skills/*/; do
   [ -f "$kd/SKILL.md" ] || continue; kn="${kd%/}"; kn="${kn##*/}"; _k=0; _e=0; _d=0
   while IFS= read -r _l || [ -n "$_l" ]; do
     _l="${_l%$'\r'}"
-    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true"|"  experimental: \"true\"") _e=1 ;; esac
+    case "$_l" in ---) _d=$((_d+1)); [ "$_d" -ge 2 ] && break ;; "  kind: command") _k=1 ;; "  experimental: true"|"  experimental: \"true\""|"  internal: true"|"  internal: \"true\"") _e=1 ;; esac
   done < "$kd/SKILL.md"
   [ "$_e" = 1 ] && continue
   _got=1
@@ -1616,10 +1638,27 @@ fi
   # --yes run with nothing named guesses from the locale, and a guess written down would pin an install that was
   # set up in Turkish to English from its first unattended update on.
   [ "$_LANG_CHOSEN" = 1 ] && echo "lang=$CREW_LANG"
+  if [ -n "$KIT_VIS" ]; then echo "visibility=$KIT_VIS"
+  elif [ "$DEC4" = hide ]; then echo "visibility=private"
+  else echo "visibility=shared"; fi
+  echo "docs=${KIT_DOCS:-private}"
 } > .claude/kit.conf
 # The organisation's preset (checked before anything was changed): a block at the top of crew-model-rules. Without
 # --preset an update leaves the block that is there, with the project's own lines, as they were.
 if [ -n "$PRESET" ]; then bash .claude/eval/lib/preset.sh --apply "$PRESET" || exit 1; fi
+# --profile (4.1): the person running the update chose it. Unset, the project's own profile line stays as it is.
+# Run from inside a Claude Code session (/crew-update runs this through the Bash tool, CLAUDECODE is set), it only
+# tightens: a looser profile is the user's own /crew-profile, never a flag the session can pass.
+if [ -n "$PROFILE" ] && [ -n "${CLAUDECODE:-}" ] && [ -f .claude/eval/lib/profile.sh ]; then
+  . .claude/eval/lib/profile.sh; crew_profile .
+  if [ "$(crew_profile_rank "$PROFILE")" -lt "$(crew_profile_rank "$CREW_PROFILE")" ]; then
+    echo "  --profile $PROFILE not applied: it loosens $CREW_PROFILE, and inside a session only the user does that (the user can type /crew-profile $PROFILE)."
+    PROFILE=""
+  fi
+fi
+if [ -n "$PROFILE" ]; then
+  { grep -v '^profile ' .claude/crew-model-rules 2>/dev/null; printf 'profile %s\n' "$PROFILE"; } > .claude/crew-model-rules.tmp && mv -f .claude/crew-model-rules.tmp .claude/crew-model-rules
+fi
 # The project's own test, lint and type-check commands become `verify` lines of .claude/crew-model-rules
 # (eval/lib/verify-detect.sh), so an agent's verify command runs them from the first card on; the user is told which,
 # here, and takes one back by deleting its line. One already added once is not added again after it was deleted.
@@ -1862,15 +1901,16 @@ printf 'Co-Authored%s: Test <x@y.z>\n' '-By' > .kit-proof.txt   # not contiguous
 # hunting a gate that is fine. (The allowlist is already handled above by moving it aside.)
 if ! git add -f .kit-proof.txt >/dev/null 2>&1 || [ -z "$(git diff --cached --name-only -- .kit-proof.txt 2>/dev/null)" ]; then
   say '~  PROOF-1: skipped — could not stage the probe file (nothing was measured)'
-elif bash "$HP/pre-commit" >/tmp/kitproof.$$ 2>&1; then
+elif CREW_GATE_LOG=/dev/null bash "$HP/pre-commit" >/tmp/kitproof.$$ 2>&1; then
   warnm 'PROOF-1 FAILED: the trace scan LET THROUGH the AI trace'; PROOF_OK=0
 elif grep -qiE 'TRACE-SCANNER|Commit stopped|forbidden' /tmp/kitproof.$$; then
   say 'OK · PROOF-1: staged AI trace BLOCKED by the trace scan'
 else say '~  PROOF-1: hook blocked (%s)' "$(head -1 /tmp/kitproof.$$ 2>/dev/null)"; fi
 git reset -q .kit-proof.txt 2>/dev/null; rm -f .kit-proof.txt /tmp/kitproof.$$
 [ -f .trace-allowlist.txt.proofbak ] && mv .trace-allowlist.txt.proofbak .trace-allowlist.txt 2>/dev/null
-# 2) guard-bash git-approval gate: keyless 'git commit' -> block
-if printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | bash .claude/hooks/guard-bash.sh >/dev/null 2>&1; then
+# 2) guard-bash git-approval gate: keyless 'git commit' -> block. CREW_GATE_LOG=/dev/null, as doctor's probes: the
+# install's own proof is not a refusal of the user's work, and it read as one in the gate log.
+if printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | CREW_GATE_LOG=/dev/null bash .claude/hooks/guard-bash.sh >/dev/null 2>&1; then
   warnm 'PROOF-2 FAILED: guard-bash LET THROUGH the keyless commit'; PROOF_OK=0
 else say "OK · PROOF-2: guard-bash BLOCKED the keyless 'git commit' (holds in auto/bypass too)"; fi
 # 3) can the kit agents + discipline be loaded
@@ -2094,7 +2134,12 @@ fi
 # one) and leaves the tracked .gitignore alone. adopt always runs in a repository, so the path always resolves.
 GI_FILE=.gitignore
 [ "${GI_LOCAL:-0}" = 1 ] && _gx="$(git rev-parse --git-path info/exclude 2>/dev/null)" && [ -n "$_gx" ] && GI_FILE="$_gx"
-gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/'
+# A docs/ the install shares (kit.conf docs=shared) is not hidden again by an update.
+# ...and the review's working files under .crewforth/ (start.sh says why).
+if [ "$KIT_DOCS" = shared ]; then gi_add '.claude/review-pass.json' '.claude/.state/' '.crewforth/review.json' '.crewforth/review-prepass.json'
+else gi_add '.claude/review-pass.json' 'docs/' '.claude/.state/' '.crewforth/review.json' '.crewforth/review-prepass.json'; fi
+# Said too when docs= was read from git as shared: the same docs/, tracked, and left out of .gitignore for that reason.
+{ [ -n "${GI_TRACKED:-}" ] || [ "${_DOCS_FROM_GIT:-0}" = 1 ]; } && say 'docs/ is tracked in this repository, so it was not added to .gitignore; the working documents Crewforth writes there (PLAN.md, SESSION_STATE.md, …) show up in git status: ignore them by name if they must stay local.'
 # TWIN OF start.sh's ga_add, and this path needs it MORE: adopt.sh does not gitignore `.claude/` at all — it
 # only ignores review-pass.json and docs/ — so an adopted project TRACKS the kit's configuration by default.
 # That is the shared case, which is the one where a Windows teammate's `core.autocrlf=true` rewrites every

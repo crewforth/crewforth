@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Stop hook — when session fill crosses a threshold it prints the handoff recommendation to the USER (systemMessage).
+# Stop hook — at each handoff threshold of session fill (25 / 50 / 75 / 95 %) it has the session hand off, once.
 # Session management = a gate at the threshold, not a wish. But the gate must not nag or burn tokens:
-#   - It surfaces the recommendation as a neutral `systemMessage` (user-facing warning), NOT a hook error.
-#     (Claude Code renders a BLOCKING Stop hook — exit 2 — as "Stop hook error: ...". We deliberately never block.)
-#   - It fires ONCE PER THRESHOLD per session: once at 75% (warn), once more at 90% (critical). Never every turn,
-#     so it never forces an extra assistant continuation — which would burn tokens and fill the context faster,
-#     i.e. the gate would cause the very thing it exists to prevent.
-#   - It NEVER blocks the stop: every path exits 0. A measurement failure fails open, silently.
-# context-usage.sh does the measurement. No automatic /clear — approval is the user's (§4.4).
-# The model is nudged separately every turn by context-usage.sh (UserPromptSubmit); this hook is the
-# USER-facing alert, and it is silent when the measurement fails. A new session (or /clear) mints a new session_id and re-arms both thresholds.
+#   - It fires ONCE PER THRESHOLD per compaction generation. Crossing one sends the session back for ONE turn
+#     (`decision: block`) that applies the handoff skill, and tells the user, in a neutral `systemMessage`, that
+#     /clear is theirs to type. Never every turn: the marker is stamped before the block, so the turn it causes ends
+#     silent.
+#   - Everything else it says (a compaction, a wrong 🔋 figure) is a `systemMessage` only and exits 0. A measurement
+#     failure fails open, silently.
+# context-usage.sh does the measurement. No automatic /clear — that is the user's.
+# The model is nudged separately every turn by context-usage.sh (UserPromptSubmit). A new session (or /clear) mints a
+# new session_id and re-arms every threshold.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # Bounded: a pipe Claude Code keeps open (a Windows pipe can close late) must not hold the stop for the hook's whole
@@ -17,9 +17,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # once. Nothing in time means nothing to measure, and this hook then stays silent, as on any other failure.
 IN=""; IFS= read -r -d '' -t "${CREW_STDIN_TIMEOUT:-2}" IN 2>/dev/null; [ "$?" -gt 128 ] && exit 0
 
-# No `stop_hook_active` guard. The flag says SOME Stop hook blocked this turn — another plugin's, typically, since
-# this one never does — and honouring it silenced the fill warning on exactly those turns. The loop it guards
-# against cannot happen here: nothing below blocks, and each warning is deduplicated per session and tier.
+# No `stop_hook_active` guard. The flag says SOME Stop hook blocked this turn — another plugin's, or this one's own
+# handoff turn — and honouring it silenced the fill warning on exactly those turns. The loop it guards against cannot
+# happen here: each threshold is stamped before its one block, so the turn after it finds the marker and is silent.
 
 # Per-session dedup key: session_id from the Stop stdin JSON (documented field), else the transcript
 # filename. Sanitized to a safe filename fragment. Without any key we fall back to a shared marker
@@ -99,7 +99,17 @@ compnums(){
 if [ "${COMP:-0}" -gt 0 ] && [ ! -e "$(marker compacted)" ]; then
   : > "$(marker compacted)" 2>/dev/null || true
   compnums
+  # AN IDLE COMPACTION is recorded as `trigger: auto` too, followed by an informational line of its own ("Compacted
+  # while idle, before the prompt cache expired"). Field (N28): the auto sentence below — "context was dropped that
+  # nobody chose to drop" — was said about one, and it is false there: Claude Code's idleCompaction setting chose it,
+  # between turns. Told by which of the two records comes last; counted out of AUTOC. Rare path, two processes.
   if [ "$CTRIG" = auto ]; then
+    _lastc="$(grep -n -e '"compact_boundary"' -e 'Compacted while idle' "$TP" 2>/dev/null | tail -n 1)"
+    IDLEC="$(grep -c 'Compacted while idle' "$TP" 2>/dev/null)"; IDLEC=$(( ${IDLEC:-0} + 0 )); AUTOC=$(( AUTOC - IDLEC ))
+    case "$_lastc" in *'Compacted while idle'*)
+      printf '{"systemMessage":"Claude Code compacted this session while it was idle, before the prompt cache expired%s (its idleCompaction setting; \\"idleCompaction\\": false in settings.json turns it off). The detail before it is now a summary: check that docs/SESSION_STATE.md still matches reality before going on."}\n' "${CNUM:+ ($CNUM)}"
+      exit 0 ;;
+    esac
     printf '{"systemMessage":"⚠️ Auto-compaction has fired %s time(s) this session%s — context was dropped that nobody chose to drop. Check that docs/SESSION_STATE.md still matches reality, and hand off at the next phase boundary instead of riding the fill up to another one."}\n' "$AUTOC" "${CNUM:+ (the last one: $CNUM)}"
     exit 0
   fi
@@ -171,28 +181,31 @@ if [ "$_said" != "$IN" ]; then
   fi
 fi
 
-# Highest threshold crossed. Compared under LC_ALL=C so '77.2' parses identically everywhere.
-# Compared on the integer part with shell arithmetic rather than two `awk` calls. Two spawns at the end of every
-# turn bought nothing here: the thresholds are whole numbers, so truncating is exactly equivalent — 89.9 is below
-# 90 either way — and dropping the decimal also drops the locale hazard the awk calls existed to pin down.
+# HANDOFF THRESHOLDS (3.4): 25 / 50 / 75 / 95 % by default; CREW_HANDOFF_TIERS takes another ascending list of whole
+# numbers (the strictness profile sets it). The highest one crossed, once per compaction generation: crossing it
+# sends the session back ONCE (`decision: block`) to apply the handoff skill — docs/SESSION_STATE.md — and to tell the
+# user /clear is theirs to type. That is one turn per threshold, spent on the handoff itself, never a turn per Stop:
+# the marker is stamped before the block, so the continuation it causes ends silent. Compared on the integer part:
+# the thresholds are whole numbers, so truncating is exact, with no awk and no locale.
 INT="${PCT%%.*}"; INT="${INT:-0}"
 case "$INT" in ''|*[!0-9]*) bye ;; esac
+# The list is profile.sh's (crew_handoff_tiers): the per-turn line recommends from the same one.
+TIERS="25 50 75 95"
+if [ -f "$HERE/../eval/lib/profile.sh" ]; then
+  . "$HERE/../eval/lib/profile.sh"; crew_handoff_tiers "${CLAUDE_PROJECT_DIR:-$PWD}"; TIERS="$CREW_TIERS"
+fi
 TIER=""
-[ "$INT" -ge 90 ] && TIER=90
-[ -n "$TIER" ] || { [ "$INT" -ge 75 ] && TIER=75; }
-MSG=""
-# Already warned at this tier this session? Stay silent — one alert per threshold, not one per turn.
+for t in $TIERS; do [ "$INT" -ge "$t" ] && TIER="$t"; done
+MSG=""; REASON=""
+# Already handed off at this tier this generation? Stay silent — one per threshold, not one per turn.
 if [ -n "$TIER" ] && [ ! -e "$(marker "$TIER")" ]; then
-  # Stamp this tier AND every lower one: jumping 60 -> 92 in a single turn must not let the 75 warning fire
-  # later (e.g. once /compact drops the fill back under 90).
-  for t in 75 90; do
+  # Stamp this tier AND every lower one: jumping 40 -> 92 in a single turn must not fire 50 and 75 later
+  # (e.g. once a dip brings the fill back under 92).
+  for t in $TIERS; do
     [ "$t" -le "$TIER" ] && { : > "$(marker "$t")" 2>/dev/null || true; }
   done
-  if [ "$TIER" = 90 ]; then
-    MSG="CRITICAL >90% — hand off NOW: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Auto-compaction is close and it will cost you the handover."
-  else
-    MSG=">75% threshold. Recommended: apply the handoff skill, write docs/SESSION_STATE.md, then /clear. Manual; your call."
-  fi
+  MSG="Handoff point ${TIER}%: the session writes its handoff (docs/SESSION_STATE.md) now; then type /clear to go on from it."
+  REASON="Crewforth: the session is at ${PCT}% (measured) and has crossed the ${TIER}% handoff threshold. Apply the handoff skill now: write docs/SESSION_STATE.md so the next session can go on from it, start no new work, and end by telling the user they can type /clear."
 fi
 [ -n "$MSG$WRONG" ] || bye
 
@@ -201,6 +214,11 @@ SAFE="$(printf '%s' "$LINE" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 OUT="${MSG:+$SAFE | $MSG}"
 [ -n "$CINFO" ] && OUT="$CINFO${OUT:+ · $OUT}"
 [ -n "$WRONG" ] && OUT="⚠️ The 🔋 line in this reply says $WRONG, but the fill measured from the transcript is: $SAFE. The reply's figure is not a measurement — do not decide a handoff on it.${OUT:+ · $OUT}"
-# exit 0 + systemMessage: a neutral, user-facing warning (NOT a hook error, does NOT force an extra turn).
-printf '{"systemMessage":"%s"}\n' "$OUT"
+# exit 0 + systemMessage: a neutral, user-facing line (NOT a hook error). With a threshold crossed, also
+# `decision: block` + a reason the session reads: the one turn that does the handoff.
+if [ -n "$REASON" ]; then
+  printf '{"decision":"block","reason":"%s","systemMessage":"%s"}\n' "$REASON" "$OUT"
+else
+  printf '{"systemMessage":"%s"}\n' "$OUT"
+fi
 exit 0

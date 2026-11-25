@@ -1,10 +1,11 @@
 ---
 name: crew-approve
 description: Approve the commit or push Claude just showed you (auto and dontAsk modes).
-argument-hint: "[commit | push | commit+push]  (nothing: what was just refused)"
+argument-hint: "[commit | push | commit+push | merge]  (nothing: what was just refused)"
 disable-model-invocation: true
 metadata:
   kind: command
+  internal: "true"
 ---
 # /crew-approve
 Argument: $ARGUMENTS

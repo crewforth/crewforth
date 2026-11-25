@@ -27,6 +27,21 @@ const AGENT_STATUS = {
 const CHIP_ORDER = ['running', 'starting', 'stale', 'done', 'failed', 'killed', 'stopped', 'ended'];
 
 /** The word and the tone one agent status is drawn in. A status this table does not know keeps its own word. */
+/**
+ * Which projects the navigator lists (DECISIONS 2026-11-17): every one, only those with Crewforth, or only those
+ * without. Under "all" the projects without Crewforth stay folded behind their heading until asked for, a search
+ * or the session on screen opens them; asked for by the filter, they are simply the list.
+ * @param kind      'all' | 'kit' | 'bare' (anything else is 'all')
+ * @param bareOpen  under 'all': the folded group is open (shown by hand, a search, or the session on screen is in it)
+ * @returns { pool, kind, foldedBare } — `foldedBare`: the "Without Crewforth · show" line belongs under the list
+ */
+export function projectsShown(withKit, bare, { kind = 'all', bareOpen = false } = {}) {
+  const k = kind === 'kit' || kind === 'bare' ? kind : 'all';
+  if (k === 'kit') return { pool: [...withKit], kind: k, foldedBare: false };
+  if (k === 'bare') return { pool: [...bare], kind: k, foldedBare: false };
+  return { pool: bareOpen ? [...withKit, ...bare] : [...withKit], kind: k, foldedBare: !bareOpen && bare.length > 0 };
+}
+
 export function agentStatus(status) {
   const known = AGENT_STATUS[status];
   return known

@@ -27,10 +27,11 @@ do not improvise the rules.
    Then the decisions this request raises: the empty and error states, existing data, two people at once, the
    default when nobody chooses.
 3. **Stop when the answer is clear, not when the list runs out.** Clear means you could write the brief below
-   without a guess in it. A skipped question becomes a recorded assumption; a skipped round ends the interview.
+   without a guess in it, and you could predict the user's next three answers. A skipped question becomes a recorded assumption; a skipped round ends the interview.
 4. **Restate and get a yes.** Show the brief and ask, as the last question, "Is this what we are building?"
    ("Yes" first). A correction goes back into the brief and the question is asked again. Only an explicit yes
-   ends the interview.
+   ends the interview: "sounds good", "I guess", "whatever you think" and no answer are not one; ask again
+   with the brief in front of them.
 5. **Hand over.** Write the agreed brief to `docs/BRIEF.md`:
    - Outcome, User, Why now, Success, Constraint, Out of scope, each in one or two lines;
    - the decisions made, each with the option the user picked;

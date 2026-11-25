@@ -281,6 +281,10 @@ run_adopt "$_K" --yes --here --ignore-local
 _k12 default; cp start.sh "$_K/"; cp -R kit "$_K/"
 _slog; ( cd "$_K" && printf 'yes\n' | bash start.sh ) >"$_L" 2>&1 || _evidence "start.sh in $_K" "$_L" $?
 ( cd "$_K" && grep -qx '.claude/' .gitignore ) || { echo "FAIL [ignore-local/default]: without the flag .gitignore was not written — the default moved"; exit 1; }
+# The review's working files are ignored by an install, whatever .claude/ is (field, Tur 12: they sat in the changes list).
+for _rf in review.json review-prepass.json; do
+  ( cd "$_K" && grep -qx ".crewforth/$_rf" .gitignore ) || { echo "FAIL [ignore-local/default]: start.sh did not gitignore .crewforth/$_rf"; exit 1; }
+done
 echo "[ignore-local] init and adopt leave .gitignore alone and ignore through .git/info/exclude; without the flag .gitignore is written"
 fi
 # ---- adopt.sh: a brownfield .NET project (solution under ./backend) + agent-overlap takeover ----
@@ -293,7 +297,29 @@ cp adopt.sh "$P/"; cp -R kit "$P/"; cp VERSION "$P/"
 printf -- '---\nname: backend-expert\ndescription: legacy\n---\n' > "$P/.claude/agents/backend-expert.md"
 ( cd "$P" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
 run_adopt "$P" --yes
+# The install's own proofs (PROOF-1/2) drive the real gates; they write no line to the gate log, where they read as a
+# refusal of the user's work (field: one BLOCK §4.6 line per install and update).
+case "$ADOPT_OUT" in *'PROOF-2: guard-bash BLOCKED'*) ;; *) echo "FAIL [adopt/proof]: PROOF-2 did not run, so the gate-log check below proves nothing"; exit 1 ;; esac
+for _gl in "$P/.claude/gate-log.tsv" "$P/.git/crewforth-gate-log.tsv"; do
+  [ -s "$_gl" ] && { echo "FAIL [adopt/proof]: the install's own proof wrote to the gate log: $(head -2 "$_gl" | tr '\t\n' '  ')"; exit 1; }
+done
+echo "[adopt/proof] the install's proofs ran and wrote nothing to the gate log"
 grep -qx 'stack=generic' "$P/.claude/kit.conf"          || die "a .NET brownfield adopt did not record stack=generic" adopt-brownfield "$P"
+# A project that TRACKS docs/ keeps its .gitignore (field, N26: an update added docs/ over 30 tracked files and staged
+# it). The twin is the fixture above, which tracks no docs/: there docs/ is added, so the check is not silent by default.
+grep -qx 'docs/' "$P/.gitignore" || die "adopt did not gitignore docs/ in a repo that does not track it" adopt-brownfield "$P"
+for _rf in review.json review-prepass.json; do
+  grep -qx ".crewforth/$_rf" "$P/.gitignore" || die "adopt did not gitignore .crewforth/$_rf" adopt-brownfield "$P"
+done
+P2="$WORK/adopt-tracked-docs"; rm -rf "$P2"; mkdir -p "$P2/docs"
+cp adopt.sh "$P2/"; cp -R kit "$P2/"; cp VERSION "$P2/"
+printf 'notes\n' > "$P2/docs/notes.md"; printf 'node_modules/\n' > "$P2/.gitignore"
+( cd "$P2" && git init -q && git config user.email t@t.t && git config user.name t && git add -A && git commit -qm init )
+run_adopt "$P2" --yes
+grep -qx 'docs/' "$P2/.gitignore" && die "adopt gitignored docs/ that the project tracks (N26)" adopt-brownfield "$P2"
+case "$ADOPT_OUT" in *'docs/ is tracked in this repository'*) ;; *) die "adopt did not say why docs/ was left out of .gitignore" adopt-brownfield "$P2" ;; esac
+echo "[adopt/tracked-docs] a tracked docs/ is not gitignored, and the install says so; an untracked one is"
+rm -rf "$P2"
 [ ! -e "$P/.claude/skills/cqrs-aop-module" ]             || die "the removed .NET pattern skill was installed" adopt-brownfield "$P"
 [ ! -f "$P/.claude/agents/backend-expert.md" ]          || die "overlapping project agent was not taken over" adopt-brownfield "$P"
 [ -f "$P/.claude/superseded/agents/backend-expert.md" ] || die "taken-over agent's original was not backed up" adopt-brownfield "$P"
@@ -1101,7 +1127,7 @@ else
   CMDN=0; for kf in $(grep -l '^  kind: command' kit/skills/crew-*/SKILL.md); do CMDN=$((CMDN+1)); kn="${kf%/SKILL.md}"; kn="${kn##*/}"
     [ -f "$MG/.claude/skills/$kn/SKILL.md" ] || { echo "FAIL: the update did not bring /$kn to skills/$kn/SKILL.md"; exit 1; }
   done
-  [ "$CMDN" = 19 ] || { echo "FAIL: FIXTURE — expected 19 command skills in the payload, found $CMDN"; exit 1; }   # 11 came from 2.x; /crew-approve and /crew-loosen are new in 3.1.0, /crew-map in 3.2.0, /crew-allow-verify in 3.2.2, /crew-audit, /crew-interview, /crew-pr and /crew-todo in 3.5.0
+  [ "$CMDN" = 20 ] || { echo "FAIL: FIXTURE — expected 20 command skills in the payload, found $CMDN"; exit 1; }   # 11 came from 2.x; /crew-approve and /crew-loosen are new in 3.1.0, /crew-map in 3.2.0, /crew-allow-verify in 3.2.2, /crew-audit, /crew-interview, /crew-pr and /crew-todo in 3.5.0, /crew-profile after 3.5.0
   KLEFT="$(cd "$MG/.claude" && { ls commands 2>/dev/null | grep -v '^my-cmd\.md$' || true; } | tr '\n' ' ')"   # grep -v finding nothing is the pass
   [ -z "$KLEFT" ] || { echo "FAIL: kit command files were left in .claude/commands/: $KLEFT"; exit 1; }
   cmp -s "$MG/.claude/commands/my-cmd.md" "$WORK/my-cmd.before" || { echo "FAIL: the move touched the user's own .claude/commands/my-cmd.md"; exit 1; }
@@ -1550,7 +1576,7 @@ if command -v node >/dev/null 2>&1 && node --version >/dev/null 2>&1; then
   A5="$WORK/add-5"; rm -rf "$A5"; mkdir -p "$A5/.claude"; printf 'stack=generic\n' > "$A5/.claude/kit.conf"; H5="$(treehash "$A5")"
   ( cd "$A5" && node "$CLI" add testing >/dev/null 2>&1 ) && [ "$(treehash "$A5")" = "$H5" ] || { echo "FAIL: add wrote into a project with the full install"; exit 1; }
   # 6 · --list covers the catalogue exactly, less what is marked experimental (it installs by name, unlisted).
-  NX="$(grep -lE '^  experimental: "?true' kit/skills/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
+  NX="$(grep -lE '^  (experimental|internal): "?true' kit/skills/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
   NL="$(node "$CLI" add --list | grep -c '^  ')"; NC=$(( $(ls kit/agents/*.md | wc -l) + $(ls -d kit/skills/*/ | wc -l) - NX ))
   [ "$NL" = "$NC" ] || { echo "FAIL: add --list shows $NL entries, the catalogue has $NC (after $NX experimental)"; exit 1; }
   node "$CLI" add --list | grep -qE '^  (/crew-board|teamboard) ' && { echo "FAIL: add --list shows an experimental entry"; exit 1; }
@@ -1886,6 +1912,33 @@ for e in '.claude/' 'CLAUDE.md'; do
 done
 grep -qxF '.claude/' "$W/.gitignore" || { echo "FAIL: the private default did not ignore .claude/"; exit 1; }
 echo "[wizard] --shared ignores 2 entries and keeps .claude/ + CLAUDE.md committable; private ignores 4"
+# 6b · THE CHOICE IS RECORDED for the session start (DECISIONS, 2026-11-16), docs/ can be shared too, and an update
+#      keeps both. Field (rc.3): a shared install's session did not know it was shared and gitignored .claude/ again.
+{ grep -qxF 'visibility=shared' "$W5/.claude/kit.conf" && grep -qxF 'docs=private' "$W5/.claude/kit.conf"; } \
+  || { echo "FAIL: a shared install did not record visibility=shared and docs=private"; sed 's/^/    /' "$W5/.claude/kit.conf"; exit 1; }
+grep -qxF 'visibility=private' "$W/.claude/kit.conf" || { echo "FAIL: the private default did not record visibility=private"; exit 1; }
+W5D="$(wiz shared-docs)"
+( cd "$W5D" && git init -q . && git config user.email t@example.invalid && git config user.name t \
+    && printf 'x\n' > README.md && git add README.md && git commit -qm base ) >/dev/null 2>&1
+_slog; ( cd "$W5D" && CREW_LANG=en bash start.sh --yes --shared --share-docs </dev/null ) >"$_L" 2>&1 || _evidence "start.sh in $W5D" "$_L" $?
+! grep -qxF 'docs/' "$W5D/.gitignore" || { echo "FAIL: --share-docs still put docs/ in .gitignore"; exit 1; }
+grep -qxF 'docs=shared' "$W5D/.claude/kit.conf" || { echo "FAIL: --share-docs was not recorded"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+( cd "$W5D" && git add -A && git commit -qm install ) >/dev/null 2>&1
+cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
+{ grep -qxF 'visibility=shared' "$W5D/.claude/kit.conf" && grep -qxF 'docs=shared' "$W5D/.claude/kit.conf"; } \
+  || { echo "FAIL: an update lost the install's choice (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+! grep -qxF 'docs/' "$W5D/.gitignore" || { echo "FAIL: an update put the shared docs/ back into .gitignore"; exit 1; }
+# ...and an install with no docs= record (before rc.4) gets one from git on update (N46): a docs/ the project tracks and
+# does not ignore is shared; the same install with docs/ ignored is private.
+sed -i.bak '/^docs=/d' "$W5D/.claude/kit.conf" && rm -f "$W5D/.claude/kit.conf.bak"
+mkdir -p "$W5D/docs" && printf 'x\n' > "$W5D/docs/NOTES.md" && ( cd "$W5D" && git add -A && git -c core.hooksPath=/dev/null commit -qm docs ) >/dev/null 2>&1
+cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
+grep -qxF 'docs=shared' "$W5D/.claude/kit.conf" || { echo "FAIL: no docs= record, docs/ tracked and not ignored: not derived as shared (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+sed -i.bak '/^docs=/d' "$W5D/.claude/kit.conf" && rm -f "$W5D/.claude/kit.conf.bak"; printf 'docs/\n' >> "$W5D/.gitignore"
+( cd "$W5D" && git add -A && git -c core.hooksPath=/dev/null commit -qm ignore ) >/dev/null 2>&1
+cp adopt.sh "$W5D/"; cp -R kit "$W5D/"; run_adopt "$W5D" --yes
+grep -qxF 'docs=private' "$W5D/.claude/kit.conf" || { echo "FAIL: no docs= record, docs/ ignored: not derived as private (adopt exit=$ADOPT_RC)"; sed 's/^/    /' "$W5D/.claude/kit.conf"; exit 1; }
+echo "[wizard] the choice is recorded (visibility, docs); --share-docs keeps docs/ committable; an update keeps both, and derives docs= from git where none is recorded"
 
 # 5 · ASK GIT, DO NOT COMPARE STRINGS. A repo that already ignores `.claude` without the trailing slash is
 #     covered, and appending `.claude/` next to it is a second redundant rule. The old whole-line grep could
@@ -2129,7 +2182,7 @@ printf '%s\n' "$ADOPT_OUT" | grep -q 'git branch -m main' || die "adopt on an un
 ( cd "$U1" && eval "$_dl" ) >/dev/null 2>&1 || die "the printed discard command failed when run" adopt-unborn "$U1"
 [ -z "$(cd "$U1" && git diff --cached --name-only)" ] && [ "$(cd "$U1" && git symbolic-ref --short HEAD)" = main ] \
   || die "after the printed discard something is still staged, or HEAD is not back on main" adopt-unborn "$U1"
-_xs=0; _xc=0; for _f in kit/skills/*/SKILL.md; do grep -qxE '  experimental: "?true"?' "$_f" && continue
+_xs=0; _xc=0; for _f in kit/skills/*/SKILL.md; do grep -qxE '  (experimental|internal): "?true"?' "$_f" && continue
   if grep -qx '  kind: command' "$_f"; then _xc=$((_xc+1)); else _xs=$((_xs+1)); fi; done
 _ps="$(printf '%s\n' "$ADOPT_OUT" | sed -n 's/^  skills  *+\([0-9]*\).*/\1/p' | head -1)"; _pc="$(printf '%s\n' "$ADOPT_OUT" | sed -n 's/^  commands  *+\([0-9]*\).*/\1/p' | head -1)"
 [ "$_ps" = "$_xs" ] && [ "$_pc" = "$_xc" ] || die "adopt's summary says skills +$_ps, commands +$_pc; the README's rule counts $_xs and $_xc" adopt-unborn "$U1"

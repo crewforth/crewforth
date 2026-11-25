@@ -48,7 +48,7 @@ What it costs: the list is then sent whole every turn, about 3,700 tokens. On a 
 ## New project
 
 ```bash
-bash start.sh [--private|--shared] [--ignore-local] [--lang tr|en] [--yes] [--version] [-h]
+bash start.sh [--private|--shared] [--share-docs] [--ignore-local] [--lang tr|en] [--yes] [--version] [-h]
 ```
 
 The wizard first asks for its language (English or Turkish), then who the install is for, and ends with a summary you approve before anything is written. Every prompt and message follows the language you pick; the files it installs stay English.
@@ -61,6 +61,7 @@ No client stack is a default either: the first client task reads `Client:` in `#
 |:--|:--|:--|
 | Language | `--lang en` · `--lang tr` | what the installer prints — nothing it writes |
 | Who it is for | `--private` · `--shared` | whether `.claude/` and `CLAUDE.md` are gitignored or committed for the team |
+| docs/ in a shared install | `--share-docs` | whether the working documents (plans, decisions, handovers) are committed too; asked when the install is shared |
 | Where the ignore lines go | `--ignore-local` (answer 3) | `.git/info/exclude`, which only this clone reads, instead of the tracked `.gitignore`; `adopt` takes it too |
 
 **The backend is stack-agnostic.** The installer does not ask for a stack. On the first backend task the `backend-architecture` skill resolves it — your request, then the `## Stack` section of `CLAUDE.md`, then the repo's manifests (`package.json`, `go.mod`, `pyproject.toml`, `*.csproj`, …) — and only in an empty repo asks at most four multiple-choice questions, each with a recommended answer and a "Decide for me" option. The answer is written to `## Stack` and recorded as an ADR, so it is asked once. Node, Go, Python, .NET and the JVM are supported alike, and a project that ships its own pattern skill under `.claude/skills/` has it applied instead.

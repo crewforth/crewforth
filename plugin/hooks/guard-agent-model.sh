@@ -391,7 +391,7 @@ _AM_RE_L="(^|[^A-Za-z])($_AM_W_L)([^a-z]|\$)"
 _AM_RE_C="(^|[^A-Z])($_AM_W_C)([^a-z]|\$)"
 _AM_RE_U="(^|[^A-Za-z])($_AM_W_U)([^A-Za-z]|\$)"
 _AM_RULES_READ=0; _AM_RULES=()
-_am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", "-<TAB>glob", "f<TAB>agent change risk tier", "v<TAB>command"
+_am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", "-<TAB>glob", "f<TAB>agent change risk tier", "v<TAB>command", "t<TAB>seconds"
   local l a b c d
   [ "$_AM_RULES_READ" = 1 ] && return 0
   _AM_RULES_READ=1; _AM_RULES=()
@@ -406,6 +406,8 @@ _am_rules(){  # reads .claude/crew-model-rules once -> _AM_RULES: "+<TAB>glob", 
       "- "*|"-"$'\t'*) l="${l:1}"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done; _AM_RULES+=("-"$'\t'"$l") ;;
       "verify "*) l="${l#verify }"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
                   [ -n "$l" ] && case "$l" in *[\;\&\|\<\>\`\$]*) ;; *) _AM_RULES+=("v"$'\t'"$l") ;; esac ;;
+      "verify-timeout "*) l="${l#verify-timeout }"; while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
+                  case "$l" in ''|*[!0-9]*) ;; *) _AM_RULES+=("t"$'\t'"$l") ;; esac ;;
       "floor "*) IFS=$' \t' read -r a b c d _ <<< "${l#floor }"; _am_tier "${d:-}"
                  [ -n "$_AMT" ] && [ -n "${c:-}" ] && _AM_RULES+=("f"$'\t'"$a $b $c $_AMT") ;;
     esac
@@ -440,14 +442,41 @@ _am_prose(){  # $1 = a path or a glob -> 0 when it is prose a person reads (the 
   case "$1" in *.md|*.MD|*.markdown|*.txt|*.TXT|*.rst|*.adoc) return 0 ;; esac
   return 1
 }
+# What the card lacks, said with the line it stopped at (field, Tur 11: three cards with no files: line were told
+# "line 3 is not one of …", which names the line after the card, not the one missing from it).
+_am_card_missing(){  # $1 = the fields seen so far (" files  change ") -> _AMCM: ", and the card has no files: line" or ""
+  local k m=""
+  for k in files change verify; do case "$1" in *" $k "*) ;; *) m="${m:+$m, }$k:" ;; esac; done
+  _AMCM=""; [ -z "$m" ] || _AMCM=", and the card has no $m line"
+}
 # The files of a card without what is written in parentheses: `files: staged diff (branch docs/widget-privacy-texts)`
 # read the branch name as a path and `privacy` as a critical one, and `files: legal/x.md (only if needed)` read `(only`,
 # `if`, `needed)` as three files that are not prose (measured in the field on rc.4: 2 of 6 critical-path refusals, and
 # a legal note raised to opus). A note in parentheses is a note; a path is written outside them.
-_am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an unclosed ( dropping the rest
-  local x="$1" re='\([^()]*\)'
-  while [[ $x =~ $re ]]; do x="${x/"${BASH_REMATCH[0]}"/ }"; done
+# ...but a PATH in parentheses is still a path (field, Tur 11: `files: staged diff (29 files: src/x/**, src/store/**,
+# migrations 0063, …)` hid every path of a migration review, and opus asked for it was lowered to sonnet). _AMPP holds
+# the words in parentheses that can only be paths: a glob, or a file name with an extension. A branch name
+# (`docs/widget-privacy-texts`) and a note (`only if needed`) are neither. Read where it raises, never where it lowers.
+_am_unparen(){  # $1 = text -> _AMUP: it with every (…) taken out, and an unclosed ( dropping the rest; _AMPP as above
+  local x="$1" re='\([^()]*\)' in="" w og=0
+  while [[ $x =~ $re ]]; do in="$in ${BASH_REMATCH[0]}"; x="${x/"${BASH_REMATCH[0]}"/ }"; done
   _AMUP="${x%%(*}"
+  case "$x" in *'('*) in="$in ${x#*(}" ;; esac
+  _AMPP=""; in="${in//[(),;:]/ }"
+  case "$-" in *f*) og=1 ;; *) set -f ;; esac
+  for w in $in; do
+    case "$w" in *[\*?[]*) ;; */*.[A-Za-z0-9]*|[A-Za-z0-9_]*.[A-Za-z0-9]*) case "${w##*.}" in *[!A-Za-z0-9]*|?????????*) continue ;; esac ;; *) continue ;; esac
+    _AMPP="${_AMPP:+$_AMPP }$w"
+  done
+  [ "$og" = 1 ] || set +f
+}
+_am_card_glob(){  # after _am_card -> 0 when a file of the card is a glob (*, ? or [): what it reaches is known only at write time
+  local f r=1 unglob=0
+  case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+  _am_unparen "$CARD_FILES"
+  for f in ${_AMUP//,/ } $_AMPP; do case "$f" in *[\*?[]*) r=0; break ;; esac; done
+  [ "$unglob" = 1 ] && set +f
+  return "$r"
 }
 _am_all_prose(){  # after _am_card -> 0 when every file of the card is prose
   local f r=0 unglob=0
@@ -484,13 +513,14 @@ _am_card_line(){  # $1 = the first line of the task -> 0 and CARD_* set (uncheck
   case "$r" in *change:*verify:*) ;; *) return 1 ;; esac
   f="${r%%change:*}"; r="${r#*change:}"; c="${r%%verify:*}"; v="${r#*verify:}"
   case "$v" in *above:*) a="${v#*above:}"; v="${v%%above:*}" ;; esac
+  v="${v%%skills:*}"; a="${a%%skills:*}"   # `skills:` is read by _am_card_skills, from the whole card
   _am_trim "$f"; CARD_FILES="$_AMT"; _am_trim "$c"; CARD_CHANGE="$_AMT"; _am_trim "$v"; CARD_VERIFY="$_AMT"
   [ -n "$a" ] && { _am_trim "$a"; CARD_ABOVE="${_AMT:0:200}"; }
   return 0
 }
 _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (CARD_ABOVE); 1 and CARD_WHY
   local s="$1" l k v n=0 ln=0 seen="" one=0
-  CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""
+  CARD_FILES=""; CARD_CHANGE=""; CARD_VERIFY=""; CARD_WHY=""; CARD_ABOVE=""; CARD_SKILLS=""
   s="${s//$'\r'/}"
   # One line first: the first line that is not empty, read by its labels; the three-line reading otherwise.
   l="$s"; while :; do case "$l" in [$' \t\n']*) l="${l:1}" ;; *) break ;; esac; done; l="${l%%$'\n'*}"
@@ -502,24 +532,36 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
     l="${s%%$'\n'*}"; if [ "$l" = "$s" ]; then s=""; else s="${s#*$'\n'}"; fi
     while :; do case "$l" in [$' \t']*) l="${l:1}" ;; *) break ;; esac; done
     [ -n "$l" ] || continue
+    # A heading over the card is not a line of it (field N36: "card:" above a whole files/change/verify card was
+    # refused as "line 1 is not one of files:, change:, verify:"). Only before the first field, only a bare heading.
+    if [ "$ln" = 0 ]; then
+      k="$l"; while :; do case "$k" in ['#*_ ']*) k="${k:1}" ;; *) break ;; esac; done
+      while :; do case "$k" in *['#*_: ']) k="${k%?}" ;; *) break ;; esac; done
+      case "$k" in [Cc][Aa][Rr][Dd]|[Kk][Aa][Rr][Tt]|[Tt][Aa][Ss][Kk][' -'][Cc][Aa][Rr][Dd]) continue ;; esac
+    fi
     ln=$((ln+1))
-    case "$l" in *:*) ;; *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;; esac
+    case "$l" in *:*) ;; *) _am_card_missing "$seen"; CARD_WHY="line $ln of the task is not one of files:, change:, verify:$_AMCM"; return 1 ;; esac
     k="${l%%:*}"; v="${l#*:}"
     while :; do case "$v" in [$' \t']*) v="${v:1}" ;; *) break ;; esac; done
     while :; do case "$v" in *[$' \t']) v="${v%?}" ;; *) break ;; esac; done
     # `above:` may stand anywhere among the three (2 of 19 line refusals, 2026-10-19: between change: and verify:).
     case "$k" in
       above)  [ -n "$CARD_ABOVE" ] || CARD_ABOVE="${v:0:200}"; continue ;;
+      skills) continue ;;   # read by _am_card_skills
       files)  CARD_FILES="$v" ;;
       change) CARD_CHANGE="$v" ;;
       verify) CARD_VERIFY="$v" ;;
-      *) CARD_WHY="line $ln of the task is not one of files:, change:, verify:"; return 1 ;;
+      *) _am_card_missing "$seen"; CARD_WHY="line $ln of the task is not one of files:, change:, verify:$_AMCM"; return 1 ;;
     esac
     n=$((n+1))
     case "$seen" in *" $k "*) CARD_WHY="the card names $k twice"; return 1 ;; esac
     seen="$seen $k "
   done
   [ "$n" = 3 ] || { CARD_WHY="the task does not begin with the three lines files:, change:, verify:"; return 1; }
+  # `skills:` written on a field's own line (`verify: npm test · skills: api-design`) is not part of that field.
+  case "$CARD_VERIFY" in *skills:*) _am_trim "${CARD_VERIFY%%skills:*}"; CARD_VERIFY="$_AMT" ;; esac
+  case "$CARD_CHANGE" in *skills:*) _am_trim "${CARD_CHANGE%%skills:*}"; CARD_CHANGE="$_AMT" ;; esac
+  case "$CARD_FILES" in *skills:*) _am_trim "${CARD_FILES%%skills:*}"; CARD_FILES="$_AMT" ;; esac
   [ -n "$CARD_FILES" ] || { CARD_WHY="files: is empty (name the files or globs, or the folder)"; return 1; }
   # A note in parentheses after the kind is the session's own comment, as `none (…)` is for verify: `architecture
   # (planning only)` is architecture (4 of the cards refused on this machine, 2026-10-18). Only a kind on the list, and
@@ -554,6 +596,36 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
       esac
     done
   fi
+  _am_card_skills "$1"
+  return 0
+}
+# `skills:` (optional): the skills the agent is to apply, by name, read from the card's first lines in either form
+# (`… · verify: npm test · skills: api-design, observability` or a line of its own). Its value runs to the end of its
+# line, a ` · `, or a closing parenthesis. Names only: lower case, digits, hyphens; a plugin's `crewforth:` prefix is
+# dropped. Measured (field, 2026-11-13): 14 of 4,326 crew agent runs read their own skill and none called the Skill
+# tool, so the card names them and the agent's stop is held to it (hooks/agent-outcome.sh).
+_am_card_skills(){  # $1 = the task text -> CARD_SKILLS ("a b c", or empty); CARD_SKILLS_BAD (the first bad name)
+  local cl="$1" i=0 lr v r n out="" unglob=0
+  CARD_SKILLS=""; CARD_SKILLS_BAD=""
+  cl="${cl//$'\r'/}"
+  while [ "$i" -lt 8 ] && [ -n "$cl" ]; do
+    lr="${cl%%$'\n'*}"; if [ "$lr" = "$cl" ]; then cl=""; else cl="${cl#*$'\n'}"; fi; i=$((i+1))
+    case "$lr" in *skills:*)
+      v="${lr#*skills:}"; v="${v%%' · '*}"
+      # A note in parentheses is not a name (field, Tur 14: `skills: db-migration (only if schema changes)` was refused
+      # as "(only" not installed): each (…) goes, then the value ends at a parenthesis left over, as it did.
+      while [[ $v == *'('*')'* ]]; do r="${v#*'('}"; v="${v%%'('*} ${r#*')'}"; done
+      v="${v%%')'*}"; v="${v%%'('*}"; v="${v//,/ }"; v="${v//\`/ }"
+      case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
+      for n in $v; do
+        n="${n#crewforth:}"; _am_trim "$n"; n="$_AMT"; [ -n "$n" ] || continue
+        case "$n" in *[!a-z0-9-]*|-*) CARD_SKILLS_BAD="$n"; break ;; esac
+        case " $out " in *" $n "*) ;; *) out="${out:+$out }$n" ;; esac
+      done
+      [ "$unglob" = 1 ] && set +f
+      [ -n "$CARD_SKILLS_BAD" ] || CARD_SKILLS="$out"; return 0 ;;
+    esac
+  done
   return 0
 }
 _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
@@ -562,11 +634,34 @@ _am_risk(){  # after _am_card -> CARD_RISK critical|normal, CARD_RISKWHY
   case " migration security architecture fix-unknown " in *" $CARD_CHANGE "*) CARD_RISK=critical; CARD_RISKWHY="change: $CARD_CHANGE" ;; esac
   case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
   _am_unparen "$CARD_FILES"
-  for f in ${_AMUP//,/ }; do
+  local words="${_AMUP//,/ }"
+  _am_staged_files && words="$_AMSF"
+  for f in $words $_AMPP; do
     if _am_crit_path "$f"; then CARD_RISK=critical; [ -n "$CARD_RISKWHY" ] || CARD_RISKWHY="$f is on a critical path: $_AMW"; fi
   done
   [ "$unglob" = 1 ] && set +f
   return 0
+}
+# A CARD WHOSE FILES ARE "THE STAGED DIFF" (field Tur 13, T6: `files: staged diff in worktree <path>` on a review card
+# named no path, so a migration in that diff left the review on sonnet; and `files: staged diff … fix/x-privacy-lows`
+# read the branch name as a critical path). Its files are the ones staged: in the worktree of this repository the
+# line names by its folder, or in the project. Read only when the line says "staged" and git lists some; the words
+# of the line are then a description, not paths. Paths in parentheses are still read (_AMPP).
+_am_staged_files(){  # after _am_unparen -> 0 and _AMSF (the staged files, one per word) when the card's files are the staged diff
+  local w d="${_AMP:-${CLAUDE_PROJECT_DIR:-.}}" pc wc l
+  _AMSF=""
+  case "$CARD_FILES" in *[Ss]taged*) ;; *) return 1 ;; esac
+  pc="$(cd "$d" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)" || return 1
+  for w in ${CARD_FILES//[(),;]/ }; do
+    w="${w%[.:]}"; w="${w//\\//}"
+    case "$w" in /*|[A-Za-z]:/*|../*|./*) ;; *) continue ;; esac
+    case "$w" in /*|[A-Za-z]:/*) ;; *) w="$d/$w" ;; esac
+    [ -d "$w" ] || continue
+    wc="$(cd "$w" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)" || continue
+    [ "$wc" = "$pc" ] && { d="$w"; break; }
+  done
+  while IFS= read -r l; do [ -n "$l" ] && _AMSF="$_AMSF $l"; done <<< "$(git -C "$d" -c core.fsmonitor= diff --cached --name-only 2>/dev/null)"
+  [ -n "$_AMSF" ]
 }
 _am_digest(){  # after _am_card -> CARD_ID: 12 hex of what the card says, so "the same card" is the same value
   local t
@@ -634,7 +729,8 @@ _am_outside(){  # $1 = the tool_input text, $2 = the agent's name
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || return 0
   case "$ui" in '{'*'}') ;; *) return 0 ;; esac
   _am_log "note: $name (not a crew agent) asked for $m, run on $to; add 'above: <why>' to its task to keep a model above it"
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s (a line above: <why> in its task keeps a model above it)","updatedInput":%s}}\n' "$name" "$m" "$to" "$ui"
+  _am_json "Crewforth ran $name on $to, not the $m the call asked for. When you tell the user which model ran this agent, say $to. A line 'above: <why>' in its task keeps a model above it."
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s (a line above: <why> in its task keeps a model above it)","updatedInput":%s,"additionalContext":"%s"}}\n' "$name" "$m" "$to" "$ui" "$_AMJ"
 }
 _am_rec_get(){  # $1 = a record file, $2 = key -> _AMV (lines are key=value)
   local l; _AMV=""
@@ -715,7 +811,7 @@ _AM_HERE="${BASH_SOURCE//\\//}"; _AM_HERE="${_AM_HERE%/*}"; [ "$_AM_HERE" = "${B
 [ -f "$_AM_HERE/../eval/lib/gate-log.sh" ] && . "$_AM_HERE/../eval/lib/gate-log.sh"   # where the gate log goes
 # CREW-NOT-A-RUNG: names of commands a PROJECT's verify line may begin with; nothing here is called by Crewforth.
 _AM_RUNNERS=('npm test' 'npm t' 'pnpm test' 'yarn test' 'bun test' 'deno test'
-  'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
+  'dotnet test' 'dotnet build' 'flutter test' 'flutter analyze' 'flutter build' 'dart test' 'dart analyze' 'go test' 'go build' 'go vet'
   'cargo test' 'cargo build' 'cargo check' 'cargo clippy' 'pytest' 'python -m pytest' 'python3 -m pytest'
   'python -m unittest' 'python3 -m unittest' 'mvn test' 'mvn verify' './mvnw test' './mvnw verify' 'gradle test'
   'gradle check' 'gradle build' './gradlew test' './gradlew check' './gradlew build' 'make test' 'make check'
@@ -822,21 +918,99 @@ _am_slow_put(){  # $1 = verify command, $2 = the seconds it was given ("" = it p
   mkdir -p "$_AMS" 2>/dev/null || return 0
   { printf '%s' "$keep" > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"; } 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
   return 0; }
+# A VERIFY THAT RUNS THE WHOLE SUITE (3.2): the last step, `cd` steps aside, is a test runner with no path, file or
+# filter after it (flags only): `npm test`, `pytest -q`, `go test ./...`, `dotnet test`. In the field every verify that
+# ran out of time was one (494-1005 s). Said to the card's writer, never refused: an agent's verify is the tests of what
+# it changed; the whole suite runs once at the end of the work and in CI.
+_am_whole_suite(){  # $1 = verify command -> 0 when it runs a whole suite; _AMWS = that step
+  local st="$1" w rest base="" n=0
+  st="${st##* && }"; case "$st" in cd\ *) return 1 ;; esac
+  _AMWS="$st"
+  set -f
+  for w in $st; do
+    case "$w" in -*) continue ;; esac
+    n=$((n+1)); base="$base${base:+ }$w"
+  done
+  set +f
+  case "$base" in
+    'npm test'|'npm run test'|'pnpm test'|'pnpm run test'|'yarn test'|'bun test'|pytest|?*' pytest'|'go test ./...'|'cargo test'|'dotnet test'|'mvn test'|'gradle test'|'./gradlew test'|'flutter test'|'npx vitest run'|'npx vitest'|'npx jest'|'deno test'|'mix test'|'bundle exec rspec'|rspec|'php artisan test'|'vendor/bin/phpunit') return 0 ;;
+  esac
+  return 1
+}
 _am_slow_line(){  # $1 = a line of verify-slow -> _AMSLC (the command), _AMSLT (the epoch it was stopped, "" unknown)
   local r="${1#*$'\t'}"; _AMSLC="${r%%$'\t'*}"; _AMSLT=""
   [ "$_AMSLC" = "$r" ] || { _AMSLT="${r#*$'\t'}"; case "$_AMSLT" in ''|*[!0-9]*) _AMSLT="" ;; esac; }; }
-_am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given) and _AMST (the epoch, "" unknown) when it
-  # ran out of time here before
-  local f="$_AMS/verify-slow" l
+# A command that runs every test of a remembered one and more (field N67, Tur 10: the next card added one test file to
+# a command stopped at 240 s and went through unwarned): it holds every word of the remembered command, which names at
+# least one path, and adds only paths. A flag can narrow the run (`-k`), and a path added to a whole-suite command
+# narrows it, so neither counts. Order is not looked at: the field's cards listed the same files in another order.
+_am_slow_step(){  # $1 = a step of the card's command, $2 = the same step of a remembered one -> 0 when $1 holds every
+  # word of $2 and adds only paths, and adds none to a step that named no path (a whole suite: a path narrows it)
+  local w i j kp=0 n x=0
+  local -a CW=() KW=()   # set, not only declared: bash 5 reads a declared-only array as unbound under set -u
+  read -r -a CW <<< "$1"; read -r -a KW <<< "$2"
+  [ "${#KW[@]}" -gt 0 ] && [ "${#CW[@]}" -ge "${#KW[@]}" ] || return 1
+  [ "${CW[0]}" = "${KW[0]}" ] || return 1   # the program, and it is no path the run is given
+  for ((j=1; j<${#KW[@]}; j++)); do
+    w="${KW[j]}"
+    case "$w" in -*) ;; */*|*.*) kp=$((kp+1)) ;; esac
+    n=""; for i in "${!CW[@]}"; do [ "$i" = 0 ] && continue; [ "${CW[i]}" = "$w" ] && { n="$i"; break; }; done
+    [ -n "$n" ] || return 1
+    unset 'CW[n]'
+  done
+  unset 'CW[0]'
+  for w in ${CW[@]+"${CW[@]}"}; do case "$w" in -*|*'$'*|*'`'*) return 1 ;; */*|*.*) x=$((x+1)) ;; *) return 1 ;; esac; done
+  [ "$x" = 0 ] || [ "$kp" -gt 0 ]; }
+_am_slow_sup(){  # $1 = key of the card's command, $2 = key of a remembered one -> 0 when $1 runs all of $2 and more
+  local c="$1" k="$2" cs ks
+  [ -n "$c" ] && [ -n "$k" ] || return 1
+  while :; do
+    cs="${c%% && *}"; ks="${k%% && *}"
+    _am_slow_step "$cs" "$ks" || return 1
+    case "$c|$k" in *' && '*'|'*' && '*) c="${c#* && }"; k="${k#* && }" ;; *' && '*'|'*|*'|'*' && '*) return 1 ;; *) return 0 ;; esac
+  done; }
+_am_slow_get(){  # $1 = verify command -> 0, _AMSS (the seconds it was given), _AMST (the epoch, "" unknown) and _AMSWHO
+  # (how to name it) when it, or a command it runs all of (_am_slow_sup), ran out of time here before
+  local f="$_AMS/verify-slow" l pass
+  _AMSWHO="this card's verify command"
   _am_slow_key "$1"; [ -n "$_AMSK" ] && [ -f "$f" ] && [ ! -L "$f" ] || return 1
-  while IFS= read -r l || [ -n "$l" ]; do
-    case "$l" in *$'\t'*) ;; *) continue ;; esac
-    _am_slow_line "$l"; [ "$_AMSLC" = "$_AMSK" ] || continue
-    _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
-    _AMST="$_AMSLT"
-    return 0
-  done < "$f"
+  for pass in same sup; do
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in *$'\t'*) ;; *) continue ;; esac
+      _am_slow_line "$l"
+      if [ "$pass" = same ]; then [ "$_AMSLC" = "$_AMSK" ] || continue
+      else _am_slow_sup "$_AMSK" "$_AMSLC" || continue; _AMSWHO="this card's verify command runs every test of one that"; fi
+      _AMSS="${l%%$'\t'*}"; case "$_AMSS" in ''|*[!0-9]*) _AMSS="its limit" ;; *) _AMSS="${_AMSS}s" ;; esac
+      _AMST="$_AMSLT"
+      return 0
+    done < "$f"
+  done
   return 1; }
+# THE TIME AN AGENT'S VERIFY IS GIVEN: 120 s by default (3.2: an agent's verify is the tests of what it changed). A
+# project whose tests of one change take longer raises it with a line `verify-timeout <seconds>` in
+# .claude/crew-model-rules, the file only the user writes (field N1: three named test files, 295 tests, ran 146 s and
+# were stopped at 120 three times). CREW_VERIFY_TIMEOUT, where it is set, comes first. Held at 560, under the hook's own
+# 600 s, whatever is asked for. The last line wins, as with every line of that file.
+_am_verify_limit(){  # -> _AMVL (seconds) and _AMVLW (where it came from: env, rules, default)
+  local r
+  _AMVL=""; _AMVLW=default
+  case "${CREW_VERIFY_TIMEOUT:-}" in ''|*[!0-9]*) ;; *) _AMVL="$CREW_VERIFY_TIMEOUT"; _AMVLW=env ;; esac
+  if [ -z "$_AMVL" ]; then
+    _am_rules
+    for r in ${_AM_RULES[@]+"${_AM_RULES[@]}"}; do
+      case "$r" in t$'\t'*) _AMVL="${r#t$'\t'}"; _AMVLW=rules ;; esac
+    done
+  fi
+  case "$_AMVL" in ''|*[!0-9]*) _AMVL=120; _AMVLW=default ;; esac
+  [ "${#_AMVL}" -le 4 ] || _AMVL=560
+  _AMVL=$((10#$_AMVL)); [ "$_AMVL" -ge 1 ] || { _AMVL=120; _AMVLW=default; }
+  [ "$_AMVL" -le 560 ] || _AMVL=560
+  return 0; }
+# A command remembered as slow at a limit BELOW the one in force now is run again: the user raised the limit for it.
+_am_slow_below(){  # after _am_slow_get and _am_verify_limit -> 0 when it was stopped at fewer seconds than _AMVL gives
+  local n="${_AMSS%s}"
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$n" -lt "$_AMVL" ]; }
 _am_slow_fresh(){  # after _am_slow_get -> 0 while the stop hook leaves the command unrun; _AMSD = the days
   local now
   _AMSD="${CREW_VERIFY_SLOW_DAYS:-7}"; case "$_AMSD" in ''|*[!0-9]*) _AMSD=7 ;; esac
@@ -874,6 +1048,11 @@ _am_verify_ok(){  # $1 = the command, $2 = permission mode -> 0 it may run (_AMV
   case "$c" in ''|none) return 0 ;; esac
   case "$c" in
     *$'\n'*|*$'\r'*) _AMVW="it is more than one line"; return 1 ;;
+  esac
+  # A placeholder left from the card's template (field N34: `verify: … <the test files you add or touch>`) is not a
+  # redirect, and saying so sent the writer looking in the wrong place.
+  [[ $c =~ \<[A-Za-z][^\<\>]*[A-Za-z.]\> ]] && { _AMVW="it holds a placeholder that was never filled in (${BASH_REMATCH[0]}): write the real command"; return 1; }
+  case "$c" in
     *';'*|*'&'*|*'|'*|*'<'*|*'>'*|*'`'*|*'$('*) _AMVW="it chains, pipes, redirects or substitutes (; & | < > \` \$( )"; return 1 ;;
     *[$'\001'-$'\010'$'\013'-$'\037']*) _AMVW="it holds a control character"; return 1 ;;
   esac
@@ -1060,10 +1239,28 @@ if ! _am_card "$prompt"; then
   _am_log "no card"; exit 2
 fi
 _am_state; _am_risk; _am_digest
+# ---- the card's skills: each a skill that is installed, so the agent's stop can be held to it ----
+if [ -n "$CARD_SKILLS_BAD" ] || [ -n "$CARD_SKILLS" ]; then
+  _sk_list=""; [ -f "$_AM_HERE/../agents/$st.md" ] && _sk_list="$(grep -m1 '^  skills:' "$_AM_HERE/../agents/$st.md" 2>/dev/null)"
+  _sk_list="${_sk_list#*skills: }"
+  _sk_miss="$CARD_SKILLS_BAD"
+  if [ -z "$_sk_miss" ]; then
+    for _sk in $CARD_SKILLS; do
+      [ -f "$_AM_HERE/../skills/$_sk/SKILL.md" ] || [ -f "$_AMP/.claude/skills/$_sk/SKILL.md" ] || { _sk_miss="$_sk"; break; }
+    done
+  fi
+  if [ -n "$_sk_miss" ]; then
+    echo "GUARD (agent model): the card's skills: names '${_sk_miss:0:60}', which is not an installed skill, so the agent could not be held to it. Name installed skills by their folder name${_sk_list:+ (those listed for $st: $_sk_list)}, or leave the skills: line out." >&2
+    _am_log "a card skill that is not installed"; exit 2
+  fi
+fi
 # ---- the floor of THIS card: the highest of what applies, and the reason that set it ----
 if [ "$CARD_VERIFY" = none ] && [ "$CARD_CHANGE" != text ] && [ "$st" != crew-commit-agent ] && [ "$floor" -lt 2 ]; then floor=2; why="no verify command, so nothing checks the work but a reader"; fi
 _am_change_floor "$CARD_CHANGE" "$st"
-if [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" = text ] && _am_all_prose; then
+# The commit agent is left out (field, Tur 12): its work is the message; it commits what is staged, the review record
+# has already judged that, and it writes no file a critical path guards. Raised to opus, it only cost more.
+if [ "$st" = crew-commit-agent ]; then :
+elif [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" = text ] && _am_all_prose; then
   if [ "$floor" -lt 2 ]; then floor=2; why="a text change on a critical path: $CARD_RISKWHY"; fi
 elif [ "$CARD_RISK" = critical ] && [ "$CARD_CHANGE" != test-run ] && [ "$floor" -lt 3 ]; then floor=3; why="critical work: $CARD_RISKWHY"; fi
 # A class the user's rules or the record of outcomes hold higher. Neither can lower anything here.
@@ -1135,7 +1332,13 @@ fi
 # 2.1.299: a call asking for opus ran on haiku alone). The rewrite is one awk over the payload, on this path only.
 lowered=""
 low=$floor; [ "$low" -lt 1 ] && low=1
-if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ] && [ -z "$_AMFORCE" ]; then
+# OPUS ASKED FOR A GLOB (field N50, Tur 9): `files: site/**` named no critical path, so opus was lowered to the
+# floor, and the privacy and terms pages under it were then refused at write time for not being written on opus;
+# the call ran again with 'above:'. Where the card's files are a glob, what it writes is known only then, and only
+# opus may write a critical path: an opus asked for stays. Every other lowering is as before.
+_am_rank opus; _am_op="$_AMR"
+_am_keep=""; [ "$rank" -ge "$_am_op" ] && [ "$low" -lt "$_am_op" ] && _am_card_glob && _am_keep=1
+if [ "$rank" -gt "$low" ] && [ -z "$CARD_ABOVE" ] && [ -z "$_AMFORCE" ] && [ -z "$_am_keep" ]; then
   _am_name "$low"; to="$_AMN"
   ui="$(printf '%s' "$INPUT" | awk -v op=get -v path=tool_input -v setk=model -v setv="\"$to\"" -f "$_AM_HERE/../eval/lib/settings-json.awk" - 2>/dev/null)" || ui=""
   case "$ui" in '{'*'}') ;; *) ui="" ;; esac
@@ -1171,11 +1374,80 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
   _json_slice "$hd" permission_mode >/dev/null; pm="$_JS"
   if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
     vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
+    # CREW-NOT-A-RUNG: `python3` here is a word in the refusal and in the shape it recognises, not a program this hook runs.
+    # A verify that RUNS A SCRIPT produces what it should check (field, Tur 14: 17 of 33 refused verifies were the
+    # drawing script itself, `python3 v2_a.py`); run again by the hook it would make the files a second time.
+    case "$_AMVWHY" in *"not a test or build command on this hook's list"*)
+      [[ " ${_AMVSTEP:-$CARD_VERIFY}" =~ [[:space:]](python[0-9.]*|node|ruby|perl|bash|sh)[[:space:]]+[^-[:space:]][^[:space:]]*\.(py|js|mjs|cjs|rb|pl|sh)([[:space:]]|$) ]] \
+        && vnote="$vnote It runs a script, which makes what a verify should check: name a check that reads the result and changes nothing when run again (a test, a linter such as python3 -m pyflakes <file>, or test -f <the file it makes>)." ;;
+    esac
+    # /CREW-NOT-A-RUNG
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
-  elif _am_slow_get "$CARD_VERIFY"; then
+  elif _am_verify_limit; _am_slow_get "$CARD_VERIFY" && ! _am_slow_below; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."
-    vnote="Crewforth: this card's verify command did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
+    vnote="Crewforth: $_AMSWHO did not finish in $_AMSS the last time an agent ran it here, so the hook stopped it and nothing was concluded (in the field that was the whole test suite).${_skipnote} Write the tests this change touches into the verify: line instead (the same runner with their paths); the whole suite is a check for the end of the work, not for one agent."
     _am_log "note: a verify command that ran out of time here before"
+    # DECIDED BY ITS MEASURED TIME (field N56, Tur 9; DECISIONS 2026-11-18): while the stop hook leaves this command
+    # unrun, a card carrying it ends unverified whatever the agent does, so it is refused here, before the agent
+    # starts, with the way that works. A fast suite never lands here; after the days pass it is measured again.
+    if _am_slow_fresh; then
+      echo "GUARD (agent model): ${_AMSWHO/verify command/verify command ($CARD_VERIFY)} did not finish in $_AMSS the last time an agent ran it here, and for $_AMSD days the hook does not run it again, so the agent would end unverified. Write the tests this change touches into the verify: line (the same runner with their paths), or verify: none and say so in the report. The whole suite is a check for the end of the work." >&2
+      _am_log "a verify command known to run past the limit here"; exit 2
+    fi
+  elif _am_whole_suite "$CARD_VERIFY"; then
+    _AMWSF=1
+    vnote="Crewforth: this card's verify command runs the whole test suite ($_AMWS). An agent's verify is the tests of what it changed: name them in the card's verify: line (the test file or package this change touches, e.g. pytest <its test file>, npm test -- <its test file>, go test ./<its package>/...). The whole suite runs once at the end of the work, and in CI. The hook stops a verify after ${_AMVL:-120} s."
+    _am_log "note: a verify command that runs the whole suite"
+  fi
+fi
+# ---- an auditor called again on the same work: a note, never a refusal (3.5) ----
+# Field: of 2,557 auditor calls in three projects, 36-40% of the repeat rounds re-audited the same work. The rule is
+# "after a small fix only the auditor that raised the finding re-runs; after a critical or high one, all do". The
+# ledger agent-outcome.sh writes at each crew agent's stop (`agent head severity`) answers it: this auditor ran before
+# in this session, raised nothing critical or high (`lo`; a medium is `lo` too), a producer ran since, no auditor since raised critical or high, and
+# HEAD did not move (a commit closes the work). All five, or nothing is said. Chosen as a NOTE (Barış, 2026-11-15): the
+# split was right in 4 of 5 hand-read pairs, which is not enough to refuse a call on.
+_am_rerun(){  # $1 = agent -> 0 when the call re-audits the same work
+  case "$1" in crew-review-agent|crew-security-expert|crew-performance-expert) ;; *) return 1 ;; esac
+  local sid f a h s last="" prod=0 hi=0 head
+  _json_slice "$INPUT" session_id >/dev/null; sid="$_JS"
+  case "$sid" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  f="$_AMD/rounds/$sid"; [ -f "$f" ] || return 1
+  while read -r a h s; do
+    if [ "$a" = "$1" ]; then last="$h $s"; prod=0; hi=0
+    else case "$a" in
+      crew-review-agent|crew-security-expert|crew-performance-expert|crew-refuter|crew-test-expert) [ "$s" = hi ] && hi=1 ;;
+      *) prod=1 ;;
+    esac; fi
+  done < "$f"
+  [ -n "$last" ] && [ "$prod" = 1 ] && [ "$hi" = 0 ] && [ "${last#* }" = lo ] || return 1
+  head="$(git -C "$_AMP" -c core.fsmonitor= rev-parse --verify --quiet HEAD 2>/dev/null)" || head=NONE; [ -n "$head" ] || head=NONE
+  [ "${last%% *}" = "$head" ]
+}
+if _am_rerun "$st"; then
+  _AMRR=1
+  _rn="Crewforth: $st already audited this work in this session (the same HEAD) and raised nothing critical or high, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again; after a critical or high one, all do. If this is new work, go on."
+  if [ -n "$vnote" ]; then vnote="$vnote $_rn"; else vnote="$_rn"; fi
+  _am_log "note: $st called again on the same work after it raised nothing critical or high"
+fi
+# ---- the strict profile: what is a note elsewhere refuses (4.1, Barış 2026-11-15) ----
+# eval/lib/profile.sh reads `profile <name>` from .claude/crew-model-rules, the file the session cannot write. Three
+# notes become refusals, and nothing else changes: a verify that runs the whole suite, an auditor called again on the
+# same work, a model above the card's floor with no `above:` line (elsewhere it is lowered to the floor and told).
+CREW_PROFILE=standard
+[ -f "$_AM_HERE/../eval/lib/profile.sh" ] && . "$_AM_HERE/../eval/lib/profile.sh" && crew_profile "$_AMP"
+if [ "$CREW_PROFILE" = strict ]; then
+  if [ "${_AMWSF:-0}" = 1 ]; then
+    echo "GUARD (agent model, strict profile): this card's verify command runs the whole test suite ($_AMWS). Name the tests of what this change touches in its verify: line; the whole suite runs once at the end of the work." >&2
+    _am_log "strict: a verify that runs the whole suite"; exit 2
+  fi
+  if [ "${_AMRR:-0}" = 1 ]; then
+    echo "GUARD (agent model, strict profile): $st already audited this work in this session (the same HEAD) and raised nothing critical or high, and only a fix with no critical or high finding has run since. After a small fix only the auditor that raised the finding runs again. If this is new work, commit what is done first." >&2
+    _am_log "strict: an auditor called again on the same work"; exit 2
+  fi
+  if [ -n "$lowered" ]; then
+    echo "GUARD (agent model, strict profile): $st asked for $lowered, above $m, the floor of its card. Call it on $m, or add 'above: <why>' to the card to keep $lowered." >&2
+    _am_log "strict: a model above the card's floor with no above: line"; exit 2
   fi
 fi
 # ---- effort: a note in the record, never a refusal ----
@@ -1194,11 +1466,20 @@ if mkdir -p "$_AMD/pending" 2>/dev/null; then
   # Why the work counts as critical, as the gate decided it, so a reader shows the reason and does not work it out
   # again: one line, no tab (it ends up in a column of model-outcomes.tsv).
   rw="${CARD_RISKWHY:--}"; rw="${rw//$'\t'/ }"; rw="${rw//$'\r'/ }"; rw="${rw//$'\n'/ }"
-  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
+  # Where it edits (field N55): an agent in a worktree of its own cannot break a sibling's verify, one in this folder can.
+  iso=-; case "$ti" in *'"isolation":"worktree"'*|*'"isolation": "worktree"'*) iso=worktree ;; esac
+  { printf 'agent=%s\ntier=%s\neffort=%s\nchange=%s\nrisk=%s\ncard=%s\nbg=%s\nesc=%s\nverify=%s\nfiles=%s\nlowered=%s\nwhy=%s\nskills=%s\niso=%s\n' "$st" "$m" "${eff:--}" "$CARD_CHANGE" "$CARD_RISK" "$CARD_ID" "$bg" "${p:--}" "$CARD_VERIFY" "$CARD_FILES" "${lowered:--}" "$rw" "${CARD_SKILLS:--}" "$iso" > "$_AMD/pending/$t-$tid"; } 2>/dev/null || true
 fi
 # The call, on the floor: the same input with `model` replaced, and allowed; and the verify notice, when there is one.
 # The verify notice rides along as additionalContext: with no permissionDecision it changes nothing about the call
 # (measured on Claude Code 2.1.322: the text reaches the model; a twin hook that prints nothing gets NONE back).
+# THE DOWNGRADE IS TOLD TO THE MODEL, not only written in permissionDecisionReason. That field never reached the model
+# on an allowed call (field: 24 downgrades in the gate log, 0 in the transcript; the model told the user "sonnet"
+# while the agent ran on haiku). additionalContext does reach it (measured above), so the note rides there too.
+if [ -n "$lowered" ]; then
+  _dn="Crewforth ran $st on $m, not the $lowered the call asked for: $m is the floor of its card. When you tell the user which model ran this agent, say $m. To keep $lowered, add 'above: <why>' to the card."
+  if [ -n "$vnote" ]; then vnote="$_dn $vnote"; else vnote="$_dn"; fi
+fi
 _AMJ=""; [ -n "$vnote" ] && _am_json "$vnote"
 if [ -n "$lowered" ]; then
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Crewforth: %s asked for %s and runs on %s, the floor of its card (add above: <why> to the card to keep %s)","updatedInput":%s%s}}\n' "$st" "$lowered" "$m" "$lowered" "$ui" "${_AMJ:+,\"additionalContext\":\"$_AMJ\"}"

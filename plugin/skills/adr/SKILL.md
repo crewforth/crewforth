@@ -52,12 +52,15 @@ What was decided (clear, one sentence + rationale)?
 ## Consequences
 Pros / cons / accepted trade-offs.
 ## Alternatives considered
-Why were they not chosen?
+Why were they not chosen? (Only ones actually weighed; none weighed is written "none".)
 Verified against: <package>@<version> · <docs or source> · <date> — or "none" (no external fact relied on)
 ```
 
 ## Principles
 - **Invariant:** a new decision marks the old ADR as `superseded`; an ADR is **never deleted** (decision history is preserved).
+- **No invented alternatives.** An option nobody weighed, added so the record looks balanced, is a false record.
+- **A review reads the accepted ADRs the diff touches**, and a change that goes against one is a finding: the code
+  is changed, or a new ADR supersedes the old one in the same change.
 - Numbered and dated; keep it short.
 - **A number a test enforces moves with its ADR.** When a test or gate pins a figure an ADR set (a cap, a count, a
   budget), the change that moves the figure amends that ADR in the same commit; a figure that drifts from its record

@@ -427,6 +427,24 @@ check('prose without a notice yields nothing', none.size === 0);
   const { buildGraph, shellsIn } = await import(`../../kit/studio/server/lib/graph.js?sh=${Date.now()}`);
   const gpl = await import(`../../kit/studio/web/graph-plan.js?sh=${Date.now()}`);
   const nav = await import(`../../kit/studio/web/nav.js?sh=${Date.now()}`);
+  // The navigator's project filter (DECISIONS 2026-11-17): all · with Crewforth · without.
+  {
+    const ps = nav.projectsShown;
+    const K = [{ key: 'k1' }, { key: 'k2' }]; const B = [{ key: 'b1' }];
+    const keys = (r) => (r?.pool ?? []).map((p) => p.key).join(',');
+    const allFolded = ps?.(K, B, { kind: 'all', bareOpen: false }); const allOpen = ps?.(K, B, { kind: 'all', bareOpen: true });
+    const kit = ps?.(K, B, { kind: 'kit', bareOpen: true }); const bare = ps?.(K, B, { kind: 'bare' }); const odd = ps?.(K, B, { kind: 'x' });
+    check('the project filter: all keeps the projects without Crewforth folded behind a show line until opened; with and without show only their own; anything else is all',
+      keys(allFolded) === 'k1,k2' && allFolded?.foldedBare === true && keys(allOpen) === 'k1,k2,b1' && allOpen?.foldedBare === false
+      && keys(kit) === 'k1,k2' && kit?.foldedBare === false && keys(bare) === 'b1' && bare?.foldedBare === false && odd?.kind === 'all',
+      `${keys(allFolded)}/${keys(allOpen)}/${keys(kit)}/${keys(bare)}/${odd?.kind}`);
+    const appSrc = read(path.join(WEB_ROOT, 'app.js')) ?? ''; const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+    check('the filter is wired: its three choices are in the page, and the list is built through projectsShown with the remembered choice',
+      /data-kind="all"[\s\S]*data-kind="kit"[\s\S]*data-kind="bare"/.test(html) && /projectsShown\(withKit, bare, \{ kind: projKind/.test(appSrc)
+      && /store\.set\('crewforth-studio-proj-kind'/.test(appSrc));
+    check('a filtered project list keeps its section heading (DECISIONS 2026-11-17: the headings stay)',
+      /here !== section && \(bare\.length \|\| projKind !== 'all'\)/.test(appSrc));
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-sh-'));
   const sub = path.join(dir, 'subagents');
   fs.mkdirSync(sub);
@@ -1427,12 +1445,12 @@ check('prose without a notice yields nothing', none.size === 0);
   check('a class with no verified call has no rate, and is not written as zero',
     docs.firstTryRate === null && mp.classRow(docs).firstTry === '\u2014' && mp.classRow(docs).rate === null && /No call of this class got a verdict/.test(mp.classRow(docs).firstTryOf));
   check('a line the hooks could not have written is dropped and its reason kept: a verdict, a model, a count, a risk, a change, a time',
-    m.droppedWhy['verify is not one of the five'] === 1 && m.droppedWhy['model is not a tier'] === 1 && m.droppedWhy['fixes is not a count'] === 2
+    m.droppedWhy['verify is not one of the seven'] === 1 && m.droppedWhy['model is not a tier'] === 1 && m.droppedWhy['fixes is not a count'] === 2
     && m.droppedWhy['risk is not critical or normal'] === 1 && m.droppedWhy['change is not one of the eleven'] === 1
     && m.droppedWhy['escalated_from is not a tier'] === 1 && m.droppedWhy['ts is not a UTC time'] === 2 && m.droppedWhy['fewer than twelve columns'] === 1
     && be.runs === 7 && /10 lines not read \(/.test(mp.totalsLine(m)), JSON.stringify(m.droppedWhy));
   check('the words a row may carry are the hooks\' own: five verdicts, eleven kinds of change, two risks',
-    mo.VERIFY.join() === 'pass,fail,none,blocked,timeout' && mo.RISKS.join() === 'critical,normal' && mo.CHANGES.length === 11
+    mo.VERIFY.join() === 'pass,fail,none,blocked,timeout,red,inconclusive' && /RES=inconclusive/.test(read(path.join(PAYLOAD, 'hooks', 'agent-outcome.sh')) ?? '') && mo.RISKS.join() === 'critical,normal' && mo.CHANGES.length === 11
     && mo.CHANGES.every((c) => new RegExp(`[ |]${c}[ |>]`).test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''))
     && /_AM_CHANGES=' text feature fix-known fix-unknown refactor migration security architecture test-run test-write audit '/.test(read(path.join(PAYLOAD, 'hooks', 'guard-agent-model.sh')) ?? ''),
     'compared with the list in hooks/guard-agent-model.sh');
@@ -1574,6 +1592,42 @@ check('prose without a notice yields nothing', none.size === 0);
   check('the card is listed as its three lines, as they were written; what Crewforth recorded as the kind of change stands over the card\'s word',
     mp.cardLines(card, null).map((l) => `${l.label}=${l.text}`).join('|') === 'files=src/a.js, src/b.js|change=logic|verify=npm test -- a'
     && mp.cardLines({ files: null, change: 'tidy', verify: null }, { change: 'logic' })[0].text === 'logic' && mp.cardLines(null, null).length === 0);
+  {
+    // A card's skills: read in both card forms, as the gate reads them; the agent's use of them, by the two signs the
+    // stop hook holds it to; a session's and a project's totals.
+    const { skillOfUse } = await import(`../../kit/studio/server/lib/graph.js?sk=${Date.now()}`);
+    const c1 = mp.cardOf('files: a.ts\nchange: feature\nverify: npm test · skills: api-design, `crewforth:observability`\n\nDo it.');
+    const c2 = mp.cardOf('files: a.ts · change: feature · verify: npm test · skills: a11y\nDo it.');
+    check('a card\'s skills: are read off the card in both forms, a plugin prefix dropped, and kept out of the verify line',
+      c1.skills.join() === 'api-design,observability' && c1.verify === 'npm test' && c2.skills.join() === 'a11y'
+      && mp.cardOf('files: a\nchange: text\nverify: none').skills.length === 0
+      && mp.cardLines(c1, null).at(-1).text === 'api-design, observability', JSON.stringify([c1, c2]));
+    const uses = [{ name: 'Skill', input: { skill: 'crewforth:api-design' } }, { name: 'Read', input: { file_path: 'C:\\p\\.claude\\skills\\a11y\\SKILL.md' } },
+      { name: 'Read', input: { file_path: '/p/notes.md' } }, { name: 'Skill', input: {} }].map(skillOfUse);
+    check('a Skill call and a read of a skill\'s SKILL.md are the two uses of a skill; nothing else is',
+      JSON.stringify(uses) === JSON.stringify([{ how: 'called', name: 'api-design' }, { how: 'read', name: 'a11y' }, null, null]), JSON.stringify(uses));
+    const rows = mp.skillRows(c1, { called: { 'api-design': 2, iterate: 1 }, read: {} }, { skillsAsked: ['api-design', 'observability'], skillsMissed: ['observability'] });
+    check('an agent\'s skills: the card\'s first, then the ones it used on its own; a card skill it did not use is missed',
+      rows.map((r) => `${r.name}:${r.asked ? 'A' : '-'}${r.missed ? 'M' : '-'}:${mp.skillWords(r)}`).join('|')
+        === 'api-design:A-:called 2 times|observability:AM:not used|iterate:--:called once', rows.map((r) => r.name).join());
+    const sess = mp.sessionSkills([{ kind: 'agent', id: 'x', skills: { called: { a: 1 }, read: { b: 2 } } }, { kind: 'agent', id: 'y', skills: { called: { a: 2 }, read: {} } }, { kind: 'session', skills: { called: { z: 9 }, read: {} } }]);
+    check('a session\'s skills are summed over its agents, with how many agents used each',
+      sess.map((u) => `${u.name}:${u.called}/${u.read}/${u.agents}`).join() === 'a:3/0/2,b:0/2/1', JSON.stringify(sess));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-'));
+    fs.writeFileSync(path.join(tmp, 'g1'), 'verify=pass\nskills=api-design a11y\nskills_missed=a11y\n');
+    fs.writeFileSync(path.join(tmp, 'g2'), 'verify=pass\nskills=api-design\nskills_missed=-\n');
+    fs.writeFileSync(path.join(tmp, 'g3'), 'verify=fail\n');
+    const by = { g1: { agentId: 'g1' } };
+    const pj = mo.skillsOf(tmp, by);
+    const summary = mp.skillSummary(pj);
+    check('a project\'s card skills are read from the stop hook\'s result files: agents given skills, agents that missed one, per skill',
+      pj.agents === 2 && pj.missedAgents === 1 && pj.byName['api-design'].asked === 2 && pj.byName.a11y.missed === 1
+      && by.g1.skillsMissed.join() === 'a11y' && summary.lines.join('|') === 'api-design: asked 2, always used|a11y: asked 1, not used 1'
+      && mp.skillSummary(mo.skillsOf(path.join(tmp, 'none'), {})) === null, JSON.stringify(pj));
+    fs.rmSync(tmp, { recursive: true, force: true });
+    check('a verify that is red on a test-writing card is said as such, not as a failure',
+      mp.workSteps({ verify: 'red', fixes: 0, model: 'sonnet', before: [] }).steps[0].text.includes('red, as a test-writing card asks'));
+  }
   const steps = (id) => mp.workSteps(m.byAgent[id]);
   const said = (id) => steps(id).steps.map((x) => `${x.text}${x.verify ? ` [${x.verify}]` : ''}${x.escalated ? ' [escalated]' : ''}`).join(' > ');
   check('how the work went is said as steps: what it ran on, what its verify command said as a tag, and a fix inside the agent',
@@ -1750,9 +1804,10 @@ check('prose without a notice yields nothing', none.size === 0);
       && ['f1', 'f2', 'f3', 'f4'].every((id) => m3.byAgent[id].riskWhy === null && mp.workSteps(m3.byAgent[id]).riskWhy === null),
       String(m3.byAgent.f5?.riskWhy));
     const made = spawnSync('bash', [path.join(fx, 'make-model-outcomes.sh'), REPO, fs.mkdtempSync(path.join(os.tmpdir(), 'crew-hookrun-'))], { encoding: 'utf8', timeout: 60000 });
-    const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').slice(1).join('\t')).join('\n');
+    // Every column but the clock's two: the time (column 1) and how long the verify ran (verify_s, column 14).
+    const noTime = (text) => text.replace(/\r/g, '').split('\n').filter(Boolean).map((l) => l.split('\t').filter((_, i) => i !== 0 && i !== 13).join('\t')).join('\n');
     if (made.status === 3 || made.error) skip('the hook, run now, writes the lines that are kept as the fixture', 'tool', `bash or git is not available to run it (${(made.stderr || made.error?.message || '').trim().slice(0, 80)})`);
-    else check('the hook, run now, writes the lines that are kept as the fixture, every column but the time',
+    else check('the hook, run now, writes the lines that are kept as the fixture, every column but the time and the verify\'s seconds',
       made.status === 0 && noTime(made.stdout) === noTime(kept) && noTime(kept).split('\n').length === 6,
       made.status === 0 ? 'six lines, the same' : `rc ${made.status}: ${made.stderr.trim().slice(0, 160)}`);
     fs.rmSync(d3, { recursive: true, force: true });
@@ -2500,6 +2555,200 @@ check('prose without a notice yields nothing', none.size === 0);
     && /const USAGE_BATCH = 12;/.test(read(path.join(STUDIO, 'server', 'index.js')) ?? ''));
 }
 
+/* -- a project's all-time total ---------------------------------------------------------------------------------
+   Every session of a project, added up. Read from temp directories built here, never from this machine's
+   transcripts. The cache is checked by counting the reads it makes. */
+{
+  const us = await import(`../../kit/studio/server/lib/usage.js?pu=${Date.now()}`);
+  const wu = await import(`../../kit/studio/web/usage.js?pu=${Date.now()}`);
+  const pu = await import(`../../kit/studio/server/lib/project-usage.js?pu=${Date.now()}`).catch(() => ({}));
+  const { listSessions } = await import(`../../kit/studio/server/lib/projects.js?pu=${Date.now()}`);
+  const at = (min) => new Date(Date.UTC(2026, 0, 1) + min * 60_000).toISOString();
+  const u1 = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 300 };
+  const rec = (id, min, model = 'claude-opus-5-5', extra = {}) => ({ type: 'assistant', timestamp: at(min), message: { id, model, usage: u1, content: [] }, ...extra });
+  const turn = (min, ms) => ({ type: 'system', subtype: 'turn_duration', durationMs: ms, timestamp: at(min) });
+  // A transcript whose first cwd is past the first 8 KB (field: 43 of 990, the furthest at 35 KB) belongs to its project,
+  // not to one of its own; the hours of a project's total are hours, not days.
+  {
+    const { sessionCwd } = await import(`../../kit/studio/server/lib/projects.js?cwd=${Date.now()}`);
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-cwd-'));
+    const f = path.join(d, 'late.jsonl');
+    fs.writeFileSync(f, `${JSON.stringify({ type: 'tools-used', text: 'x'.repeat(20000) })}\n${JSON.stringify({ type: 'user', cwd: '/work/demo' })}\n`);
+    const got = await sessionCwd(f, fs.statSync(f).size);
+    fs.rmSync(d, { recursive: true, force: true });
+    check('a session whose first cwd is past the first 8 KB is filed under its project', got === '/work/demo', String(got));
+    check('a project total counts hours, not days', wu.fmtSpan(41 * 3600_000, { hours: true }) === '41h 0m' && wu.fmtSpan(41 * 3600_000) === '1d 17h',
+      `${wu.fmtSpan(41 * 3600_000, { hours: true })} / ${wu.fmtSpan(41 * 3600_000)}`);
+  }
+
+  const active = us.timesOf([{ timestamp: at(0) }, { timestamp: at(2) }, { timestamp: at(1) }, { timestamp: at(20) }, { timestamp: at(21) }]);
+  check('the active-time estimate adds the gaps between records in time order, and leaves a gap of over five minutes out',
+    active?.activeMs === 3 * 60_000 && us.timesOf([{ timestamp: at(0) }, { timestamp: at(5) }])?.activeMs === 5 * 60_000
+    && us.timesOf([])?.activeMs === 0, `activeMs ${active?.activeMs}`);
+
+  // Two sessions' answers, one with a model the price table has no row for.
+  const tk = (n) => ({ input: n, output: n, cacheWrite: n, cacheRead: 10 * n, fresh: 3 * n, total: 13 * n });
+  const tally = (n, cost, unpriced = []) => ({ tokens: tk(n), responses: 1, cost, costAtNormal: cost, unpriced });
+  const sA = { ...tally(100, 1.5), byModel: { 'claude-opus-5-5': tally(100, 1.5) }, parts: { session: tally(60, 1), agents: tally(40, 0.5) },
+    workedMs: 0, turns: 0, activeMs: 120_000, startedAt: 10, lastAt: 20 };
+  const sB = { ...tally(10, null, ['some-other-model']), byModel: { 'some-other-model': tally(10, null, ['some-other-model']) },
+    parts: { session: tally(10, null, ['some-other-model']), agents: tally(0, 0) }, workedMs: 0, turns: 0, activeMs: 60_000, startedAt: 5, lastAt: 30 };
+  const sC = { ...tally(50, 2), byModel: { 'claude-opus-5-5': tally(50, 2) }, parts: { session: tally(50, 2), agents: tally(0, 0) },
+    workedMs: 90_000, turns: 3, activeMs: 999_000, startedAt: 1, lastAt: 2 };
+  const both = pu.combineUsage?.([sA, sB]);
+  check('a project\'s total adds every session\'s tokens, by kind, by model and by who spent them',
+    both?.sessions === 2 && both.tokens.fresh === 330 && both.tokens.cacheRead === 1100 && both.parts?.session.tokens.fresh === 210
+    && both.parts?.agents.tokens.fresh === 120 && both.byModel?.['claude-opus-5-5']?.cost === 1.5 && both.byModel?.['some-other-model']?.cost === null
+    && both.startedAt === 5 && both.lastAt === 30, JSON.stringify(both?.tokens));
+  check('one session with a model that has no price makes the total no estimate, and names the model',
+    both?.cost === null && both.unpriced?.join() === 'some-other-model' && pu.combineUsage?.([sA])?.cost === 1.5, `cost ${both?.cost}`);
+  const timed = pu.combineUsage?.([sA, sC]);
+  check('the time is one measure, never both: turns timed anywhere give their sum and no estimate; none timed give the estimate',
+    both?.workedMs === 0 && both.activeMs === 180_000 && timed?.workedMs === 90_000 && timed.activeMs === null && timed.durationMs === null,
+    `untimed ${both?.workedMs}/${both?.activeMs}, timed ${timed?.workedMs}/${timed?.activeMs}`);
+
+  // The cache, on real files: two sessions, one with an agent, read through a reader that counts.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-project-usage-'));
+  const lines = (rs) => rs.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  fs.writeFileSync(path.join(dir, 's1.jsonl'), lines([{ timestamp: at(0), cwd: '/work/example' }, rec('m1', 1), rec('m2', 3), rec('m3', 30)]));
+  fs.writeFileSync(path.join(dir, 's2.jsonl'), lines([{ timestamp: at(100), cwd: '/work/example' }, rec('n1', 101)]));
+  const sub = path.join(dir, 's2', 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'agent-x1.meta.json'), JSON.stringify({ agentType: 'Explore' }));
+  fs.writeFileSync(path.join(sub, 'agent-x1.jsonl'), lines([rec('x1', 102)]));
+  const group = async () => new Map([['/work/example', { key: '/work/example', sessions: await listSessions(dir) }]]);
+  let reads = 0;
+  const tracker = pu.ProjectUsage ? new pu.ProjectUsage({ read: (s) => { reads += 1; return us.sessionUsage(s); } }) : null;
+  tracker?.note(await group());
+  await tracker?.drain();
+  const firstSum = tracker?.summary('/work/example');
+  const r1 = reads;
+  tracker?.groups.set('/work/example', (await group()).get('/work/example').sessions);
+  await tracker?.refresh('/work/example');
+  check('every session of the project is read once, and read again only when its files change',
+    r1 === 2 && reads === 2 && firstSum?.sessions === 2 && firstSum.pending === 0 && firstSum.responses === 5,
+    `reads ${r1} then ${reads}, ${firstSum?.responses} responses`);
+  check('with no turn timed, the project\'s time is the estimate: 1 + 2 minutes in one session (27 left out), 1 in the other (its agent\'s transcript is not counted)',
+    firstSum?.workedMs === 0 && firstSum.activeMs === 4 * 60_000, `activeMs ${firstSum?.activeMs}`);
+  fs.appendFileSync(path.join(sub, 'agent-x1.jsonl'), lines([rec('x2', 103)]));
+  await tracker?.refresh('/work/example');
+  const r2 = reads;
+  fs.appendFileSync(path.join(dir, 's1.jsonl'), lines([turn(31, 45_000)]));
+  const moved = (await group()).get('/work/example').sessions;
+  tracker?.groups.set('/work/example', moved);
+  const pendingNow = tracker?.summary('/work/example')?.pending;
+  await tracker?.refresh('/work/example');
+  const after = tracker?.summary('/work/example');
+  check('an agent\'s transcript growing re-reads its session alone; a session that moved is pending until it is read again',
+    r2 === 3 && reads === 4 && pendingNow === 1 && after?.pending === 0 && after.responses === 6, `reads ${r2}, ${reads}; pending ${pendingNow}`);
+  check('once one transcript timed a turn, the project\'s time is the timed turns and nothing else',
+    after?.workedMs === 45_000 && after.activeMs === null && wu.projectRows?.(after)?.some((r) => r.label === 'Working time')
+    && !wu.projectRows?.(after)?.some((r) => r.label === 'Active time (estimate)'), `workedMs ${after?.workedMs}`);
+  check('the navigator\'s short total is kept time and estimate, and nothing before any of it is read',
+    wu.projectLine?.(tracker?.short('/work/example')) === `45s · ${wu.fmtCost(after?.cost)}` && wu.projectLine?.(null) === null
+    && new pu.ProjectUsage().short('/work/example') === null, wu.projectLine?.(tracker?.short('/work/example')));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const rows = wu.projectRows?.({ measured: true, ...both, pending: 2 }) ?? [];
+  check('the project box has the summary box\'s rows, the session count first and how many are still being read',
+    rows.map((r) => r.label).join() === 'Sessions,Still reading,Active time (estimate),Tokens,From cache,Main sessions,Agents,Cost'
+    && rows[0].value === '2' && rows[1].value === '2 sessions' && rows.find((r) => r.label === 'Cost').value === '—'
+    && rows.find((r) => r.label === 'Cost').detail?.length === 2 && wu.projectRows?.({ measured: false, pending: 3 })?.length === 0,
+    rows.map((r) => r.label).join());
+
+  const dom = installDom();
+  const { Canvas, panSkips } = await import(`../../kit/studio/web/canvas.js?pu=${Date.now()}`);
+  const c = new Canvas(document.createElement('div'), {});
+  const hiddenAtFirst = c.projectEl?.hidden === true;
+  c.setProject?.('/work/example', rows);
+  const shown = c.projectEl?.hidden === false && c.project?.rows.children.length === 2 * rows.length && c.projectKey === '/work/example'
+    && c.project?.name.textContent === 'Project · all time' && c.spendEl.hidden === true;
+  c.project?.close.emit('click');
+  check('a project\'s total opens in its own box on the canvas, apart from the session\'s, and the close mark shuts it',
+    hiddenAtFirst && shown && c.projectEl?.hidden === true && c.projectKey === null);
+  check('the project box is one the pane does not pan from: a press on it reaches its rows',
+    Boolean(c.projectEl) && panSkips({ closest: (sel) => (sel.split(',').map((x) => x.trim().slice(1)).some((k) => c.projectEl.className.split(' ').includes(k)) ? c.projectEl : null) }));
+  dom();
+  const appJs = read(path.join(WEB_ROOT, 'app.js')) ?? '';
+  const idxJs = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  check('the navigator\'s total is drawn from the project list, and a click on it asks the server and fills the project box',
+    /projectLine\(p\.allTime\)/.test(appJs) && /\/api\/project-usage\?project=/.test(appJs) && /canvas\.setProject\(key, /.test(appJs)
+    && /PROJECT_USAGE\.note\(/.test(idxJs) && /p\.allTime = PROJECT_USAGE\.short\(p\.key\)/.test(idxJs)
+    && /listProjects\(\{[^}]*groups \}\)/.test(idxJs));
+  // Open on project A, a session of project B on the canvas: the box shows B's total, or shuts — never A's on B's
+  // canvas (field, 2026-11-18). It follows, it does not open itself, and it leaves the view alone.
+  const sel = appJs.slice(appJs.indexOf('function selectSession('), appJs.indexOf('function selectSession(') + 2000);
+  const fol = appJs.slice(appJs.indexOf('function followProjectTotal('), appJs.indexOf('function followProjectTotal(') + 400);
+  check('the project box follows the session on the canvas: another project\'s session shows that project\'s total or shuts the box, it does not open a closed box, and it does not change the view',
+    /followProjectTotal\(home\?\.project \?\? null\)/.test(sel)
+    && /if \(!canvas\.projectKey \|\| canvas\.projectKey === project\?\.key\) return;/.test(fol)
+    && /openProjectTotal\(project\.key, \{ follow: true \}\)/.test(fol) && /canvas\.setProject\(null, \[\]\)/.test(fol)
+    && /if \(!follow && view !== 'graph'\) setView\('graph'\);/.test(appJs));
+}
+
+/* -- a project's install settings (DECISIONS 2026-11-17, N45) ------------------------------------------------------
+   The panel writes what the session cannot: kit.conf's visibility=/docs=, crew-model-rules' profile and verify-timeout.
+   Built in a temp git repository here; the readers it must agree with are the hooks, so each value is read back the
+   way they read it. */
+{
+  const ps = await import(`../../kit/studio/server/lib/project-settings.js?ps=${Date.now()}`).catch(() => ({}));
+  const sp = await import(`../../kit/studio/web/settings-plan.js?ps=${Date.now()}`).catch(() => ({}));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-ps-'));
+  const g = (...a) => spawnSync('git', ['-C', root, ...a], { encoding: 'utf8' });
+  g('init', '-q');
+  fs.mkdirSync(path.join(root, '.claude'));
+  fs.writeFileSync(path.join(root, '.claude', 'kit.conf'), 'version=3.6.0\r\nvisibility=private\r\nlang=en\r\n');
+  fs.writeFileSync(path.join(root, '.claude', 'crew-model-rules'), '# mine\n+ src/pay/**\nprofile strict\nverify-timeout 30\nprofile light\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.claude/\n');
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'x\n');
+  g('add', 'CLAUDE.md');
+  const before = ps.readSettings?.(root);
+  check('settings are read as the hooks read them: the last profile line wins, docs= unrecorded is null, git says what it does',
+    before?.installed === true && before.visibility === 'private' && before.docs === null && before.profile === 'light'
+    && before.verifyTimeout === 30 && before.git?.claude?.ignored === true && before.git?.claudeMd?.tracked === true,
+    JSON.stringify(before));
+  const bad = [ps.checkChange?.({ profile: 'loose' }), ps.checkChange?.({ verifyTimeout: 561 }), ps.checkChange?.({ verifyTimeout: 2.5 }),
+    ps.checkChange?.({ lang: 'tr' }), ps.checkChange?.({}), ps.checkChange?.(null)];
+  check('a change outside the choices is refused: an unknown profile, a limit above 560 or not whole, an unknown key, nothing',
+    bad.every((r) => r?.ok === false), bad.map((r) => r?.reason).join(' | '));
+  const w = ps.writeSettings?.(root, ps.checkChange?.({ visibility: 'shared', docs: 'shared', profile: 'standard', verifyTimeout: 300 })?.set ?? {});
+  const conf = fs.readFileSync(path.join(root, '.claude', 'kit.conf'), 'utf8');
+  const rules = fs.readFileSync(path.join(root, '.claude', 'crew-model-rules'), 'utf8');
+  const prof = spawnSync('bash', ['-c', `. "${path.join(REPO, 'kit/eval/lib/profile.sh')}"; crew_profile "$1"; printf %s "$CREW_PROFILE"`, '_', root], { encoding: 'utf8' }).stdout;
+  check('a write sets only its own lines: the other lines and the CRLF of kit.conf stay, the profile and limit stand once',
+    w?.ok === true && conf === 'version=3.6.0\r\nvisibility=shared\r\nlang=en\r\ndocs=shared\r\n'
+    && rules === '# mine\n+ src/pay/**\nprofile standard\nverify-timeout 300\n' && w.settings?.verifyTimeout === 300,
+    JSON.stringify({ conf, rules }));
+  check('the hooks read back what the panel wrote (profile.sh says standard)', prof === 'standard', prof);
+  ps.writeSettings?.(root, { verifyTimeout: null });
+  check('the limit set back to the default removes its line',
+    !/verify-timeout/.test(fs.readFileSync(path.join(root, '.claude', 'crew-model-rules'), 'utf8')) && ps.readSettings?.(root)?.verifyTimeout === null);
+  const none = fs.mkdtempSync(path.join(os.tmpdir(), 'crew-ps-'));
+  check('a project without Crewforth has nothing to set, and nothing is written into it',
+    ps.readSettings?.(none)?.installed === false && ps.writeSettings?.(none, { profile: 'light' })?.ok === false && fs.readdirSync(none).length === 0);
+  // The dialog's lines: git disagreeing with the setting is said; agreeing is plain.
+  const after = ps.readSettings?.(root);
+  const rows = sp.settingsRows?.(after) ?? [];
+  const vis = rows.find((r) => r.key === 'visibility');
+  const docsRow = rows.find((r) => r.key === 'docs');
+  check('the dialog warns when git ignores what is set to be shared, and not when nothing disagrees',
+    rows.length === 4 && vis?.note?.tone === 'warn' && docsRow?.note?.tone === 'ok'
+    && sp.gitNote?.('visibility', 'private', { claude: { tracked: false, ignored: true }, claudeMd: { tracked: false, ignored: true } })?.tone === 'ok'
+    && sp.gitNote?.('docs', 'private', { docs: { tracked: true, ignored: false } })?.tone === 'warn' && sp.gitNote?.('docs', 'shared', null)?.tone === 'muted',
+    JSON.stringify(rows.map((r) => [r.key, r.note?.tone])));
+  check('only a project on this machine, still there, with Crewforth opens the settings',
+    sp.hasSettings?.({ local: true, exists: true, kit: { installed: true } }) === true && sp.hasSettings?.({ local: false, exists: true, kit: { installed: true } }) === false
+    && sp.hasSettings?.({ exists: true, kit: { installed: false } }) === false && sp.hasSettings?.({ exists: false, kit: { installed: true } }) === false);
+  const idx = read(path.join(STUDIO, 'server', 'index.js')) ?? '';
+  const route = idx.slice(idx.indexOf("url.pathname === '/api/project-settings'"), idx.indexOf("url.pathname === '/api/fleet'"));
+  check('the settings route writes only with the write header and only into a project this machine has sessions for',
+    /writeAllowed\(req\)/.test(route) && /projectGroups\(\)\)\.get\(name\)/.test(route) && /checkChange\(asked\.set\)/.test(route));
+  const app = read(path.join(WEB_ROOT, 'app.js')) ?? ''; const html = read(path.join(WEB_ROOT, 'index.html')) ?? '';
+  check('the project row opens the settings from its menu, in the page\'s dialog',
+    /<dialog id="settings-dlg"/.test(html) && /if \(hasSettings\(p\)\)/.test(app) && /openProjectSettings\(p\)/.test(app) && /dlg\.showModal\(\)/.test(app));
+  fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(none, { recursive: true, force: true });
+}
+
 /* --------------------------------------------------------- §8 palette */
 
 process.stdout.write('\n== §8 palette ==\n');
@@ -2650,6 +2899,11 @@ check('the token gate covers every /api/ path',
   check('an /api/ request with an unknown token is refused with 403', wrong.status === 403, `status ${wrong.status}`);
   const asOwner = await call('GET', '/api/health', { token: owner });
   check('the owner is told it is the owner', asOwner.status === 200 && asOwner.json?.role === 'owner', `status ${asOwner.status}, role ${asOwner.json?.role}`);
+  const puNone = await call('GET', '/api/project-usage');
+  const puAsked = await call('GET', '/api/project-usage', { token: owner });
+  check('a project\'s total is behind the token like every other route, and naming no project reads nothing',
+    puNone.status === 403 && puAsked.status === 200 && puAsked.json?.measured === false && puAsked.json?.reason === 'no project named',
+    `${puNone.status} / ${puAsked.status} ${JSON.stringify(puAsked.json)}`);
   check('health says whether the server runs the code on disk: a server that just started says unchanged',
     asOwner.json?.code?.changed === false, JSON.stringify(asOwner.json?.code));
 
@@ -2947,13 +3201,21 @@ if (gate) {
   // did not reproduce it. A run that reaches the ceiling is refused by the check that called it (-2 is no exit code
   // the gate has) and prints what a diagnosis needs: the spool, the cached pause mode, the bash and what is running.
   const HOOK_CEILING_MS = 30_000;
+  // THE LAST RUN, SAID WHEN A CHECK ON IT FAILS. On windows-latest these checks failed now and then with nothing to
+  // tell a hook that ran past its ceiling from one that came back with the wrong answer. Every run is timed and keeps
+  // its stderr, and the checks below print it: exit code, milliseconds, timeout or not, stdout and stderr.
+  let lastRun = null;
+  const why = (r = lastRun) => !r ? 'no hook run recorded'
+    : `exit ${r.status} after ${r.ms} ms${r.status === -2 ? ' (TIMEOUT: killed at the ceiling)' : r.status === -1 ? ' (did not run: an error starting the hook, not its answer)' : ' (returned in time: a wrong answer, not a timeout)'}; stdout "${String(r.stdout ?? '').slice(0, 120)}"; stderr "${String(r.stderr ?? '').trim().slice(0, 200)}"`;
   const gateRun = (input, env, ceiling = HOOK_CEILING_MS) => {
+    const t0 = Date.now();
+    const done = (r) => { r.ms = Date.now() - t0; lastRun = r; return r; };
     try {
       const out = execFileSync('bash', [HOOK, gate.spool], {
         input, env: { ...process.env, CREW_GATE_WAIT: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'],
         timeout: ceiling, killSignal: 'SIGKILL',
       });
-      return { status: 0, stdout: String(out).trim() };
+      return done({ status: 0, stdout: String(out).trim(), stderr: '' });
     } catch (e) {
       if (e.code === 'ETIMEDOUT' || e.signal === 'SIGKILL') {
         const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', timeout: 10_000 }).trim(); } catch (x) { return `(${cmd} failed: ${x.code ?? x.status})`; } };
@@ -2964,9 +3226,9 @@ if (gate) {
         console.log(`  .pause-mode: ${mode}`);
         console.log(`  bash: ${sh('bash', ['--version']).split('\n')[0]}`);
         console.log(`  processes:\n${sh('ps', process.platform === 'win32' ? ['-W'] : ['-ax']).split('\n').filter((l) => /bash|sleep|studio|cat/.test(l)).slice(0, 25).join('\n')}`);
-        return { status: -2, stdout: '' };
+        return done({ status: -2, stdout: '', stderr: String(e.stderr ?? '') });
       }
-      return { status: e.status ?? -1, stdout: String(e.stdout ?? '').trim() };
+      return done({ status: e.status ?? -1, stdout: String(e.stdout ?? '').trim(), stderr: String(e.stderr ?? '') });
     }
   };
   const runHook = (env = {}) => gateRun(payload, env).status;
@@ -2981,20 +3243,20 @@ if (gate) {
     fs.rmSync(path.join(gate.spool, 'req', 'toolu_probe.json'), { force: true });
   }
 
-  check('silence is a denial, not an opening', runHook() === 2);
+  check('silence is a denial, not an opening', runHook() === 2, why());
 
   fs.writeFileSync(path.join(gate.spool, 'ans', 'toolu_probe'), 'deny\n');
-  check('a deny blocks', runHook() === 2);
+  check('a deny blocks', runHook() === 2, why());
 
   fs.writeFileSync(path.join(gate.spool, 'ans', 'toolu_probe'), 'allow\n');
-  check('an allow lets the tool through', runHook() === 0);
+  check('an allow lets the tool through', runHook() === 0, why());
 
   // The discriminating control: without the answer file the same call is
   // refused, so the allow above measured the answer rather than the harness.
-  check('the allow was the answer, not the absence of a gate', runHook() === 2);
+  check('the allow was the answer, not the absence of a gate', runHook() === 2, why());
 
   fs.writeFileSync(path.join(gate.spool, 'always', 'Bash'), '');
-  check('an always-allowed tool skips the round trip', runHook() === 0);
+  check('an always-allowed tool skips the round trip', runHook() === 0, why());
   fs.rmSync(path.join(gate.spool, 'always', 'Bash'));
 
   check('a request is visible to the panel while the hook waits', (() => {
@@ -3031,7 +3293,7 @@ if (gate) {
   check('in plan mode an allowance approves nothing: the hook exits 0 and says nothing',
     inPlan.status === 0 && inPlan.stdout === '', `stdout "${inPlan.stdout.slice(0, 80)}"`);
   const noMode = answered('allow', { CREW_GATE_MODE: '' });
-  check('with no mode configured the hook approves nothing', noMode.status === 0 && noMode.stdout === '');
+  check('with no mode configured the hook approves nothing', noMode.status === 0 && noMode.stdout === '', why(noMode));
   const odd = answered('allow', { CREW_GATE_MODE: 'bypassPermissions' });
   check('a mode the hook does not name gets no approval: the list is the two it knows',
     odd.status === 0 && odd.stdout === '', 'an allow-list; a mode added to the server later is silent until it is added here');
@@ -3152,7 +3414,7 @@ if (gate) {
     before.includes('Bash') && took.ok && took.revoked === true && !alwaysList(probeId).includes('Bash'),
     `before [${before}] after [${alwaysList(probeId)}]`);
   check('after a revoke the hook asks again', runHook() === 2,
-    'with nobody answering, asking again ends in a denial; exit 0 here would mean the allowance survived');
+    `with nobody answering, asking again ends in a denial; exit 0 here would mean the allowance survived · ${why()}`);
   const again = revoke(probeId, 'Bash');
   check('revoking what is not allowed is said, not counted as a revoke', again.ok && again.revoked === false);
   fs.writeFileSync(path.join(gate.spool, 'ans', 'keep'), 'x');
@@ -4308,7 +4570,7 @@ function computed(rules, el, ancestors, media = []) {
       { id: 'w1', kind: 'workflow', workflowId: 'wf-fixture', status: 'running', members: 3, byStatus: { running: 3 }, spawnDepth: 1, parentId: 'session' },
       kid('m1', 'running', 'Explore', 'w1'),
       kid('m2', 'running', 'reviewer', 'w1'),
-      kid('m3', 'failed', 'tester', 'w1'),
+      { ...kid('m3', 'failed', 'tester', 'w1'), model: 'claude-opus-5-5', effort: 'high' },
     ],
     edges: [],
   };
@@ -4426,6 +4688,10 @@ function computed(rules, el, ancestors, media = []) {
   check('a run\'s members sit inside the run; no wire is drawn to them',
     ['m1', 'm2', 'm3'].every((id) => canvas.cellEls.has(id) && !canvas.els.has(id) && !edgeIn(canvas, 'w1', id)),
     `${canvas.cellEls.size} members drawn inside; ${[...canvas.edgeEls.keys()].filter((k) => k.startsWith('w1')).length} wires leave the run`);
+  check('a member of a group carries its model and effort, as a card does; one with no model shows none',
+    canvas.cellEls.get('m3').parts.model?.textContent === 'Opus 5.5 · high' && canvas.cellEls.get('m3').parts.model?.hidden === false
+    && canvas.cellEls.get('m1').parts.model?.hidden === true,
+    `m3 "${canvas.cellEls.get('m3').parts.model?.textContent}" · m1 hidden ${canvas.cellEls.get('m1').parts.model?.hidden}`);
   check('every member carries its own state and its word',
     canvas.cellEls.get('m3').dataset.state === 'failed' && canvas.cellEls.get('m3').parts.word.textContent === 'Failed'
     && canvas.cellEls.get('m1').dataset.state === 'live' && canvas.cellEls.get('m1').parts.word.textContent === 'Running');
@@ -7794,6 +8060,32 @@ process.stdout.write('\n== §34 the List, the phone, and the states ==\n');
   const chipShown = !box.chip.hidden;
   check('no plan, no box; closed, it stays closed and leaves a tab in the corner',
     hiddenNoPlan && box.el.hidden && chipShown && localStorage.getItem('crewforth-studio-todo') === 'closed' && new tb.TodoBox().open === false);
+  // The emitted click above never meets the pane's pan, which captures a real press: the tab passed here and did
+  // nothing in Chrome. The pan has to leave the tab alone, read by its own class.
+  {
+    const { panSkips } = await import(`../../kit/studio/web/canvas.js?pan=${Date.now()}`);
+    const as = (cls) => ({ closest: (sel) => (sel.split(',').some((x) => cls.split(/\s+/).some((c) => x.trim() === `.${c}`)) ? {} : null) });
+    check('a press on the plan corner tab, its box or a node does not pan; on the empty pane it does',
+      panSkips(as(box.chip.className)) && panSkips(as(box.el.className)) && panSkips(as('cv-node')) && !panSkips(as('canvas')),
+      box.chip.className);
+  }
+  // The session summary leaves a tab too (field: once closed it could only come back from View options).
+  {
+    const { Canvas: SC, panSkips: sk } = await import(`../../kit/studio/web/canvas.js?spend=${Date.now()}`);
+    const sc = new SC(document.createElement('div'), {});
+    sc.setSpend([{ label: 'Working time', value: '3m' }]);
+    sc.showSpend(false);
+    const closedTab = sc.spendChip?.hidden === false && sc.spendEl.hidden;
+    sc.spendChip?.emit('click');
+    const as2 = (cls) => ({ closest: (sel) => (sel.split(',').some((x) => cls.split(/\s+/).some((c) => x.trim() === `.${c}`)) ? {} : null) });
+    check('closed, the session summary leaves a Session tab in its corner; the tab opens it, and a press on it does not pan',
+      closedTab && !sc.spendEl.hidden && sc.spendChip?.hidden === true && Boolean(sk?.(as2(sc.spendChip?.className ?? ''))),
+      `tab shown when closed ${closedTab}, box after click ${!sc.spendEl.hidden}`);
+  }
+  // The project list opens the project you stand in once, when it first arrives — not again after the viewer folded
+  // every project (measured in Chrome: folded, it was open again within five seconds). app.js has no DOM harness here.
+  check('the project you stand in starts open once, not again each time every project is folded',
+    /if \(!projectsDefaulted\) \{\s*projectsDefaulted = true;/.test(read(path.join(WEB_ROOT, 'app.js')) ?? '') && !/if \(!expanded\.size\)/.test(read(path.join(WEB_ROOT, 'app.js')) ?? ''));
   box.chip.emit('click');
   check('the corner tab opens a closed plan again, wherever the toolbar is wide or narrow',
     !box.el.hidden && box.chip.hidden && localStorage.getItem('crewforth-studio-todo') === 'open');

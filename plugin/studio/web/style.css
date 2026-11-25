@@ -196,6 +196,9 @@ body {
 }
 .seg-btn:hover { color: var(--ink); }
 .seg-btn[aria-selected="true"] { background: var(--surface-raised); color: var(--ink); }
+.seg-btn[aria-checked="true"] { background: var(--surface-raised); color: var(--ink); }
+.seg-sm .seg-btn { font-size: 11px; padding-top: 2px; padding-bottom: 2px; }
+#proj-kind[hidden] { display: none; }
 .seg-btn .badge { height: 18px; }
 
 /* The small bordered button the inspector still uses for copy and widen. */
@@ -332,6 +335,13 @@ body.resizing .cv-root { pointer-events: none; }
 .proj-head[aria-expanded="true"] .proj-caret { transform: rotate(90deg); }
 .proj-name { min-width: 0; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proj-head.gone .proj-name { color: var(--ink-faint); text-decoration: line-through; }
+.proj-total {
+  flex: none; padding: 0 4px; border: 0; border-radius: var(--radius-sm); background: none;
+  font: inherit; font-size: 11px; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--ink-faint); white-space: nowrap; cursor: pointer;
+}
+.proj-total:hover { color: var(--ink); background: var(--surface-raised); }
+.proj-total-line { display: flex; padding: 0 0 2px 22px; }
 .row-fill { flex: 1; min-width: 4px; }
 
 /* The version badge. Grey when there is nothing to do; orange, and a button,
@@ -1380,6 +1390,13 @@ button.tl-lab { cursor: pointer; }
 .cv-legend[hidden] { display: none; }
 /* The session's summary is the same kind of box, in the opposite corner. */
 .cv-spend { right: auto; bottom: auto; left: var(--space-6); top: var(--space-6); width: 240px; }
+/* A project's all-time totals: the same box, beside the session's. */
+.cv-left-col {
+  position: absolute; left: var(--space-6); top: var(--space-6); z-index: 20; pointer-events: none;
+  display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100% - 2 * var(--space-6)); overflow: auto;
+}
+.cv-left-col > .cv-legend { position: static; pointer-events: auto; width: 260px; }
+.cv-left-col > .cv-spend-chip { position: static; pointer-events: auto; align-self: flex-start; }
 .cv-spend-rows { display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
 .cv-spend-row {
   display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; width: 100%;
@@ -1409,6 +1426,7 @@ button.tl-lab { cursor: pointer; }
 }
 .cv-todo-chip:hover { color: var(--ink); background: var(--surface-raised); }
 .cv-todo-chip[hidden] { display: none; }
+.cv-spend-chip { right: auto; left: var(--space-6); }
 .cv-todo-grip { position: absolute; left: 0; bottom: 0; width: 14px; height: 14px; cursor: nesw-resize; touch-action: none;
   background: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%, var(--ink-faint) 58%, transparent 58%, transparent 74%, var(--ink-faint) 74%, var(--ink-faint) 82%, transparent 82%);
   transform: scaleX(-1); border-bottom-left-radius: var(--radius-md); opacity: .7; }
@@ -2117,3 +2135,25 @@ body.vresizing { cursor: row-resize; user-select: none; }
   .shell.no-chat > .inspector { left: 0; right: 0; top: 0; width: auto; border-left: none; }
   .inspector-split { display: none; }
 }
+
+/* The project settings dialog (DECISIONS 2026-11-17, N45). */
+.sdlg {
+  width: min(460px, calc(100vw - 32px)); padding: 0; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px -20px var(--shade);
+}
+.sdlg::backdrop { background: var(--shade-soft); }
+.sdlg-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) 0; }
+.sdlg-title { margin: 0; font-size: 14px; font-weight: 600; }
+.sdlg-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3); }
+.sdlg-row { display: flex; flex-direction: column; gap: 6px; }
+.sdlg-label { font-size: 12px; font-weight: 600; }
+.sdlg-help, .sdlg-note, .sdlg-status { margin: 0; font-size: 12px; color: var(--ink-dim); }
+.sdlg-note.muted { color: var(--ink-faint); }
+.sdlg-note.warn { color: var(--status-waiting); }
+.sdlg .seg { align-self: flex-start; }
+.sdlg .seg-btn { height: 24px; font-size: 12px; }
+.sdlg .seg-btn[aria-checked="true"] { background: var(--surface-raised); color: var(--ink); }
+.sdlg-num { display: flex; align-items: center; gap: var(--space-2); }
+.sdlg-num input { flex: none; width: 90px; }
+.sdlg-status { min-height: 16px; padding: 0 var(--space-3) var(--space-3); }

@@ -23,6 +23,8 @@ This skill is the discipline that turns "try things until it works" into "unders
    (it is a bug, go on), *contradicted* (it was never meant to work this way: a feature request, back to
    **crew-planner**), or *silent* (ask the user with AskUserQuestion before changing anything).
 1. **Reproduce** — a reliable, minimal repro. Can't reproduce → that IS the first problem; see `references/techniques.md` (intermittent/heisenbug).
+   The repro is red before any fix: a test that is already green reproduces nothing, so the command or the test is
+   wrong (another file, a filter that matched nothing, the wrong environment). Fix that first.
 2. **Isolate** — shrink the surface until the failure is in the smallest possible slice (bisect commits, halve the input, disable half the system).
 3. **Hypothesize** — state ONE falsifiable cause: "X fails because Y." Write it down. A vague hunch is not a hypothesis. (`hooks/loop-guard.sh` points back here when a turn repeats one failure.)
 4. **Test the hypothesis** — the cheapest observation that would *disprove* it (a log, a breakpoint, a probe). If it survives, you have the cause; if not, back to 3.

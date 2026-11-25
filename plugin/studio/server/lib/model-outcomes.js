@@ -11,8 +11,9 @@
 //   class            agent x change x risk
 //   verified         verify is pass or fail: the command ran and gave a verdict
 //   first try        verify = pass and fixes = 0
-//   not verified     verify is none (no command), blocked (the command was not allowed to run) or timeout: no
-//                    verdict about the work, so these are shown apart and are in no rate
+//   not verified     verify is none (no command), blocked (the command was not allowed to run), timeout, red (a
+//                    test-write card's tests failing first, as asked) or inconclusive (it failed while another crew
+//                    agent edited the same folder): no verdict about the work, so these are shown apart and are in no rate
 //   escalated        escalated_from is not "-": this call repeats a card that failed one model down
 //
 // Crewforth also writes `.claude/state/crew-model-floors.auto`: a class held one model up because its first try
@@ -30,11 +31,11 @@ import path from 'node:path';
 
 export const COLUMNS = ['ts', 'agent_id', 'agent', 'change', 'risk', 'card', 'model', 'verify', 'fixes', 'escalated_from', 'ran_on', 'confidence'];
 // Added at the end later, so a line written before them is still whole without them.
-export const LATER_COLUMNS = ['risk_why'];
+export const LATER_COLUMNS = ['risk_why', 'verify_s', 'why_not'];
 const VERIFIED = new Set(['pass', 'fail']);
 // What the hooks write, and nothing else is a row. The words are hooks/guard-agent-model.sh's and
 // hooks/agent-outcome.sh's; a word they do not use is a line this file cannot read, not a new kind of work.
-export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout'];
+export const VERIFY = ['pass', 'fail', 'none', 'blocked', 'timeout', 'red', 'inconclusive'];
 export const CHANGES = ['text', 'feature', 'fix-known', 'fix-unknown', 'refactor', 'migration', 'security', 'architecture', 'test-run', 'test-write', 'audit'];
 export const RISKS = ['critical', 'normal'];
 const TIERS = ['haiku', 'sonnet', 'opus', 'fable'];
@@ -65,7 +66,7 @@ function rowProblem(f) {
   if (!CHANGES.includes(f[3])) return 'change is not one of the eleven';
   if (!RISKS.includes(f[4])) return 'risk is not critical or normal';
   if (f[6] !== '-' && !TIERS.includes(f[6])) return 'model is not a tier';
-  if (!VERIFY.includes(f[7])) return 'verify is not one of the five';
+  if (!VERIFY.includes(f[7])) return 'verify is not one of the seven';
   if (!/^\d{1,4}$/.test(f[8])) return 'fixes is not a count';
   if (f[9] !== '-' && !TIERS.includes(f[9])) return 'escalated_from is not a tier';
   return null;
@@ -196,7 +197,7 @@ export function classesOf(rows, floors = [], loosened = []) {
     if (!by.has(k)) {
       by.set(k, {
         key: k, agent: r.agent, change: r.change, risk: r.risk, runs: 0, verified: 0, firstTry: 0, fixed: 0, failed: 0, escalated: 0,
-        notVerified: { none: 0, blocked: 0, timeout: 0 }, models: {}, ranOn: {}, lastAt: null, floor: null,
+        notVerified: { none: 0, blocked: 0, timeout: 0, red: 0, inconclusive: 0 }, models: {}, ranOn: {}, lastAt: null, floor: null,
       });
     }
     const c = by.get(k);
@@ -352,6 +353,9 @@ function parseRecord(dir, cwd) {
   const ruleFloors = parseRuleFloors(readBounded(RULES(cwd))?.text ?? '');
   const byAgent = {};
   for (const r of parsed.rows) byAgent[r.agentId] = r;           // a resumed agent's latest line is the one that stands
+  // The skills a card named and the ones the agent did not use, from the stop hook's result file of each agent
+  // (hooks/agent-outcome.sh writes `skills=` and `skills_missed=` there, beside this line).
+  const skills = skillsOf(path.join(dir, 'crew-model', 'results'), byAgent);
   // A card that failed is given again one model up, to another agent: the calls of one card, oldest first, are
   // the trail the inspector shows under the newest of them.
   const byCard = new Map();
@@ -376,8 +380,41 @@ function parseRecord(dir, cwd) {
     above: aboveTableOf(parsed.rows, ruleFloors, floors),
     loosened,
     byAgent,
+    skills,
     all: parsed.rows,
   };
+}
+
+const SKILL_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const RESULTS_MAX = 5000;
+/**
+ * The card skills of the project's agents: each agent with a line gets `skillsAsked` and `skillsMissed` (names),
+ * and the project gets one summary: how many agents were given skills, how many missed one, and per skill how often
+ * it was asked for and missed. A result file with no `skills=` line is an agent whose card named none.
+ */
+export function skillsOf(resultsDir, byAgent) {
+  const out = { agents: 0, missedAgents: 0, byName: {} };
+  let names = [];
+  try { names = fs.readdirSync(resultsDir); } catch { return out; }
+  for (const id of names.slice(0, RESULTS_MAX)) {
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
+    let text = '';
+    try { text = fs.readFileSync(path.join(resultsDir, id), 'utf8').slice(0, 4096); } catch { continue; }
+    const get = (k) => (text.match(new RegExp(`^${k}=(.*)$`, 'm'))?.[1] ?? '').trim();
+    const asked = get('skills').split(/\s+/).filter((n) => SKILL_NAME.test(n));
+    if (!asked.length) continue;
+    const missed = get('skills_missed').split(/\s+/).filter((n) => SKILL_NAME.test(n) && asked.includes(n));
+    out.agents += 1;
+    if (missed.length) out.missedAgents += 1;
+    for (const n of asked) {
+      const b = (out.byName[n] ??= { asked: 0, missed: 0 });
+      b.asked += 1;
+      if (missed.includes(n)) b.missed += 1;
+    }
+    const row = byAgent[id];
+    if (row) { row.skillsAsked = asked; row.skillsMissed = missed; }
+  }
+  return out;
 }
 
 /**

@@ -1,9 +1,8 @@
 ---
 name: eval-grader
 description: |
-  Measure output quality, don't vibe it: score a generative task with a two-layer grader — deterministic code
-  metrics + per-dimension LLM-as-judge — over a fixed task set, as signed deltas vs a pinned baseline. Grades
-  cost alongside correctness (pass-slow).
+  Measure output quality instead of judging it by eye: score a generative task with code metrics and a per-dimension
+  LLM judge over a fixed task set, as deltas against a pinned baseline.
 ---
 
 # Eval Grader

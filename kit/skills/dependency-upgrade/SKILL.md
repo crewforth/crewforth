@@ -1,8 +1,8 @@
 ---
 name: dependency-upgrade
 description: |
-  Bring dependencies current without breaking the build: find what is vulnerable, deprecated or behind,
-  classify each target version by risk, apply what is safe, verify, and roll back what is not.
+  Bring dependencies current without breaking the build: find what is vulnerable, deprecated or behind, apply the
+  safe upgrades, verify, roll back the rest.
 ---
 
 # Dependency Upgrade

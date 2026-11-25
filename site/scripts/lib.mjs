@@ -65,7 +65,7 @@ export function skillsAndCommands(root) {
     const f = path.join(dir, d, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     const raw = read(f);
-    if (/^\s+experimental:\s*"?true"?\s*$/m.test(raw.split('\n---')[0])) continue;
+    if (/^\s+(experimental|internal):\s*"?true"?\s*$/m.test(raw.split('\n---')[0])) continue;
     const fm = frontmatter(f);
     const item = { name: fm.name || d, summary: firstSentence(fm.description) };
     if (/^\s+kind:\s*command\s*$/m.test(raw.split('\n---')[0])) {
@@ -76,12 +76,15 @@ export function skillsAndCommands(root) {
   return { skills, commands };
 }
 
-// Context-fill thresholds, read from the hook that enforces them: `[ "$INT" -ge 90 ] && TIER=90`.
+// Handoff thresholds, read from the one reader both hooks use (profile.sh, crew_handoff_tiers):
+// `crew_profile "$1"; t="25 50 75 95"; [ "$CREW_PROFILE" = light ] && …` — the default, not the light profile's.
 export function fillThresholds(root) {
-  const src = read(path.join(root, 'kit/hooks/session-guard.sh'));
-  const t = [...src.matchAll(/\[\s*"\$INT"\s+-ge\s+(\d+)\s*\]\s*&&\s*TIER=\1/g)].map((m) => Number(m[1])).sort((a, b) => a - b);
-  if (t.length !== 2) fail(`session-guard.sh: expected two fill thresholds, read ${t.length} — the hook changed shape`);
-  return { warn: t[0], alert: t[1] };
+  const src = read(path.join(root, 'kit/eval/lib/profile.sh'));
+  const m = src.match(/crew_profile "\$1"; t="([0-9 ]+)"; \[ "\$CREW_PROFILE" = light \]/);
+  if (!m) fail('profile.sh: no default handoff thresholds in crew_handoff_tiers — the reader changed shape');
+  const tiers = m[1].trim().split(/\s+/).map(Number);
+  if (tiers.length < 2 || tiers.some((t, i) => i && t <= tiers[i - 1])) fail(`profile.sh: handoff thresholds not ascending: ${m[1]}`);
+  return { tiers };
 }
 
 // The gate inventory, from gate-report.sh itself (the one place it is derived from the hooks), run against a scratch

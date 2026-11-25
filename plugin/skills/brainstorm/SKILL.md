@@ -8,7 +8,7 @@ description: |
 # Brainstorm — diverge before you converge
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "brainstorm", "explore options", "not sure what we want", "help me scope", "ideate"
+Trigger phrases: "brainstorm", "explore options", "not sure what we want", "help me scope", "ideate", "beyin fırtınası", "fikir alışverişi", "seçenekleri tartış", "seçenekleri tartışalım"
 
 ## When
 The ask is **under-defined**: the goal, the users, or the shape of the solution aren't clear yet, so jumping
@@ -19,14 +19,18 @@ option into tasks). If scope is already clear, skip this and go straight to [[sp
 ## The loop
 1. **Frame the real problem** — restate the request as the underlying need in one sentence ("the user wants
    X so that Y"). Separate the stated solution from the goal; often the solution is negotiable, the goal isn't.
+   Product first, then technique: who it changes things for and how, before any stack or design.
 2. **Diverge — generate distinct directions.** Produce **2–4 genuinely different** approaches, not variations
-   of one. For each: the core idea, who it serves, the main trade-off. Include a deliberately cheap/minimal
-   option (fight gold-plating early).
+   of one. For each: the core idea, who it serves, the main trade-off, **what would kill it**, and the assumption
+   it rests on with the cheapest way to test that. Include a deliberately cheap/minimal option (fight gold-plating
+   early). How others solved the same problem is worth a look when the user agrees to the search. When the
+   question is how something looks or feels, a few throwaway working prototypes answer it better than prose.
 3. **Surface the unknowns** — list assumptions and open questions that would change the answer. Mark which are
    **blocking** (must resolve before planning) vs. deferrable.
 4. **Converge — ask, don't guess.** Present the directions as **explicit numbered options** and let the user
    choose (CLAUDE.md discipline: a decision point = multiple choice, never a prose either/or). Record the
-   chosen direction + the rejected ones with the one-line reason they lost.
+   chosen direction + the rejected ones with the one-line reason they lost, and a short **Not doing (why)** list:
+   what this work will not do, so the plan does not grow it back.
    How to put a question, what is worth asking and what to do when no answer comes:
    `references/asking.md`; `/crew-interview` runs the whole round of questions as a command.
 5. **Hand off.** The chosen direction + resolved constraints flow into `spec-planning`; a lasting
@@ -44,6 +48,7 @@ option into tasks). If scope is already clear, skip this and go straight to [[sp
 
 ## DoD (this skill's contribution)
 - The real goal is stated separately from the requested solution.
-- 2–4 distinct directions exist, each with its trade-off, including a minimal option.
+- 2–4 distinct directions exist, each with its trade-off, what would kill it and its riskiest assumption, including
+  a minimal option.
 - Blocking unknowns are named and were asked as explicit options — nothing ambiguous was filled by guessing.
 - A direction is chosen and ready to enter [[spec-planning]] (rejected options logged with their reason).

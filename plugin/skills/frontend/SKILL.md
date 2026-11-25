@@ -67,7 +67,8 @@ Graph, structured data): `references/page-metadata.md`.
 - Unnecessary renders (memo/callback), bundle size, lazy loading, virtualization for long lists.
 
 ## Verify at runtime (contract)
-Prove a change works by **observing the running UI**, structured — not by interpreting a screenshot. Have components
+Prove a change works by **observing the running UI**, structured — not by interpreting a screenshot (a size, a
+colour or a spacing read off one is an estimate, and is said as one). Have components
 emit `data-verify-*` state attributes, register verifiable units with fixtures + invariants (≥1 adversarial `probe`
 each), expose `window.__verify`, and adopt the `PASS/FAIL/BLOCKED/SKIP` taxonomy (when in doubt, FAIL). Then drive
 the browser to check it. The full convention: **`references/verify-contract.md`**.

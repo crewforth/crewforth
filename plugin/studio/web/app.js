@@ -12,11 +12,11 @@ import { renderMarkdown } from './md.js';
 import { Chat } from './chat.js';
 import {
   summaryChips, sessionStatus, sessionName, sessionSub, ago, matchesSession, highlight, badgeFor,
-  liveSessions, liveCount, liveGroups, projectOfCwd, span, machines, seenAgo, isFirstRun,
-} from './nav.js';
+  liveSessions, liveCount, liveGroups, projectOfCwd, span, machines, seenAgo, isFirstRun, projectsShown } from './nav.js';
 import { liveness, offlineNote, staleServerNote } from './liveness.js';
 import { attention, settle, AUTO } from './graph-plan.js';
-import { summaryRows, usageLine, costNote } from './usage.js';
+import { summaryRows, usageLine, costNote, projectRows, projectLine } from './usage.js';
+import { settingsRows, hasSettings } from './settings-plan.js';
 import { agentSpendRows } from './agent-spend.js';
 import { ServerClock, queue, settled, terminalWait, OUTCOME_WORD } from './approvals.js';
 import { Dock } from './dock.js';
@@ -27,7 +27,7 @@ import { List } from './list.js';
 import { defaultView, narrowWarning } from './list-plan.js';
 import { Models } from './models.js';
 import { MapView } from './map.js';
-import { cardOf, cardLines, workSteps, outsideRouting } from './models-plan.js';
+import { cardOf, cardLines, workSteps, outsideRouting, skillRows, sessionSkills, skillWords } from './models-plan.js';
 import { fitLevel, runsOver } from './toolbar-fit.js';
 import { roleName, shownType, modelFamily } from './names.js';
 import { shortcutOf } from './keys.js';
@@ -73,6 +73,8 @@ const el = {
   tbShow: document.getElementById('tb-show'),
   tbExpand: document.getElementById('tb-expand'),
   tbFold: document.getElementById('tb-fold'),
+  settingsDlg: document.getElementById('settings-dlg'),
+  projKind: document.getElementById('proj-kind'),
   tbZoomOut: document.getElementById('tb-zoom-out'),
   tbZoom: document.getElementById('tb-zoom'),
   tbZoomIn: document.getElementById('tb-zoom-in'),
@@ -983,6 +985,19 @@ function metaRows(n) {
   return dl;
 }
 
+/** Skill rows as a definition list: the name, with `asked` and `missed` tags, and how it was used. */
+function skillList(rows) {
+  const dl = node('dl', 'icard iskills');
+  for (const r of rows) {
+    const dt = node('dt', null, r.name);
+    if (r.asked) { const a = node('span', 'mv-tag', t('asked')); a.dataset.kind = 'asked'; dt.append(' ', a); }
+    if (r.missed) { const m = node('span', 'mv-tag', t('missed')); m.dataset.tone = 'fail'; dt.append(' ', m); }
+    const dd = node('dd', null, typeof r.text === 'string' ? r.text : skillWords(r));
+    dl.append(dt, dd);
+  }
+  return dl;
+}
+
 /** A titled block of the inspector. */
 function isection(title, ...children) {
   const s = node('section', 'isec');
@@ -1136,6 +1151,9 @@ function paintAgentOverview(body, n, detail) {
       const sec = isection(t('Model and verify'), ...(work.steps.length ? [ol] : []), ...(work.note ? [node('p', 'istep-note', work.note)] : []));
       body.append(sec);
     }
+    // The skills its card asked for and the ones it used: called with the Skill tool, or its SKILL.md read.
+    const sk = skillRows(cardOf(detail?.prompt ?? null), n.skills, row);
+    body.append(isection(t('Skills'), sk.length ? skillList(sk) : node('p', 'istep-note', t('No skill asked for, called or read.'))));
   }
 
   // What it ran on and what its call asked for, and what the model gate or a low-confidence report did to it.
@@ -1219,6 +1237,15 @@ function paintSessionOverview(body, n) {
     body.append(banner);
   }
   body.append(metaRows(n));
+
+  // The skills the session's agents used, over all of them: calls, reads and how many agents.
+  const used = sessionSkills(lastNodes);
+  if (used.length) {
+    body.append(isection(t('Skills used by its agents'), skillList(used.map((u) => ({
+      name: u.name,
+      text: `${skillWords(u)} \u00b7 ${u.agents === 1 ? t('1 agent') : t('{n} agents', { n: u.agents })}`,
+    })))));
+  }
 
   // Commands the session sent to the background and that are still going. They are not agents and have no card.
   const running = backgroundLines(n, serverNow());
@@ -1685,9 +1712,14 @@ async function offerTerminal(anchor, sessionId) {
 let projectsData = null;
 let fleetData = null;
 let expanded = new Set();
+// The project you stand in starts open the first time the list arrives, and only then: a test of "nothing is open"
+// on every refresh (about once a second) opened it again a moment after the viewer folded it (measured in Chrome).
+let projectsDefaulted = false;
 let filterText = '';
 let showMissing = false;
 let showBare = false;          // projects without Crewforth files stay folded away until asked for
+// The navigator's filter: every project, only those with Crewforth, or only those without (DECISIONS 2026-11-17).
+let projKind = ['all', 'kit', 'bare'].includes(store.get('crewforth-studio-proj-kind')) ? store.get('crewforth-studio-proj-kind') : 'all';
 let showHidden = false;
 let renaming = null;          // the session whose name is being typed
 
@@ -1718,7 +1750,8 @@ function renderSessions(data) {
   projectsData = data;
   // The project you are standing in starts open; the rest stay folded, or a
   // machine with 175 projects buries the one you are working in.
-  if (!expanded.size) {
+  if (!projectsDefaulted) {
+    projectsDefaulted = true;
     const cur = data.projects.find((p) => p.current) ?? data.projects[0];
     if (cur) expanded.add(cur.key);
   }
@@ -1886,6 +1919,123 @@ async function pullUsage() {
   }
 }
 
+/* A project's all-time total on the canvas. The server reads it behind the panel and answers with what it has, so
+   this asks again while sessions are still being read, and stops when the box is closed or shows another project. */
+let projectTotalTimer = null;
+// A project's install settings (DECISIONS 2026-11-17, N45): sharing, docs/, gates, verify limit. The session cannot
+// write these files; the panel is the user's own process, so this is where they change after the install. Each
+// choice is written at once and read back, and git's own state stands beside the sharing rows.
+async function openProjectSettings(p) {
+  const dlg = el.settingsDlg;
+  let last = null;
+  let busy = false;
+  const save = async (set) => {
+    if (busy) return;
+    busy = true;
+    let d;
+    try {
+      const r = await fetch(api('/api/project-settings'),
+        { method: 'POST', headers: { 'content-type': 'application/json', ...writeHeaders }, body: JSON.stringify({ project: p.key, set }) });
+      d = await r.json();
+    } catch (e) {
+      d = { ok: false, reason: e.message };
+    }
+    busy = false;
+    if (d.ok) last = d.settings;
+    paint(last, d.ok ? t('Saved.') : t('Not saved — {reason}', { reason: d.reason ?? t('no reason given') }));
+  };
+  const paint = (s, status = '') => {
+    const head = node('div', 'sdlg-head');
+    const title = node('h2', 'sdlg-title', t('Settings · {name}', { name: p.label }));
+    title.id = 'sdlg-title';
+    const close = node('button', 'row-more');
+    close.type = 'button';
+    close.setAttribute('aria-label', t('Close'));
+    close.append(icon(ICON.close));
+    close.addEventListener('click', () => dlg.close());
+    head.append(title, node('span', 'row-fill'), close);
+    const body = node('div', 'sdlg-body');
+    const rows = settingsRows(s);
+    if (!s) body.append(node('p', 'sdlg-help', t('Reading the settings…')));
+    else if (!rows) body.append(node('p', 'sdlg-help', s.reason ?? t('Crewforth is not installed in this project.')));
+    for (const r of rows ?? []) {
+      const row = node('div', 'sdlg-row');
+      row.append(node('div', 'sdlg-label', r.label), node('p', 'sdlg-help', r.help));
+      if (r.choices) {
+        const seg = node('div', 'seg seg-sm');
+        seg.setAttribute('role', 'radiogroup');
+        seg.setAttribute('aria-label', r.label);
+        for (const c of r.choices) {
+          const b = node('button', 'seg-btn', c.label);
+          b.type = 'button';
+          b.setAttribute('role', 'radio');
+          b.setAttribute('aria-checked', String(c.value === r.value));
+          b.addEventListener('click', () => { if (c.value !== r.value) save({ [r.key]: c.value }); });
+          seg.append(b);
+        }
+        row.append(seg);
+        if (r.unset) row.append(node('p', 'sdlg-note muted', t('Not recorded yet: the hooks treat it as private.')));
+      } else {
+        const line = node('div', 'sdlg-num');
+        const input = node('input', 'srow-rename');
+        input.type = 'number';
+        input.min = String(r.number.min);
+        input.max = String(r.number.max);
+        input.value = r.value ?? '';
+        input.placeholder = String(r.number.fallback);
+        input.setAttribute('aria-label', r.label);
+        const apply = () => {
+          const n = Number(input.value);
+          if (input.value === '') save({ verifyTimeout: null });
+          else if (Number.isInteger(n) && n >= r.number.min && n <= r.number.max) save({ verifyTimeout: n });
+          else paint(last, t('Not saved — {reason}', { reason: t('a whole number from 1 to {max}', { max: r.number.max }) }));
+        };
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+        const set = node('button', 'link', t('Save'));
+        set.type = 'button';
+        set.addEventListener('click', apply);
+        const reset = node('button', 'link', t('Default'));
+        reset.type = 'button';
+        reset.disabled = r.unset;
+        reset.addEventListener('click', () => save({ verifyTimeout: null }));
+        line.append(input, set, reset);
+        row.append(line, node('p', 'sdlg-note muted', r.unset
+          ? t('Not set: {n} seconds, the default.', { n: r.number.fallback })
+          : t('Set: {n} seconds.', { n: r.value })));
+      }
+      if (r.note) row.append(node('p', `sdlg-note ${r.note.tone}`, r.note.text));
+      body.append(row);
+    }
+    const foot = node('p', 'sdlg-status', status);
+    foot.setAttribute('role', 'status');
+    dlg.replaceChildren(head, body, foot);
+  };
+  paint(null);
+  if (!dlg.open) dlg.showModal();
+  try {
+    last = await getJson(`/api/project-settings?project=${encodeURIComponent(p.key)}`);
+  } catch (e) {
+    last = { ok: false, reason: e.message };
+  }
+  paint(last);
+}
+
+async function openProjectTotal(key, { follow = false } = {}) {
+  clearTimeout(projectTotalTimer);
+  if (!follow && view !== 'graph') setView('graph');
+  let got;
+  try { got = await getJson(`/api/project-usage?project=${encodeURIComponent(key)}`); } catch { return; }
+  const rows = projectRows(got);
+  canvas.setProject(key, rows.length ? rows : [{ label: t('Still reading'), value: t('{n} sessions', { n: got.pending ?? 0 }), note: t('Read one at a time, behind the panel; the totals below grow until it is done') }]);
+  if (got.pending || got.computing) projectTotalTimer = setTimeout(() => { if (canvas.projectKey === key) openProjectTotal(key); }, 3000);
+}
+
+function followProjectTotal(project) {
+  if (!canvas.projectKey || canvas.projectKey === project?.key) return;
+  if (project && project.local !== false) openProjectTotal(project.key, { follow: true });
+  else { clearTimeout(projectTotalTimer); canvas.setProject(null, []); }
+}
+
 function paintProjects() {
   const data = projectsData;
   if (!data || renaming && document.activeElement?.classList?.contains('srow-rename')) return;
@@ -1901,7 +2051,8 @@ function paintProjects() {
   const withKit = reachable.filter((p) => !isBare(p));
   const bare = reachable.filter(isBare);
   const bareOpen = showBare || Boolean(filterText) || Boolean(current && isBare(findSessionRow(current)?.project ?? {}));
-  const pool = bareOpen ? [...withKit, ...bare] : withKit;
+  const { pool, foldedBare } = projectsShown(withKit, bare, { kind: projKind, bareOpen });
+  for (const b of el.projKind?.querySelectorAll('[data-kind]') ?? []) b.setAttribute('aria-checked', String(b.dataset.kind === projKind));
   const sectionHead = (text, label, run) => {
     const line = node('div', 'nav-section');
     line.append(node('span', null, text));
@@ -1928,11 +2079,11 @@ function paintProjects() {
     if (filterText && !projectHit && !sessions.length) continue;
     shown += 1;
     const here = isBare(p) ? 'bare' : 'kit';
-    if (here !== section && bare.length) {
+    if (here !== section && (bare.length || projKind !== 'all')) {   // a filtered list keeps its heading (DECISIONS 2026-11-17)
       section = here;
       frag.append(here === 'kit'
         ? sectionHead(t('With Crewforth · {n}', { n: withKit.length }))
-        : sectionHead(t('Without Crewforth · {n}', { n: bare.length }), showBare && !filterText ? t('hide') : null, () => { showBare = false; paintProjects(); }));
+        : sectionHead(t('Without Crewforth · {n}', { n: bare.length }), showBare && !filterText && projKind === 'all' ? t('hide') : null, () => { showBare = false; paintProjects(); }));
     }
 
     const open = expanded.has(p.key) || Boolean(filterText);
@@ -1948,7 +2099,35 @@ function paintProjects() {
     // Where a project lives is part of its identity once more than one machine
     // is in view.
     if (p.origin && p.local === false) head.append(node('span', 'origin', p.origin));
+    // The project's all-time total, once the server has read any of it; a click opens the whole of it on the canvas.
+    // On a line of its own under the name: beside it, with the version badge, it left the name no room at all
+    // (measured in Chrome: name 0 px wide in a 236 px row).
+    const total = p.local !== false ? projectLine(p.allTime) : null;
+    let totalLine = null;
+    if (total) {
+      const b = node('button', 'proj-total', total);
+      b.type = 'button';
+      b.title = `${t('All sessions of the project: time · estimated cost. Click for the summary')}${p.allTime.pending ? `\n${t('Still reading {n} session(s)', { n: p.allTime.pending })}` : ''}\n${costNote(p.allTime)}`;
+      b.addEventListener('click', (e) => { e.stopPropagation(); openProjectTotal(p.key); });
+      b.addEventListener('keydown', (e) => e.stopPropagation());
+      totalLine = node('div', 'proj-total-line');
+      totalLine.append(b);
+    }
     head.append(node('span', 'row-fill'), versionBadge(p.kit));
+    if (hasSettings(p)) {
+      const more = node('button', 'row-more');
+      more.type = 'button';
+      more.setAttribute('aria-label', t('More for {name}', { name: p.label }));
+      more.setAttribute('aria-haspopup', 'menu');
+      more.append(icon(ICON.more));
+      more.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openMenu(more, [{ label: t('Settings…'), run: () => openProjectSettings(p) }]);
+      });
+      more.addEventListener('keydown', (e) => e.stopPropagation());
+      head.append(more);
+      head.addEventListener('contextmenu', (e) => { e.preventDefault(); more.click(); });
+    }
     head.title = (p.cwd ?? p.dir) + (p.exists ? '' : ' — directory no longer exists');
     const toggle = () => {
       if (expanded.has(p.key)) expanded.delete(p.key); else expanded.add(p.key);
@@ -1960,6 +2139,7 @@ function paintProjects() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
     group.append(head);
+    if (totalLine) group.append(totalLine);
 
     if (open) {
       // Under the project, its map (spec §11): the orange number is how many findings it shows unasked.
@@ -1998,7 +2178,7 @@ function paintProjects() {
       () => { showHidden = !showHidden; paintProjects(); },
     ));
   }
-  if (bare.length && !bareOpen) {
+  if (foldedBare) {
     frag.append(sectionHead(t('Without Crewforth · {n}', { n: bare.length }), t('show'), () => { showBare = true; paintProjects(); }));
   }
   if (missing > 0 && !filterText) {
@@ -2348,6 +2528,7 @@ function remoteSection() {
 function paintOtherMachines() {
   const m = machines(fleetData);
   const others = [...m.peers, ...m.remote];
+  if (el.projKind) el.projKind.hidden = navTab !== 'projects';
   el.otherMachines.hidden = navTab !== 'projects' || others.length === 0;
   if (el.otherMachines.hidden) return;
   const label = node('button', 'nav-foot-label', t('Other machines'));
@@ -2539,6 +2720,9 @@ function selectSession(sessionId) {
   // says "you are here" has to be on screen.
   const home = findSessionRow(sessionId);
   if (home && !expanded.has(home.project.key)) { expanded.add(home.project.key); paintProjects(); }
+  // The project box shows the project of the session on the canvas: open on A's total, a session of B shows B's, or
+  // shuts where B has no total here (it showed A's total on B's canvas). It does not open itself, nor change the view.
+  followProjectTotal(home?.project ?? null);
   for (const r of document.querySelectorAll('.srow[data-id]')) {
     r.setAttribute('aria-current', String(r.dataset.id === sessionId));
   }
@@ -2998,6 +3182,9 @@ async function pollSessions() {
   } catch { /* the Live indicator says so; the list keeps what it last showed */ }
 }
 
+for (const b of el.projKind?.querySelectorAll('[data-kind]') ?? []) {
+  b.addEventListener('click', () => { projKind = b.dataset.kind; store.set('crewforth-studio-proj-kind', projKind); paintProjects(); });
+}
 setTab(store.get('crewforth-studio-nav-tab') ?? 'projects');
 // The view the viewer chose, or the one this window opens on: the List on a phone, the graph elsewhere.
 applyPhoneBand(true);

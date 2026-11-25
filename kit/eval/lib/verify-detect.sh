@@ -41,7 +41,7 @@ _vd_node(){  # $1 = folder holding package.json, $2 = the JSON reader
     case "${k%$'\r'}" in
       vitest) _vd_add "npx vitest run" ;;
       jest) _vd_add "npx jest" ;;
-      typescript) _vd_add "npx tsc --noEmit" ;;
+      typescript) _vd_add "npx tsc --noEmit"; _vd_add "npx tsc -b" ;;   # -b: project references (field: `npx tsc -b` and `-b --noEmit` were refused as not allowed)
       eslint) _vd_add "npx eslint" ;;
     esac
   done <<< "$deps"

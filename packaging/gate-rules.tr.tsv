@@ -69,7 +69,7 @@ git commit argument the shell expands	kabuğun genişlettiği bir git commit arg
 git config --edit (the configuration file opened for writing)	git config --edit (yapılandırma dosyası yazmak için açılır)
 git commit through a command the shell fills in	kabuğun doldurduğu bir komutla git commit
 a command that hands a Claude Code session an approval as its prompt (only the user's own message approves)	bir Claude Code oturumuna istem olarak onay veren bir komut (yalnız kullanıcının kendi mesajı onaylar)
-a model routing record named in a command (the user and Crewforth's hooks write it; to show it to the user, read it with the Read tool)	komutta adı geçen bir model yönlendirme kaydı (onu kullanıcı ve Crewforth'un hook'ları yazar; kullanıcıya göstermek için Read aracıyla okuyun)
+a model routing record named in a command (the user and Crewforth's hooks write it; to show it to the user, read it with the Read tool; to write text that names it into another file, use the Write or Edit tool)	komutta adı geçen bir model yönlendirme kaydı (onu kullanıcı ve Crewforth'un hook'ları yazar; kullanıcıya göstermek için Read aracıyla okuyun; onu anan bir metni başka bir dosyaya yazmak için Write ya da Edit aracını kullanın)
 the refuter ledger named in a command (only Crewforth's hook writes it)	komutta adı geçen çürütücü defteri (onu yalnız Crewforth'un hook'u yazar)
 a command that opens another Claude Code session's screen or socket (claude attach, claude agents, claude respawn, the messaging socket): it can answer that session's questions, an approval included	başka bir Claude Code oturumunun ekranını ya da soketini açan komut (claude attach, claude agents, claude respawn, mesaj soketi): o oturumun sorularını, onay dahil, cevaplayabilir
 a commit made by another git command with no approval	başka bir git komutunun onaysız yaptığı commit
@@ -81,3 +81,10 @@ a staged lockfile with no audit record	denetim kaydı olmayan staged lockfile
 the audit record does not match the staged lockfiles	denetim kaydı staged lockfile'larla eşleşmiyor
 the audit record matches the staged lockfiles	denetim kaydı staged lockfile'larla eşleşiyor
 the lockfile list could not be loaded	lockfile listesi yüklenemedi
+a push in a repository with no remote	uzak deposu olmayan depoda push
+the user's approval covers this merge	kullanıcının onayı bu merge'ü kapsıyor
+a pull request merged into a protected branch	korunan dala merge edilen pull request
+a pull request merged into a protected branch, with no approval	onay olmadan korunan dala merge edilen pull request
+a pull request merged into a base that is not protected	korunmayan bir tabana merge edilen pull request
+a pull request merge this hook cannot bind to one named pull request	bu hook'un tek bir adlı pull request'e bağlayamadığı merge
+light profile: a commit, or a push to a work branch, once every gate is clean	hafif profil: tüm kapılar temizken bir commit ya da iş dalına push

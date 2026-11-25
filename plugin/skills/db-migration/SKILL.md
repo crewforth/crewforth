@@ -29,6 +29,9 @@ all common ORM/migration tools.
 - [ ] Preview (dry-run) shown and approved
 - [ ] Applied, schema verified post-apply
 - [ ] Rollback path (tool or backup) ready
+- [ ] Every migration has its down step, or says why it has none
+- [ ] A new foreign key or unique constraint: the existing rows that break it were counted first
+- [ ] The SQL an ORM generated was read: a rename it wrote as drop + add is destructive, never implicit
 
 ---
 

@@ -8,7 +8,7 @@ description: |
 # Token & Context Discipline
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "token budget", "token cost", "context window", "context management", "context is full", "clear context", "running out of context"
+Trigger phrases: "token budget", "token cost", "context window", "context management", "context is full", "running out of context"
 
 A subagent exists for context management: it runs in its own window and returns **only its summary**
 to the main thread — intermediate noise (file reads, searches, logs) never enters the main context.
@@ -70,3 +70,5 @@ for **isolation / parallelism / a clean window**, or when the isolated work woul
    name until it is loaded. How much a server costs depends on its schemas and is not measured by Crewforth.
    `utilization.sh --tools` (rule 11) sees only the deferred ones, the cheap case; a loaded tool nobody calls has to
    be found in the settings that load it.
+15. **The same error three times is one signal.** Stop, say it once in one line, and change the approach; a fourth
+   try of the same call pays the context again for an answer already known. (`hooks/loop-guard.sh` counts it.)

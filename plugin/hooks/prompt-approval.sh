@@ -34,7 +34,7 @@
 #
 # THE SAME APPROVAL BY A CLICK (3.2.0). In `auto` the user can also answer ONE fixed question, asked with
 # AskUserQuestion: "Commit only" / "Commit + push" / "Push only" / "No". Two hooks on that tool share what is below:
-#   PreToolUse   guard-question.sh (_crew_q_pre): the question must be the fixed one (_CREW_Q_JSON), carry no
+#   PreToolUse   guard-question.sh (_crew_q_pre): the question must be the one the state asks (_crew_q_variant), carry no
 #                answers, and be asked in `auto`; then it answers `ask`. A hook's `ask` beats another PreToolUse
 #                hook's `allow` that comes with filled-in answers, from every source and in every mode (measured:
 #                34 runs on Claude Code 2.1.294, and in the terminal by hand), so the question reaches the user.
@@ -377,12 +377,12 @@ _crew_appr_path(){  # $1 = a directory -> _AP: the record's path in that worktre
 
 # ---- WHICH TEXT IS AN APPROVAL: one function, asked here of the user's prompt and by guard-schedule.sh of a
 # prompt a tool is about to schedule ---------------------------------------------------------------------------
-_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen | allowverify, or "" when the text is none
+_crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pending | loosen | allowverify | profile, or "" when none
   # `loosen` is the other thing only the user's own message does: `/crew-loosen <agent> <change> <risk>` lowers a
   # floor that model routing raised (3.1.0). It is matched HERE so that everything that refuses to hand a session
   # an approval (a scheduled prompt, a `claude -p` call) refuses to hand it this as well: one question, one answer.
   local P="$1" _k _v _vr LC_ALL=C
-  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""; AV_CMD=""
+  OP=""; LO_AGENT=""; LO_CHANGE=""; LO_RISK=""; AV_CMD=""; PR_TO=""
   P="${P//$'\r'/}"
   while :; do case "$P" in [$' \t\n']*) P="${P:1}" ;; *) break ;; esac; done
   while :; do case "$P" in *[$' \t\n']) P="${P%?}" ;; *) break ;; esac; done
@@ -390,6 +390,13 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
   # message does. The message is at most 120 bytes before it reaches this function (the limit every reader of an
   # approval shares, guard-schedule.sh's included); a longer one is answered before that limit, not here.
   _k="${P%%[$' \t']*}"
+  # `/crew-profile [light|standard|strict]` (4.1): the strictness profile, set by the user's own message. With nothing
+  # after it, the profile in force is said. Anything else after it is not this command.
+  case "$_k" in /*) case "${_k##*[/:]}" in crew-profile)
+    _v="${P:${#_k}}"; _v="${_v//[$' \t']/}"
+    case "$_v" in ''|light|standard|strict) OP=profile; PR_TO="$_v" ;; esac
+    return 0 ;; esac ;;
+  esac
   case "$_k" in /*) case "${_k##*[/:]}" in crew-allow-verify)
     case "$P" in *$'\n'*) return 0 ;; esac
     AV_CMD="${P:${#_k}}"; while :; do case "$AV_CMD" in [$' \t']*) AV_CMD="${AV_CMD:1}" ;; *) break ;; esac; done
@@ -417,7 +424,7 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
   shopt -s nocasematch
   case "$_k" in
     @crew-approve|approve|onay)
-      case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; esac ;;
+      case "$_v" in commit) OP=commit ;; push) OP=push ;; commit+push) OP=commit+push ;; merge) OP=merge ;; esac ;;
   esac
   shopt -u nocasematch
   # The second command is read as it is written, lower case, with exactly three words after it.
@@ -435,14 +442,88 @@ _crew_appr_op(){  # $1 = a text, decoded -> OP: commit | push | commit+push | pe
 # What the user is asked is never the model's wording: PreToolUse refuses any other, so the person always reads the
 # same four answers and what each one does. guard-bash.sh prints it from here for the model to ask.
 _CREW_Q_TEXT='Crewforth approval: may Claude commit what is staged now, push this branch, or both?'
-_CREW_Q_JSON='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":[{"label":"Commit only","description":"Commit exactly what is staged now. No push."},{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."},{"label":"Push only","description":"Push this branch as it is now. No new commit."},{"label":"No","description":"Neither commit nor push."}],"multiSelect":false}'
+_CREW_Q_O_C='{"label":"Commit only","description":"Commit exactly what is staged now. No push."}'
+_CREW_Q_O_CP='{"label":"Commit + push","description":"Commit what is staged now, then push that commit on this branch."}'
+_CREW_Q_O_P='{"label":"Push only","description":"Push this branch as it is now. No new commit."}'
+_CREW_Q_O_N='{"label":"No","description":"Neither commit nor push."}'
+# The merge question (N21): asked only when guard-bash.sh refused a `gh pr merge` into main or master and wrote it down.
+_CREW_Q_TEXT_M='Crewforth approval: may Claude merge this pull request into its base branch?'
+_CREW_Q_O_M='{"label":"Merge","description":"Merge the pull request that was just refused into its base branch."}'
+_CREW_Q_O_MN='{"label":"No","description":"Do not merge."}'
+_crew_q_json(){  # $1 = the variant (full | commit | push) -> _CREW_QJ: the question with the options that variant offers
+  local o
+  case "$1" in
+    merge)  _CREW_QJ='{"question":"'"$_CREW_Q_TEXT_M"'","header":"Approval","options":['"$_CREW_Q_O_M,$_CREW_Q_O_MN"'],"multiSelect":false}'; return 0 ;;
+    commit) o="$_CREW_Q_O_C,$_CREW_Q_O_N" ;;
+    push)   o="$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
+    # "Commit + push" first: the answer given nearly every time (Barış, DECISIONS 2026-11-17). Only the order changes.
+    *)      o="$_CREW_Q_O_CP,$_CREW_Q_O_C,$_CREW_Q_O_P,$_CREW_Q_O_N" ;;
+  esac
+  _CREW_QJ='{"question":"'"$_CREW_Q_TEXT"'","header":"Approval","options":['"$o"'],"multiSelect":false}'
+}
+_crew_q_json full; _CREW_Q_JSON="$_CREW_QJ"
+# WHICH QUESTION THE STATE ASKS FOR (3.1): an answer the state cannot honour is not offered. Something staged and a
+# remote: all four. Staged, no remote: commit only. Nothing staged, a remote and a HEAD: push only (field: 35 commit
+# answers in three projects were for a commit already made, refused after the click). Neither: none, not asked.
+_crew_q_merge_pending(){  # $1 = session id -> 0 and _QMP (pr), _QMB (base) when guard-bash.sh refused a merge in it within 30 minutes
+  local f="${CLAUDE_PROJECT_DIR:-${CWD:-.}}" l s="" o="" t="" n
+  f="${f//\\//}"; f="${f%/}/.claude/state/crew-approval-pending"; _QMP=""; _QMB=""
+  [ -f "$f" ] || return 1
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in sid=*) s="${l#sid=}" ;; op=*) o="${l#op=}" ;; ts=*) t="${l#ts=}" ;; pr=*) _QMP="${l#pr=}" ;; base=*) _QMB="${l#base=}" ;; esac
+  done < "$f"
+  [ "$o" = merge ] && [ -n "$1" ] && [ "$s" = "$1" ] || return 1
+  case "$_QMP$_QMB" in *[!A-Za-z0-9._/:#-]*) return 1 ;; esac
+  if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v n '%(%s)T' -1; else n="$(date +%s)"; fi
+  case "$t$n" in *[!0-9]*|'') return 1 ;; esac
+  [ $((n - t)) -ge 0 ] && [ $((n - t)) -le 1800 ]
+}
+_crew_q_variant(){  # $1 = cwd -> _QV (full | commit | push | none), _QVT (staged tree), _QVE (HEAD's tree), _QVH (HEAD or NONE), _QVB (branch or -)
+  local d="${1:-.}" r
+  _QV=none
+  _QVH="$(git -C "$d" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
+  _QVB="$(git -C "$d" symbolic-ref --short -q HEAD 2>/dev/null)" || _QVB=""; [ -n "$_QVB" ] || _QVB=-
+  _QVT="$(git -C "$d" -c core.fsmonitor= write-tree 2>/dev/null)"
+  if [ "$_QVH" = NONE ]; then _QVE=4b825dc642cb6eb9a060e54bf8d69288fbee4904; else _QVE="$(git -C "$d" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
+  r="$(git -C "$d" -c core.fsmonitor= remote 2>/dev/null)"
+  if [ -n "$_QVT" ] && [ "$_QVT" != "$_QVE" ]; then
+    if [ -n "$r" ]; then _QV=full; else _QV=commit; fi
+  elif [ -n "$r" ] && [ "$_QVH" != NONE ]; then _QV=push
+  fi
+  return 0
+}
+# THE CHANGE IS STAGED IN ANOTHER WORKTREE (field Tur 13, U4: the diff was staged in a second worktree of the
+# repository, the session's own folder had nothing staged, the question offered "Push only", and the user's answer
+# was recorded for the session's branch, which had nothing to push; then the question was asked again from the
+# worktree). An approval is bound to the folder it is asked in, so the question is not asked for this folder: the
+# session is told where the change is. 0 and _QEW (the worktree), _QEB (its branch) when this folder has nothing staged
+# and exactly one other worktree of its repository has.
+_crew_q_elsewhere(){  # $1 = cwd
+  local d="${1:-.}" l w me n=0 rc
+  _QEW=""; _QEB=""
+  git -C "$d" -c core.fsmonitor= diff --cached --quiet 2>/dev/null || return 1
+  me="$(cd "$d" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && me="$(cd "$me" 2>/dev/null && pwd -P)" || return 1
+  while IFS= read -r l; do
+    case "$l" in "worktree "*) ;; *) continue ;; esac
+    w="${l#worktree }"; w="$(cd "$w" 2>/dev/null && pwd -P)" || continue
+    [ "$w" != "$me" ] || continue
+    git -C "$w" -c core.fsmonitor= diff --cached --quiet 2>/dev/null; [ "$?" = 1 ] || continue   # 1 = staged; 0 none, 128 an error
+    n=$((n+1)); _QEW="$w"
+  done <<< "$(git -C "$d" worktree list --porcelain 2>/dev/null)"
+  [ "$n" = 1 ] || { _QEW=""; return 1; }
+  _QEB="$(git -C "$_QEW" symbolic-ref --short -q HEAD 2>/dev/null)" || _QEB=""; [ -n "$_QEB" ] || _QEB="a detached HEAD"
+  return 0
+}
+_CREW_Q_ELSEWHERE_MSG(){  # -> _QEM, the sentence for the session
+  _QEM="the change is staged in another worktree of this repository, $_QEW (on $_QEB), and nothing is staged in this session's folder. An approval is bound to the folder it is asked in, so it is not asked here: move the session into that worktree (EnterWorktree, or work from that folder), then ask there, or commit it in your own terminal."
+}
 # THE ANSWERED QUESTION, IN ANY KEY ORDER. Claude Code hands PostToolUse the question back either as it was asked or
 # re-serialised with its keys sorted (`header,options[description,label],question`, sometimes without multiSelect):
 # 30 of 30 answers in the asked order were recorded and 7 of 7 sorted ones refused, on a byte match (real sessions,
 # 2.1.299 and 2.1.302, 2026-10-18). So the answer side checks every "key":"text" pair of the fixed question, wherever
 # it sits; the exact match stays on PreToolUse, and the tool id binds the answer to the call that passed it.
-_crew_q_is(){  # $1 = a payload -> 0 when it carries every "key":"text" pair of _CREW_Q_JSON
-  local rest="$_CREW_Q_JSON" re='("[A-Za-z]+":"[^"]*")' p
+_crew_q_is(){  # $1 = a payload, $2 = the question asked (default _CREW_Q_JSON) -> 0 when it carries every "key":"text" pair of it
+  local rest="${2:-$_CREW_Q_JSON}" re='("[A-Za-z]+":"[^"]*")' p
   while [[ $rest =~ $re ]]; do
     p="${BASH_REMATCH[1]}"
     case "$1" in *"$p"*) ;; *) return 1 ;; esac
@@ -451,7 +532,7 @@ _crew_q_is(){  # $1 = a payload -> 0 when it carries every "key":"text" pair of 
 }
 _crew_q_op(){  # $1 = the label the user chose -> OP: commit | commit+push | push | no, or "" for anything else
   case "$1" in
-    'Commit only') OP=commit ;; 'Commit + push') OP=commit+push ;; 'Push only') OP=push ;; 'No') OP=no ;; *) OP="" ;;
+    'Commit only') OP=commit ;; 'Commit + push') OP=commit+push ;; 'Push only') OP=push ;; 'Merge') OP=merge ;; 'No') OP=no ;; *) OP="" ;;
   esac
 }
 
@@ -651,6 +732,25 @@ _crew_q_dir(){  # $1 = cwd -> _QAD (the state folder), ASKED (the call PreToolUs
   _QAD="${CLAUDE_PROJECT_DIR:-$1}"; _QAD="${_QAD//\\//}"; _QAD="${_QAD%/}/.claude/state"
   ASKED="$_QAD/crew-approval-asked"; TRIED="$_QAD/crew-approval-tried"
 }
+# A LIGHT PROFILE ON A WORK BRANCH ASKS NOTHING (field, Tur 12: in a light project 5 of 5 approval questions were not
+# needed; guard-bash.sh let each commit and push through on its own, and one question was sent there by _pa_stop). The
+# same reader as the gate: eval/lib/profile.sh for the profile and for the branches a push to is still asked.
+# The gate lets a commit through on any branch, and a push only to a work branch: so a question about a commit alone
+# (`commit`, no remote) is never needed, and one that carries a push (`full`, `push`) is needed for a protected branch.
+_crew_q_light_free(){  # $1 = cwd, $2 = branch (or -), $3 = variant -> 0 when the light profile lets all of it through unasked
+  local lh="${BASH_SOURCE[0]//\\//}" root gd
+  root="${CLAUDE_PROJECT_DIR:-$1}"; root="${root//\\//}"
+  case "$lh" in */*) lh="${lh%/*}" ;; *) lh=. ;; esac
+  [ -f "$lh/../eval/lib/profile.sh" ] || return 1
+  . "$lh/../eval/lib/profile.sh" 2>/dev/null || return 1
+  crew_profile "$root"; [ "$CREW_PROFILE" = light ] || return 1
+  [ "$3" = commit ] && return 0
+  case "$2" in -|'') return 1 ;; esac
+  gd="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  case "$gd" in /*|[A-Za-z]:*) ;; *) gd="$1/$gd" ;; esac
+  crew_push_asked "$gd" "$root" "$2" && return 1
+  return 0
+}
 _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no decision) when the call is not the approval question
   _json_keycount "$INPUT" hook_event_name; [ "$_KC" = 1 ] || exit 0
   _json_keycount "$INPUT" tool_name; [ "$_KC" = 1 ] || exit 0
@@ -660,11 +760,24 @@ _crew_q_ctx(){  # $INPUT -> CWD REC PM SID _QTU _QAD ASKED _QNOW; exits 0 (no de
   [ -n "$CWD" ] || CWD="${CLAUDE_PROJECT_DIR:-.}"
   CWD="${CWD//\\//}"
   _crew_appr_path "$CWD"; REC="$_AP"
+  # A SHELL STANDING OUTSIDE ANY REPOSITORY (field N49, Tur 9): a session that had cd'd into a notes folder or the
+  # projects folder asked the question there; nothing staged could be read and it was refused ("nothing is staged",
+  # "git could not write the tree"), and a user approved one merge three times. The question is the project's then.
+  if [ -z "$REC" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    CWD="${CLAUDE_PROJECT_DIR//\\//}"; CWD="${CWD%/}"; _crew_appr_path "$CWD"; REC="$_AP"
+  fi
   _json_slice "$INPUT" permission_mode >/dev/null; PM="$_JS"
   _json_slice "$INPUT" session_id >/dev/null; SID="$_JS"
   _json_slice "$INPUT" tool_use_id >/dev/null; _QTU="$_JS"
   _crew_q_dir "$CWD"
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _QNOW '%(%s)T' -1; else _QNOW="$(date +%s)"; fi
+}
+# A refused question is a refusal like any gate's, in the same log (field, a project that tracks .claude/: two refused
+# questions and no line in its gate log). Same file and line shape as guard-bash.sh; the call's text is never recorded.
+_crew_q_log(){  # $1 = the rule
+  [ -f "$_CREW_Q_HERE/../eval/lib/gate-log.sh" ] || return 0
+  . "$_CREW_Q_HERE/../eval/lib/gate-log.sh" 2>/dev/null || return 0
+  crew_gate_log_add BLOCK §4.4 "$1"
 }
 _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that says why
   _crew_q_ctx
@@ -672,6 +785,7 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # way as the one that is left, and the Stop half (_pa_stop) must not send the session back to ask it again.
   [ -n "$SID" ] && [ -d "$_QAD" ] && { printf 'sid=%s\n' "$SID" > "$TRIED"; } 2>/dev/null
   qno(){  # $1 = why, for the model. The call does not run; where it applies, the typed approval is named as the way left.
+    _crew_q_log "approval question refused"
     echo "GUARD (§4.4): the approval question was not asked: $1" >&2
     [ "${2:-}" = nohint ] || echo "The way that always works is the user's own: the user can type /crew-approve (or /crew-approve commit, push, commit+push) as their whole message." >&2
     exit 2
@@ -680,8 +794,25 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # carries some is not the plain question this hook asks.
   _json_keycount "$INPUT" answers; [ "$_KC" = 0 ] || qno "the call carries answers; ask it with none."
   _json_keycount "$INPUT" questions; [ "$_KC" = 1 ] || qno "the call carries more than one list of questions."
-  case "$INPUT" in *'"questions":['"$_CREW_Q_JSON"']'*) ;;
-    *) qno "it is not the fixed question. Ask exactly this AskUserQuestion input, nothing added or changed: {\"questions\":[$_CREW_Q_JSON]}" ;;
+  # The question that fits what is staged and where it can go: asked exactly, or not at all.
+  _crew_q_variant "$CWD"
+  _crew_q_merge_pending "$SID" && _QV=merge
+  case "$_QV" in push|none) _crew_q_elsewhere "$CWD" && { _CREW_Q_ELSEWHERE_MSG; qno "$_QEM" nohint; } ;; esac
+  case "$_QV" in
+    none) qno "nothing is staged and there is nowhere to push (or nothing to push), so there is nothing to approve. To commit, stage the change with git add, show the commit message, then ask again." nohint ;;
+  esac
+  # A MERGE QUESTION BEFORE THE MERGE (field N48, Tur 9: 3 of 3 projects). Its approval is bound to the pull request
+  # and base the gate named when it refused the merge command; asked first, there is nothing to bind it to, and the
+  # state's own question (Push only) was named instead, a detour every time. Say the way that works.
+  case "$_QV:$INPUT" in merge:*) ;; *"$_CREW_Q_TEXT_M"*)
+    qno "a merge is approved for the pull request the gate names, and none is named yet. Run the merge command (gh pr merge <number>) first: its refusal names the pull request and the base, then ask the merge question it gives." nohint ;;
+  esac
+  case "$_QV" in commit|full|push) _crew_q_light_free "$CWD" "$_QVB" "$_QV" && \
+    qno "this project runs the light profile, and a commit, and a push to the work branch $_QVB, are not asked about: run git commit or git push directly, the gates still check them. Only a push to main, master, the default or the base branch, and a merge, are asked." nohint ;;
+  esac
+  _crew_q_json "$_QV"
+  case "$INPUT" in *'"questions":['"$_CREW_QJ"']'*) ;;
+    *) qno "it is not the question this state asks. Ask exactly this AskUserQuestion input, nothing added or changed: {\"questions\":[$_CREW_QJ]}" ;;
   esac
   case "$PM" in
     auto) ;;
@@ -697,18 +828,11 @@ _crew_q_pre(){  # the PreToolUse decision: `ask`, or a refusal (exit 2) that say
   # WHAT THE QUESTION IS ABOUT, written down when it is asked: the tree the index writes and HEAD. The answer is
   # recorded only if both are still the same, however long the user took (a question asked at night is answered in
   # the morning); a change in between is a different thing from what the user was shown, so it is asked again.
-  local _qh _qt _qe _qb
-  _qh="$(git -C "$CWD" rev-parse --verify --quiet HEAD 2>/dev/null || echo NONE)"
-  _qb="$(git -C "$CWD" symbolic-ref --short -q HEAD 2>/dev/null)" || _qb=""; [ -n "$_qb" ] || _qb=-
+  local _qh="$_QVH" _qt="$_QVT" _qb="$_QVB"
   case "$_qb" in *[!A-Za-z0-9._/+@-]*) qno "the branch name could not be written down." ;; esac
   case "$_qh" in NONE) ;; *[!0-9a-f]*|'') qno "git could not name HEAD here." ;; esac
-  _qt="$(git -C "$CWD" -c core.fsmonitor= write-tree 2>/dev/null)"
   case "$_qt" in *[!0-9a-f]*|'') qno "git could not write the tree of what is staged (an unresolved merge?)." ;; esac
-  if [ "$_qh" = NONE ]; then _qe=4b825dc642cb6eb9a060e54bf8d69288fbee4904; else _qe="$(git -C "$CWD" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null)"; fi
-  # NOTHING STAGED: every commit answer would be refused after the user gave it (field: 35 times in three projects,
-  # most of them "Commit + push" for a commit already made). So the question is not asked; a push alone is typed.
-  [ "$_qt" = "$_qe" ] && qno "nothing is staged, so there is no commit to approve. If the commit is already made and only the push is wanted, ask with no question: the user can type /crew-approve push as their whole message; to commit, stage the change with git add, show the commit message, then ask again." nohint
-  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" > "$ASKED"; } 2>/dev/null \
+  mkdir -p "$_QAD" 2>/dev/null && { printf 'sid=%s\ntool=%s\nts=%s\ntree=%s\nhead=%s\nbranch=%s\nvariant=%s\n' "$SID" "$_QTU" "$_QNOW" "$_qt" "$_qh" "$_qb" "$_QV" > "$ASKED" && { [ "$_QV" != merge ] || printf 'pr=%s\nbase=%s\n' "$_QMP" "$_QMB" >> "$ASKED"; }; } 2>/dev/null \
     || qno "the state folder could not be written, so the answer could not be bound to this question."
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' \
     "Crewforth §4.4: only the person in front of this session answers the approval question."
@@ -811,11 +935,26 @@ _pa_record(){
   else TS="$(date +%s)"; fi
   case "$TS" in ''|*[!0-9]*) no "the clock could not be read." ;; esac
 
+  if [ "$OP" = merge ]; then
+    # A merge is bound to the pull request and the base guard-bash.sh refused, as it wrote them down.
+    [ -n "${MERGE_PR:-}" ] || { _crew_q_merge_pending "$SID" && { MERGE_PR="$_QMP"; MERGE_BASE="$_QMB"; }; } \
+      || no "no merge into a protected branch was refused in this session in the last 30 minutes, so there is no merge to approve. Have it tried first."
+    case "${MERGE_PR:-}${MERGE_BASE:-}" in ''|*[!A-Za-z0-9._/:#-]*) no "the pull request that was refused could not be read." ;; esac
+    { printf 'v=1\nop=merge\npr=%s\nbase=%s\nsid=%s\nts=%s\n' "$MERGE_PR" "$MERGE_BASE" "$SID" "$TS" > "$REC"; } 2>/dev/null \
+      || no "the record could not be written in the git directory."
+  else
   { printf 'v=1\nop=%s\ntree=%s\nhead=%s\nbranch=%s\nremote=%s\nurl=%s\nsid=%s\nts=%s\n' "$OP" "$TREE" "$HEAD_NOW" "$BR" "$RM" "$URL" "$SID" "$TS" > "$REC"; } 2>/dev/null \
     || no "the record could not be written in the git directory."
+  fi
   # What was waiting has been approved: it is not approved a second time. Only here, after every proof and the record
   # itself: a bare command that recorded nothing (a headless session, a first message) leaves it for the user.
   [ "$BARE" = 1 ] && { : > "$_bp"; } 2>/dev/null
+  # A merge approved by the question uses up the merge that was waiting too. Left in place, it made every approval
+  # question of the next 30 minutes the merge one, and refused the commit question asked after the merge was done.
+  if [ "$OP" = merge ] && [ "$BARE" = 0 ] && _crew_q_merge_pending "$SID"; then
+    _bp="${CLAUDE_PROJECT_DIR:-$CWD}"; _bp="${_bp//\\//}"; _bp="${_bp%/}/.claude/state/crew-approval-pending"
+    { : > "$_bp"; } 2>/dev/null
+  fi
 
   _h="${HEAD_NOW:0:7}"; _d="${TREE:0:7}"
   # THE ADDRESS IS SHOWN TO THE USER, not only compared: a rewrite set BEFORE the approval (`url.<x>.insteadOf`) is
@@ -826,6 +965,8 @@ _pa_record(){
   case "$_u" in *://*@*) _ua="${_u#*://}"; case "${_ua%%/*}" in *@*) _u="${_u%%://*}://${_ua#*@}" ;; esac ;; esac
   case "$_u" in *[\"\\]*|*[![:print:]]*) _u="an address this line cannot print; check it with: git remote get-url --push $RM" ;; esac
   case "$OP" in
+    merge)       WHAT="merge of pull request ${MERGE_PR/#-/of the branch} into ${MERGE_BASE/#-/its base}"
+                 HOW="Run the same gh pr merge command again, alone in its call." ;;
     commit)      WHAT="commit of what is staged now (tree $_d) on HEAD $_h"
                  HOW="Run git commit -m with the message, alone in its call: no other option than -q, -s or -v, no paths, no cd, no pipe, nothing chained. Single-quote the message, or read it from a here-document with a quoted delimiter. The review record of §4.6 is still required." ;;
     push)        WHAT="push of $BR at $_h to $RM"
@@ -842,14 +983,14 @@ _pa_record(){
 # ---- THE APPROVAL QUESTION (PreToolUse and PostToolUse of AskUserQuestion) -----------------------------------
 # Only the fixed question is this hook's business: any other question gets no decision from it, here or later.
 _pa_question(){
-  local _as="" _at="" _au="" _al _an _aq="" _ah="" _ab=""
+  local _as="" _at="" _au="" _al _an _aq="" _ah="" _ab="" _av=""
   _crew_q_ctx
   # PostToolUse: the user has answered. Recorded only if THIS call was asked by the half above.
   SRC="answer to the approval question"; SRC_BY="by answering the approval question"; OP="a commit or a push"
   [ -n "$SID" ] && [ -n "$_QTU" ] || no "the answer carries no session or tool id."
   if [ -f "$ASKED" ]; then
     while IFS= read -r _al || [ -n "$_al" ]; do
-      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; esac
+      case "$_al" in sid=*) _as="${_al#sid=}" ;; tool=*) _au="${_al#tool=}" ;; ts=*) _at="${_al#ts=}" ;; tree=*) _aq="${_al#tree=}" ;; head=*) _ah="${_al#head=}" ;; branch=*) _ab="${_al#branch=}" ;; variant=*) _av="${_al#variant=}" ;; pr=*) MERGE_PR="${_al#pr=}" ;; base=*) MERGE_BASE="${_al#base=}" ;; esac
     done < "$ASKED"
   fi
   { [ "$_as" = "$SID" ] && [ "$_au" = "$_QTU" ]; } || no "Crewforth did not ask this question (guard-question.sh, its PreToolUse half, is not wired or did not pass it), so the answer cannot be shown to have come from the user."
@@ -860,18 +1001,23 @@ _pa_question(){
   # compares them. One written before that (no tree, no head) keeps the old 30 minutes.
   if [ -n "$_aq" ] && [ -n "$_ah" ] && [ -n "$_ab" ]; then ASK_TREE="$_aq"; ASK_HEAD="$_ah"; ASK_BRANCH="$_ab"
   else [ $((_QNOW - _at)) -le 1800 ] || no "the question was asked more than 30 minutes ago."; fi
-  _crew_q_is "$INPUT" || no "the question answered is not the fixed one."
+  case "$_av" in full|commit|push|merge) ;; *) _av=full ;; esac   # a question asked before the variants were written down
+  _crew_q_json "$_av"
+  _crew_q_is "$INPUT" "$_CREW_QJ" || no "the question answered is not the one that was asked."
   [ "$PM" = auto ] || no "the approval question is recorded in auto only, and this session is in ${PM:-an unknown mode}."
   _crew_prh_scan && no "a PermissionRequest hook may be wired ($_PRH), and it can answer the question before you do. The approval that still works is typed: the user can type /crew-approve instead."
-  _json_keycount "$INPUT" "$_CREW_Q_TEXT"; _an=$_KC
+  _qtx="$_CREW_Q_TEXT"; [ "$_av" = merge ] && _qtx="$_CREW_Q_TEXT_M"
+  _json_keycount "$INPUT" "$_qtx"; _an=$_KC
   case "$_an" in 1|2) ;; *) no "the answer could not be read." ;; esac
-  _json_slice "$INPUT" "$_CREW_Q_TEXT" >/dev/null
+  _json_slice "$INPUT" "$_qtx" >/dev/null
   _crew_q_op "$_JS"
   case "$OP" in
-    '') OP="a commit or a push"; no "the answer was none of the four the question offers." ;;
+    '') OP="a commit or a push"; no "the answer was none of the ones the question offers." ;;
     no) [ -n "$REC" ] && { : > "$REC"; } 2>/dev/null
         say "Crewforth: not approved - you answered No." "The user answered No to the approval question. Do not commit or push; ask what they want changed." ;;
   esac
+  # Only an answer the question offered: the label is checked against the variant that was asked.
+  case "$_av:$OP" in full:commit|full:commit+push|full:push|commit:commit|push:push|merge:merge) ;; *) no "the answer was not one this question offered." ;; esac
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) _crew_bg_session "$SID" || no "this session has nobody in front of it (it was started with -p or by a program; a background session started with claude --bg or the agent view is asked here, and this one is not one Claude Code records as such)." ; _PA_BGQ=1 ;; esac
   _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
   { [ -n "$TP" ] && [ -s "$TP" ]; } || no "the session keeps no transcript on disk (one started from inside another session keeps none)."
@@ -895,7 +1041,13 @@ _pa_stop(){
   _crew_q_open auto || exit 0
   _al=""; [ -f "$TRIED" ] && { IFS= read -r _al < "$TRIED"; } 2>/dev/null
   [ "$_al" = "sid=$SID" ] && exit 0
-  _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_Q_JSON]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
+  _pcw="${_JU:-.}"; _crew_q_variant "$_pcw"; [ "$_QV" = none ] && exit 0
+  case "$_QV" in commit|full|push) if _crew_q_light_free "$_pcw" "$_QVB" "$_QV"; then
+    printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "Crewforth: your reply asks for an approval, and none is needed: this project runs the light profile, and a commit, and a push to this work branch, are not asked about. If a commit or a push is waiting, run it directly; the gates still check it."
+    exit 0; fi ;;
+  esac
+  _crew_q_json "$_QV"
+  _ao="Crewforth: your reply asks for a typed approval, and the one-click approval question was not asked since the user's last message. If that is a commit or a push waiting for approval, ask with one click now instead: $_CREW_Q_ASK {\"questions\":[$_CREW_QJ]} Their answer is recorded by Crewforth itself (the line it adds says so). If the question is refused or dismissed, the user can type /crew-approve instead. If you only mentioned the command, end your turn."
   _ao="${_ao//\\/\\\\}"; _ao="${_ao//\"/\\\"}"     # fixed ASCII text on one line: a backslash and a quote are all it holds
   printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$_ao"
   exit 0
@@ -967,6 +1119,34 @@ _crew_appr_op "$_JU"
 # so this is not the prompt a command or a schedule started a session with. In every permission mode: this is not
 # a commit. ONE model down, ONCE for each time the floor was raised; the record of outcomes is counted afresh for
 # that class from here, so the old failures do not raise it straight back.
+# ---- /crew-profile: the strictness profile, set by the user and by nobody else in the looser direction (4.1) ------
+# `profile <name>` in .claude/crew-model-rules (closed to the session), read by eval/lib/profile.sh. The same proof as
+# /crew-loosen that a person typed it. Tightening is open to the session too (profile.sh --set appends a stricter
+# line); only here can a profile be loosened, and here the file is rewritten so it holds one profile line.
+if [ "$OP" = profile ]; then
+  _lh="${BASH_SOURCE//\\//}"; _lh="${_lh%/*}"; [ "$_lh" = "${BASH_SOURCE//\\//}" ] && _lh=.
+  _pr="${CLAUDE_PROJECT_DIR:-$CWD}"; _pr="${_pr//\\//}"; _pr="${_pr%/}"
+  nop(){ say "Crewforth: profile NOT changed - $1" "The user sent the command only the user can type /crew-profile, and Crewforth did not change the profile: $1 Tell the user exactly that."; }
+  [ -f "$_lh/../eval/lib/profile.sh" ] || nop "Crewforth's profile reader is not installed beside this hook (eval/lib/profile.sh)."
+  . "$_lh/../eval/lib/profile.sh"; crew_profile "$_pr"; PR_FROM="$CREW_PROFILE"
+  if [ -z "$PR_TO" ]; then
+    say "Crewforth: profile $PR_FROM" "The user asked which strictness profile is in force: it is $PR_FROM. Say so in one line: light asks for no commit, and for no push to a branch other than main, master or a protected one, once every gate is clean, runs no turn-end check and hands off at 50/75/95%; standard asks for every commit and push and hands off at 25/50/75/95%; strict is standard where a whole-suite verify, a re-audit of the same work and a model above the card's floor refuse. To change it, the user can type /crew-profile light, standard or strict."
+  fi
+  case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nop "this session has nobody in front of it (it was started with -p, by a program, or in the background, which Claude Code counts as unattended even when you type into it); change it in a regular session." ;; esac
+  _json_slice "$INPUT" transcript_path >/dev/null; _json_unescape "$_JS" >/dev/null; TP="${_JU//\\//}"
+  { [ -n "$TP" ] && [ -s "$TP" ]; } || nop "this is the first message of this session, or the session keeps no transcript."
+  [ "$PR_TO" = "$PR_FROM" ] && say "Crewforth: profile already $PR_TO" "The user asked to set the strictness profile to $PR_TO; it already is $PR_TO, nothing changed. Say so in one line."
+  _prf="$_pr/.claude/crew-model-rules"; _prt="$_prf.crew-profile.$$"; _pro=""
+  [ -d "$_pr/.claude" ] || nop "there is no .claude/ folder in this project."
+  if [ -f "$_prf" ]; then
+    while IFS= read -r _l || [ -n "$_l" ]; do case "${_l%$'\r'}" in "profile "*) continue ;; esac; _pro="$_pro$_l"$'\n'; done < "$_prf"
+  fi
+  { printf '%sprofile %s\n' "$_pro" "$PR_TO" > "$_prt" && mv -f "$_prt" "$_prf"; } 2>/dev/null || { rm -f "$_prt" 2>/dev/null; nop "the rules file could not be written."; }
+  crew_profile "$_pr"
+  [ "$CREW_PROFILE" = "$PR_TO" ] || nop "the line was written but the profile read back is $CREW_PROFILE."
+  say "Crewforth: profile $PR_FROM -> $PR_TO" "The user changed the strictness profile from $PR_FROM to $PR_TO with their own command. Say so in one line, with what $PR_TO changes (light: no question for a commit or a push to a branch other than main, master or a protected one once the gates are clean, no turn-end check, handoff at 50/75/95%; standard: every commit and push asked, handoff at 25/50/75/95%; strict: standard, and a whole-suite verify, a re-audit of the same work and a model above the card's floor refuse). Destructive commands and secrets are refused in every profile."
+fi
+
 if [ "$OP" = loosen ]; then
   nol(){ say "Crewforth: floor NOT lowered - $1" "The user sent the command only the user can type /crew-loosen, for $LO_AGENT $LO_CHANGE $LO_RISK, and Crewforth did not lower anything: $1 Tell the user exactly that."; }
   case "${CLAUDE_CODE_SESSION_ATTENDED-}" in 0) nol "this session has nobody in front of it (it was started with -p, by a program, or in the background with claude --bg or the agent view, which Claude Code counts as unattended even when you type into it; approve in a regular session, or commit in your own terminal)." ;; esac
@@ -1073,7 +1253,8 @@ if [ "$OP" = pending ]; then
   fi
   if [ "${BASH_VERSINFO[0]}" -ge 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then printf -v _bn '%(%s)T' -1; else _bn="$(date +%s)"; fi
   OP="a commit or a push"
-  case "$_bo" in commit|push|commit+push) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
+  if [ "$_bo" = merge ]; then _crew_q_merge_pending "$_bsid" || no "the merge waiting for approval was refused in another session, or more than 30 minutes ago. Have it tried here first."; MERGE_PR="$_QMP"; MERGE_BASE="$_QMB"; ASK_HEAD=""; ASK_TREE=""; ASK_BRANCH=""; fi
+  case "$_bo" in commit|push|commit+push|merge) ;; *) no "nothing is waiting for approval in this session: no commit or push was refused. Have the commit message shown and the commit tried first; or name it: the user can type /crew-approve commit, push or commit+push." ;; esac
   { [ -n "$_bsid" ] && [ "$_bs" = "$_bsid" ]; } || no "what is waiting for approval was refused in another session, not this one. Nothing is approved; have it tried here first."
   case "$_bt$_bn" in *[!0-9]*|'') no "the time of what is waiting could not be read." ;; esac
   [ $((_bn - _bt)) -ge 0 ] || no "the time of what is waiting is in the future."

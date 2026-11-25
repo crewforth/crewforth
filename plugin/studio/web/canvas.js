@@ -46,6 +46,13 @@ const TIP_MS = 400;
 // fro across Auto's limit for 60 frames turned every card into a chip and back 57 times, each a full redraw.
 export const RESIZE_SETTLE_MS = 150;
 
+// WHAT A PRESS ON THE PANE DOES NOT PAN. A press that pans captures the pointer, and a captured press never becomes a
+// click on what it started on: the Plan tab sat in the corner and did nothing when clicked (field, 3.6.0-rc.3;
+// measured in Chrome, 0 of 2 clicks on a button outside these, 2 of 2 once it is in the list). Anything the viewer
+// clicks that lives on the pane is named here.
+export const PAN_SKIP = '.cv-node, .cv-minimap, .cv-legend, .cv-todo-chip';
+export const panSkips = (target) => Boolean(target?.closest?.(PAN_SKIP));
+
 // Marks, so a card says what kind of thing it is before it is read.
 //
 // Crewforth's own is the three chevrons, drawn here because the shape is three strokes and its colours are the
@@ -153,94 +160,133 @@ export class Canvas {
 
     this.legendEl = this.#legend();
     this.spendEl = this.#spend();
+    this.project = this.#summaryBox('cv-project', t('Project · all time'), t('Project summary'), t('Close the project summary'), () => this.setProject(null, []));
+    this.projectEl = this.project.el;
     this.tipEl = mk('div', 'cv-tip');
     this.tipEl.setAttribute('role', 'tooltip');
     this.tipEl.hidden = true;
 
-    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.spendEl, this.tipEl);
+    // The session's summary and the project's all-time one, stacked in one column at the top left: side by side, the
+    // second ran over the plan box on a 1,024 px window (seen in Chrome). The column lets presses through to the pane;
+    // its boxes are .cv-legend, which the pan leaves alone.
+    this.leftCol = mk('div', 'cv-left-col');
+    // The Session tab heads the column, so a closed session box and an open project box never sit on one spot.
+    this.leftCol.append(this.spendChip, this.spendEl, this.projectEl);
+    this.root.append(this.viewport, this.emptyEl, this.mapEl, this.legendEl, this.leftCol, this.tipEl);
+  }
+
+  /** A summary box: a title, a close mark, and rows (`#fillSummary`). The session's and the project's are two of these. */
+  #summaryBox(cls, title, aria, closeAria, onClose) {
+    const box = mk('div', `cv-legend cv-spend${cls ? ` ${cls}` : ''}`);
+    box.setAttribute('aria-label', aria);
+    const head = mk('div', 'cv-legend-head');
+    const name = mk('span', 'cv-label', title);
+    head.append(name);
+    const close = mk('button', 'cv-x');
+    close.type = 'button';
+    close.setAttribute('aria-label', closeAria);
+    close.innerHTML = MARK.close;
+    close.addEventListener('click', onClose);
+    head.append(close);
+    const rows = mk('div', 'cv-spend-rows');
+    box.append(head, rows);
+    box.hidden = true;                       // until there is something to show
+    return { el: box, rows, name, close, parts: new Map(), shown: new Set(), sig: null, order: null, count: 0 };
   }
 
   /** What the session spent: time, tokens and an estimate of the cost. Closed, it stays closed until asked for. */
   #spend() {
-    const box = mk('div', 'cv-legend cv-spend');
-    box.setAttribute('aria-label', t('Session summary'));
-    const head = mk('div', 'cv-legend-head');
-    head.append(mk('span', 'cv-label', t('Session')));
-    const close = mk('button', 'cv-x');
-    close.type = 'button';
-    close.setAttribute('aria-label', t('Close the session summary'));
-    close.innerHTML = MARK.close;
-    close.addEventListener('click', () => this.showSpend(false));
-    head.append(close);
-    this.spendRows = mk('div', 'cv-spend-rows');
-    box.append(head, this.spendRows);
+    this.spend = this.#summaryBox(null, t('Session'), t('Session summary'), t('Close the session summary'), () => this.showSpend(false));
+    this.spendRows = this.spend.rows;
+    this.spendParts = this.spend.parts;
     this.spendOpen = readFlag('crewforth-studio-spend') !== 'closed';
-    box.hidden = true;                       // until there is a session's usage to show
-    return box;
+    // Closed, a small "Session" tab stays in its corner and brings it back, as the plan box's does: the only way back
+    // was an entry in View options, which a viewer did not find. It carries the plan tab's class, so the pane's pan
+    // leaves a press on it alone (PAN_SKIP), and its look.
+    this.spendChip = mk('button', 'cv-todo-chip cv-spend-chip', t('Session'));
+    this.spendChip.type = 'button';
+    this.spendChip.title = t('Show time, tokens and cost');
+    this.spendChip.addEventListener('click', () => this.showSpend(true));
+    this.spendChip.hidden = true;
+    return this.spend.el;
   }
 
   showSpend(on) {
     this.spendOpen = Boolean(on);
     writeFlag('crewforth-studio-spend', on ? 'open' : 'closed');
-    this.spendEl.hidden = !on || !this.spendCount;
+    this.spendEl.hidden = !on || !this.spend.count;
+    this.spendChip.hidden = Boolean(on) || !this.spend.count;
   }
 
   /**
    * The rows to show, from usage.js `summaryRows`: { label, value, note, detail }. An empty list hides the box.
-   *
+   */
+  setSpend(rows) {
+    this.#fillSummary(this.spend, rows);
+    this.spendEl.hidden = !this.spendOpen || !this.spend.count;
+    this.spendChip.hidden = this.spendOpen || !this.spend.count;
+  }
+
+  /**
+   * A project's all-time totals (usage.js `projectRows`), in a box beside the session's. Rows open it; an empty
+   * list, or the close mark, shuts it. It is not remembered: it opens when a project's total is clicked.
+   * @param key  the project the rows are for: the box answers `projectKey` with it, so a late answer for a project
+   *             no longer asked for can be told apart
+   */
+  setProject(key, rows) {
+    this.projectKey = rows?.length ? key : null;
+    this.#fillSummary(this.project, rows);
+    this.projectEl.hidden = !this.project.count;
+  }
+
+  /**
    * A row with a `detail` is a control: a click opens the breakdown under it, and it stays open. Rows are kept and
    * updated, never rebuilt — a live session's time changes every second, and a row replaced under a press would
    * lose the click.
    */
-  setSpend(rows) {
+  #fillSummary(s, rows) {
     const list = rows ?? [];
     const sig = JSON.stringify(list);
-    if (sig === this.spendSig) return;
-    this.spendSig = sig;
-    this.spendCount = list.length;
-    this.spendParts ??= new Map();
-    this.spendShown ??= new Set();
+    if (sig === s.sig) return;
+    s.sig = sig;
+    s.count = list.length;
     const alive = new Set();
     for (const r of list) {
       alive.add(r.label);
-      let p = this.spendParts.get(r.label);
+      let p = s.parts.get(r.label);
       if (!p) {
         p = { row: mk('button', 'cv-spend-row'), label: mk('span', 'cv-spend-label'), value: mk('span', 'cv-spend-value'), detail: mk('dl', 'cv-spend-detail') };
         p.row.type = 'button';
         p.row.append(p.label, p.value);
         p.row.addEventListener('click', () => {
           if (!p.row.classList.contains('cv-spend-more')) return;
-          if (this.spendShown.has(r.label)) this.spendShown.delete(r.label); else this.spendShown.add(r.label);
-          p.detail.hidden = !this.spendShown.has(r.label);
+          if (s.shown.has(r.label)) s.shown.delete(r.label); else s.shown.add(r.label);
+          p.detail.hidden = !s.shown.has(r.label);
           p.row.setAttribute('aria-expanded', String(!p.detail.hidden));
         });
-        this.spendParts.set(r.label, p);
+        s.parts.set(r.label, p);
       }
       const more = Boolean(r.detail?.length);
       p.label.textContent = r.label;
       p.value.textContent = r.value ?? '';
       p.row.title = more ? `${r.note ?? ''}\n${t('Click for the breakdown')}` : (r.note ?? '');
       p.row.classList.toggle('cv-spend-more', more);
-      if (more) p.row.setAttribute('aria-expanded', String(this.spendShown.has(r.label))); else p.row.removeAttribute?.('aria-expanded');
-      p.detail.hidden = !more || !this.spendShown.has(r.label);
+      if (more) p.row.setAttribute('aria-expanded', String(s.shown.has(r.label))); else p.row.removeAttribute?.('aria-expanded');
+      p.detail.hidden = !more || !s.shown.has(r.label);
       const dsig = JSON.stringify(r.detail ?? []);
       if (p.dsig !== dsig) {
         p.dsig = dsig;
         p.detail.replaceChildren(...(r.detail ?? []).flatMap(([k, v]) => [mk('dt', null, k), mk('dd', null, v)]));
       }
     }
-    for (const [label, p] of this.spendParts) {
-      if (alive.has(label)) continue;
-      this.spendParts.delete(label);
-    }
+    for (const label of [...s.parts.keys()]) if (!alive.has(label)) s.parts.delete(label);
     // Which rows there are changes rarely (a session's first agent, its first timed turn); what they say changes
     // every second. Only the first puts elements back into the box, and it puts the same elements back.
     const order = list.map((r) => r.label).join('\u0000');
-    if (order !== this.spendOrder) {
-      this.spendOrder = order;
-      this.spendRows.replaceChildren(...list.flatMap((r) => { const p = this.spendParts.get(r.label); return [p.row, p.detail]; }));
+    if (order !== s.order) {
+      s.order = order;
+      s.rows.replaceChildren(...list.flatMap((r) => { const p = s.parts.get(r.label); return [p.row, p.detail]; }));
     }
-    this.spendEl.hidden = !this.spendOpen || !this.spendCount;
   }
 
   /** What the lines and the two marks mean. Shown until it is closed, and then not again unless asked for. */
@@ -294,8 +340,8 @@ export class Canvas {
   #wire() {
     // Pan, zoom and Fit are the shared viewport's: the same on the graph and on the project map.
     this.vp = new Viewport(this.root, this.viewport, {
-      // the summary box is a .cv-legend too
-      skip: (t) => Boolean(t.closest?.('.cv-node') || t.closest?.('.cv-minimap') || t.closest?.('.cv-legend')),
+      // the summary box is a .cv-legend too; the Plan tab is not inside one
+      skip: panSkips,
       onApply: () => { this.#mapView(); this.onChange(this.state()); },
     });
 
@@ -995,8 +1041,11 @@ export class Canvas {
         q.name = mk('span', 'cv-name');
         c.append(q.order, q.name);
         if (!it.grid) { c.append(mk('span', 'cv-fill')); q.dot = mk('span', 'dot'); c.append(q.dot); }
+        // The model and effort it ran on, as a card says them: a member of a folded group was the only agent drawn
+        // without them, and an agent landed in one as soon as the picture grew (field, 3.6.0-rc.4).
+        q.model = mk('span', 'cv-model');
         q.word = mk('span', 'cv-word');
-        c.append(q.word);
+        c.append(q.model, q.word);
         c.parts = q;
         el.append(c);
         this.cellEls.set(cell.id, c);
@@ -1017,7 +1066,9 @@ export class Canvas {
       const dim = this.dimmed(n);
       const ctag = orderTag(n, it.grid ? null : clock);
       const cshell = shellLine(n.shellNow);
-      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title]);
+      const cmdl = modelOf(n);
+      const cbadge = modelBadge(n);
+      const csig = JSON.stringify([text, st.word, st.tone, st.state, dim, this.selected === n.id, ctag, cshell?.title, cbadge]);
       if (c.sig === csig) continue;
       c.sig = csig;
       c.dataset.state = st.state;
@@ -1030,6 +1081,10 @@ export class Canvas {
       c.title = [hoverOf(n), [modelOf(n).label, factsOf(n)].filter(Boolean).join(' \u00b7 '), cshell?.title].filter(Boolean).join('\n');
       c.parts.dot.dataset.tone = st.tone ?? 'none';
       c.parts.word.textContent = st.word;
+      c.parts.model.textContent = cbadge;
+      c.parts.model.hidden = !cmdl.ran;
+      c.parts.model.title = cmdl.title;
+      c.parts.model.dataset.differs = String(cmdl.differs);
       c.setAttribute('aria-label', `${shownType(n)}, ${st.word}${n.description ? `, ${n.description}` : ''} (${who.title})`);
     }
   }

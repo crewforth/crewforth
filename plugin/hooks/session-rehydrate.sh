@@ -62,14 +62,37 @@ MSG="A session handover from before this context boundary exists at docs/SESSION
 fi
 [ -n "$LANGMSG" ] && MSG="${MSG:+$MSG }$LANGMSG"
 
+# A PROJECT WITH NO CODE YET. Its first request is a description of what to build, and that is planning whatever its
+# wording. A field project installed on an empty folder described a whole game in Turkish ("first settle the
+# decisions, then design the screens"); no trigger phrase matched, route-hint said nothing, and the main thread
+# took every product decision itself with crew-planner never called (3.6.0-rc.8). A trigger list cannot cover every
+# way a person describes a new product, so the state of the folder says it instead: nothing at the top level but the
+# install, git's files, the docs and the readme. Builtins only (a glob and a case), so it costs no process; only at
+# the start of a conversation (startup, clear), and only where Crewforth is installed.
+case "$SRC" in startup|clear|'')
+  if [ -d "$ROOT/.claude" ]; then
+    _code=0
+    for _e in "$ROOT"/* "$ROOT"/.[!.]*; do
+      [ -e "$_e" ] || continue
+      case "${_e##*/}" in
+        .claude|.crewforth|.git|.gitattributes|.gitignore|.gitmodules|.DS_Store|.editorconfig|.mcp.json|.vscode|.idea\
+        |CLAUDE.md|CLAUDE.local.md|AGENTS.md|docs|README*|readme*|LICENSE*|LICENCE*|.*allowlist.txt|.private-terms.txt) ;;
+        *) _code=1; break ;;
+      esac
+    done
+    [ "$_code" = 0 ] && MSG="${MSG:+$MSG }This project has no code yet: only the Crewforth install, documents and git files. When the user describes what to build, treat it as a planning request whatever its wording: use the crew-planner subagent first, to settle the decisions, the scope and the acceptance criteria, and design or write code only after that. A narrow request (one question, one file) is not planning."
+  fi ;;
+esac
+
 # THE GIT HOOKS ARE NOT CONNECTED. pre-commit and commit-msg run only when core.hooksPath points at them (or at
 # .claude/git-shim, which runs them and then the project's own). An install made before `git init`, and every clone of
 # a repository that shares .claude/, starts without that setting (measured: a field project, and v3.0.0 again in three
 # orders). The tool-level gates still judge a commit made through Claude Code; a commit typed in a terminal is scanned
 # by nothing. Crewforth does not change git's configuration by itself, so the session is told, once at each start,
 # and the user decides. Only where the hooks are installed and this is a repository; two git calls, at session start.
-HOOKMSG=""
-if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+HOOKMSG=""; _grc=1
+[ -f "$ROOT/.claude/hooks/pre-commit" ] && { git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; _grc=$?; }
+if [ "$_grc" = 0 ]; then
   _hp="$(git -C "$ROOT" config --get core.hooksPath 2>/dev/null || true)"; _hp="${_hp%$'\r'}"; _hp="${_hp//\\//}"
   case "${_hp%/}" in
     .claude/hooks|.claude/git-shim) ;;
@@ -80,6 +103,13 @@ if [ -f "$ROOT/.claude/hooks/pre-commit" ] && git -C "$ROOT" rev-parse --git-dir
     '') HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath is not set, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update (npx crewforth update), which arms it and keeps any hooks the repository has of its own. /crew-doctor shows the state." ;;
     *)  HOOKMSG="Crewforth's git hooks are not connected in this repository: core.hooksPath points at another hook directory, so a commit made outside Claude Code is not scanned for traces, secrets or size. Tell the user once in one line; it does not change your task. The fix is theirs, not yours: the Crewforth update keeps that directory's hooks and runs Crewforth's before them. /crew-doctor shows the state." ;;
   esac
+# NOT A REPOSITORY AT ALL. Then no commit gate runs, and nothing said so: a field project worked eleven hours before
+# `git init` with the trace, secret and size scans, the review record and the commit question all idle (Tur 14). Said
+# only where git itself answers that this is no repository; with no git to ask nothing is known, so nothing is said.
+# git's own answer is read, not `command -v` (bash 3.2 with an empty PATH names a git it then cannot run): 128 is "not a
+# repository", 127 is no git at all.
+elif [ "$_grc" = 128 ]; then
+  HOOKMSG="This folder is not a git repository, so none of Crewforth's commit gates run here yet: no trace, secret or size scan, no review record, no commit question. Tell the user once in one line; it does not change your task. After git init, the Crewforth update (npx crewforth update) connects the hooks. /crew-doctor shows the state."
 fi
 [ -n "$HOOKMSG" ] && MSG="${MSG:+$MSG }$HOOKMSG"
 
@@ -100,6 +130,60 @@ if [ "$SRC" = startup ] && [ -d "$ROOT/.claude/state" ]; then
 fi
 DEPSMSG=""
 _rh="${BASH_SOURCE%[/\\]*}"; [ "$_rh" = "${BASH_SOURCE}" ] && _rh=.
+# WHAT THIS INSTALL SHARES, AND HOW STRICT IT IS (DECISIONS, 2026-11-16). The written rules say .claude/, CLAUDE.md and
+# docs/ stay out of the repository and that a commit is the user's to approve; a shared install, a shared docs/ and the
+# light profile change that. A session that was not told put .claude/ and CLAUDE.md back into .gitignore and asked for
+# a commit the gate would have let through (field, 3.6.0-rc.3). Said only where something differs from the default.
+# The choice is read from kit.conf; what git does is asked of git (one check-ignore; a tracked file is never reported),
+# and where the two disagree that is what is said. No git (an empty PATH): only the choice.
+INSTMSG=""; _vis=""; _docs=""; _prof=standard
+if [ -f "$ROOT/.claude/kit.conf" ]; then
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "${_l%$'\r'}" in visibility=shared) _vis=shared ;; docs=shared) _docs=shared ;; esac
+  done < "$ROOT/.claude/kit.conf"
+fi
+if [ -f "$_rh/../eval/lib/profile.sh" ]; then . "$_rh/../eval/lib/profile.sh"; crew_profile "$ROOT"; _prof="$CREW_PROFILE"; fi
+if [ -n "$_vis$_docs" ]; then
+  _ig=""; _igrc=2
+  if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    _ig="$(git -C "$ROOT" check-ignore .claude/settings.json CLAUDE.md docs/PLAN.md 2>/dev/null)"; _igrc=$?
+  fi
+  _hid=""
+  if [ "$_igrc" -le 1 ]; then
+    case $'\n'"$_ig"$'\n' in *$'\n.claude/settings.json\n'*) _hid="$_hid .claude/" ;; esac
+    case $'\n'"$_ig"$'\n' in *$'\nCLAUDE.md\n'*) _hid="$_hid CLAUDE.md" ;; esac
+  fi
+  if [ "$_vis" = shared ]; then
+    if [ -n "$_hid" ]; then INSTMSG="This install was set up to be shared with the team (visibility=shared in .claude/kit.conf), but git ignores${_hid}: tell the user once, and change .gitignore only if they ask."
+    elif [ "$_igrc" -gt 1 ]; then INSTMSG="This install was set up to be shared with the team (visibility=shared in .claude/kit.conf): .claude/ and CLAUDE.md are meant to be committed with the project; do not add them to .gitignore."
+    else INSTMSG="This install is shared with the team (visibility=shared in .claude/kit.conf): .claude/ and CLAUDE.md are committed with the project, so the rule that keeps them out of the repository does not apply here; do not add them to .gitignore."; fi
+  fi
+  if [ "$_docs" = shared ]; then
+    if [ "$_igrc" -gt 1 ]; then
+      INSTMSG="${INSTMSG:+$INSTMSG }docs/ was chosen to be committed too (docs=shared in .claude/kit.conf, the user's choice at install): a docs/ file in a diff, or a committed file that names one, is not a finding here."
+    else
+      case $'\n'"$_ig"$'\n' in
+        *$'\ndocs/PLAN.md\n'*) INSTMSG="${INSTMSG:+$INSTMSG }docs/ was chosen to be committed (docs=shared in .claude/kit.conf), but git ignores it: tell the user once, and change .gitignore only if they ask." ;;
+        *) INSTMSG="${INSTMSG:+$INSTMSG }docs/ is committed too (docs=shared in .claude/kit.conf, the user's choice at install): a docs/ file in a diff, or a committed file that names one, is not a finding here." ;;
+      esac
+    fi
+  fi
+fi
+case "$_prof" in
+  light) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile light: once every gate is clean, a commit and a push to a branch that is not main, master, origin's default or the CLAUDE.md Base branch go through without a question, so do not ask the user for them yourself; the gate asks when it must. A push to one of those named branches and a push of a tag are still asked." ;;
+  strict) INSTMSG="${INSTMSG:+$INSTMSG }Strictness profile strict: a verify that runs the whole suite, an auditor called again on the same work and a model above the card's floor with no above: line are refused." ;;
+esac
+[ -n "$INSTMSG" ] && MSG="${MSG:+$MSG }$INSTMSG"
+# A COMPACTION RELOADS THE RULES. context-usage.sh warns once that an update landed mid-session; after a compaction
+# CLAUDE.md has been read again, so the version the context carries is the one on disk: re-stamp its marker (and drop
+# the "told" note) or it would keep the old version as the session's and say a stale warning that is no longer true.
+if [ "$SRC" = compact ] && [ -f "$_rh/../VERSION" ]; then
+  _sid="${IN#*\"session_id\"}"; _sid="${_sid#*:}"; _sid="${_sid#*\"}"; _sid="${_sid%%\"*}"
+  case "$_sid" in ''|*[!A-Za-z0-9._-]*) ;; *)
+    _kv=""; IFS= read -r _kv < "$_rh/../VERSION" || true; _kv="${_kv//[!0-9A-Za-z.-]/}"
+    [ -n "$_kv" ] && { printf '%s' "$_kv" > "${TMPDIR:-/tmp}/crew-kit-version.$_sid" 2>/dev/null; rm -f "${TMPDIR:-/tmp}/crew-kit-version.$_sid.told" 2>/dev/null; } ;;
+  esac
+fi
 _dd="${CREW_DEPS_AUDIT_DAYS:-7}"; _dd="${_dd//[!0-9]/}"; : "${_dd:=7}"
 if [ "$SRC" = startup ] && [ "$_dd" -gt 0 ] && [ -z "${CI:-}" ] && [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" != 0 ] \
    && [ -f "$_rh/../eval/lib/gate-log.sh" ] && [ -f "$_rh/../eval/lib/lockfiles.sh" ] \

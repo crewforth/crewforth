@@ -386,6 +386,7 @@ WHY_DISC="This file is Crewforth's discipline document — it IS the text of §4
 WHY_LINK="A parent directory of this path is a symlink and it resolves into a gate directory, so the write would land on a gate file."
 WHY_MODEL="This file is what model routing decides from: the user's rules, a class's floor, the critical paths, or the record of a call and its result. Only the user and Crewforth's own hooks write it, so a session cannot lower its own floor or erase its own failure."
 WHY_REFUTER="This file is the refuter ledger: what crew-refuter concluded about a finding, written by Crewforth's hook from the agent's own task and answer. A findings document is held to it, so a session that writes it would verify its own findings."
+WHY_KITCONF="This file is the install's settings (what it shares with the team, whether docs/ is committed). The session start and the reviewer read them, so a session that writes them decides what a finding is. The user changes them in Studio's project settings, or by running the installer again: ask the user."
 WHY_APPR="This file records the user's own approval for a commit or a push (§4.4). Only the user's message writes it, so a session cannot approve its own commit."
 WHY_GITCFG="This file holds core.hooksPath: writing it can switch the git hooks off without touching one of them. Settings go through git config, which the Bash guard reads."
 WHY_LONG="The path in this payload is longer than any filesystem accepts. It is refused rather than parsed, because parsing it is the slow path an attacker would aim at."
@@ -528,7 +529,9 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
       GATE_RULE="gate-file edit (Write/Edit tools)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
     # The gates SOURCE eval/lib/crew-env.sh on every call, so it is part of them: overwritten with `exit 0`, every
     # rule stopped firing (3.0.1 review). Same file in the plugin edition, below.
-    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh])
+    # eval/lib/profile.sh too (4.1): the gates source it for the strictness profile, so a copy that always says light
+    # would loosen every one of them.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Cc][Rr][Ee][Ww]-[Ee][Nn][Vv].[Ss][Hh]|*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Pp][Rr][Oo][Ff][Ii][Ll][Ee].[Ss][Hh]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Ee][Vv][Aa][Ll]/[Ll][Ii][Bb]/[Pp][Rr][Oo][Ff][Ii][Ll][Ee].[Ss][Hh])
       GATE_RULE="gate-file edit (Crewforth gate script)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
     */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Dd][Ii][Ss][Cc][Ii][Pp][Ll][Ii][Nn][Ee].[Mm][Dd]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Dd][Ii][Ss][Cc][Ii][Pp][Ll][Ii][Nn][Ee].[Mm][Dd])
       GATE_RULE="gate-file edit (discipline document)"; GATE_WHY="$WHY_DISC"; return 0 ;;
@@ -538,6 +541,10 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
     # `hooks/` directory is untouched.
     */[Hh][Oo][Oo][Kk][Ss]/[Gg][Uu][Aa][Rr][Dd]-*.[Ss][Hh]|*/[Hh][Oo][Oo][Kk][Ss]/[Ss][Ee][Ss][Ss][Ii][Oo][Nn]-[Gg][Uu][Aa][Rr][Dd].[Ss][Hh])
       GATE_RULE="gate-file edit (Crewforth gate script)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;;
+    # The install's settings (DECISIONS 2026-11-17, N45): what it shares, and whether docs/ is committed. The session
+    # start and the reviewer read them, and a session changed docs= itself (field, rc.4). The user's to change.
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Kk][Ii][Tt].[Cc][Oo][Nn][Ff]|.[Cc][Ll][Aa][Uu][Dd][Ee]/[Kk][Ii][Tt].[Cc][Oo][Nn][Ff])
+      GATE_RULE="gate-file edit (install settings)"; GATE_WHY="$WHY_KITCONF"; return 0 ;;
     # The record of the user's approval for a commit or a push (§4.4, hooks/prompt-approval.sh). It sits in the git
     # directory and is written from the user's own message only; a session that writes it approves its own commit.
     # Matched by name wherever it is: a linked worktree keeps its git directory elsewhere.
@@ -572,7 +579,7 @@ _is_gate(){   # 0 = gate file; sets GATE_RULE and GATE_WHY
   # the cache, by the whole path without its drive. Case folded.
   if [ -n "$_PWB" ]; then
     local r=1; shopt -q nocasematch && r=0; shopt -s nocasematch
-    case "$1" in *"$_PWB"$_PWV/hooks/*|*"$_PWB"$_PWV/hooks|*"$_PWB"$_PWV/.claude-plugin/*|*"$_PWB"$_PWV/.claude-plugin|*"$_PWB"$_PWV/eval/lib/crew-env.sh)
+    case "$1" in *"$_PWB"$_PWV/hooks/*|*"$_PWB"$_PWV/hooks|*"$_PWB"$_PWV/.claude-plugin/*|*"$_PWB"$_PWV/.claude-plugin|*"$_PWB"$_PWV/eval/lib/crew-env.sh|*"$_PWB"$_PWV/eval/lib/profile.sh)
       [ "$r" = 0 ] || shopt -u nocasematch
       GATE_RULE="gate-file edit (Crewforth gate script)"; GATE_WHY="$WHY_SCRIPT"; return 0 ;; esac
     [ "$r" = 0 ] || shopt -u nocasematch

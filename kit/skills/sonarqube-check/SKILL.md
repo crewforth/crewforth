@@ -1,8 +1,8 @@
 ---
 name: sonarqube-check
 description: |
-  SonarQube quality gate, any language, no company server needed: run SonarQube Community Build locally (Docker),
-  read the real gate + issues, fix by rule id, re-scan and diff. A linter's green build is a pre-check, never the gate.
+  SonarQube quality gate, any language, run locally in Docker when there is no server: read the real gate and
+  issues, fix by rule id, re-scan. A green linter is not the gate.
 ---
 
 # SonarQube quality gate — produce the real report, locally

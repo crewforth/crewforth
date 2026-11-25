@@ -23,6 +23,8 @@ Read `.claude/AGENT_TEMPLATE.md`. Then answer, in one line each:
   the description", stop — that is the dark component §3b exists to catch.
 - **Read or write?** A component that reports and a component that changes files do not belong together: different
   risk, different done-criterion. Split them.
+- **What goes wrong without it?** Run the task once with no new text and write down where it went wrong. That is
+  what the component's text answers, and what §4 shows no longer happens; a rule for a failure nobody saw is a guess.
 - **Is it stack-neutral?** Anything shipped to every profile names no language, framework or vendor as *the* case.
   The example you have in mind is not the scope.
 

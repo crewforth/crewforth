@@ -5,6 +5,277 @@ Crewforth was named Claude Starter Kit until 3.0.0.
 Notable changes to this project are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/),
 versioning follows [SemVer](https://semver.org/).
 
+## [3.6.0] — 2026-11-25
+
+### Security
+
+- **A pull request merged into `main` is approved like a push.** `gh pr merge` went through no gate and merged into
+  `main` in real projects. Its base is read from GitHub: `main`, `master` or no answer needs approval (a one-click
+  question where one can be asked, otherwise the typed `/crew-approve merge`); a merge into any other branch stays free.
+- **A here-document can no longer reach a gate file through the program it feeds.** `python3 -`, `node -` or `sh`
+  fed a here-document could remove or rewrite a gate file that only the body named. Refused now unless the consumer is
+  `cat`, `tee` or `git commit -F -`.
+- **A Windows path is refused behind a wrapper and inside a container.** `env`, `command` or `nice` in front of
+  `rm -rf C:\Users\…` hid the target from the rule, and Git Bash deleted the folder. Every wrapper the rule knows
+  (`sudo`, `env`, `command`, `nice`, `nohup`, `time`, `exec`, `doas`, `ionice`, `stdbuf`, `timeout`) is looked through.
+- **A recursive `rm` of a bare name is refused unless the call sets that name to a known path.** `S=/home/me; rm -rf $S`
+  passed, because the target carried no `/`, `*` or `~`. It passes now only when the call sets the name to a fresh
+  `$(mktemp …)`, a plain relative name such as `build`, or a path inside a temp folder. A name from the environment,
+  from `for` or `read`, or from another expansion is refused. This rule also reads an `rm` after `do` or `then`, and
+  one inside `trap '…'` or `bash -c '…'`.
+- **A scratch-folder `rm` no longer lets another `rm` through.** `rm -rf $S/x; bash -c 'rm -rf /etc/x'` passed
+  because the first `rm` was a temp folder; an `rm` inside a quote beside it is judged now.
+- **A pull request merged in a loop, after `then`, or behind a wrapper is gated too.** `for n in …; do gh pr merge $n; done`
+  and `xargs gh pr merge` passed with no gate. A call may merge one pull request, named by number, branch or URL.
+  A pull request named by a variable or through `xargs`, or several merges in one call, are refused with that reason,
+  whatever the base.
+
+### Added
+
+- **A strictness profile: `light`, `standard`, `strict`.** Chosen at install (`start.sh` asks, `--profile` in
+  scripts) or with `/crew-profile`, the user's own command; a session can tighten it, never loosen it. `standard` is
+  the behaviour so far. `light` asks no question for a commit, or for a push of one of the repository's own branches
+  that is not `main`, `master`, the remote's default or the `Base branch:` in CLAUDE.md, once every gate is clean; tags
+  are still asked, plan and bypassPermissions modes are unaffected, and the turn-end check is off. An unattended
+  install stays `standard`. `strict` refuses a verify that runs the whole suite, an audit of the same work again,
+  and a model above the card's floor without a reason.
+- **The session stops for a handoff at 25, 50, 75 and 95 % fill.** Once per threshold the turn is held so the session
+  writes a handoff and tells the user they can `/clear`. `light` starts at 50 %; `CREW_HANDOFF_TIERS` sets them.
+- **Incremental review.** When the staged change moved after a clean review on the same commit, the refusal shows only
+  the change since that review, removed lines included, and the reviewer reads only that. What lets the commit through
+  is unchanged.
+- **A task card can name the skills its agent must call** (`skills:`). The names must be installed skills; at the
+  agent's stop each one must have been called or read, and an agent in the foreground that skipped one is sent back
+  once. Every crew agent can now call skills. Studio shows, per agent, the skills it was asked for and the ones it used.
+- **An auditor called again on the same work is told the re-run rule.** A review, security or performance agent called
+  again on the same commit, after it raised nothing above low and only a fix with no critical or high finding has run
+  since, gets a note, not a refusal.
+  Measured on three projects: 36–40 % of repeat audits were of the same work.
+- **An agent's verify is the tests of what changed.** A verify that runs the whole suite gets a note naming the
+  narrower form. The default limit drops from 540 s to 120 s (`CREW_VERIFY_TIMEOUT`, at most 560). The outcome record
+  gains the verify's seconds and why a verify did not run.
+- **A doc that names a file edited in the session is pointed out once, at the end of the turn.** CHANGELOG and docs
+  edited in the same session are skipped; `CREW_DOC_STALE=off` turns it off.
+- **Skill rules from a survey of 26 repositories:** planning (what a plan must settle before hand-over), brainstorm and
+  interview, ADRs, code review (what deleted lines guarded; what lies beyond the diff), debugging, API version
+  retirement, migrations, a `shortcut:` marker in backend work, security-scan limits and retest plan, the docs reader
+  test, a state page for frontend work, measured-only contrast in accessibility reports, a token-budget rule for the
+  same error three times, and "run it without the new text first" when writing a skill. Two trigger phrases shared by
+  two components were given to one.
+- **A subagent's `git stash` gets a note:** the calling session's uncommitted work leaves the working tree until
+  the stash is popped. `git stash drop` and `git stash clear` stay free.
+- **A project sets how long an agent's verify may run.** A line `verify-timeout <seconds>` in
+  `.claude/crew-model-rules`, the file only the user writes, raises the 120 s limit, up to 560. A verify stopped at a
+  lower limit runs again once the limit is raised. When a verify is stopped, the session is told the line.
+- **Studio: a project's settings.** The **⋯** menu of a project with Crewforth opens **Settings**: sharing, `docs/`,
+  the gates' profile and the verify limit. A choice is written at once to `.claude/kit.conf` or
+  `.claude/crew-model-rules`, the files the session cannot write. Beside the sharing rows the dialog shows what git
+  does with those files, and says so when git ignores what is set to be shared; it never edits `.gitignore`.
+- **Studio shows a project's all-time total.** Beside each project's name the navigator shows the time and
+  estimated cost of all its sessions, the unlisted older ones too. Clicking it opens **Project · all time** on the
+  canvas, with the same rows as the session summary and the number of sessions. The time is either the turns Claude
+  Code timed or, when it timed none, an estimate that does not count pauses of over five minutes; the label says
+  which. The sessions are read in the background, one at a time, and a session is read again only when its files
+  change.
+- **Studio filters projects by Crewforth.** Above the navigator, **All**, **With Crewforth** and **No Crewforth**
+  choose which projects the list shows. Under **All** the projects without Crewforth stay folded under their own
+  heading, as before. The choice is kept across reloads.
+
+### Changed
+
+- **The skill listing is 334 characters shorter.** Six skill descriptions (`automode-policy`, `confidence-check`,
+  `dependency-upgrade`, `eval-grader`, `reflect`, `sonarqube-check`) say what the skill does and when, without the
+  explanation; each was measured to be picked as often as before.
+
+- **Two read-only agents start without CLAUDE.md.** `crew-refuter` and `crew-performance-expert` cite nothing from it and
+  write nothing, so their definitions set `omitClaudeMd` (Claude Code 2.1.271 and later; older versions load it as
+  before). At their start Crewforth gives them the project's own `CLAUDE.md`, without the rule file it imports, which
+  the short rule block every crew agent gets stands for; a file too long to pass is named for the agent to read.
+  Measured with the same task: the refuter's first request fell from 27,871 to 20,450 tokens.
+- **The always-on rules are 850 bytes shorter.** Notes that explained rather than ruled went from the discipline file:
+  how it is installed, why the token bullets are not a gate, what to do on the mid-session update notice (the notice
+  says it), a repeat of the commit and destructive-command gates, and the SonarQube detail of the Definition of Done
+  (the `sonarqube-check` skill and the review hold it). No rule changed.
+
+- **The approval question offers what the state allows.** Nothing staged asks about a push only; no remote asks about
+  a commit only. A push in a repository with no remote is refused with the reason before any question, in every mode.
+- **The approval question offers "Commit + push" first,** the answer given nearly every time.
+- **`/crew-approve` is an internal fallback,** named by the gate where no question can be asked, and no longer listed.
+  With `/crew-profile` the command count is 18.
+- **A session cannot change the install's settings** (`.claude/kit.conf`): its shell and file tools are refused, as for
+  the model rules. A session had rewritten `docs=` itself; the reviewer reads it. The user changes them in Studio.
+- **A session is told what its install shares and how strict it is.** The installer records the choice
+  (`visibility=`, `docs=` in `.claude/kit.conf`), and the session start says it, checked against what git ignores,
+  with the profile: in a shared install the session no longer puts `.claude/` and `CLAUDE.md` back into `.gitignore`,
+  and under the light profile it no longer asks for a commit the gate lets through. A shared install also asks
+  whether `docs/` is committed (`--share-docs`); an update keeps both answers, and for an install with no record
+  reads `docs/` from git (tracked and not ignored: shared). A crew agent is told the same where it starts, so a reviewer
+  does not report a shared `docs/` as a leak.
+- **An `rm` that runs inside a container is judged as one.** `docker|podman exec|run`, `docker compose` and
+  `kubectl exec` removing a relative path, or an absolute one two or more levels deep, inside the container
+  pass; `/`, `~`, `.`, `..`, a top-level folder, an expansion and any host `rm` in the same call stay refused.
+  `docker exec app rm -rf .`, free before, is refused now.
+- **The light profile no longer asks for a commit through the commit agent.** When the commit message was asked for,
+  the session was handed the approval question whatever the profile, and asked the user for every commit and push the
+  gate would have let through. Under light it is now told that nothing is asked on a work branch, and on main, master,
+  origin's default or the base branch only the push is asked, after the commit.
+- **Every agent description is one line.** The always-on agent list went from 5,827 to 4,019 bytes (about 760 tokens a
+  session); routing is unchanged.
+- **Naming `CLAUDE_GIT_OK` in a commit message is not setting it,** and **unstaging a gate file is not tampering with
+  it** (`git restore --staged`, `git reset <path>`). Both were refused in real use; every other form stays refused.
+- **A TypeScript project may verify with `tsc -b`.** Existing installs get the line on update.
+- **The strictness profile in force is shown** by `/crew-gates` and `/crew-doctor`. It was only answered by
+  `/crew-profile`.
+- **An agent is told its card's skills where it starts.** A card's `skills:` was only checked when the agent stopped,
+  and a background agent, which most are, is not sent back: in the field 3 of 30 agents called a skill. The block a
+  crew agent gets at its start now names them and asks for each to be called before any change.
+  A skill an agent did not apply is no longer handed to the session to load after the fact, which in the field
+  produced a checklist and no check: the notice says to put it on the reviewer's card instead.
+
+### Fixed
+
+- **A Turkish request about what the user sees names its owner.** `crew-frontend-expert` takes Turkish UI phrases
+  (`ekranında`, `sayfasında`, `butonu`, `arayüz`, `katlanabilir`, `yerleşim`…), each with a routing row and a negative
+  twin (a screenshot, a page of a document, terminal output). A complaint that names no screen still routes to no one.
+- **A card whose verify runs a script is told so when the agent is called.** A verify line such as
+  `python3 tools/draw_a.py` makes what it should check, and the hook does not run it; the session now hears that a
+  verify reads the result (a test, a linter, `test -f <the file it makes>`), while the card can still be fixed.
+- **A note in parentheses on a card's `skills:` line is not a skill name.** `skills: db-migration (only if the schema
+  changes)` was refused because "(only" is not installed; each parenthesised note is now left out.
+- **A commit stopped by git's own hook is in the gate log.** The trace, secret, size, private-path and floor scans
+  that stop a commit, and the commit-message scan, leave one `BLOCK §4.1` line naming the rules that fired, never
+  what they matched. One helper, `crew_gate_log_add`, writes such lines for these and the approval question.
+- **A folder that is not a git repository is named at session start.** With Crewforth installed and no repository,
+  no commit gate runs; the session is told once, and nothing is said where git cannot be asked.
+- **The review record lands where the commit is made.** A review of a worktree's staged diff, with nothing staged in
+  the project folder, writes `.claude/review-pass.json` in that worktree, of that diff; with two such worktrees it
+  stays in the project folder.
+- **Text is no longer refused as a destructive command.** A file name holding the letters `rm` (`platform.dart`)
+  beside a read of a lockfile; `python3 -I -c` reading a download as JSON; a `.claude` folder named in a quoted `grep`
+  pattern beside a here-document; `()` in a python body and `{` in a quoted program; a handover note written by
+  `cat` (also to a `$B` the same call assigned) that mentioned `-r`, `-f` and `rm`. Each now passes and has a twin that
+  stays refused. The same reading closes one gap: `python3 -c "shutil.rmtree(\".claude\")"` is now refused.
+- **A new project is planned before it is designed.** A request in Turkish that asked to settle the decisions first
+  routed to no one, because the planner and brainstorm triggers were English only; they now carry Turkish phrases,
+  each with a negative twin in the routing set. And a project with no code yet (only the install, documents and git
+  files) is told at the start of a conversation to send the user's description of what to build to `crew-planner`
+  first, whatever its wording.
+- **A verify that failed while another crew agent edited the same folder is inconclusive.** The agent is not sent back,
+  nothing is escalated or counted against its model, and the session is told to run the touched tests once that agent
+  has finished. An agent in a worktree of its own does not count. Studio shows such runs apart.
+- **A card whose verify command is known to run past the limit here is refused before the agent starts.** While the
+  hook leaves that command unrun the agent would end unverified; the refusal says to name the touched tests instead.
+  A fast whole suite is not touched.
+
+- **A merge question asked before the merge is told to run the merge first.** Its approval is bound to the pull request
+  the gate names when it refuses the merge command; asked earlier, the gate named the state's push question instead.
+- **A shell standing outside the repository no longer makes the approval fail.** Where the session had moved to a
+  notes folder or the projects folder, the approval question read nothing staged and a merge read an unknown base; both
+  are now read from the project.
+- **Opus asked for a card whose files are a glob is kept.** What a glob such as `site/**` writes is known only at write
+  time, and a critical path under it is written only on opus; the call was lowered and its writes then refused.
+- **Two refusals that lost nothing are narrowed.** `git branch -D` of a branch merged into HEAD (not main, master or
+  the branch checked out), and `rm -rf` of a folder the same call makes with `mkdir` and moves nothing into, pass.
+  A python program fed by a download that holds a shell expansion, and a command naming a model routing record, are
+  still refused, and now say the way that works.
+
+- **An update no longer gitignores a `docs/` the project tracks.**
+- **Studio: an agent in a group shows its model and effort.** Once the picture grew, agents of one type folded into a
+  group, and its members were drawn without the badge a single card carries.
+- **Studio: a closed session summary comes back from a tab in its corner,** as the plan box does.
+- **Studio: a folded project stays folded.** Folding every project opened the one you stand in again a second later.
+- **CI: the verify job has 45 minutes, not 30.** It ran 20 to 28 minutes, and a run with every step passing was cancelled at 30.
+- **Studio: the Plan tab opens the plan again.** A click on it was taken by the graph's pan and did nothing.
+- **An idle compaction is called one,** with the setting that turns it off, instead of "nobody chose".
+- **The mid-session update warning is said once,** and a compaction ends it.
+- **The first commit of a repository is pushed on its commit+push approval.** Approved before any commit existed, its
+  push was refused and the user was asked again.
+- **A lowered model is told to the model,** not only written to the gate log.
+- **A push after a refused commit says the commit was not made.**
+- **A background agent's failed verify is recorded and told at the end of the turn,** instead of being sent back to an
+  agent that had already handed back and was lost. A test-writing card's failing tests are recorded as `red`: not
+  sent back, not told, not counted against the model.
+- **A clean review unblocks the commit even when auto mode refuses the reviewer's own write:** the stop hook writes the
+  review record.
+- **The install's own gate proofs no longer write a refusal to the project's gate log.**
+- **A merge into `main` no longer loops on its approval.** A merge in a loop recorded a pending approval with no
+  pull request, which neither the question nor `/crew-approve merge` could clear. Such a call is now refused before
+  any record is written. A here-document that mentions `gh pr merge` in its text is no longer read as a merge.
+- **Cleaning the session's scratch folder is no longer refused** when the same call later has a here-document, a `for`
+  loop or an `export` after the `rm`.
+- **A verify that ran but tested nothing is not called a failure.** pytest exit 4 or 5 (a path or option it does not
+  know, no tests collected) and exit 126 or 127 (command not runnable) are recorded as `blocked`, with the reason. No stronger model
+  is suggested for them. A card's verify that still holds an unfilled `<placeholder>` says so by name.
+- **A task card that opens with a heading** (`Task card`, `## Card:`) is read. The heading used to break the card's
+  first field.
+- **Reading a gate file is not tampering with it:** `while IFS= read`, `xargs grep` and a plain `sed -i 's/…/…/'` on
+  a file that is not a gate file were refused in real use.
+- **An agent that pauses for its own background command is not judged at the pause.** It stops while it waits, and
+  its verify ran then, beside the agent's own run of the same tests, and was stopped at the limit; the work it
+  finished later was never checked, and a missed-skills notice came before its report. While a command the agent
+  started has not reported back and the agent has not handed its report back, the stop is a pause: nothing is
+  judged, and the record waits for the stop that ends it.
+- **A merge approved with the question no longer holds the next approval question.** The merge stayed on record as
+  waiting for 30 minutes, so the commit question asked after the merge was refused as "not the question this state
+  asks". The answer now uses the waiting merge up, and a commit refused on a merge approval says it was a merge.
+- **The light profile no longer asks for a push followed by a redirection.** `git push origin feat 2>&1 | tail -3`
+  was asked because `2>` was read as a third word of the push; a push to `main` with a redirection is still asked.
+- **Under the light profile the approval question is not asked where nothing needs approving.** For a commit, and
+  for a push to a work branch, the question is refused with the reason, and the end of the turn says no approval
+  is needed instead of sending the session to ask. A push to `main` or the base branch, a merge, and the other
+  profiles still ask.
+- **The fill line recommends a handoff at the thresholds the Stop hook asks at** (25 / 50 / 75 / 95 %, light from
+  50 %, `CREW_HANDOFF_TIERS` over both). It said "continue" up to 75 % in the same turn that asked for a handoff.
+- **A Turkish audit report that raises a high is counted as one** (`kritik`, `yüksek`); it was written as low and the
+  re-run rule treated the next audit as a repeat. The re-run note says "nothing critical or high", since a medium
+  counts there too.
+- **A verify stopped at its limit no longer leaves a shell job report** ("Terminated: 15") on the hook's output.
+- **A python here-document that can start no process is text.** Session notes written with `python3 - <<'EOF'` that
+  named `git push origin …` were refused as a push. A body that can start a process (`subprocess`, `os.system`,
+  `exec*`, `spawn*`, `__import__`, …) or is piped to a shell is still read as a program.
+- **A here-document that only writes text may name the routing record:** a `cat` or `tee` body written to a file,
+  and a python body that starts no process and names it only in prose inside a triple-quoted string. A path in a
+  string, a process and the command line are read as before.
+- **An `rm` with no recursive flag is not read by the recursive-rm rule.** `rm -f <link>` beside a temp-folder
+  `rm -rf` refused the call.
+- **A recursive `rm` inside a temp folder may name its target through another name set in the same call**
+  (`S=<tmp>; P=$S/x; rm -rf $P/y`). `/etc`, `..` and an unset name stay refused. The preview of a refused `rm`
+  reads a relative target from the folder of a leading `cd DIR &&`.
+- **An `rm` refusal says what applies.** When every target is a named path it no longer asks to name the paths; it
+  says the delete is the user's, in their own terminal. A `find -exec rm {} +` preview says what `{}` stands for.
+- **`git -C <dir> commit` into this repository is a commit here.** From a shell outside any repository, a `cd` or
+  `-C` into the project commits there and the review record is read there. Another repository, two `-C`,
+  `--git-dir` and a missing target stay refused.
+- **A command substitution is read as a command of its own:** `git branch -r --contains $(git rev-parse HEAD)` is
+  not a forced branch, `$(git branch -D x)` still is.
+- **`git commit -F - <<'EOF'` scans the here-document as the message.** `-F -` from anything else is refused and
+  says the message comes from standard input.
+- **The install's review working files are gitignored** (`.crewforth/review.json`, `review-prepass.json`).
+- **An agent that worked in a worktree has its verify run there.** It ran in the project folder, where the test
+  file did not exist, and the stop said "tested nothing". A verify that tests nothing now says where it ran.
+- **With nothing staged here and a change staged in exactly one other worktree, the approval question is not
+  asked for this folder.** The session is told which worktree and branch hold the change. An answer had been
+  recorded for a branch with nothing to push.
+- **A card's model follows the files it names, not its prose.** Paths in parentheses ("staged diff (29 files:
+  src/x/**, …)") count for the glob and critical-path rules; a card whose files are "the staged diff" is judged by
+  the files staged, so a migration there raises it and a branch name on the line does not. The commit agent is not
+  raised by a critical path: it commits what the review record judged. A card refused at a line that is not a
+  field says which field it lacks.
+- **A card that runs every test of a slow verify, and more, is slow too.** The memory of a verify that ran past its
+  limit matched only the same command word for word.
+- **A verify step `npm --prefix DIR …`, `pnpm -C DIR …` or `yarn --cwd DIR …` is read as the same command run in DIR**,
+  so the line that allows it there allows it. `flutter build` may begin a verify line.
+- **A refused approval question is in the gate log,** one line like any gate's refusal, never the call's text. A
+  project that tracks `.claude/` had refused questions and no line for them.
+- **The last refusal brought back after a compaction says when it was met.** One older than the session is left
+  out; a refusal seven hours old had come back as the one just met.
+- **A review-pass record written or removed by the stop hook is a note in the gate log, not a refusal.** It was
+  logged as `BLOCK` and counted with the refusals.
+- **Studio: the project box follows the session.** Opened on one project's total, it stayed when a session of
+  another project was opened, showing the wrong total.
+- **CI: the cross-platform jobs have room for a slow runner.** Windows smoke ran 58 of its 60 minutes and passing
+  jobs were cancelled; Windows smoke has 80 minutes, macOS smoke 30, every e2e job 45.
+
 ## [3.5.0] — 2026-11-13
 
 ### Security

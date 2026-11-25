@@ -265,9 +265,15 @@ PCTI="${PCT%%.*}"; case "$PCTI" in ''|*[!0-9]*) PCTI=0 ;; esac
 # The form the discipline's status line uses, word for word: `→ <low|medium|high> fill · Recommendation: <…>`.
 # It used to print the recommendation alone for two bands and the level for the third (`continue`, `medium`,
 # `handoff+clear`), which left the model to work the level word out of the thresholds itself.
-if   [ "$PCTI" -lt 50 ]; then LEVEL="low fill · Recommendation: continue"
-elif [ "$PCTI" -lt 75 ]; then LEVEL="medium fill · Recommendation: continue"
-else                          LEVEL="high fill · Recommendation: handoff+clear"
+# The recommendation follows the handoff thresholds the Stop hook asks at (profile.sh, crew_handoff_tiers): once one
+# is crossed it is handoff+clear, as session-guard.sh says at that Stop (field N57: "continue" here, "start no new
+# work" there, in the same turn). The level word stays the fill's own band.
+REC=continue; TIERS="25 50 75 95"
+if [ -f "$HERE/../eval/lib/profile.sh" ]; then . "$HERE/../eval/lib/profile.sh"; crew_handoff_tiers "${CLAUDE_PROJECT_DIR:-$PWD}"; TIERS="$CREW_TIERS"; fi
+for _t in $TIERS; do [ "$PCTI" -ge "$_t" ] && REC=handoff+clear; done
+if   [ "$PCTI" -lt 50 ]; then LEVEL="low fill · Recommendation: $REC"
+elif [ "$PCTI" -lt 75 ]; then LEVEL="medium fill · Recommendation: $REC"
+else                          LEVEL="high fill · Recommendation: $REC"
 fi
 # The '%<number>' shape is a contract: session-guard.sh reads the percentage back out of this line.
 if [ "$VERBOSE" = 1 ]; then
@@ -278,7 +284,7 @@ fi
 # >=75%: a short nudge for the model. The USER already gets the full, once-per-threshold warning from the
 # Stop hook (session-guard.sh), so repeating the whole sentence here every turn would be pure duplication.
 if [ "$PCTI" -ge 75 ]; then
-  echo "⚠️ >75% — hand off (handoff skill) then /clear; not automatic."
+  echo "⚠️ >75% — hand off (handoff skill); /clear is the user's to type."
 fi
 
 # --- Stale-discipline gate ---------------------------------------------------------------------------
@@ -354,9 +360,13 @@ if [ ! -e "$MARK" ]; then
   printf '%s' "$NOW" > "$MARK" 2>/dev/null || true   # first turn: remember the version, say nothing
 else
   WAS="$(head -1 "$MARK" 2>/dev/null)"
-  # Repeated on every turn on purpose: the loaded context stays stale until a new session starts (/clear or a
-  # relaunch). /compact re-reads CLAUDE.md but keeps the session id, so this warning would not stop after it.
-  [ -n "$WAS" ] && [ "$WAS" != "$NOW" ] && \
-    echo "⚠️ Crewforth updated $WAS → $NOW mid-session. The discipline in your context is the OLD one — do not act on it; ask the user to run /clear (or quit and relaunch Claude Code): a new session loads the new one."
+  # SAID ONCE A SESSION. It used to repeat every turn: measured in the field, the model passed /clear to the user
+  # once and ignored the next four, so the rest cost tokens and told nobody anything. A compaction re-reads
+  # CLAUDE.md, so the rules are no longer stale after it: session-rehydrate.sh re-stamps this marker on `compact`
+  # and removes the `.told` note, and this warning stops being true there and stops being said.
+  if [ -n "$WAS" ] && [ "$WAS" != "$NOW" ] && [ ! -e "$MARK.told" ]; then
+    echo "⚠️ Crewforth updated $WAS → $NOW mid-session. The discipline in your context is the OLD one — do not act on it; ask the user to run /clear (or quit and relaunch Claude Code): a new session loads the new one. (Said once.)"
+    : > "$MARK.told" 2>/dev/null || true
+  fi
 fi
 exit 0

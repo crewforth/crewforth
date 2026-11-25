@@ -36,6 +36,8 @@ IN=""; IFS= read -r -d '' -t "${CREW_STDIN_TIMEOUT:-2}" IN 2>/dev/null; [ "$?" -
 
 _TC_HERE="${BASH_SOURCE//\\//}"; _TC_HERE="${_TC_HERE%/*}"; [ "$_TC_HERE" = "${BASH_SOURCE//\\//}" ] && _TC_HERE=.
 P="${CLAUDE_PROJECT_DIR:-$PWD}"; cd "$P" 2>/dev/null || exit 0
+# The light profile (4.1) runs no turn-end check.
+if [ -f "$_TC_HERE/../eval/lib/profile.sh" ]; then . "$_TC_HERE/../eval/lib/profile.sh"; crew_profile .; [ "$CREW_PROFILE" = light ] && exit 0; fi
 
 # The declared command, read with the builtin `read`: a project that declared none pays no process at all.
 FC=""
