@@ -16,6 +16,10 @@ build a responsive component for the login screen|crew-frontend-expert
 # Positive twins of the seven over-broad-word rows below: the replacement phrase must still route.
 add a settings screen in the frontend|frontend
 frontend'de bir ekran ekle|frontend
+# Turkish UI requests named no owner (field, Tur 14): what the user sees, in the words a Turkish request uses.
+bayrak ve yüklenen resim Keşfet ekranında görünmüyor|crew-frontend-expert
+ayarlar sayfasında kaydet butonu çalışmıyor, arayüz yazıları taşıyor|crew-frontend-expert
+katlanabilir telefonda yerleşim iki sütun olsun|crew-frontend-expert
 the UI component re-renders on every keystroke|frontend
 cut a release and tag it|release
 review the code in this PR|crew-code-review
@@ -123,6 +127,10 @@ set up the project structure for a new API|backend-architecture
 choose a database for this service|backend-architecture
 
 # --- Negative: prompt must NOT route to target (over-broad-trigger guard) ---
+# Negative twins of the Turkish UI rows: a screenshot, a page of a document and terminal output are not UI work.
+ekran görüntüsünü oku ve özetle|!crew-frontend-expert
+belgenin 3. sayfasını Türkçeye çevir|!crew-frontend-expert
+terminal çıktısındaki hatayı açıkla|!crew-frontend-expert
 # Negative twins of the Turkish planning rows: a rewrite, a read and a screen that names a plan are not planning.
 bu fonksiyonu sıfırdan yaz|!crew-planner
 planı oku ve özetle|!crew-planner
