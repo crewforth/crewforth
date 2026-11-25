@@ -134,6 +134,9 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A Turkish request about what the user sees names its owner.** `crew-frontend-expert` takes Turkish UI phrases
+  (`ekranında`, `sayfasında`, `butonu`, `arayüz`, `katlanabilir`, `yerleşim`…), each with a routing row and a negative
+  twin (a screenshot, a page of a document, terminal output). A complaint that names no screen still routes to no one.
 - **A card whose verify runs a script is told so when the agent is called.** A verify line such as
   `python3 tools/draw_a.py` makes what it should check, and the hook does not run it; the session now hears that a
   verify reads the result (a test, a linter, `test -f <the file it makes>`), while the card can still be fixed.

@@ -11,7 +11,7 @@ metadata:
 # Frontend Expert (stack-agnostic)
 
 <!-- routing-eval reads the next line; why it sits in the body: AGENT_TEMPLATE.md -->
-Trigger phrases: "screen size", "component", "page", "navigation", "client routing", "react router", "UI polish", "responsive", "i18n interface", "state management", "visual design", "design system", "design token", "dark mode", "look premium", "flutter", "swiftui", "jetpack compose", "maui", "kotlin multiplatform", "mobile screen"
+Trigger phrases: "screen size", "component", "page", "navigation", "client routing", "react router", "UI polish", "responsive", "i18n interface", "state management", "visual design", "design system", "design token", "dark mode", "look premium", "flutter", "swiftui", "jetpack compose", "maui", "kotlin multiplatform", "mobile screen", "arayüz", "ekranda", "ekranında", "ekranı", "katlanabilir", "sayfada", "sayfasında", "butonu", "butona", "yerleşim"
 
 The role is general; the "how" varies per project. Resolve the client stack first, in the order the `frontend`
 skill gives (Client stack: the request → `## Stack` `Client:` → the repo's manifests → ask once and record it). No
