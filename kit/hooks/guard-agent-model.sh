@@ -605,13 +605,17 @@ _am_card(){  # $1 = a task text -> 0 and CARD_FILES, CARD_CHANGE, CARD_VERIFY (C
 # dropped. Measured (field, 2026-11-13): 14 of 4,326 crew agent runs read their own skill and none called the Skill
 # tool, so the card names them and the agent's stop is held to it (hooks/agent-outcome.sh).
 _am_card_skills(){  # $1 = the task text -> CARD_SKILLS ("a b c", or empty); CARD_SKILLS_BAD (the first bad name)
-  local cl="$1" i=0 lr v n out="" unglob=0
+  local cl="$1" i=0 lr v r n out="" unglob=0
   CARD_SKILLS=""; CARD_SKILLS_BAD=""
   cl="${cl//$'\r'/}"
   while [ "$i" -lt 8 ] && [ -n "$cl" ]; do
     lr="${cl%%$'\n'*}"; if [ "$lr" = "$cl" ]; then cl=""; else cl="${cl#*$'\n'}"; fi; i=$((i+1))
     case "$lr" in *skills:*)
-      v="${lr#*skills:}"; v="${v%%' · '*}"; v="${v%%')'*}"; v="${v//,/ }"; v="${v//\`/ }"
+      v="${lr#*skills:}"; v="${v%%' · '*}"
+      # A note in parentheses is not a name (field, Tur 14: `skills: db-migration (only if schema changes)` was refused
+      # as "(only" not installed): each (…) goes, then the value ends at a parenthesis left over, as it did.
+      while [[ $v == *'('*')'* ]]; do r="${v#*'('}"; v="${v%%'('*} ${r#*')'}"; done
+      v="${v%%')'*}"; v="${v%%'('*}"; v="${v//,/ }"; v="${v//\`/ }"
       case "$-" in *f*) ;; *) unglob=1; set -f ;; esac
       for n in $v; do
         n="${n#crewforth:}"; _am_trim "$n"; n="$_AMT"; [ -n "$n" ] || continue
@@ -1370,6 +1374,14 @@ if [ -n "$CARD_VERIFY" ] && [ "$CARD_VERIFY" != none ]; then
   _json_slice "$hd" permission_mode >/dev/null; pm="$_JS"
   if ! _am_verify_plan "$CARD_VERIFY" "$pm"; then
     vnote="Crewforth: this card's verify command will not be run when the agent finishes, because $_AMVWHY. Fix the card's verify: line now (a command from CLAUDE.md ## Verify, relative, steps joined only by &&); if it cannot be one, run the check yourself with the Bash tool once the agent reports."
+    # CREW-NOT-A-RUNG: `python3` here is a word in the refusal and in the shape it recognises, not a program this hook runs.
+    # A verify that RUNS A SCRIPT produces what it should check (field, Tur 14: 17 of 33 refused verifies were the
+    # drawing script itself, `python3 v2_a.py`); run again by the hook it would make the files a second time.
+    case "$_AMVWHY" in *"not a test or build command on this hook's list"*)
+      [[ " ${_AMVSTEP:-$CARD_VERIFY}" =~ [[:space:]](python[0-9.]*|node|ruby|perl|bash|sh)[[:space:]]+[^-[:space:]][^[:space:]]*\.(py|js|mjs|cjs|rb|pl|sh)([[:space:]]|$) ]] \
+        && vnote="$vnote It runs a script, which makes what a verify should check: name a check that reads the result and changes nothing when run again (a test, a linter such as python3 -m pyflakes <file>, or test -f <the file it makes>)." ;;
+    esac
+    # /CREW-NOT-A-RUNG
     _am_log "note: a verify command the hook will not run ($_AMVWHY)"
   elif _am_verify_limit; _am_slow_get "$CARD_VERIFY" && ! _am_slow_below; then
     _skipnote=""; _am_slow_fresh && _skipnote=" For $_AMSD days after that the hook does not run it again, so with this line the agent ends unverified."

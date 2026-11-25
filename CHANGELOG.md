@@ -134,6 +134,11 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Fixed
 
+- **A card whose verify runs a script is told so when the agent is called.** A verify line such as
+  `python3 tools/draw_a.py` makes what it should check, and the hook does not run it; the session now hears that a
+  verify reads the result (a test, a linter, `test -f <the file it makes>`), while the card can still be fixed.
+- **A note in parentheses on a card's `skills:` line is not a skill name.** `skills: db-migration (only if the schema
+  changes)` was refused because "(only" is not installed; each parenthesised note is now left out.
 - **A commit stopped by git's own hook is in the gate log.** The trace, secret, size, private-path and floor scans
   that stop a commit, and the commit-message scan, leave one `BLOCK §4.1` line naming the rules that fired, never
   what they matched. One helper, `crew_gate_log_add`, writes such lines for these and the approval question.

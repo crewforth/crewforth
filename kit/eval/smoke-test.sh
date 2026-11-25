@@ -11863,11 +11863,13 @@ grep -q '^verify=none$' "$(_v2last)" 2>/dev/null || _v2b="$_v2b [none. followed 
 # agent ends (_am_verify_plan), and the call goes on: a sentence and a chain are told, a runner and none are not, and on
 # a lowered call the notice rides in the same answer as the new model.
 _vnb=""
-for _vn in 'test -d src|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes'; do
+# A script as its verify is told that it makes what it should check (field, Tur 14); a sentence is not told so.
+for _vn in 'test -d src|' 'none|' 'run the unit tests and check the output|not a test or build command' 'npm test; npm run lint|chains, pipes' 'python3 tools/draw_a.py elma|It runs a script, which makes what a verify should check'; do
   _v2call crew-review-agent sonnet 'src/ui/a.ts' audit "${_vn%%|*}"; _vw="${_vn#*|}"; _vo="$(cat "$_v2/out" 2>/dev/null)"
   if [ "$_v2rc" != 0 ]; then _vnb="$_vnb ['${_vn%%|*}' refused the call: rc=$_v2rc]"
   elif [ -z "$_vw" ]; then [ -z "$_vo" ] || _vnb="$_vnb ['${_vn%%|*}' was told it will not run: ${_vo:0:80}]"
   else case "$_vo" in '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"'*"will not be run when the agent finishes"*"$_vw"*) ;; *) _vnb="$_vnb ['${_vn%%|*}' was not told it will not run: ${_vo:0:80}]" ;; esac; fi
+  case "${_vn%%|*}|$_vo" in python3*) ;; *'It runs a script'*) _vnb="$_vnb ['${_vn%%|*}' was told it runs a script]" ;; esac
 done
 _v2call crew-frontend-expert opus 'src/ui/a.ts' feature 'the build passes'
 case "$_v2rc|$(cat "$_v2/out" 2>/dev/null)" in 0\|*'"permissionDecision":"allow"'*'"updatedInput":'*'"model": "sonnet"'*'},"additionalContext":"Crewforth ran crew-frontend-expert on sonnet'*'Crewforth: this card'*) ;; *) _vnb="$_vnb [a lowered call with a sentence for verify did not carry both: rc=$_v2rc $(head -c 80 "$_v2/out")]" ;; esac
@@ -12715,6 +12717,11 @@ grep -q '^verify=true$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null |
 _o="$(printf '{"session_id":"s","hook_event_name":"SubagentStart","agent_id":"skst","agent_type":"crew-backend-expert"}' | ( cd "$_v2p" && _v2e bash "$_V2O" 2>/dev/null ))"
 case "$_o" in '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"Crewforth rules'*'Your task card names skills: api-design observability. Before you change anything, call each one with the Skill tool'*'"}}') ;; *) _v2b="$_v2b [the starting agent was not told its card's skills: ${_o:0:80}…${_o: -160}]" ;; esac
 printf '%s' "$_o" | json_ok; case $? in 0|2) ;; *) _v2b="$_v2b [the start block with skills is not JSON]" ;; esac
+rm -f "$_v2p/.claude/state/crew-model/pending/"*
+# A note in parentheses is not a name (field, Tur 14: "(only" was refused as a skill that is not installed)
+_v2call crew-backend-expert sonnet 'src/ui/a.ts' feature 'true · skills: api-design (only if the API changes), observability'
+[ "$_v2rc" = 0 ] && grep -q '^skills=api-design observability$' "$_v2p/.claude/state/crew-model/pending/"* 2>/dev/null \
+  || _v2b="$_v2b [a note in parentheses: rc $_v2rc $(head -c 100 "$_v2/err") $(_v2skrec x)]"
 rm -f "$_v2p/.claude/state/crew-model/pending/"*
 for _bad in 'no-such-skill' 'Api/design'; do
   _v2call crew-backend-expert sonnet 'src/ui/a.ts' feature "true · skills: $_bad"
